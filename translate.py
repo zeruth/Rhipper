@@ -2131,6 +2131,63 @@ def undefined_operand(body: str, i: int, und_locals: dict) -> tuple[int, int, st
     return None
 
 
+INT_PLACE_TYPES = r"(?:undefined[1248]|u?int|u?longlong|ulong|long|uint\d*_t|int\d*_t|ushort|short|byte|char)"
+FLOAT_GLOBAL_STORE = re.compile(r"^(?P<ind>[ \t]*)(?P<lhs>.+?) = (?P<rhs>REFG\((?:float|double), 0x[0-9a-f]+\));$", re.M)
+FLOAT_GLOBAL_LOAD = re.compile(r"^(?P<ind>[ \t]*)(?P<lhs>REFG\((?:float|double), 0x[0-9a-f]+\)) = (?P<rhs>.+?);$", re.M)
+
+
+def float_global_copies(body: str, params=()) -> str:
+    """A plain copy between a float/double global and an integer-typed place is a byte copy.
+
+    The data export types a global by the instruction that reads it, so 8 bytes moved with movsd
+    are a `double` even when they are two packed floats, and a 4-byte save slot moved with movss a
+    `float`. Ghidra writes the copy plainly, `*puVar28 = DAT_142cc8608;` (a conversion would carry
+    a cast), but in C an assignment between a double and an integer converts the number: the
+    loading screen's quad corners, (1.0f, 0) as a double a denormal, became 0 and the quad had no
+    width (FUN_1402307f0, 2026-10-23; 1290 such copies in 767 functions). Each becomes GEN_COPY,
+    the bytes when both sides are one size (Ghidra.h)."""
+    decl = {v: t.strip() for t, v in re.findall(rf"^\s*({INT_PLACE_TYPES}\s*\**)\s*(\w+)(?: = \{{0\}})?;", body, re.M)}
+    for p in params:
+        pm = re.fullmatch(rf"\s*({INT_PLACE_TYPES}\s*\**)\s*(\w+)\s*", p)
+        if pm:
+            decl[pm.group(2)] = pm.group(1).strip()
+
+    def one_operand(x: str) -> bool:
+        # (the whole side one place: no operator outside brackets past a leading `*`, so
+        # `(*(undefined4 *)p) - fVar9` is a value, not a place, C2102 in 2 functions)
+        depth = 0
+        for k, ch in enumerate(x):
+            if ch in "([":
+                depth += 1
+            elif ch in ")]":
+                depth -= 1
+            elif depth == 0 and k > 0 and ch in "+-*/%&|^<>?=!":
+                return False
+        return True
+
+    def int_place(x: str) -> bool:
+        x = x.strip()
+        if not one_operand(x):
+            return False
+        # (`*(undefined8 *)(p + k)` too: the loading quad's fourth corner, left converted, made the
+        # quad a mirrored triangle, 2026-10-23)
+        if re.match(rf"^\*?\(\*?\({INT_PLACE_TYPES} \*\)", x) or re.match(rf"^\(\*\({INT_PLACE_TYPES} \*\)", x) \
+                or re.match(rf"^\*\({INT_PLACE_TYPES} \*\)", x):
+            return True
+        m = re.fullmatch(r"\*(\w+)", x)
+        if m and decl.get(m.group(1), "").endswith("*"):
+            return True
+        m = re.fullmatch(r"(\w+)", x)
+        return bool(m and m.group(1) in decl and not decl[m.group(1)].endswith("*"))
+
+    def store(m):
+        return f"{m.group('ind')}GEN_COPY({m.group('lhs')}, {m.group('rhs')});" if int_place(m.group("lhs")) else m.group(0)
+
+    body = FLOAT_GLOBAL_STORE.sub(store, body)
+    return FLOAT_GLOBAL_LOAD.sub(lambda m: f"{m.group('ind')}GEN_COPY({m.group('lhs')}, {m.group('rhs')});"
+                                 if int_place(m.group("rhs")) else m.group(0), body)
+
+
 def undefined_float_views(body: str, params=()) -> str:
     """An undefinedN value Ghidra uses as a float is its bits, not a number to convert.
 
@@ -4822,9 +4879,20 @@ class Translator:
         text = re.sub(r"&PTR_s_<[\w<>]*?_(1[0-9a-f]{8})\b", r"((char **)REFP(0x\1))", text)
         text = re.sub(r"\bPTR_s_<[\w<>]*?_(1[0-9a-f]{8})\b", r"(*(char **)REFP(0x\1))", text)
         # a stack allocation (`&stack0xffffffffffffffe8 + -(uVar5 & 0xfffffffffffffff0)`, the
-        # `sub rsp, rax` of an alloca): the same allocation in this frame
+        # `sub rsp, rax` of an alloca): the same allocation in this frame. Not when what is taken
+        # off is a pointer: `&stack0xfffffffffffffff8 + -(longlong)pcVar9` is the room left in a
+        # frame buffer (its end minus a pointer into it), and as an alloca of the pointer's value
+        # it asked for megabytes and overflowed the stack (a tooltip method, FUN_141cb4220,
+        # 2026-10-23). stack_frame() makes the address the frame's, the difference stays C's.
+        pointer_locals = set(re.findall(r"^[ \t]*[\w ]+?\*+\s*(\w+)(?: = \{0\})?;", text, re.M))
+
+        def is_pointer_size(size: str) -> bool:
+            m = re.fullmatch(r"\s*\((?:u?longlong|ulonglong|uintptr_t|long long)\)\s*(\w+)\s*", size)
+            return bool(m and m.group(1) in pointer_locals)
+
         text = re.sub(r"^([ \t]*\w+ = (?:\([\w ]+\*+\))?)&stack0x[0-9a-f]+ \+ -\(([^;()]*(?:\([^;()]*\)[^;()]*)*)\);$",
-                      r"\1(undefined1 *)_alloca(\2);", text, flags=re.M)
+                      lambda m: m.group(0) if is_pointer_size(m.group(2)) else f"{m.group(1)}(undefined1 *)_alloca({m.group(2)});",
+                      text, flags=re.M)
         # (anywhere else in an expression, and used more than once: `(uint *)(&stack0x..fff8 +
         # -(n))` and later `(longlong)(&stack0x..fff8 + -(n)) - ...`, the same allocation, C2065
         # in FUN_141647080, 2026-10-18): allocated where first met, and its address after
@@ -4842,6 +4910,8 @@ class Translator:
                 size = f"({size}){cast.group(1)}"
                 end += cast.end()
             whole = text[m.start():end]
+            if is_pointer_size(size):
+                continue
             if whole not in allocs:
                 allocs[whole] = f"gen_alloca_{len(allocs)}"
                 use = f"({allocs[whole]} = (undefined1 *)_alloca({size}))"
@@ -6781,12 +6851,17 @@ class Translator:
         # one the export does not type. Typed by the store that fills it (`DAT_1430a5c64 = 0x171e`,
         # undefined2), RenderTargetFormats' depth column (FUN_1412af6f0, 5-byte rows) was read
         # 2*5 bytes a row apart: the world's "Main Depth" format came out 0, no depth target was
-        # made, and the world's draw faulted on it every frame - no 3D at all (2026-10-23)
+        # made, and the world's draw faulted on it every frame - no 3D at all (2026-10-23).
+        # Through GEN_OPAQUE: MSVC folded the constant base of such an index into a 32-bit
+        # displacement and dropped its top bit (`movzbl 0x430a5c64(%rdx,%rdx,4)` for 0x1430a5c64,
+        # one of 2016 such sites), and that read faulted in 20 functions, the world's draw among
+        # them (2026-10-23). A base the optimizer cannot see as a constant is loaded whole.
         body = re.sub(r"\(\s*&\s*(_?DAT_([0-9a-f]{9}))\s*\)(?=\s*\[)",
-                      lambda m: m.group(0) if int(m.group(2), 16) in self.refdata else f"((undefined1 *)&{m.group(1)})",
+                      lambda m: m.group(0) if int(m.group(2), 16) in self.refdata
+                      else f"((undefined1 *)GEN_OPAQUE(&{m.group(1)}))",
                       body)
         body = re.sub(r"\(\s*&\s*(_?UNK_([0-9a-f]{9}))\s*\)(?=\s*\[)",
-                      lambda m: f"((undefined1 *)&{m.group(1)})", body)
+                      lambda m: f"((undefined1 *)GEN_OPAQUE(&{m.group(1)}))", body)
         # `p != &DAT_x` that ends a walk over the reference's own array just below x is the
         # array's bound, not the port global that happens to follow it: FUN_1413cf260 walked
         # 0x1430ad328.. until the address of g_wmoPortalInteriorFade, ran off and faulted (the
@@ -6854,6 +6929,8 @@ class Translator:
         body = self.float_arguments(body, params)
         # an undefined value used as a float is its bits (undefined_float_views)
         body = undefined_float_views(body, params)
+        # and a float global copied to or from an integer place is its bytes (float_global_copies)
+        body = float_global_copies(body, params)
         # callers are unprototyped, so a float argument arrives promoted to double
         decls, narrow = [], []
         for k, p in enumerate(params):
