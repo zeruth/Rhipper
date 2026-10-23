@@ -2372,6 +2372,35 @@ def float_global_copies(body: str, params=()) -> str:
                                  if int_place(m.group("rhs")) else m.group(0), body)
 
 
+def float_concat_views(body: str) -> str:
+    """`(float)CONCAT31(hi, byte)`: bytes spliced into a float's storage, not a number converted.
+
+    Ghidra shows a partial store into a float-typed slot, or a sign flip done on a double's upper
+    half, as a CONCAT cast to the floating type; in C the cast converts the integer. FrostLite's
+    FUN_142457380 put a vertex format id (11) in the low byte of a float slot and read back
+    11.0f's low byte, 0, a format with no attributes, and the world draw faulted each frame
+    without clearing its lists, ~100 MB a second (2026-10-23). When the CONCAT's sizes add up to
+    the type's, the cast is the bits. 222 sites."""
+    out, at = [], 0
+    for m in re.finditer(r"\((float|double)\)\s*(CONCAT(\d)(\d)\()", body):
+        if m.start() < at:
+            continue
+        kind, size = m.group(1), int(m.group(3)) + int(m.group(4))
+        if size != (4 if kind == "float" else 8):
+            continue
+        depth, k = 1, m.end()
+        while k < len(body) and depth:
+            depth += {"(": 1, ")": -1}.get(body[k], 0)
+            k += 1
+        expr = body[m.start(2):k]
+        out.append(body[at:m.start()])
+        out.append(f"gen_bits2f((unsigned int)({expr}))" if kind == "float"
+                   else f"gen_bits2d((unsigned long long)({expr}))")
+        at = k
+    out.append(body[at:])
+    return "".join(out)
+
+
 def undefined_float_assigns(body: str, params=()) -> str:
     """A float variable assigned an undefined value of its size reads that value as a float.
 
@@ -7184,6 +7213,7 @@ class Translator:
         # assigned to a float variable too (undefined_float_assigns)
         body = undefined_float_views(body, params)
         body = undefined_float_assigns(body, params)
+        body = float_concat_views(body)
         # and a float global copied to or from an integer place is its bytes (float_global_copies)
         body = float_global_copies(body, params)
         # callers are unprototyped, so a float argument arrives promoted to double
