@@ -2372,6 +2372,50 @@ def float_global_copies(body: str, params=()) -> str:
                                  if int_place(m.group("rhs")) else m.group(0), body)
 
 
+def undefined_float_assigns(body: str, params=()) -> str:
+    """A float variable assigned an undefined value of its size reads that value as a float.
+
+    The data export types a global by the instruction that reads it, and a 4-byte one read with
+    movss in one function can be `undefined4` from another's; Ghidra then prints the load into a
+    float variable plainly, `fVar4 = REFG(undefined4, 0x142738530);`, and C converts the integer
+    to a number: FrostLite's FUN_1413ae9d0 (a box to map chunk indices) got 1.19e9 for the
+    float 34133 there, and the world cull walked millions of chunks a frame (2026-10-23). The
+    same for `*(undefined4 *)p` into a float and undefined8 into a double. 918 sites."""
+    floats = {v: t for t, v in re.findall(r"^\s*(float|double) (\w+)(?: = \{0\})?;", body, re.M)}
+    for p in params:
+        pm = re.fullmatch(r"\s*(float|double)\s+(\w+)\s*", p)
+        if pm:
+            floats[pm.group(2)] = pm.group(1)
+    if not floats:
+        return body
+
+    def fix(m):
+        var, rhs = m.group(2), m.group(3)
+        t = floats.get(var)
+        if t is None:
+            return m.group(0)
+        size = "4" if t == "float" else "8"
+        g = re.fullmatch(rf"REFG\(undefined{size}, (0x[0-9a-f]+)\)", rhs)
+        if g:
+            return f"{m.group(1)}{var} = REFG({t}, {g.group(1)});"
+        g = re.fullmatch(rf"\*\(undefined{size} \*\)(.+)", rhs)
+        if g and (re.fullmatch(r"\w+", g.group(1)) or whole_bracket(g.group(1))):
+            return f"{m.group(1)}{var} = *({t} *){g.group(1)};"
+        return m.group(0)
+
+    def whole_bracket(x: str) -> bool:
+        if not x.startswith("("):
+            return False
+        depth = 0
+        for k, ch in enumerate(x):
+            depth += ch == "("
+            depth -= ch == ")"
+            if depth == 0:
+                return k == len(x) - 1
+        return False
+    return re.sub(r"^(\s*)(\w+) = ([^;]+);\s*$", fix, body, flags=re.M)
+
+
 def undefined_float_views(body: str, params=()) -> str:
     """An undefinedN value Ghidra uses as a float is its bits, not a number to convert.
 
@@ -2402,6 +2446,18 @@ def undefined_float_views(body: str, params=()) -> str:
             continue
         found = undefined_operand(body, m.end(), und_locals)
         if found is None:
+            # the upper half of an undefined 8-byte value, `(float)((ulonglong)local_50 >> 0x20)`:
+            # the second float of a pair moved as one (FUN_141348a50's box corner, converted to
+            # 1.09e9 and NaN, made the world cull walk billions of map chunks, 2026-10-23)
+            hm = re.compile(r"\(\s*\(ulonglong\)\s*").match(body, m.end())
+            if hm:
+                inner = undefined_operand(body, hm.end(), und_locals)
+                if inner is not None and inner[2] == "8":
+                    tail = re.compile(r"\s*>>\s*0x20\s*\)").match(body, inner[1])
+                    if tail:
+                        out.append(body[at:m.start()])
+                        out.append(view(m.group(1), body[m.end():tail.end()], "4"))
+                        at = tail.end()
             continue
         s, e, n = found
         out.append(body[at:m.start()])
@@ -7124,8 +7180,10 @@ class Translator:
         # and every other signed test of an undefinedN value (signed_tests)
         body = signed_tests(body, params)
         body = self.float_arguments(body, params)
-        # an undefined value used as a float is its bits (undefined_float_views)
+        # an undefined value used as a float is its bits (undefined_float_views), and one
+        # assigned to a float variable too (undefined_float_assigns)
         body = undefined_float_views(body, params)
+        body = undefined_float_assigns(body, params)
         # and a float global copied to or from an integer place is its bytes (float_global_copies)
         body = float_global_copies(body, params)
         # callers are unprototyped, so a float argument arrives promoted to double
