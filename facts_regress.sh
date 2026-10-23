@@ -21,7 +21,7 @@ for f in $FACTS_EXTRA; do run "$f" & done
 wait
 run "$RH/retcheck.py"
 run "$RH/funcptrs.py" &
-run "$RH/protos.py"
+run "$RH/protos64.py"
 run "$RH/intparams.py"
 wait
 run "$RH/preserved.py"

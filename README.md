@@ -2,7 +2,7 @@
 
 Ghidra-to-C recomp tooling: facts read off a PE in Python, applied to a Ghidra program, the
 whole program decompiled to a corpus, and the corpus translated to C that builds and runs beside
-a hand port (`translate.py`), with its fidelity to the reference measured function by function
+a hand port (`translate64.py`), with its fidelity to the reference measured function by function
 (`fidelity.py`). It grew inside FrostLite (the WoW Classic 3.4.3.54261 client) and was split out
 on 2026-10-23 to serve more than one project; its history came with it.
 
@@ -16,7 +16,7 @@ finds it from the working directory, or from `RHIPPER_PROJECT`:
 cd path/to/project
 python path/to/Rhipper/project.py                  # the project found, and its settings
 bash path/to/Rhipper/pipeline.sh                   # facts, one Ghidra session, translate
-python path/to/Rhipper/translate.py --all --depth 24 --fix --jobs 4
+python path/to/Rhipper/translate64.py --all --depth 24 --fix --jobs 4
 python path/to/Rhipper/fidelity.py --summary && python path/to/Rhipper/fidelity_report.py
 ```
 
@@ -25,7 +25,7 @@ A project keeps its own data where the tools look for it, relative to its root: 
 `translate_patches.json`, `translate_layouts.json`). What only one binary needs (FrostLite's
 anti-tamper stripper `aegis.py`, its DB2, Lua and opcode generators) stays in that project, and the
 pipeline calls into it through `rhipper.json`: `plugins` (`protection`: the anti-tamper layer
-translate.py strips), `hooks` (`pre_link`) and `facts_extra` (more extractors for pipeline.sh).
+translate64.py strips), `hooks` (`pre_link`) and `facts_extra` (more extractors for pipeline.sh).
 A project's own tools import Rhipper's modules through a small bootstrap (FrostLite's
 `tools/_rhipper.py`).
 
@@ -55,13 +55,13 @@ python tools/iat_dump.py              # imports (needs a running client, see bel
 Three steps, one Ghidra session:
 
 1. **Facts** (~2 min): every extractor below, the independent ones in parallel, then
-   `funcptrs.py` and `protos.py`, which read the others' facts.
+   `funcptrs.py` and `protos64.py`, which read the others' facts.
 2. **Ghidra** (`ghidra/ghidra.sh all`, ~12 min): the program opens once; `ApplyFacts.java`
    applies every fact, then `ExportData.java` and `ExportDecompAll.java` write
    `build/refdata.jsonl` and `build/corpus.jsonl` (each written beside the old one and moved
    over only when complete). The Decompiler Parameter ID pass (`CommitPrototypes.java`) is gone:
-   its prototypes were guesses, and `protos.py` reads them off the instructions instead.
-3. **Translate** (`tools/translate.py --handlers --depth 24 --fix`, ~5 min): one load and one
+   its prototypes were guesses, and `protos64.py` reads them off the instructions instead.
+3. **Translate** (`tools/translate64.py --handlers --depth 24 --fix`, ~5 min): one load and one
    plan; a fix round re-emits only the bodies that did not compile, as stubs, and the build
    recompiles only the files that changed (`src/gen` compiles with `/MP`). Each demotion in
    `src/gen/demoted.json` carries the line the compiler pointed at.
@@ -85,7 +85,7 @@ facts are re-runnable, but what they replace is not kept.
 | `iat_dump.py` | the stripped import table: 614 slots -> DLL!API | reads the slots from a live process, evaluates the obfuscated stubs, resolves against exports |
 | `typetags.py` | which classes each function creates or destroys (9.8k functions) | the type-name string passed to `SMemAlloc`/`SMemFree` |
 | `retcheck.py` | functions carrying the anti-tamper return-address check, and where it starts; the check's jumps over junk (2,885), which ApplyFacts makes unconditional and whose junk it clears, so the 155 functions Ghidra decoded with overlapping instructions decompile | loads of the check's code-range global; a forward jump inside the check whose fall-through, decoded linearly, runs across the jump's own target |
-| `protos.py` | every function's parameters and result, and every indirect call's arguments (`protos.json`, `callsites.json`), in place of Ghidra's Decompiler Parameter ID | a must-define pass over rcx/rdx/r8/r9/xmm0-3 by width, the home slots and the stack parameters through rsp and the registers set from it, closed over direct and tail calls; results from the width the direct callers read (`test al, al`: a byte), or what a function only a vtable reaches leaves in rax; an indirect call's arguments are the registers written since the caller's last call, or its own untouched parameters, and the outgoing stack stores below its lowest local. Also the variadic functions (`varargs.json`: the first variadic slot's address taken, the register slots from there through r9 spilled and never read back as values), the `call __chkstk` sites ApplyFacts makes nops, and 16-byte vector arguments and results (placed in xmm by custom storage). `--show` / `--trace` say which instruction makes an input |
+| `protos64.py` | every function's parameters and result, and every indirect call's arguments (`protos.json`, `callsites.json`), in place of Ghidra's Decompiler Parameter ID | a must-define pass over rcx/rdx/r8/r9/xmm0-3 by width, the home slots and the stack parameters through rsp and the registers set from it, closed over direct and tail calls; results from the width the direct callers read (`test al, al`: a byte), or what a function only a vtable reaches leaves in rax; an indirect call's arguments are the registers written since the caller's last call, or its own untouched parameters, and the outgoing stack stores below its lowest local. Also the variadic functions (`varargs.json`: the first variadic slot's address taken, the register slots from there through r9 spilled and never read back as values), the `call __chkstk` sites ApplyFacts makes nops, and 16-byte vector arguments and results (placed in xmm by custom storage). `--show` / `--trace` say which instruction makes an input |
 | `funcptrs.py` | data slots holding a function's address that code calls through, typed as a pointer to the target's signature | `call [rip+X]` / `mov reg, [rip+X]` on a slot whose value is a function start |
 | `switches.py` | MSVC jump tables, written by ApplyFacts as jump-table overrides where Ghidra has no flow out of the jump | `cmp r, N; ja` bound, the image base, an optional byte index table, the 32-bit table, `add; jmp reg`; every target inside the jump's own function |
 | `pieces.py` | chained `.pdata` pieces and their parents | `UNW_FLAG_CHAININFO` |

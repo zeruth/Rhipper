@@ -54,7 +54,7 @@ from corpus import load_corpus
 from pebin import Binary
 
 from project import ROOT
-# the newer of the two builds: tools/translate.py links build/cmake, the user builds
+# the newer of the two builds: tools/translate64.py links build/cmake, the user builds
 # cmake-build-release from CLion. Measuring the older one tied today's tags to yesterday's
 # functions (210 hand ports went untied, 2026-10-18).
 PORT_EXE, PORT_PDB = max(
@@ -777,7 +777,7 @@ def main() -> None:
     tags = [t for t in tagscan.scan() if t["name"] and not t.get("label")]
     # a hand port claims its address before the translated copy does: src/gen sorts ahead of
     # most of the tree, and a function promoted to a hand port is still translated until the
-    # next translate.py run, which only drops it once this file says the port has it
+    # next translate64.py run, which only drops it once this file says the port has it
     tags.sort(key=lambda t: t["file"].replace("\\", "/").startswith("src/gen/"))
     wanted = {short_name(t["name"]) for t in tags}
     candidates = sorted({va for s in wanted for va in by_short.get(s, [])})
@@ -798,7 +798,7 @@ def main() -> None:
             port_of_ref[t["addr"]] = best
             ref_of_port.setdefault(best, t["addr"])
             tag_of_ref[t["addr"]] = t
-    # src/gen (tools/translate.py): an adapter or stub is the reference function its name gives,
+    # src/gen (tools/translate64.py): an adapter or stub is the reference function its name gives,
     # so a call to it counts as that call rather than being flattened into what it does
     for va, size, name in procs:
         m = re.fullmatch(r"FUN_(14[0-9a-f]{7})", name)
@@ -908,7 +908,7 @@ def main() -> None:
     # them, tools/oracle.py: the port's call to `cos` is then the reference's to FUN_142416680,
     # where the trigram match above misses the compiler's inline expansions; 2026-10-17)
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from translate import CRT_BY_ADDR
+    from translate64 import CRT_BY_ADDR
     crt_known.update(CRT_BY_ADDR)
 
     def ref_crt(a: int) -> str | None:
@@ -1198,14 +1198,14 @@ def main() -> None:
         print(f"{sum(1 for m in moved if m[0] < 0) + len(gone)} regressions, {sum(1 for m in moved if m[0] > 0)} gains",
               file=sys.stderr)
 
-    # code tools/translate.py generated is measured apart: the headline numbers are the hand ports
+    # code tools/translate64.py generated is measured apart: the headline numbers are the hand ports
     def generated(rec) -> bool:
         return rec["file"].replace("\\", "/").startswith("src/gen/")
 
     translated = [rec for rec in records.values() if generated(rec) and rec["kind"] != "stub"]
     scored = [rec for rec in records.values() if rec["kind"] != "stub" and not generated(rec)]
     # a hand port still a stub runs the reference function's translation instead (or its own machine
-    # code, or the adapter to another port): tools/translate.py's manifest says which. Those are
+    # code, or the adapter to another port): tools/translate64.py's manifest says which. Those are
     # translated, not stubs; a stub is one with nothing behind it (2026-10-19)
     manifest_path = ROOT / "src/gen/manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else {}

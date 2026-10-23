@@ -7,7 +7,7 @@ FUN_1402bfa60 moves its first argument into r11 and returns with it there, and i
 FUN_1402bf300 goes on using r11 as `L`. Ghidra sees only that r11 died at the call and writes
 `param_1 = extraout_R11;`, a register "the decompiler lost track of", and the caller is stubbed
 (267 game functions read one, 2026-10-18). With this fact the translator assigns the argument to
-that variable as the call passes it (tools/translate.py, leftovers()).
+that variable as the call passes it (tools/translate64.py, leftovers()).
 
 Per function, a forward pass over the instructions reachable from the entry tracks which entry
 register each general register holds (`mov r11, rcx`; a push and its pop; a spill to the frame

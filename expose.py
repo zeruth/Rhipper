@@ -2,7 +2,7 @@
 
 A hand port in an anonymous namespace has no public symbol: the translator cannot bind its
 translated callers to it (an adapter needs the port's mangled name), so it translates the
-function a second time, and the two copies share only what both tag. `translate.py --why`
+function a second time, and the two copies share only what both tag. `translate64.py --why`
 lists them ("has no public symbol"). This tool closes the anonymous namespace before each such
 definition (with the comment block above it) and reopens it after, leaving the code as it was.
 
@@ -124,7 +124,7 @@ def plan(path: Path, entries: list[dict]) -> tuple[str, list[str]]:
 
 
 def why_targets() -> list[int]:
-    import translate as T
+    import translate64 as T
     t = T.Translator(16)
     import json
     manifest = json.loads((T.GEN / "manifest.json").read_text(encoding="utf-8"))

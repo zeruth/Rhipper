@@ -1,5 +1,5 @@
 // Exports every defined data item of the program, one JSON object per line:
-// {"addr","len","type","name","block"}. tools/translate.py declares the reference globals the
+// {"addr","len","type","name","block"}. tools/translate64.py declares the reference globals the
 // decompiled code names (DAT_..., PTR_..., s_...) with these types and sizes.
 //
 // Usage (headless): -postScript ExportData.java <outfile.jsonl>

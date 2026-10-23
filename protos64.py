@@ -23,7 +23,7 @@ or xmm0-3, the rest on the stack from [entry rsp + 0x28]):
 A function whose code leaves through an indirect jump that is not a switch (a vtable tail call)
 may pass registers on unseen: it is marked `open`, and its count is only a lower bound.
 
-    python tools/protos.py [--jobs N] [--show 0x1414fc8b0 ...]
+    python tools/protos64.py [--jobs N] [--show 0x1414fc8b0 ...]
 """
 from __future__ import annotations
 
@@ -1471,7 +1471,7 @@ def main() -> None:
     write_facts("varargs", {
         "rule": "variadic: the first variadic slot's address taken (va_start), every register slot from "
                 "there through r9 spilled to its home and none read back as a value; or, past four fixed "
-                "parameters, a stack slot's address above every stack parameter read (tools/protos.py)",
+                "parameters, a stack slot's address above every stack parameter read (tools/protos64.py)",
         "functions": {hexa(a): k for a, k in sorted(new_va.items())}})
     print(f"variadic: {len(new_va)} ({len(new_va.keys() - old_va.keys())} new, "
           f"{len(old_va.keys() - new_va.keys())} no longer, "

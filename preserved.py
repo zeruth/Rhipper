@@ -5,7 +5,7 @@ callee writes, and keeps a value in a volatile register across a call to one tha
 alone. Under Win64's __fastcall, which Ghidra assumes, rcx, rdx and r8-r11 die at every call, so
 such a value comes out of the call as `extraout_R8` (FUN_1405ef2d0 hands r8 on past
 FUN_1405ee730) or flows in as `in_R9D`: a register "the decompiler lost track of", and the
-function stubbed (298 functions read one, 2026-10-18). tools/protos.py's keep_xmm0 is the same
+function stubbed (298 functions read one, 2026-10-18). tools/protos64.py's keep_xmm0 is the same
 fact for xmm0.
 
 For every corpus function, the instructions reachable from its entry are decoded (following
@@ -33,7 +33,7 @@ from pebin import Binary, hexa, regs_access, write_facts
 
 # (and xmm1-xmm5: FUN_1405f81a0 leaves xmm2 alone and its caller FUN_140622410 keeps a float there
 # across the call, `fVar13 = extraout_XMM2_Da`; 40 lost-register stubs read one, 2026-10-18.
-# xmm0 is tools/protos.py's keep_xmm0, beside the return value)
+# xmm0 is tools/protos64.py's keep_xmm0, beside the return value)
 # (and rax, which a function returning a float or nothing need not write: FUN_1401a3c00 is
 # `movss xmm0, [rcx+0xdc]; ret`, and its caller FUN_1401a3c90 loads a pointer into rax before the
 # call and reads through it after, `*extraout_RAX`; FUN_1405e5490 keeps al across a float getter.
@@ -162,7 +162,7 @@ def local_facts(b: Binary, starts: set[int]):
     return out
 
 
-# (and xmm0, which a caller can keep across a call too: tools/protos.py's keep_xmm0 says which
+# (and xmm0, which a caller can keep across a call too: tools/protos64.py's keep_xmm0 says which
 # functions leave it, and the liveness here which callers rely on that)
 BIT = {r: 1 << i for i, r in enumerate(VOLATILE + ("XMM0",))}
 XMM0_NAMES = {"xmm0", "ymm0", "zmm0"}
@@ -192,7 +192,7 @@ def fold(m: int) -> int:
 
 
 def arg_masks() -> tuple[dict[int, int], dict[int, int]]:
-    """The argument registers each function reads (tools/protos.py's parameters, by position:
+    """The argument registers each function reads (tools/protos64.py's parameters, by position:
     an integer in rcx/rdx/r8/r9, a float or double in xmm0-3), and each indirect call passes
     (callsites.json): what a call reads of the caller's registers. Taken as all four, a register
     the callee never reads was live into every call, and a caller looked as if it relied on what
@@ -235,7 +235,7 @@ def needed(b: Binary, starts: set[int], keep: dict[int, set[str]], thunks: dict[
     # (and per caller, per callee: the registers the callee writes that the caller still reads
     # after the call. Only those are values the caller takes from the callee's leftovers; any
     # other register the decompiler shows read after a call is its own merge of paths, and the
-    # translator may give it any value, tools/translate.py leftovers)
+    # translator may give it any value, tools/translate64.py leftovers)
     relied: dict[int, dict[int, int]] = {}
     followed: list[int] = []
     text = b.text
@@ -448,7 +448,7 @@ def main() -> None:
     keep = {f: sorted(ALL - w) for f, w in writes.items() if ALL - w}
     print(f"{len(keep)} of {len(local)} functions preserve some volatile register "
           f"({time.time() - t0:.0f}s)", file=sys.stderr, flush=True)
-    # (xmm0 as tools/protos.py found it kept)
+    # (xmm0 as tools/protos64.py found it kept)
     full = {f: set(r) for f, r in keep.items()}
     for x in load_facts("protos").get("keep_xmm0", []):
         full.setdefault(int(x, 16), set()).add("XMM0")

@@ -6,7 +6,7 @@ say a global is a float when it is only ever used through SSE instructions, so a
 instruction with a RIP-relative memory operand names a float (`ss`, `ps`, `comiss`) or a double
 (`sd`, `pd`, `comisd`) at that address; this collects them, once, into build/refdata-float.json.
 
-    python tools/floatdata.py      (tools/translate.py runs it when the cache is missing)
+    python tools/floatdata.py      (tools/translate64.py runs it when the cache is missing)
 """
 
 from __future__ import annotations

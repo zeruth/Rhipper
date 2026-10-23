@@ -8,7 +8,7 @@ carries a `// ref: FUN_x` tag is rewritten in place as a forwarder:
         __try { FUN_x(); } __except (GenFault(0x..., GetExceptionInformation())) {}
     }
 
-tools/translate.py takes every `// translated:` forwarder as a root, so the next translation
+tools/translate64.py takes every `// translated:` forwarder as a root, so the next translation
 brings in FUN_x and what it calls (the link fallbacks below cover the build in between). A
 port object goes to the translated body only when its layout is the reference's: a type whose
 size is pinned with `static_assert(sizeof(X) == 0x..)` or a raw-layout class, for parameters,
@@ -233,7 +233,7 @@ def plan(log: Path | None):
     pending = []
     manifest = json.loads((ROOT / "src/gen/manifest.json").read_text(encoding="utf-8"))
     translated = set(manifest["translated"])
-    # what the next translation can bring in: a forwarder is a root (tools/translate.py), and the
+    # what the next translation can bring in: a forwarder is a root (tools/translate64.py), and the
     # link fallbacks below cover the build in between. Not the C runtime or the protection.
     excluded = set(manifest.get("excluded", {})) | set(manifest.get("native", {}))
     # each translated definition's parameter count (translated.h declares them unprototyped)

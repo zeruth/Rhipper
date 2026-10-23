@@ -1,6 +1,6 @@
 """Port globals that name their reference address but are not tied to it.
 
-tools/translate.py ties a port global to the image's (translated code then reads and writes the
+tools/translate64.py ties a port global to the image's (translated code then reads and writes the
 port's copy) only when the declaration ends in its address tag: `uint8_t g_x;  // DAT_1430af4c8`.
 A global whose address sits in the comment above it instead is invisible to the translator, so
 translated code keeps its own copy in the image and the two drift apart: on 2026-10-13
@@ -21,7 +21,7 @@ import argparse
 import re
 from pathlib import Path
 
-from translate import PARAM_DECL, PORT_FNPTR, PORT_GLOBAL, port_globals
+from translate64 import PARAM_DECL, PORT_FNPTR, PORT_GLOBAL, port_globals
 
 from project import ROOT
 DECL = re.compile(r"^(?!(?:struct|class|union|enum|typedef|using|return|namespace|template|static_assert|extern \"C\")\b)"

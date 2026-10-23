@@ -8,7 +8,7 @@ says where its hand port belongs: the source file of the nearest hand-ported fun
 (the compiler lays out a source file's functions together), with that neighbour and the
 distance. A port goes there, written from the decompilation with the disassembly as the
 check, tagged `// ref: FUN_x`; the translator then adapts every translated caller to it (rerun
-fidelity.py, then translate.py) and stops translating it.
+fidelity.py, then translate64.py) and stops translating it.
 """
 
 from __future__ import annotations

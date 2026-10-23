@@ -24,7 +24,7 @@ import numpy as np
 
 from pebin import ROOT, Binary
 
-# the table FUN_14026b874 hands _initterm (tools/translate.py, Translator.INIT_TABLE)
+# the table FUN_14026b874 hands _initterm (tools/translate64.py, Translator.INIT_TABLE)
 INIT_TABLE = (0x14260e3f8, 0x142617540)
 
 

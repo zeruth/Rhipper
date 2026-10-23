@@ -108,7 +108,7 @@ _PIECES = None
 def all_pieces(b: Binary) -> list[tuple[int, int, int]]:
     """(start, end, root) of every piece of code to scan: the .pdata pieces, and each function
     the corpus has that no piece covers, as one piece of its own. Those are the leaves
-    tools/protos.py found reached only through a pointer, which have no unwind entry (a leaf needs
+    tools/protos64.py found reached only through a pointer, which have no unwind entry (a leaf needs
     none): 0x14165a4a0 and 0x14165a510, callbacks behind `stc; jbe` and `xor al, 0; jno` over junk,
     were never scanned, kept their junk, and were stubbed as damaged (2026-10-19)."""
     global _PIECES

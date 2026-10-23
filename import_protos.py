@@ -1,7 +1,7 @@
 """Each import slot's parameters, from the Windows SDK headers: data/import_protos.json.
 
 The import table is stripped, so tools/iat_dump.py recovers the slots' names from a live process
-(data/imports.json), but nothing says what each API takes. protos.py needs that: a wrapper that
+(data/imports.json), but nothing says what each API takes. protos64.py needs that: a wrapper that
 only hands its registers on to an API (`OsMutexInit`, FUN_140262450: `call [InitializeSRWLock]`)
 reads none of them itself, came out taking nothing, and its callers stopped passing the lock
 (FUN_1401ca520 initialized one over its own code, the first crash of 2026-10-17).

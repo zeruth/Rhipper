@@ -1,5 +1,5 @@
 """A one-page visual of port fidelity by subsystem, from build/fidelity.json, with the code
-tools/translate.py generated (src/gen, its manifest) shown apart from the hand ports.
+tools/translate64.py generated (src/gen, its manifest) shown apart from the hand ports.
 
     python tools/fidelity.py --summary        # refresh build/fidelity.json first
     python tools/fidelity_report.py           # writes build/fidelity.html
@@ -165,7 +165,7 @@ def main() -> None:
     for path in (ROOT / "src").rglob("*.cpp"):
         if "gen" not in path.relative_to(ROOT / "src").parts[:1]:
             forwarded |= set(re.findall(r"^// translated: FUN_([0-9a-f]{9})\s*$", path.read_text(encoding="utf-8", errors="replace"), re.M))
-    # and what runs as the reference's own machine code (tools/translate.py native_ok / native_leaf):
+    # and what runs as the reference's own machine code (tools/translate64.py native_ok / native_leaf):
     # covered, by the reference itself
     # (and whatever lies in a native range, run as the reference's own code whether or not a run of
     # the translator happened to reach it)
@@ -194,7 +194,7 @@ def main() -> None:
                          f' <span class="dim">{r["ref_size"]:,} bytes</span></li>' for r in g["worst"])
         gen_section = f"""
 <h3>Translated from the decompilation</h3>
-<p class="sub small">Reference functions with no hand port, run as C that tools/translate.py writes from the
+<p class="sub small">Reference functions with no hand port, run as C that tools/translate64.py writes from the
 Ghidra decompilation (src/gen). The score compares the compiled translation with the reference function itself.</p>
 <div class="grid">
 <section class="card" style="--accent:var(--gen)">
@@ -218,7 +218,7 @@ Ghidra decompilation (src/gen). The score compares the compiled translation with
 </section>
 <section class="card" style="--accent:var(--stub)">
   <header><h2>Why the rest stayed stubs</h2><span class="count">{len(not_translated):,} functions</span></header>
-  <p class="folders">Reached from translated code but refused by the translator; each class is one fix in tools/translate.py.</p>
+  <p class="folders">Reached from translated code but refused by the translator; each class is one fix in tools/translate64.py.</p>
   <ol class="reasons">{reason_list or '<li class="zero">None: every function the build reaches is hand-ported, translated, adapted to a port or run as native code.</li>'}</ol>
 </section>
 </div>"""

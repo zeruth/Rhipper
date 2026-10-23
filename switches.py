@@ -26,7 +26,7 @@ import bisect
 import capstone
 from capstone import x86_const as X
 
-from protos import corpus_sizes
+from protos64 import corpus_sizes
 from pebin import Binary, hexa, write_facts
 
 
@@ -105,7 +105,7 @@ def main() -> None:
             # looked at, which left 590 tables unread)
             # (but not a write on an exit path that ends before the jump: the restore `mov rsi,
             # [rsp + 0x18]` before a `ret` between the prologue's lea and strpbrk's third table
-            # (FUN_140272e20) hid the base, the table went unread, and tools/protos.py read the
+            # (FUN_140272e20) hid the base, the table went unread, and tools/protos64.py read the
             # `pslldq xmm2` ladder it jumps into as an xmm2 parameter, 2026-10-18)
             last = None
             ended = False

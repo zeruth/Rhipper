@@ -1,6 +1,6 @@
 """The integer parameters the decompiler typed float: build/facts/intparams.json.
 
-A position tools/protos.py reads as an integer ('i') that the corpus's decompiled signature spells
+A position tools/protos64.py reads as an integer ('i') that the corpus's decompiled signature spells
 `float` or `double`. ApplyFacts gives the position an undefined type of its width, and the
 decompiler is free to infer the float again from a spill or a whole-register move; listed here,
 ApplyFacts pins it to a concrete unsigned type. The UnitData reader FUN_1425019e0's flags came
