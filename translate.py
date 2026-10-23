@@ -1972,6 +1972,128 @@ def signed_sides(body: str) -> list[tuple[int, int]]:
     return spans
 
 
+PLACE_SIZES = {
+    "undefined1": 1, "byte": 1, "char": 1, "uchar": 1, "bool": 1, "undefined": 1,
+    "undefined2": 2, "short": 2, "ushort": 2, "word": 2,
+    "undefined4": 4, "int": 4, "uint": 4, "float": 4, "dword": 4,
+    "undefined8": 8, "longlong": 8, "ulonglong": 8, "double": 8, "qword": 8,
+}
+
+
+def delayed_loads(body: str, params=()) -> str:
+    """A value Ghidra read before stores to its place, printed as a read after them.
+
+    FUN_141238a70 loads the IPv4 address (`mov eax, [rbx]`), zeroes the 0x18-byte address with
+    `movups`, then tests and stores back the loaded value; Ghidra printed the load at both uses:
+    `param_1[0] = 0; ... if (*param_1 != 0) { ...; *param_1 = *param_1; }`, a test that is never
+    true. Every SMSG_CONNECT_TO address came out empty, so its signature never matched and the
+    client dropped the session (2026-10-23). The self-assignment is the trace such a load leaves:
+    for `P = P;` the nearest earlier write to bytes P covers is where the load must have come
+    before, so P is kept in a local just ahead of that write and the reads after it use the local.
+    With no such write in reach the line is a plain re-store and stays. Of 142 self-assignments
+    in 53 functions (2026-10-23) one qualifies; the rest are real reloads or have a call between."""
+    decl = {v: t.strip() for t, v in re.findall(r"^\s*([\w ]+?\s*\**)\s*(\w+)(?: = \{0\})?;", body, re.M)}
+    for p in params:
+        pm = re.fullmatch(r"\s*([\w ]+?\s*\**)\s*(\w+)\s*", p)
+        if pm:
+            decl[pm.group(2)] = pm.group(1).strip()
+
+    def pointee(base):
+        t = decl.get(base, "")
+        if not t.endswith("*"):
+            return None
+        return t[:-1].strip()
+
+    def wrapped(x):
+        # (the whole of x inside one pair of brackets)
+        depth = 0
+        for k, ch in enumerate(x):
+            depth += ch == "("
+            depth -= ch == ")"
+            if depth == 0:
+                return k == len(x) - 1
+        return False
+
+    def place(x):
+        """(base, offset, size, type) of a memory place, or None."""
+        x = x.strip()
+        while x.startswith("(") and wrapped(x):
+            x = x[1:-1].strip()
+        m = re.fullmatch(r"\*\((\w+) \*\)\((\w+) \+ (0x[0-9a-f]+|\d+)\)", x)
+        if m and m.group(1) in PLACE_SIZES:
+            scale = 1
+            inner = pointee(m.group(2))
+            if inner is not None:
+                if inner not in PLACE_SIZES:
+                    return None
+                scale = PLACE_SIZES[inner]
+            return m.group(2), int(m.group(3), 0) * scale, PLACE_SIZES[m.group(1)], m.group(1)
+        m = re.fullmatch(r"\*\((\w+) \*\)(\w+)", x)
+        if m and m.group(1) in PLACE_SIZES:
+            return m.group(2), 0, PLACE_SIZES[m.group(1)], m.group(1)
+        m = re.fullmatch(r"\*(\w+)", x)
+        if m and pointee(m.group(1)) in PLACE_SIZES:
+            t = pointee(m.group(1))
+            return m.group(1), 0, PLACE_SIZES[t], t
+        m = re.fullmatch(r"(\w+)\[(0x[0-9a-f]+|\d+)\]", x)
+        if m and pointee(m.group(1)) in PLACE_SIZES:
+            t = pointee(m.group(1))
+            return m.group(1), int(m.group(2), 0) * PLACE_SIZES[t], PLACE_SIZES[t], t
+        return None
+
+    lines = body.split("\n")
+    self_assign = re.compile(r"^(\s*)(.+?) = (.+?);\s*$")
+    store = re.compile(r"^\s*(.+?) = (?!=)")
+    keep = 0
+    s = -1
+    while s + 1 < len(lines):
+        s += 1
+        m = self_assign.match(lines[s])
+        if not m or m.group(2).strip() != m.group(3).strip():
+            continue
+        p_text = m.group(2).strip()
+        target = place(p_text)
+        if target is None:
+            continue
+        base, off, size, typ = target
+        w = None
+        for k in range(s - 1, -1, -1):
+            line = lines[k].strip()
+            # (out of the block being walked is fine; across a sibling block, a loop or a label is
+            # not: the write found there might not be on the path)
+            if line.startswith("}") or line.startswith("LAB_") or line.startswith("do") \
+                    or line.startswith("while") or line.startswith("for") or re.match(rf"{base}\s*=", line):
+                break
+            sm = store.match(lines[k])
+            if sm:
+                q = place(sm.group(1))
+                if q and q[0] == base and q[1] < off + size and off < q[1] + q[2]:
+                    w = k
+                    break
+        if w is None:
+            continue
+        # (only when P is read between the write and the re-store, with no call there: compiled
+        # code does not read back what it has just stored, so such a read is the earlier load.
+        # A re-store alone is no evidence: FUN_142311810 stores 0 to [r14] and then copies the 16
+        # bytes there onto themselves with movups, a real reload Ghidra printed the same way)
+        between = lines[w + 1:s]
+        reads = [ln for ln in between if p_text in (ln[store.match(ln).end():] if store.match(ln) else ln)]
+        if not reads or any(re.search(r"CALLF\(|\)\s*\(|\b(?!if\b|while\b|for\b|switch\b|return\b|sizeof\b)[A-Za-z_]\w*\s*\(", ln)
+                            for ln in between):
+            continue
+        name = f"gen_keep{keep}"
+        keep += 1
+        for k in range(w + 1, s):
+            sm = store.match(lines[k])
+            head, tail = ("", lines[k]) if not sm else (lines[k][:sm.end()], lines[k][sm.end():])
+            lines[k] = head + tail.replace(p_text, name)
+        lines[s] = f"{m.group(1)}{p_text} = {name};"
+        indent = re.match(r"^(\s*)", lines[w]).group(1)
+        lines.insert(w, f"{indent}{typ} {name} = {p_text};")
+        s += 1
+    return "\n".join(lines)
+
+
 def signed_tests(body: str, params=()) -> str:
     """An undefinedN value in a signed comparison, read as the signed type of its width.
 
@@ -6924,6 +7046,8 @@ class Translator:
         # each read as zero (Logon's platform FourCC came out empty, 790 sites, 2026-10-20)
         body = re.sub(r"(_Init_thread_epoch < )REFG\(undefined4, ", r"\1REFG(int, ", body)
         body = re.sub(r"(_Init_thread_epoch < \(?)\*\(undefined4 \*\)", r"\1*(int *)", body)
+        # a load Ghidra printed after stores to its own place (delayed_loads)
+        body = delayed_loads(body, params)
         # and every other signed test of an undefinedN value (signed_tests)
         body = signed_tests(body, params)
         body = self.float_arguments(body, params)
