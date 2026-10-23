@@ -66,11 +66,31 @@ KNOWN_TYPES = {
     "LONG_PTR", "INT_PTR", "LPARAM", "WPARAM", "LRESULT", "SOCKET", "BSTR", "GEN_LPANY",
     "LPCRITICAL_SECTION", "PRTL_CRITICAL_SECTION",
 }
+# the Windows structures Ghidra32.h lays out as on x86: a local of one may be used by member
+STRUCT_TYPES = {"_FILETIME", "FILETIME", "_LARGE_INTEGER", "LARGE_INTEGER", "_ULARGE_INTEGER", "ULARGE_INTEGER",
+                "_STARTUPINFOW", "STARTUPINFOW", "_STARTUPINFOA", "STARTUPINFOA", "_SYSTEMTIME", "SYSTEMTIME",
+                "_OSVERSIONINFOA", "OSVERSIONINFOA", "_OSVERSIONINFOW", "OSVERSIONINFOW", "_SYSTEM_INFO",
+                "SYSTEM_INFO", "tagPOINT", "POINT", "tagRECT", "RECT"}
+STRUCT_POINTERS = {"LPPOINT", "LPRECT"}
+# the 8-byte ones a function takes or returns by value (in edx:eax on x86): 64-bit integers across
+# the call, the structure inside
+STRUCT8 = {"_FILETIME": "ULONGLONG", "FILETIME": "ULONGLONG", "_LARGE_INTEGER": "LONGLONG",
+           "LARGE_INTEGER": "LONGLONG", "_ULARGE_INTEGER": "ULONGLONG", "ULARGE_INTEGER": "ULONGLONG"}
+KNOWN_TYPES |= STRUCT_TYPES | STRUCT_POINTERS
+# the image's own DOS header as Ghidra names its fields: (offset, type), or None for an array's address
+DOS_HEADER = {"e_magic": (0x0, "ushort"), "e_cblp": (0x2, "ushort"), "e_cp": (0x4, "ushort"),
+              "e_crlc": (0x6, "ushort"), "e_cparhdr": (0x8, "ushort"), "e_minalloc": (0xa, "ushort"),
+              "e_maxalloc": (0xc, "ushort"), "e_ss": (0xe, "ushort"), "e_sp": (0x10, "ushort"),
+              "e_csum": (0x12, "ushort"), "e_ip": (0x14, "ushort"), "e_cs": (0x16, "ushort"),
+              "e_lfarlc": (0x18, "ushort"), "e_ovno": (0x1a, "ushort"), "e_res_4_": (0x1c, None),
+              "e_res": (0x1c, None), "e_oemid": (0x24, "ushort"), "e_oeminfo": (0x26, "ushort"),
+              "e_res2_10_": (0x28, None), "e_res2": (0x28, None), "e_lfanew": (0x3c, "int"),
+              "e_program": (0x40, None)}
 # the Windows typedefs Ghidra32.h makes (4-byte) pointers
 WIN_POINTERS = {"HANDLE", "HMODULE", "HINSTANCE", "HWND", "HDC", "HKEY", "HICON", "HCURSOR", "HMENU", "HBRUSH",
                 "HGLOBAL", "HLOCAL", "HKL", "HGDIOBJ", "HIMC", "LPVOID", "PVOID", "LPCVOID", "LPSTR", "LPCSTR",
                 "LPWSTR", "LPCWSTR", "LPDWORD", "LPLONG", "LPBYTE", "LPBOOL", "LPWORD", "FARPROC", "BSTR",
-                "GEN_LPANY", "LPCRITICAL_SECTION", "PRTL_CRITICAL_SECTION", "pointer"}
+                "GEN_LPANY", "LPCRITICAL_SECTION", "PRTL_CRITICAL_SECTION", "pointer", "LPPOINT", "LPRECT"}
 # C words that look like types to the scans below but are not
 NOT_TYPES = {"return", "sizeof", "if", "while", "for", "switch", "case", "goto", "else", "do", "break",
              "continue", "default", "const", "volatile", "struct", "union", "enum", "static", "extern"}
@@ -89,12 +109,26 @@ C_WORDS = {"if", "else", "while", "for", "do", "switch", "case", "default", "bre
 HEADER_NAMES = {"REFG", "REFP", "GP", "PTR32", "MXCSR", "ExceptionList", "GenUnimplemented", "POPCOUNT", "ABS",
                 "SQRT", "ROUND", "TRUNC", "FLOOR", "CEIL", "HeapCompatibilityInformation", "uintptr_t",
                 "intptr_t", "uint32_t", "int32_t", "uint64_t", "int64_t", "uint16_t", "int16_t", "uint8_t",
-                "int8_t", "__ptr32", "__uptr", "LOCK", "UNLOCK", "_InterlockedExchange", "NAN", "INFINITY",
-                "__debugbreak", "__readfsdword", "_rotl", "_rotr", "_rotl64", "_rotr64", "fabs", "sqrt",
+                "int8_t", "__ptr32", "__uptr", "_InterlockedExchange", "NAN", "INFINITY",
+                "__debugbreak", "_rotl", "_rotr", "_rotl64", "_rotr64", "fabs", "sqrt",
                 "floor", "ceil", "trunc", "nearbyint", "memcpy", "memset", "rdtsc", "GEN_PIECE", "GEN_ISNAN",
                 "gen_piece_set", "gen_fl2bits", "gen_d2bits", "gen_bits2f", "gen_bits2d", "GEN_TOF", "GEN_TOD",
                 "GEN_TOP", "GEN_FLT_TO"}
-HEADER_PREFIX = re.compile(r"^(?:CONCAT\d+|SUB\d+|ZEXT\d+|SEXT\d+|CARRY\d|SCARRY\d|SBORROW\d)$")
+_header_names: set[str] | None = None
+
+
+def header_names() -> set[str]:
+    """The names the project's Ghidra32.h defines (macros, functions, typedefs, variables): read
+    from the header itself, so a helper it lacks (CONCAT28, a pseudo-op) makes its user a stub
+    here, not an implicit declaration the linker cannot resolve."""
+    global _header_names
+    if _header_names is None:
+        text = strip_comments((GEN / "Ghidra32.h").read_text(encoding="utf-8"))
+        names = set(re.findall(r"#define\s+([A-Za-z_]\w*)", text))
+        names |= set(re.findall(r"\b([A-Za-z_]\w*)\s*\(", text))      # functions declared or defined
+        names |= set(re.findall(r"\b([A-Za-z_]\w*)\s*;", text))        # typedef names, variables
+        _header_names = names | HEADER_NAMES
+    return _header_names
 # imports whose adapters the runtime writes itself (their structures differ between x86 and x64):
 # rhipper.json "import_overrides"
 OVERRIDES = set(project.CONFIG.get("import_overrides", []))
@@ -353,6 +387,8 @@ def abi_type(t: str) -> str:
     b = t.replace("*", "").strip()
     if "*" in t:
         return "unsigned int"
+    if b in STRUCT8:
+        return "unsigned long long"
     if b in FLOATS:
         return "double" if b in ("double", "float8", "float10") else "float"
     if b in WIDE:
@@ -432,7 +468,21 @@ class Translator32:
             return "bad instruction data"
         if re.search(r"stack0x", re.sub(r"\(uint\)&stack0x[0-9a-f]+", "", c)):
             return "the caller's stack (stack0x)"
+        # (member access through the structures Ghidra32.h has: on a local declared with one, the
+        # image's DOS header, a field of an unnamed global)
+        decls = split_decls(c.partition("{")[2])[0]
+        structs = {m.group(2) for m in re.finditer(r"(?m)^\s+(\w+)\s+(\w+)\s*(?:\[[^\]]*\])?\s*;", decls)
+                   if m.group(1) in STRUCT_TYPES}
+        spointers = {m.group(3) for m in re.finditer(r"(?m)^\s+(\w+)\s*(\*?)\s*(\w+)\s*;", decls)
+                     if (m.group(1) in STRUCT_POINTERS and not m.group(2)) or (m.group(1) in STRUCT_TYPES and m.group(2))}
+        spointers |= {n for t, n in self.sigs[a].params
+                      if t.strip() in STRUCT_POINTERS or t.replace("*", "").strip() in STRUCT_TYPES}
         nopiece = re.sub(r"\._\d+_\d+_", "", c)
+        nopiece = re.sub(r"\bIMAGE_DOS_HEADER_[0-9a-f]{8}\.\w+|\b(?:UNK|DAT)_[0-9a-f]{8}\.field_0x[0-9a-f]+", "", nopiece)
+        if structs:
+            nopiece = re.sub(r"\b(?:" + "|".join(map(re.escape, structs)) + r")\s*(?:\[[^\]]*\])?(?:\.[A-Za-z_]\w*)+", "", nopiece)
+        if spointers:
+            nopiece = re.sub(r"\b(?:" + "|".join(map(re.escape, spointers)) + r")\s*->\s*[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*", "", nopiece)
         if re.search(r"[\w\)\]]\s*->\s*\w", nopiece) or re.search(r"(?<![\d.])\b[A-Za-z_]\w*\.[A-Za-z_]", nopiece) \
                 or re.search(r"\]\s*\.[A-Za-z_]", nopiece):
             return "member access through a type C does not have"
@@ -457,6 +507,21 @@ class Translator32:
         body = re.sub(r"\bswitchD_[0-9a-f]+::switchdataD_([0-9a-f]{8})\b",
                       lambda m: self.global_lvalue(int(m.group(1), 16)), body)
         body = re.sub(r"\b(switchD_[0-9a-f]+)::(\w+)", r"\1__\2", body)
+        # the image's DOS header by field, and a field of an unnamed global (`UNK_00400080.
+        # field_0x68`: the byte there); Ghidra compares e_magic, a char[2] to it, as `(char [2])`
+        def dos(m):
+            base, field = int(m.group(1), 16), m.group(2)
+            off, t = DOS_HEADER.get(field, (None, None))
+            if off is None:
+                raise ValueError(f"DOS header field {field}")
+            return f"((undefined *)REFP(0x{base + off:x}))" if t is None else f"REFG({t}, 0x{base + off:x})"
+        body = re.sub(r"\bIMAGE_DOS_HEADER_([0-9a-f]{8})\.(\w+)", dos, body)
+        body = re.sub(r"\((?:unsigned\s+)?char\s*\[2\]\)", "(ushort)", body)
+        # (an 8-byte structure by value is its 64-bit integer: STRUCT8)
+        body = re.sub(r"\((" + "|".join(STRUCT8) + r")\)", lambda m: f"({STRUCT8[m.group(1)]})", body)
+        body = re.sub(r"(&?)\b(?:UNK|DAT)_([0-9a-f]{8})\.field_0x([0-9a-f]+)",
+                      lambda m: (f"((undefined *)REFP(0x{int(m.group(2), 16) + int(m.group(3), 16):x}))" if m.group(1)
+                                 else f"REFG(undefined, 0x{int(m.group(2), 16) + int(m.group(3), 16):x})"), body)
         # Ghidra's pseudo-ops and piece access (`local_7c[0]._0_2_`: 2 bytes at offset 0)
         body = re.sub(r"\bNAN\s*\(", "GEN_ISNAN(", body)
         body = re.sub(r"\b([A-Za-z_]\w*(?:\[[^\]\[]*\])?)\._(\d+)_(\d+)_",
@@ -487,6 +552,8 @@ class Translator32:
             params.append(f"{at} gen_a{k}")
             if "*" in tt:
                 prologue.append(f"  {tt} {n} = ({tt})(uintptr_t)gen_a{k};")
+            elif tt.strip() in STRUCT8:
+                prologue.append(f"  {tt} {n}; memcpy(&{n}, &gen_a{k}, sizeof {n});")
             else:
                 prologue.append(f"  {tt} {n} = ({tt})gen_a{k};")
         if sig.variadic:
@@ -497,6 +564,17 @@ class Translator32:
             var_types.setdefault(m.group(2), m.group(1) + ("[]" if m.group(3) else ""))
         body = self.typed_casts(body, var_types)
         body = self.call_args(body, var_types)
+        # (an 8-byte structure cast to an integer: its 64 bits)
+        struct8_locals = [n for n, t in var_types.items() if t.strip() in STRUCT8]
+        if struct8_locals:
+            body = re.sub(r"\(((?:unsigned\s+)?[A-Za-z_]\w*)\)\s*(" + "|".join(map(re.escape, struct8_locals)) + r")\b(?!\s*[.\[])",
+                          lambda m: f"({m.group(1)})(*(ULONGLONG *)&{m.group(2)})"
+                          if m.group(1).strip() in KNOWN_TYPES and m.group(1).strip() not in STRUCT_TYPES else m.group(0), body)
+        if sig.ret.strip() in STRUCT8:
+            # (an 8-byte structure returned by value: its 64 bits, as edx:eax held them)
+            body = re.sub(r"\breturn\s+([A-Za-z_]\w*)\s*;",
+                          lambda m: f"return *(ULONGLONG *)&{m.group(1)};"
+                          if var_types.get(m.group(1), "").strip() in STRUCT8 else m.group(0), body)
         # a 3, 5, 6 or 7-byte piece written (`local_8._1_3_ = ...`)
         body = re.sub(r"GEN_PIECE\((&[^,]+), (\d+), (\d+)\)\s*=\s*([^;]+);",
                       r"gen_piece_set(\1, \2, \3, (unsigned long long)(\4));", body)
@@ -553,8 +631,7 @@ class Translator32:
             n = m.group(1)
             if n in var_types or n in labels or n in KNOWN_TYPES or n in C_WORDS or n in HEADER_NAMES:
                 continue
-            if n.startswith(("F_", "gen_imp_", "GEN_", "gen_", "LAB_", "switchD_", "caseD_")) \
-                    or HEADER_PREFIX.match(n) or (n.endswith(tuple("0123456789")) and n[:-1] in ("caseD_",)):
+            if n.startswith(("F_", "gen_imp_", "LAB_", "switchD_", "caseD_")) or n in header_names():
                 continue
             raise ValueError(f"undeclared name {n}")
 
@@ -713,6 +790,9 @@ class Translator32:
                         new_args.append(x)
                         continue
                     k = self.kind_of(x, var_types)
+                    if abi == "unsigned long long" and var_types.get(x.strip(), "").strip() in STRUCT8:
+                        # (an 8-byte structure passed by value: its 64 bits)
+                        x = f"(*(ULONGLONG *)&{x.strip()})"
                     if abi in ("float", "double"):
                         if k not in ("float", "int"):
                             x = f"{'GEN_TOF' if abi == 'float' else 'GEN_TOD'}({x.strip()})"
@@ -826,7 +906,7 @@ class Translator32:
         callers Ghidra saw use it (`uVar4 = FUN_004308f0(...)` of a void FUN_004308f0); a bare
         `code` (a function type) is the address it was."""
         t = self.type_text(t)
-        return "unsigned int" if t in ("void", "code") else t
+        return "unsigned int" if t in ("void", "code") else STRUCT8.get(t.strip(), t)
 
     def type_text(self, t: str) -> str:
         t = CC.sub("", t).strip()
@@ -1093,11 +1173,16 @@ class Translator32:
         for k in range(0, len(items), PER_FILE):
             chunk = items[k:k + PER_FILE]
             path = GEN / f"translated_{k // PER_FILE:03d}.c"
-            text = ['#include "translated.h"', "#pragma warning(disable: 4013 4024 4047 4133 4244 4305 4311 4312 4700 4715 4716 4022 4028 4090 4146 4554)"]
+            text = ['#include "translated.h"', "#pragma warning(disable: 4024 4047 4133 4244 4305 4311 4312 4700 4715 4716 4022 4028 4090 4146 4554)"]
             for a, t in chunk:
                 text.append(t)
             write(path, "\n".join(text) + "\n")
             files.append(path)
+        # (a file a larger translation wrote before is not this one's: the build compiles every
+        # translated_*.c there is)
+        for old in GEN.glob("translated_*.c"):
+            if old not in files:
+                old.unlink()
         # stubs
         s = ['#include "translated.h"']
         for a in sorted(stubbed):
@@ -1134,8 +1219,10 @@ class Translator32:
                       f"int a8, int a9, int a10, int a11, int a12, int a13) {{ return (unsigned int)gen_real_{n}("
                       + ", ".join(f"(intptr_t)a{k}" for k in range(14)) + "); }")
         im.append("const GEN_IMPORT g_genImports[] = {")
+        # (an adapter the runtime writes calls Windows itself: nothing to resolve for it)
         for n, (slot, dll) in sorted(self.imports.items()):
-            im.append(f'  {{0x{slot:x}u, "{dll}", "{n}", (void *)gen_imp_{n}, &gen_real_{n}}},')
+            real = "0" if n in OVERRIDES else f"&gen_real_{n}"
+            im.append(f'  {{0x{slot:x}u, "{dll}", "{n}", (void *)gen_imp_{n}, {real}}},')
         im += ["};", f"const unsigned int g_genImportCount = {len(self.imports)};"]
         write(GEN / "imports.c", "\n".join(im) + "\n")
         reasons = Counter(re.sub(r"\(.*", "", v).split(":")[0].strip() for v in stubbed.values())
@@ -1176,7 +1263,7 @@ def compile_one(path: Path) -> list[tuple[int, str]]:
     # (Windows looks a program up on this process's PATH, not the one passed to it)
     import shutil
     cl = shutil.which("cl", path=env.get("PATH") or env.get("Path"))
-    r = subprocess.run([cl, "/nologo", "/c", "/O1", "/W1", "/TC", "/bigobj", "/std:c17",
+    r = subprocess.run([cl, "/nologo", "/c", "/O1", "/W1", "/we4013", "/TC", "/bigobj", "/std:c17",
                         f"/Fo{OBJ / (path.stem + '.obj')}", str(path)],
                        capture_output=True, text=True, env=msvc_env(), cwd=str(GEN))
     errs = []
