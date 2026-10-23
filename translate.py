@@ -1972,6 +1972,68 @@ def signed_sides(body: str) -> list[tuple[int, int]]:
     return spans
 
 
+def fused_le_chains(text: str) -> str:
+    """`A < B || A == B && rest` as Ghidra prints a float `<=` in the middle of an and-chain.
+
+    MSVC compiles `x <= max && rest` as `comiss x, max; ja skip` followed by the rest; Ghidra
+    splits the not-above into below-or-equal and prints it without brackets, `x < max || x ==
+    max && rest`, which C reads as `x < max || (x == max && rest)`: whenever x is below, the rest
+    of the chain (in FrostLite's FUN_1413837b0, the load and null test of a map object group) is
+    skipped and its result used unset, a fault on every WMO in view that stopped the world frame
+    (2026-10-23). The pair is one comparison: `(A <= B) && rest`, and `>` likewise."""
+    out, pos = [], 0
+    for m in re.finditer(r" \|\| ", text):
+        if m.start() < pos:
+            continue
+        j, depth = m.end(), 0
+        while j < len(text) and text[j] in " \n":
+            j += 1
+        k = j
+        while k < len(text):
+            ch = text[k]
+            depth += ch in "(["
+            depth -= ch in ")]"
+            if depth < 0 or (depth == 0 and text.startswith(" == ", k)):
+                break
+            k += 1
+        if depth != 0 or not text.startswith(" == ", k):
+            continue
+        lhs = text[j:k]
+        r0 = k + 4
+        r = r0
+        while r < len(text):
+            ch = text[r]
+            depth += ch in "(["
+            depth -= ch in ")]"
+            if depth < 0 or (depth == 0 and text[r] in " ,;"):
+                break
+            r += 1
+        rhs = text[r0:r]
+
+        def single(x: str) -> bool:
+            d = 0
+            for ch in x:
+                d += ch in "(["
+                d -= ch in ")]"
+                if d == 0 and ch == " ":
+                    return False
+            return bool(x) and d == 0
+        if not single(lhs) or not single(rhs):
+            continue
+        rest = text[r:]
+        if not re.match(r"\s*&&", rest):
+            continue
+        left = text[pos:m.start()]
+        for op in ("<", ">"):
+            tail = f"{lhs} {op} {rhs}"
+            if left.endswith(tail) and (len(left) == len(tail) or left[-len(tail) - 1] in " (!&|\n"):
+                out.append(left[:-len(tail)] + f"({lhs} {op}= {rhs})")
+                pos = r
+                break
+    out.append(text[pos:])
+    return "".join(out)
+
+
 PLACE_SIZES = {
     "undefined1": 1, "byte": 1, "char": 1, "uchar": 1, "bool": 1, "undefined": 1,
     "undefined2": 2, "short": 2, "ushort": 2, "word": 2,
@@ -6592,6 +6654,8 @@ class Translator:
         if a in self.open_protos:
             rest = self.handed_on_tail_call(head, rest)
         rest = self.stack_list_append(rest)
+        # a float `<=` Ghidra split into `<` / `==` with the and-chain fused on (fused_le_chains)
+        rest = fused_le_chains(rest)
         rest = self.addressed_literals(rest)
         rest = self.indexed_literals(a, rest)
         # `_local_a8`: Ghidra's name for a wider store over a declared local (`local_a8` an
