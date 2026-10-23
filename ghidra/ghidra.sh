@@ -8,7 +8,7 @@
 #   ghidra.sh all                      apply, then export the data and the corpus,
 #                                      in one session (pipeline.sh)
 #   ghidra.sh sample <list> <out>      apply, then decompile the listed functions
-#   ghidra.sh import                   import the reference binary into a new Ghidra program with
+#   ghidra.sh import [--overwrite]     import the reference binary into a new Ghidra program with
 #                                      full auto-analysis, then export its function extents
 #                                      (build/facts/functions.json, what 32-bit projects use in
 #                                      place of .pdata)
@@ -86,7 +86,9 @@ case "$1" in
   # (a one-time step: a project already in Ghidra keeps its program, and its hand naming, unless
   # the program is deleted first)
   import) mkdir -p "$ROOT/build/facts"
-          "$G/support/analyzeHeadless.bat" "$PROJ" "$GPROJECT" -import "$(cygpath -w "$EXE")" \
+          # (--overwrite replaces the program, and everything done to it since: hand naming too)
+          over=""; [ "$2" = "--overwrite" ] && over="-overwrite"
+          "$G/support/analyzeHeadless.bat" "$PROJ" "$GPROJECT" -import "$(cygpath -w "$EXE")" $over \
             -scriptPath "$SCRIPTS" \
             -postScript ExportFunctions.java "$(cygpath -w "$ROOT/build/facts/functions.json")" \
             2>&1 | tee "$ROOT/build/ghidra-import.log" | grep --line-buffered -E "ExportFunctions:|ERROR|Exception|Import succeeded|already exists" || true ;;

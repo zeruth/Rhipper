@@ -34,7 +34,45 @@ DOUBLE = {"movsd", "addsd", "subsd", "mulsd", "divsd", "minsd", "maxsd", "sqrtsd
           "vmovsd", "vaddsd", "vsubsd", "vmulsd", "vdivsd", "vcomisd", "vucomisd", "vcvtsd2ss"}
 
 
+# 32-bit code does its floating point on the x87 stack as much as in SSE: a memory operand's width
+# says the type (`fld qword ptr [0x1087ef0]` a double: the data export typed that one `pointer`,
+# and `(float10)REFG(undefined * PTR32, 0x1087ef0)` did not compile in 205 functions, 2026-10-23)
+X87 = {"fld", "fst", "fstp", "fadd", "fsub", "fsubr", "fmul", "fdiv", "fdivr", "fcom", "fcomp"}
+X87_WIDTH = {"dword": "float", "qword": "double", "tbyte": "float10"}
+
+
+def scan32() -> dict[str, str]:
+    """The x86 counterpart: absolute memory operands (`[0x...]`, `[eax*8 + 0x...]`), x87 by the
+    operand's width, SSE as on x64."""
+    import re
+    from pebin import disassembler
+    b = Binary()
+    md = disassembler()
+    mem = re.compile(r"(byte|word|dword|qword|xmmword|tbyte) ptr \[(?:[a-z0-9*+ ]*\+ )?(0x[0-9a-f]+)\]")
+    out: dict[int, str] = {}
+    for start, end in zip(b.piece_starts, b.piece_ends):
+        o = b.off(start)
+        for _address, _size, mnemonic, ops in md.disasm_lite(bytes(b.image[o:o + (end - start)]), start):
+            m = mem.search(ops)
+            if m is None:
+                continue
+            if mnemonic in X87:
+                kind = X87_WIDTH.get(m.group(1))
+            else:
+                kind = "float" if mnemonic in FLOAT else "double" if mnemonic in DOUBLE else None
+            if kind is None:
+                continue
+            target = int(m.group(2), 16)
+            if b.section_of(target) is None:
+                continue
+            out[target] = kind if out.get(target, kind) == kind else "mixed"
+    return {f"{a:x}": k for a, k in out.items() if k != "mixed"}
+
+
 def scan() -> dict[str, str]:
+    from pebin import X86
+    if X86:
+        return scan32()
     b = Binary()
     md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
     out: dict[int, str] = {}

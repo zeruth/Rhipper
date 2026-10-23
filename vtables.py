@@ -29,9 +29,15 @@ def main() -> None:
     # any pointer into .text: leaf stubs (ret, xor eax,eax; ret) have no .pdata entry
     is_fp = [b.is_code(v) for v in q]
 
+    # (not the import address table: on disk its slots hold name RVAs, and with a 32-bit image's
+    # base of 0x400000 an RVA such as 0x00c7e5a2 is also an address in .text. Taken for vtables,
+    # ApplyFacts relabelled the whole IAT and every import call decompiled as a call through
+    # `vtable_0107e304[0]`, 2026-10-23)
+    iat_lo, iat_hi = b.iat
+
     def slot(t: int) -> bool:
         """t is a pointer-aligned .rdata slot holding a code pointer."""
-        return s <= t < s + PS * n and (t - s) % PS == 0 and is_fp[(t - s) // PS]
+        return s <= t < s + PS * n and (t - s) % PS == 0 and is_fp[(t - s) // PS] and not iat_lo <= t < iat_hi
 
     # address-taken targets (pointing at a function pointer) and who takes them: x64
     # `lea reg, [rip+vtable]`, 32-bit `mov dword ptr [ecx], offset vtable`
@@ -77,7 +83,7 @@ def main() -> None:
         i = (vt - s) // PS
         limit = (starts[k + 1] - s) // PS if k + 1 < len(starts) else n
         slots = []
-        while i < limit and is_fp[i]:
+        while i < limit and is_fp[i] and not iat_lo <= s + PS * i < iat_hi:
             slots.append(hexa(q[i]))
             i += 1
         entry = {"vtable": hexa(vt), "slots": slots, "referenced_by": sorted(hexa(f) for f in takers[vt])}

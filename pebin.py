@@ -96,6 +96,9 @@ class Binary:
             ))
         self.reloc_dir = pe.OPTIONAL_HEADER.DATA_DIRECTORY[pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_BASERELOC"]]
         self.reloc_dir = (self.reloc_dir.VirtualAddress, self.reloc_dir.Size)
+        iat = pe.OPTIONAL_HEADER.DATA_DIRECTORY[pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_IAT"]]
+        # the import address table [start, end) as VAs (empty when the directory is)
+        self.iat = (self.base + iat.VirtualAddress, self.base + iat.VirtualAddress + iat.Size) if iat.Size else (0, 0)
         self.text = self.section(".text")
         if X86:
             pe.close()
