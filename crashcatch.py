@@ -325,11 +325,15 @@ def main():
         elif code == EXCEPTION_DEBUG_EVENT:
             record = event.u.Exception.ExceptionRecord
             ecode = record.ExceptionCode
-            if ecode == 0x80000003 and loader_break_seen:
+            if ecode == 0x80000003 and loader_break_seen and event.u.Exception.dwFirstChance:
                 # an int3 in the mapped reference image is the program's own (src/gen/RefImage.cpp
-                # turns it into "log and return 0"): its handler must see it
+                # turns it into "log and return 0"): its handler must see it. One nothing handled
+                # (second chance: a translated `swi(3)` after a call that was not to return, an
+                # int3 outside the image) is reported below; passed on, it ended the process with
+                # 0x80000003 and no stack (2026-10-22)
                 status = DBG_EXCEPTION_NOT_HANDLED
-            elif ecode in IGNORED or (ecode & 0xF0000000) == 0x40000000:
+            elif (ecode in IGNORED or (ecode & 0xF0000000) == 0x40000000) \
+                    and not (ecode == 0x80000003 and loader_break_seen):
                 if ecode == 0x80000003:
                     loader_break_seen = True
                 status = DBG_EXCEPTION_NOT_HANDLED if ecode not in (0x80000003, 0x4000001F) else DBG_CONTINUE

@@ -470,18 +470,30 @@ class Emitter:
 
     def v(self, n: Node) -> str:
         """n as a gen_v16 value."""
-        return self.e(n) if self.T.ty(n) == V else f"gen_v16_u({self.e(n)})"
+        if self.T.ty(n) == V:
+            return self.e(n)
+        g = GLOBAL_NAME.fullmatch(n.val) if n.kind == "id" else None
+        if g:
+            # a global as a whole operand of a 16-byte operation (`auVar29 | _DAT_142634f90`): its
+            # 16 bytes, as for an intrinsic (m). Ghidra's operands of one operation are one size, a
+            # narrower one is written ZEXT; read through its data type it was 8 bytes, zero
+            # extended, and the BLP palette decoder's alpha OR (0xff000000 in each lane) reached
+            # only two of every four pixels: the character-select skin came out in vertical
+            # stripes (FUN_140315680, 2026-10-23)
+            return f"(*(gen_v16 *)REFP(0x{g.group(1)}))"
+        return f"gen_v16_u({self.e(n)})"
 
     def m(self, n: Node) -> str:
         """n as an __m128i (for an intrinsic)."""
         if self.T.ty(n) == V:
-            return f"({self.e(n)}).m"
+            return f"gen_v16_mm({self.e(n)})"
         g = GLOBAL_NAME.fullmatch(n.val) if n.kind == "id" else None
         if g:
             # a global handed to a vector instruction whole: the 16 bytes at its address, whatever
             # Ghidra named it (`_s_VUVUVU_142634c00`, a constant it took for a string)
-            return f"(*(gen_v16 *)REFP(0x{g.group(1)})).m"
-        return f"gen_v16_u({self.e(n)}).m"
+            return f"gen_v16_mm(*(gen_v16 *)REFP(0x{g.group(1)}))"
+        # gen_v16 has no SSE member (Ghidra.h): an unaligned load, never a member read
+        return f"gen_v16_mm(gen_v16_u({self.e(n)}))"
 
     def place(self, n: Node) -> str:
         """n as the object a piece of it is at: a short byte array is itself (`auVar9._2_10_ =`

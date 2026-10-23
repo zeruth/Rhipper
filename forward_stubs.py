@@ -9,11 +9,16 @@ carries a `// ref: FUN_x` tag is rewritten in place as a forwarder:
     }
 
 tools/translate.py takes every `// translated:` forwarder as a root, so the next translation
-brings in FUN_x and what it calls. Only free functions whose parameters and result are plain
-values are forwarded: a member function or a pointer parameter would hand a port object to code
-that reads it at the reference's offsets, which is only right where the layouts were checked
-(translate.py --risks). The network services stay offline stubs (docs/stubs.md), and the crash,
-error and allocator hooks stay the port's.
+brings in FUN_x and what it calls (the link fallbacks below cover the build in between). A
+port object goes to the translated body only when its layout is the reference's: a type whose
+size is pinned with `static_assert(sizeof(X) == 0x..)` or a raw-layout class, for parameters,
+results and members' `this` alike; plain data, `void*` and callbacks always go. Constructors and
+destructors stay hand ports; a teardown is forwarded only beside a forwarded maker of the same
+object (the translation built it, so its own teardown takes it apart). When the port passes more
+parameters than the reference body reads (a CVar callback's userData), the leading ones are
+handed on. The network services stay offline stubs (docs/stubs.md), and the crash, error and
+allocator hooks stay the port's. (2026-10-22: these rules took the reached stubs from 2
+forwardable to 169.)
 
     python tools/forward_stubs.py --log client/_classic_/Logs/FrostLite.log [--apply]
 """
@@ -52,13 +57,52 @@ OFFLINE_NAMES = re.compile(r"^(?:Telemetry|Agent|WowDownload|ClientServices|Batt
 DEFAULT_RESULT ={"void": "", "bool": "false", "float": "0.0f", "double": "0.0"}
 
 
+def split_params(params: str) -> list[str]:
+    """A parameter list split at its top-level commas: a callback parameter's own list
+    (`void (*callback)(uint32_t code, const char* text)`) stays in one piece."""
+    out, depth, cur = [], 0, ""
+    for ch in params:
+        if ch in "(<":
+            depth += 1
+        elif ch in ")>":
+            depth -= 1
+        if ch == "," and depth == 0:
+            out.append(cur.strip())
+            cur = ""
+        else:
+            cur += ch
+    if cur.strip():
+        out.append(cur.strip())
+    return [p for p in out if p and p != "void"]
+
+
+def param_name(p: str) -> str | None:
+    """The name a parameter declares, or None for an unnamed one (`bool`, `CVar*`)."""
+    m = re.match(r"^[^(]*\(\s*\*\s*(\w*)\s*\)\s*\(", p)
+    if m:
+        return m.group(1) or None   # a callback: `void (*name)(...)`
+    m = re.search(r"[\w\]>*&]\s*[\s*&]\s*(\w+)$", p)
+    if m and not VALUE_TYPE.match(p) and m.group(1) not in ("const", "int", "long", "char", "float", "double"):
+        return m.group(1)
+    return None
+
+
+def param_type(p: str) -> str:
+    name = param_name(p)
+    if name is None:
+        return p.strip()
+    if "(*" in p.replace(" ", ""):
+        return re.sub(r"\(\s*\*\s*\w+\s*\)", "(*)", p, count=1).strip()
+    return p[:p.rindex(name)].strip()
+
+
 def stub_at(lines: list[str], i: int):
     """The stub defined after the tag on line i: (first, last line, signature) or None."""
     j = i + 1
     while j < len(lines) and lines[j].strip().startswith("//"):
         j += 1
     sig = lines[j] if j < len(lines) else ""
-    m = re.match(r"^(?:static\s+)?([\w:<>\s\*&]+?)\s+([\w:~]+)\(([^)]*)\)\s*(const)?\s*\{\s*$", sig)
+    m = re.match(r"^(?:static\s+)?([\w:<>\s\*&]+?)\s+([\w:~]+)\((.*)\)\s*(const)?\s*\{\s*$", sig)
     if not m:
         return None
     depth, k = 0, j
@@ -69,14 +113,15 @@ def stub_at(lines: list[str], i: int):
         if depth == 0:
             break
         k += 1
-    inner = [l.strip() for l in body[1:-1] if l.strip() and not l.strip().startswith("//")]
+    # (a marker's own note, `FROST_UNIMPLEMENTED();  // FUN_x on DAT_y`, is still the marker)
+    inner = [re.sub(r"\s*//.*$", "", l.strip()) for l in body[1:-1] if l.strip() and not l.strip().startswith("//")]
     if "FROST_UNIMPLEMENTED();" not in inner:
         return None
     rest = [l for l in inner if l != "FROST_UNIMPLEMENTED();" and not re.fullmatch(r"\(void\)\w+;", l)
             and not re.fullmatch(r"return [^;]*;", l)]
     if rest:
         return None   # a stub with behaviour of its own around the marker: left for a hand port
-    return j, k, m.group(1).strip(), m.group(2), m.group(3).strip()
+    return j, k, m.group(1).strip(), m.group(2), m.group(3).strip(), bool(m.group(4))
 
 
 def raw_layout_classes() -> set[str]:
@@ -101,12 +146,96 @@ def raw_layout_classes() -> set[str]:
     return out
 
 
+def laid_out_classes() -> set[str]:
+    """The port's types whose size is pinned to the reference's (`static_assert(sizeof(X) ==
+    0x..)`): built at the reference's offsets, so translated code can be handed one. Most of the
+    port's objects are (2026-10-22: 450 of them), which the rule above predates."""
+    out = set()
+    for path in (ROOT / "src").rglob("*"):
+        if path.suffix in (".hpp", ".cpp", ".h") and not path.relative_to(ROOT).as_posix().startswith("src/gen/"):
+            out |= set(re.findall(r"static_assert\(sizeof\((\w+)\)\s*==\s*0x[0-9a-fA-F]+",
+                                  path.read_text(encoding="utf-8", errors="replace")))
+    return out
+
+
+# plain data behind a pointer: the reference's bytes and the port's are the same. Not `uint8_t`,
+# which the port also uses for an object it has not typed (see DATA_POINTER)
+PLAIN_POINTEE = {"void", "char", "float", "double", "bool", "int8_t", "int16_t", "uint16_t", "int32_t",
+                 "uint32_t", "int64_t", "uint64_t", "int", "unsigned", "size_t", "lua_State"}
+
+
+def forwardable(ptype: str, objects: set[str]) -> bool:
+    """A parameter or result the translated body can take as the port has it."""
+    t = ptype.strip()
+    if VALUE_TYPE.match(t) or DATA_POINTER.match(t):
+        return True
+    if re.search(r"\(\s*\*\s*\)\s*\(", t):
+        return True   # a callback: called, never read
+    m = re.fullmatch(r"(?:const\s+)?(?:struct\s+|class\s+)?([\w:]+)\s*((?:\*\s*(?:const\s*)?)+)", t)
+    if not m:
+        return False
+    base = m.group(1).split("::")[-1]
+    return base in PLAIN_POINTEE or base in objects
+
+
+def corpus_arity(addrs: set[str]) -> dict[str, int]:
+    """The parameter count of each address's decompiled signature (build/corpus.jsonl)."""
+    out = {}
+    corpus = ROOT / "build/corpus.jsonl"
+    if not addrs or not corpus.exists():
+        return out
+    want = {f'"addr":"{a}"' for a in addrs}
+    with corpus.open(encoding="utf-8") as f:
+        for line in f:
+            head = line[:40]
+            if not any(w in head for w in want):
+                continue
+            row = json.loads(line)
+            name = re.escape(row.get("name") or f"FUN_{row['addr']}")
+            m = re.search(r"(?:\bFUN_" + row["addr"] + r"|" + name + r")\s*\(([^)]*)\)\s*\{", row.get("c", ""))
+            if m:
+                out[row["addr"]] = len(split_params(m.group(1)))
+    return out
+
+
+MAKER = re.compile(r"Create|Initialize|Init|Startup|Setup")
+
+
+def forwarded_names() -> set[str]:
+    """The port functions already forwarded to their translations."""
+    out = set()
+    for path in (ROOT / "src").rglob("*.cpp"):
+        if path.relative_to(ROOT).as_posix().startswith("src/gen/"):
+            continue
+        out |= set(re.findall(r"^// translated: FUN_[0-9a-f]{9}\n[^\n(]*?([\w:~]+)\(",
+                              path.read_text(encoding="utf-8", errors="replace"), re.M))
+    return out
+
+
+def made_translated(name: str, made: set[str]) -> bool:
+    """A teardown whose object the translation builds (`WorldScene6d8Destroy` beside a forwarded
+    `WorldScene6d8Create`): the reference's own teardown has to take it apart, since the port's
+    never knew its members. The quit-path rule above is for the port's own subsystems."""
+    stem = TEARDOWN.split(name.split("::")[-1])[0]
+    return bool(stem) and any(MAKER.search(m.split("::")[-1]) and m.split("::")[-1].startswith(stem)
+                              for m in made)
+
+
 def plan(log: Path | None):
     # (every tagged stub with --all, not only those a run reached)
-    hits = None if log is None else set(re.findall(r"\[unimplemented\] (.+)$", log.read_text(encoding="utf-8", errors="replace"), re.M))
+    # (__FUNCTION__ names a function in an unnamed namespace "`anonymous-namespace'::Name")
+    hits = None if log is None else {h.replace("`anonymous-namespace'::", "") for h in re.findall(
+        r"\[unimplemented\] (.+?)\s*$", log.read_text(encoding="utf-8", errors="replace"), re.M)}
     out, skipped = [], []
     raw = raw_layout_classes()
-    translated = set(json.loads((ROOT / "src/gen/manifest.json").read_text(encoding="utf-8"))["translated"])
+    objects = raw | laid_out_classes()
+    made = forwarded_names()
+    pending = []
+    manifest = json.loads((ROOT / "src/gen/manifest.json").read_text(encoding="utf-8"))
+    translated = set(manifest["translated"])
+    # what the next translation can bring in: a forwarder is a root (tools/translate.py), and the
+    # link fallbacks below cover the build in between. Not the C runtime or the protection.
+    excluded = set(manifest.get("excluded", {})) | set(manifest.get("native", {}))
     # each translated definition's parameter count (translated.h declares them unprototyped)
     arity = {}
     for f in (ROOT / "src/gen").glob("translated_*.c"):
@@ -125,56 +254,79 @@ def plan(log: Path | None):
             s = stub_at(lines, i)
             if s is None:
                 continue
-            first, last, ret, name, params = s
+            first, last, ret, name, params, const = s
             if hits is not None and name not in hits and name.split("::")[-1] not in hits:
                 continue
             why = None
             if rel.startswith(KEEP_FILES) or name in KEEP_NAMES or m.group(1) in DELIBERATE \
                     or OFFLINE_NAMES.search(name):
                 why = "kept offline / the port's own"
-            elif TEARDOWN.search(name):
+            elif TEARDOWN.search(name) and not made_translated(name, made):
                 why = "teardown (the quit path is the port's)"
-            elif "::" in name and name.rsplit("::", 1)[0] not in raw:
+            elif "::" in name and name.rsplit("::", 1)[0].split("::")[-1] not in objects:
                 why = "a member function (a port object at the reference's offsets)"
-            elif "::" in name and (name.rsplit("::", 1)[1] == name.rsplit("::", 1)[0]
-                                   or "~" in name or (len(lines) > first and lines[first].rstrip().endswith("const {"))):
-                why = "a constructor, destructor or const member"
-            elif ret not in DEFAULT_RESULT and not VALUE_TYPE.match(ret):
+            elif "::" in name and (name.rsplit("::", 1)[1] == name.rsplit("::", 1)[0].split("::")[-1]
+                                   or "~" in name):
+                why = "a constructor or destructor"
+            elif ret not in DEFAULT_RESULT and not forwardable(ret, objects):
                 why = f"returns {ret}"
             else:
-                for p in [p.strip() for p in params.split(",") if p.strip() and p.strip() != "void"]:
-                    ptype = re.sub(r"\s*\w+$", "", p) if " " in p else p
-                    if not VALUE_TYPE.match(ptype) and not DATA_POINTER.match(ptype.strip()):
+                for p in split_params(params):
+                    ptype = param_type(p)
+                    if not forwardable(ptype, objects):
                         why = f"takes {ptype}"
                         break
             if why is None and m.group(1) not in translated:
-                # (the forwarder calls the translated definition: none, and it does not link)
-                why = "not translated"
-            if why is None:
-                # a stub whose signature is not the reference's ("Signature not yet known", a
-                # callback declared `()`): forwarded, the translated body reads the parameters it
-                # was never given (15 of the first 77, 2026-10-18)
-                n = len([p for p in params.split(",") if p.strip() and p.strip() != "void"]) + ("::" in name)
-                if arity.get(m.group(1)) != n:
-                    why = f"signature differs (the port's {n} parameters, the reference's {arity.get(m.group(1))})"
+                if m.group(1) in excluded:
+                    why = "not translated (" + (manifest.get("excluded", {}).get(m.group(1))
+                                                or "native: " + str(manifest["native"][m.group(1)])) + ")"
+                else:
+                    pending.append(m.group(1))
             entry = {"file": rel, "line": i + 1, "addr": m.group(1), "name": name, "ret": ret, "params": params,
-                     "first": first, "last": last}
+                     "first": first, "last": last, "const": const}
             (skipped if why else out).append(entry | ({"why": why} if why else {}))
+    # a stub whose signature is not the reference's ("Signature not yet known", a callback
+    # declared `()`): forwarded, the translated body reads the parameters it was never given
+    # (15 of the first 77, 2026-10-18). What is not translated yet is measured on the corpus.
+    arity |= corpus_arity(set(pending))
+    for e in list(out):
+        n = len(split_params(e["params"])) + ("::" in e["name"])
+        if arity.get(e["addr"]) is not None and arity[e["addr"]] < n:
+            # the port passes more than the reference body reads: a CVar callback's userData, a
+            # registration's Lua state the reference fetches itself. Ghidra's count is of the
+            # parameters used, so the leading ones are handed on and the rest dropped
+            e["pass"] = arity[e["addr"]]
+            continue
+        if arity.get(e["addr"]) != n:
+            out.remove(e)
+            skipped.append(e | {"why": f"signature differs (the port's {n} parameters, the reference's "
+                                       f"{arity.get(e['addr'])})"})
     return out, skipped
 
 
 def forwarder(e: dict) -> list[str]:
-    params = [p.strip() for p in e["params"].split(",") if p.strip() and p.strip() != "void"]
-    # an unnamed parameter (`void FfxInitialize(bool)`) gets a name to pass along, not its type
-    # as one (`(unsigned long long)bool`, C2062)
-    params = [p if re.search(r"[\w\]]\s+\**\s*\w+$|\*\s*\w+$", p) and not VALUE_TYPE.match(p) and not DATA_POINTER.match(p)
-              else f"{p} p{k}" for k, p in enumerate(params)]
+    params = split_params(e["params"])
+    # an unnamed parameter (`void FfxInitialize(bool)`, `CVar*`, `void (*)()`) gets a name to pass
+    # along, not its type as one (`(unsigned long long)bool`, C2062)
+    named = []
+    for k, p in enumerate(params):
+        if param_name(p) is not None:
+            named.append(p)
+        elif re.search(r"\(\s*\*\s*\)", p):
+            named.append(re.sub(r"\(\s*\*\s*\)", f"(*p{k})", p, count=1))
+        else:
+            named.append(f"{p} p{k}")
+    params = named
     e = e | {"params": ", ".join(params) if params else e["params"]}
-    names = [re.search(r"(\w+)$", p).group(1) for p in params]
-    types = [re.sub(r"\s*\w+$", "", p) for p in params]
+    names = [param_name(p) for p in params]
+    types = [param_type(p) for p in params]
     if "::" in e["name"]:
-        # a raw-layout class's member: the object first, as the reference passes it
+        # a member of a class at the reference's layout: the object first, as the reference passes it
         names, types = ["this"] + names, ["void*"] + types
+    dropped = []
+    if e.get("pass") is not None:
+        dropped = [n for n in names[e["pass"]:] if n != "this"]
+        names, types = names[:e["pass"]], types[:e["pass"]]
     # the translated definitions take a float promoted to double (their callers are unprototyped)
     ctypes = ["double" if t.strip().endswith(("float", "double")) else "unsigned long long" for t in types]
     args = ", ".join(f"({c}){n}" for c, n in zip(ctypes, names))
@@ -185,11 +337,14 @@ def forwarder(e: dict) -> list[str]:
         do, fail = f"{call};", ""
     elif ret == "bool":
         do, fail = f"return ({call} & 0xff) != 0;", "return false;"
+    elif ret.endswith("*"):
+        do, fail = f"return reinterpret_cast<{ret}>({call});", "return nullptr;"
     else:
         do, fail = f"return static_cast<{ret}>({call});", f"return {DEFAULT_RESULT.get(ret, f'static_cast<{ret}>(0)')};"
     return [decl,
             f"// translated: FUN_{e['addr']}",
-            f"{ret} {e['name']}({e['params']}) {{",
+            f"{ret} {e['name']}({e['params']}){' const' if e.get('const') else ''} {{",
+            *[f"    (void){n};" for n in dropped],
             "    __try {",
             f"        {do}",
             f"    }} __except (GenFault(0x{e['addr']}ull, GetExceptionInformation())) {{",
@@ -266,6 +421,7 @@ def main():
     ap.add_argument("--log")
     ap.add_argument("--all", action="store_true", help="every tagged stub, reached or not")
     ap.add_argument("--apply", action="store_true")
+    ap.add_argument("--list", action="store_true", help="every stub with what is done with it")
     ap.add_argument("--link-fallbacks", action="store_true",
                     help="only refresh the link fallbacks of the files that call translated code")
     args = ap.parse_args()
@@ -282,6 +438,11 @@ def main():
         reasons.setdefault(s["why"].split(" (")[0] if not s["why"].startswith(("takes", "returns")) else s["why"].split()[0], []).append(s["name"])
     for k, v in sorted(reasons.items(), key=lambda kv: -len(kv[1])):
         print(f"  {len(v):3} {k}: {', '.join(v[:6])}{' ...' if len(v) > 6 else ''}")
+    if args.list:
+        for e in out:
+            print(f"  fwd  {e['file']}:{e['line']}  {e['name']}  FUN_{e['addr']}")
+        for e in skipped:
+            print(f"  keep {e['file']}:{e['line']}  {e['name']}  FUN_{e['addr']}  -- {e['why']}")
     if args.apply:
         apply(out)
         link_fallbacks()

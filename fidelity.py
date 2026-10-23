@@ -1079,7 +1079,14 @@ def main() -> None:
         rf, pf, rseq, pseq, kept = m["rf"], m["pf"], m["rseq"], m["pseq"], m["kept"]
         fields, consts, stub_sites, parts, score = m["fields"], m["consts"], m["stub_sites"], m["parts"], m["score"]
         same = rf.shape == pf.shape and len(rf.shape) > 0
-        if t["stub"] and not t["partial"]:
+        raw = port_sequence(pva, 0, {pva}, [], [], flatten=False)
+        # a port that calls its own address's translation (FUN_<r>, inside a guard) runs the
+        # reference function's translated code, whatever its own body makes: scored as a port it
+        # came out 0.0 for doing nothing itself, and those filled the report's "largest gaps"
+        # (GxuSlugCountGeometry, pm::Instance::CreateDevice, ..., 2026-10-22)
+        own = f"FUN_{r:x}"
+        forwards = any(isinstance(x, tuple) and short_name(proc_at.get(x[1], (0, ""))[1]) == own for x in raw)
+        if (t["stub"] and not t["partial"]) or forwards:
             kind = "stub"
         elif t["stub"]:
             kind = "partial"
@@ -1088,7 +1095,6 @@ def main() -> None:
         missing = [x for x, k in zip(rseq, kept) if not k]
         # tag suggestions: a gap where the reference calls something untagged and the port
         # calls an untagged function of its own, one for one
-        raw = port_sequence(pva, 0, {pva}, [], [], flatten=False)
         pairs = lcs_pairs(rseq, raw)
         bounds = [(-1, -1)] + pairs + [(len(rseq), len(raw))]
         for (i0, j0), (i1, j1) in zip(bounds, bounds[1:]):

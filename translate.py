@@ -1496,6 +1496,38 @@ ALLOCA_CALLEE = re.compile(r"CALLF\([^,()]+(?:\([^()]*\))?[^,()]*, (FUN_[0-9a-f]
                            r"|\(\*\(code \*\)&(\w+)\)\(")
 
 
+_CALLSITES: dict[int, list] | None = None
+
+
+def alloca_virtual_this(body: str) -> str:
+    """A virtual call in a function that moved its stack pointer, shown with no arguments at all:
+    `pcVar28 = *(code **)(*plVar9 + 0x40); *(undefined8 *)(puVar26 + -8) = 0x1412f69ec;
+    puVar18 = (*pcVar28)();`. The decompiler did not apply the call site's signature there (it
+    has no stack to place arguments on), and the reference passes the object in rcx: callsites.json
+    records the site, the instruction just before the pushed return address, as taking at least
+    one integer. Called without it, FUN_1412f3750's world step handed its garbage result to
+    FUN_141380810, which faulted on the first world frame, 2026-10-22."""
+    global _CALLSITES
+    if "(*pcVar" not in body:
+        return body
+    if _CALLSITES is None:
+        cf = ROOT / "build/facts/callsites.json"
+        _CALLSITES = {int(k, 16): v for k, v in json.loads(cf.read_text())["calls"].items()} if cf.exists() else {}
+    pattern = re.compile(r"^([ \t]*)(\w+) = \*\(code \*\*\)\(\*(\w+) \+ (0x[0-9a-f]+)\);\n"
+                         r"([ \t]*\*\(undefined8 \*\)\(\w+ \+ -8\) = 0x(14[0-9a-f]{7});\n)"
+                         r"([^\n;]*\(\*(\w+)\)\()\);", re.M)
+
+    def sub(m):
+        if m.group(8) != m.group(2):
+            return m.group(0)
+        ret = int(m.group(6), 16)
+        site = next((ret - k for k in range(2, 8) if ret - k in _CALLSITES), None)
+        if site is None or not _CALLSITES[site] or _CALLSITES[site][0][0] != "i":
+            return m.group(0)
+        return f"{m.group(1)}{m.group(2)} = *(code **)(*{m.group(3)} + {m.group(4)});\n{m.group(5)}{m.group(7)}{m.group(3)});"
+    return pattern.sub(sub, body)
+
+
 def alloca_call_args(body: str) -> str:
     """A call in a function that moved its stack pointer (an alloca, `__chkstk` of a size known only
     at run time): the decompiler lost track of rsp, and writes the outgoing stack arguments through
@@ -1508,6 +1540,7 @@ def alloca_call_args(body: str) -> str:
     (`P + 0x20`, `P + 0x28`, ...), as many as the callee takes."""
     if "+ -8) = 0x14" not in body:
         return body
+    body = alloca_virtual_this(body)
     counts = param_counts()
     out, at = [], 0
     for m in ALLOCA_RETADDR.finditer(body):
@@ -1832,6 +1865,347 @@ def stack_allocations(body: str) -> str:
     return out[:brace] + "\n  unsigned char *gen_alloca_p = 0;" + out[brace:]
 
 
+SIGNED_OF = {"1": "int8_t", "2": "int16_t", "4": "int32_t", "8": "int64_t"}
+UNDEFINED_LOCAL = re.compile(r"^[ \t]*undefined([1248]) (\w+)(?: = \{0\})?;", re.M)
+# a test only a signed comparison is written as: Ghidra prints a negative literal for INT_SLESS and
+# friends, and an unsigned one in hex (`-1 < DAT_x` is "DAT_x >= 0"; `x < 0` is never unsigned).
+# The literal is a whole side of the comparison: `-1 < x`, `x < -5`, `x < 0`, `0 > x`
+SIGNED_LITERAL_LEFT = re.compile(r"(-\d+|(?<![\w.])0(?![x\d.]))\s*(<=?|>=?)(?![<>=])")
+SIGNED_LITERAL_RIGHT = re.compile(r"(?<![<>])(<=?|>=?)\s*(-\d+|0(?![x\d.]))\b(?!\s*[\w(.\[*/%+-])")
+
+
+def operand_end(s: str, i: int) -> int:
+    """Where the operand of a relational operator that starts at s[i] ends: the first token at its
+    own nesting level that binds looser than `<` (comparison, equality, bitwise, logical,
+    conditional, assignment, comma, statement end) or a closing bracket it did not open."""
+    depth = 0
+    j = i
+    while j < len(s):
+        c = s[j]
+        if c in "([":
+            depth += 1
+        elif c in ")]":
+            if depth == 0:
+                return j
+            depth -= 1
+        elif depth == 0:
+            if c in ",;?:{}":
+                return j
+            if c in "<>":
+                if s[j:j + 2] in ("<<", ">>"):
+                    j += 2
+                    continue
+                if c == ">" and j > 0 and s[j - 1] == "-":
+                    j += 1
+                    continue
+                return j
+            if c == "=" or (c == "!" and s[j + 1:j + 2] == "="):
+                return j
+            if c in "&|^":
+                k = j - 1
+                while k >= i and s[k] in " \t\n":
+                    k -= 1
+                if k >= i and (s[k].isalnum() or s[k] in "_)]"):
+                    return j
+        j += 1
+    return j
+
+
+def operand_start(s: str, i: int) -> int:
+    """The same backwards: where the operand that ends just before s[i] begins."""
+    depth = 0
+    j = i - 1
+    while j >= 0:
+        c = s[j]
+        if c in ")]":
+            depth += 1
+        elif c in "([":
+            if depth == 0:
+                return j + 1
+            depth -= 1
+        elif depth == 0:
+            if c in ",;?:{}":
+                return j + 1
+            if c in "<>":
+                if j > 0 and s[j - 1] == c:
+                    j -= 2
+                    continue
+                if c == ">" and j > 0 and s[j - 1] == "-":
+                    j -= 2
+                    continue
+                return j + 1
+            if c == "=":
+                return j + 1
+            if c in "&|^":
+                if j > 0 and s[j - 1] == c and c != "^":
+                    return j + 1
+                k = j - 1
+                while k >= 0 and s[k] in " \t\n":
+                    k -= 1
+                if k >= 0 and (s[k].isalnum() or s[k] in "_)]"):
+                    return j + 1
+        j -= 1
+    return 0
+
+
+def signed_sides(body: str) -> list[tuple[int, int]]:
+    """The spans of the expressions a signed comparison compares with a literal (SIGNED_LITERAL_*)."""
+    spans = []
+    for m in SIGNED_LITERAL_LEFT.finditer(body):
+        k = m.start() - 1
+        while k >= 0 and body[k] in " \t\n":
+            k -= 1
+        # (the literal is the whole left side, not the end of `x + -5 < y`)
+        if k >= 0 and (body[k].isalnum() or body[k] in "_)]"):
+            continue
+        if m.group(1) == "0" and m.group(2) not in (">", "<="):
+            continue
+        spans.append((m.end(), operand_end(body, m.end())))
+    for m in SIGNED_LITERAL_RIGHT.finditer(body):
+        if m.group(2) == "0" and m.group(1) not in ("<", ">="):
+            continue
+        spans.append((operand_start(body, m.start()), m.start()))
+    return spans
+
+
+def signed_tests(body: str, params=()) -> str:
+    """An undefinedN value in a signed comparison, read as the signed type of its width.
+
+    Ghidra's `undefined4` is sign-agnostic, so it prints a signed test of one without a cast:
+    `if (-1 < DAT_142d23a20)`. Ghidra.h has to give the typedef a signedness, and it is unsigned,
+    which made each such test a constant: `-1 < (unsigned)x` is never true and `x < 0` never is
+    either, so the compiler deleted what they guarded. 411 functions had one (2026-10-22): among
+    them FUN_14192eec0, next to the frame end, compiled to `return 0` from 253 bytes, and the
+    fidelity report's 0.0 translations were mostly this. The operand is a global
+    (`REFG(undefinedN, a)`), a load (`*(undefinedN *)p`, possibly parenthesized) or an undefinedN
+    local; it is retyped there and nowhere else. The `_Init_thread_epoch` guards are one case."""
+    und_locals = {v: n for n, v in UNDEFINED_LOCAL.findall(body)}
+    for p in params:
+        pm = re.fullmatch(r"\s*undefined([1248])\s+(\w+)\s*", p)
+        if pm:
+            und_locals[pm.group(2)] = pm.group(1)
+
+    def close(s: str, i: int) -> int:
+        """The index past the parenthesized group starting at s[i] == '('."""
+        depth = 0
+        for j in range(i, len(s)):
+            if s[j] == "(":
+                depth += 1
+            elif s[j] == ")":
+                depth -= 1
+                if depth == 0:
+                    return j + 1
+        return -1
+
+    operand = re.compile(r"REFG\(undefined([1248]), (0x[0-9a-f]+)\)|\*\(undefined([1248]) \*\)"
+                         + (r"|(?<![\w.&])(?<!->)(" + "|".join(map(re.escape, und_locals)) + r")\b(?!\s*(?:[\[.(]|->|=[^=]))"
+                            if und_locals else ""))
+    # (anywhere in a side of a signed comparison: `-1 < (param_1 - *(undefined4 *)g) + -300000`,
+    # FUN_14192ebc0's idle timer, is signed arithmetic that one unsigned term made unsigned)
+    spans = sorted(signed_sides(body))
+    starts = [lo for lo, _ in spans]
+
+    def in_signed_side(lo: int, hi: int) -> bool:
+        k = bisect.bisect_right(starts, lo) - 1
+        while k >= 0:
+            if spans[k][0] <= lo and hi <= spans[k][1]:
+                return True
+            k -= 1
+            if k >= 0 and lo - spans[k][0] > 4000:
+                break
+        return False
+
+    out, at = [], 0
+    for m in operand.finditer(body):
+        if m.start() < at:
+            continue
+        start, end = m.start(), m.end()
+        if m.group(1):
+            width, new = m.group(1), f"REFG({SIGNED_OF[m.group(1)]}, {m.group(2)})"
+        elif m.group(3):
+            width = m.group(3)
+            if end < len(body) and body[end] == "(":
+                end = close(body, end)
+            else:
+                ident = re.match(r"\w+", body[end:])
+                end = end + ident.end() if ident else -1
+            if end < 0:
+                continue
+            new = f"*({SIGNED_OF[width]} *)" + body[m.end():end]
+        else:
+            width = und_locals[m.group(4)]
+            new = f"(({SIGNED_OF[width]}){m.group(4)})"
+        # (wrapped in its own parentheses, the test is on the group: `-1 < (*(undefined4 *)p)`)
+        lo, hi = start, end
+        while lo > 0 and body[lo - 1] == "(" and hi < len(body) and body[hi] == ")" and close(body, lo - 1) == hi + 1:
+            lo, hi = lo - 1, hi + 1
+        if not in_signed_side(lo, hi):
+            continue
+        # (its address, `&REFG(undefined1, a) + i`, is no value read)
+        k = lo - 1
+        while k >= 0 and body[k] in " \t\n":
+            k -= 1
+        if k >= 0 and body[k] == "&":
+            k2 = k - 1
+            while k2 >= 0 and body[k2] in " \t\n":
+                k2 -= 1
+            cast = re.search(r"\((?:unsigned |signed )?\w+(?: \*+)?\)$", body[max(0, k2 - 40):k2 + 1])
+            if cast or not (k2 >= 0 and (body[k2].isalnum() or body[k2] in "_)]")):
+                continue
+        # (under a cast, `(int)uVar4 < 0`, the test is on the cast's type: already signed)
+        if re.search(r"\((?:unsigned |signed )?\w+(?: \*+)?\)\s*$", body[max(0, lo - 40):lo]):
+            continue
+        out.append(body[at:start])
+        out.append(new)
+        at = end
+    out.append(body[at:])
+    return "".join(out)
+
+
+UNDEF_DECL = re.compile(r"^[ \t]*undefined([248]) (\w+)(?: = \{0\})?;", re.M)
+
+
+def undefined_operand(body: str, i: int, und_locals: dict) -> tuple[int, int, str] | None:
+    """The undefinedN operand that starts at body[i] (after whitespace): (start, end, N), or None.
+    A global (`REFG(undefinedN, a)`), a load (`*(undefinedN *)p`, `(*(undefinedN *)p)`), an
+    element (`((undefinedN *)(p))[k]`) or an undefinedN local / parameter."""
+    while i < len(body) and body[i] in " \t\n":
+        i += 1
+    start = i
+
+    def group(j):            # past the bracketed group that opens at body[j]
+        depth = 0
+        for k in range(j, len(body)):
+            if body[k] in "([":
+                depth += 1
+            elif body[k] in ")]":
+                depth -= 1
+                if depth == 0:
+                    return k + 1
+        return -1
+
+    m = re.compile(r"REFG\(undefined([248]), 0x[0-9a-f]+\)").match(body, i)
+    if m:
+        return start, m.end(), m.group(1)
+    m = re.compile(r"\*\(undefined([248]) \*\)").match(body, i)
+    if m:
+        j = m.end()
+        if j < len(body) and body[j] == "(":
+            end = group(j)
+        else:
+            ident = re.compile(r"\w+").match(body, j)
+            end = ident.end() if ident else -1
+        return (start, end, m.group(1)) if end > 0 else None
+    if body.startswith("(", i):
+        end = group(i)
+        if end < 0:
+            return None
+        inner = body[i + 1:end - 1].strip()
+        # `(*(undefinedN *)p)`: the load is the whole group, its pointer one primary to the end
+        m = re.match(r"\*\(undefined([248]) \*\)\s*", inner)
+        if m:
+            rest = inner[m.end():]
+            if re.fullmatch(r"\w+", rest):
+                return start, end, m.group(1)
+            if rest.startswith("("):
+                depth = 0
+                for q, ch in enumerate(rest):
+                    depth += {"(": 1, ")": -1}.get(ch, 0)
+                    if depth == 0:
+                        if q == len(rest) - 1:
+                            return start, end, m.group(1)
+                        break
+            return None
+        m = re.fullmatch(r"\(undefined([248]) \*\)\s*\(.*\)", inner, re.S)
+        if m and end < len(body) and body[end] == "[":
+            end2 = group(end)
+            return (start, end2, m.group(1)) if end2 > 0 else None
+        return None
+    m = re.compile(r"[A-Za-z_]\w*").match(body, i)
+    if m and m.group(0) in und_locals and not re.compile(r"\s*(?:[\[(.]|->)").match(body, m.end()):
+        return start, m.end(), und_locals[m.group(0)]
+    return None
+
+
+def undefined_float_views(body: str, params=()) -> str:
+    """An undefinedN value Ghidra uses as a float is its bits, not a number to convert.
+
+    Ghidra's `undefined` types say nothing of the value's kind, so a float held in one is printed
+    through a cast: `(float)local_148`, the low four bytes of an 8-byte slot read as a float
+    (`movss`), and `local_res20._4_4_ + local_148._4_4_` handed to a float parameter, two floats
+    added (`addss`). A real integer conversion types its operand as an integer (`(float)(int)x`),
+    so an undefined one never is. In C the first converted the 64-bit integer, and the second
+    added two bit patterns: the loading screen's letterbox reached LoadingScreenSetViewport as
+    [1.04e9 1 0 1.4e-45], the quad landed off the screen and the loading screen stayed black
+    (FUN_14022ee80, 2026-10-23; 6829 such casts in 797 functions). `(float)` and `(double)` on an
+    undefinedN operand take its bits; arithmetic on undefined operands inside a float argument
+    (GEN_ARG_FLOAT / GEN_ARG_DOUBLE) is done on their bits as floats."""
+    und_locals = {v: n for n, v in UNDEF_DECL.findall(body)}
+    for p in params:
+        pm = re.fullmatch(r"\s*undefined([248])\s+(\w+)\s*", p)
+        if pm:
+            und_locals[pm.group(2)] = pm.group(1)
+
+    def view(kind: str, op: str, n: str) -> str:
+        if kind == "float":
+            return f"gen_bits2f((unsigned int)({op}))"
+        return f"gen_bits2d((unsigned long long)({op}))" if n == "8" else f"(double)gen_bits2f((unsigned int)({op}))"
+
+    out, at = [], 0
+    for m in re.finditer(r"\((float|double)\)\s*", body):
+        if m.start() < at:
+            continue
+        found = undefined_operand(body, m.end(), und_locals)
+        if found is None:
+            continue
+        s, e, n = found
+        out.append(body[at:m.start()])
+        out.append(view(m.group(1), body[s:e], n))
+        at = e
+    out.append(body[at:])
+    body = "".join(out)
+
+    # arithmetic on undefined operands passed as a float
+    out, at = [], 0
+    for m in re.finditer(r"GEN_ARG_(FLOAT|DOUBLE)\(", body):
+        if m.start() < at:
+            continue
+        depth, k = 1, m.end()
+        while k < len(body) and depth:
+            depth += {"(": 1, ")": -1}.get(body[k], 0)
+            k += 1
+        inner = body[m.end():k - 1]
+        # (top-level arithmetic only, and no integer literal in it: Ghidra prints a float
+        # constant with its point, so `x + 1` is an integer sum)
+        flat, d = [], 0
+        for ch in inner:
+            d += {"(": 1, ")": -1, "[": 1, "]": -1}.get(ch, 0)
+            flat.append(ch if d == 0 else " ")
+        flat = "".join(flat)
+        if not re.search(r"[\w)\]]\s*[-+/*]\s*", flat) or re.search(r"(?<![\w.])(?:0x[0-9a-f]+|\d+)(?![\w.])", flat):
+            continue
+        kind = "float" if m.group(1) == "FLOAT" else "double"
+        pieces, j, ok = [], 0, False
+        while j < len(inner):
+            found = undefined_operand(inner, j, und_locals)
+            if found is not None and (found[0] == 0 or not (inner[found[0] - 1].isalnum() or inner[found[0] - 1] in "_.")):
+                s, e, n = found
+                pieces.append(inner[j:s])
+                pieces.append(view(kind, inner[s:e], n))
+                j, ok = e, True
+                continue
+            pieces.append(inner[j])
+            j += 1
+        if not ok:
+            continue
+        out.append(body[at:m.end()])
+        out.append("".join(pieces))
+        out.append(")")
+        at = k
+    out.append(body[at:])
+    return "".join(out)
+
+
 def mistyped_float_slots(body: str) -> str:
     """A stack slot Ghidra typed float that the code stores integers into is an integer slot.
 
@@ -2131,6 +2505,12 @@ def dead_lost_stores(text: str) -> str:
         var = m.group(1)
         k = m.end()
         dead = False
+        # the nesting relative to the store, and the shallowest it has been since: a new value in
+        # a block opened after the store (an `if` arm, an `else`) is set on some paths only, so it
+        # proves nothing. FUN_1405896d0's binary search lost its midpoint, `puVar7 = in_RAX;`
+        # before `if (*in_RAX < key) { ...; puVar7 = puVar4; }`, and the DB2 lookup's insert
+        # spun forever on Enter World (2026-10-22)
+        depth = low = 0
         while True:
             n = re.search(rf"\b{var}\b|[{{}}]|\bgoto\b|^\s*\w+:", body[k:], re.M)
             if n is None:
@@ -2140,16 +2520,19 @@ def dead_lost_stores(text: str) -> str:
             if tok == "}":
                 if closes.get(at) in ("while", "for", "do"):
                     break
+                depth -= 1
+                low = min(low, depth)
                 k = at + 1
                 continue
             if tok == "{":
+                depth += 1
                 k = at + 1
                 continue
             if tok != var:
                 break
-            # the variable again: dead only if this is a whole new value of it
+            # the variable again: dead only if this is a whole new value of it, on every path
             stmt = re.match(rf"{var}\s*=(?!=)([^;]*);", body[at:])
-            dead = bool(stmt) and not re.search(rf"\b{var}\b", stmt.group(1)) and \
+            dead = depth == low and bool(stmt) and not re.search(rf"\b{var}\b", stmt.group(1)) and \
                 body[max(0, at - 40):at].rstrip().endswith((";", "{", "}"))
             break
         if dead:
@@ -6390,6 +6773,16 @@ class Translator:
         # ENTER_ENCRYPTED_MODE failed and the client dropped the world connection (2026-10-20)
         body = re.sub(r"&\s*(_?UNK_([0-9a-f]{9}))(?=\s*[+-][^+-=>])",
                       lambda m: f"(undefined1 *)&{m.group(1)}", body)
+        # and indexed, `(&DAT_x)[i]`, the same: Ghidra's element is its own type for x, a byte for
+        # one the export does not type. Typed by the store that fills it (`DAT_1430a5c64 = 0x171e`,
+        # undefined2), RenderTargetFormats' depth column (FUN_1412af6f0, 5-byte rows) was read
+        # 2*5 bytes a row apart: the world's "Main Depth" format came out 0, no depth target was
+        # made, and the world's draw faulted on it every frame - no 3D at all (2026-10-23)
+        body = re.sub(r"\(\s*&\s*(_?DAT_([0-9a-f]{9}))\s*\)(?=\s*\[)",
+                      lambda m: m.group(0) if int(m.group(2), 16) in self.refdata else f"((undefined1 *)&{m.group(1)})",
+                      body)
+        body = re.sub(r"\(\s*&\s*(_?UNK_([0-9a-f]{9}))\s*\)(?=\s*\[)",
+                      lambda m: f"((undefined1 *)&{m.group(1)})", body)
         # `p != &DAT_x` that ends a walk over the reference's own array just below x is the
         # array's bound, not the port global that happens to follow it: FUN_1413cf260 walked
         # 0x1430ad328.. until the address of g_wmoPortalInteriorFade, ran off and faulted (the
@@ -6452,7 +6845,11 @@ class Translator:
         # each read as zero (Logon's platform FourCC came out empty, 790 sites, 2026-10-20)
         body = re.sub(r"(_Init_thread_epoch < )REFG\(undefined4, ", r"\1REFG(int, ", body)
         body = re.sub(r"(_Init_thread_epoch < \(?)\*\(undefined4 \*\)", r"\1*(int *)", body)
+        # and every other signed test of an undefinedN value (signed_tests)
+        body = signed_tests(body, params)
         body = self.float_arguments(body, params)
+        # an undefined value used as a float is its bits (undefined_float_views)
+        body = undefined_float_views(body, params)
         # callers are unprototyped, so a float argument arrives promoted to double
         decls, narrow = [], []
         for k, p in enumerate(params):
