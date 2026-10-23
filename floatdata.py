@@ -18,7 +18,7 @@ import capstone
 
 from wowbin import Binary
 
-ROOT = Path(__file__).resolve().parent.parent
+from project import ROOT
 CACHE = ROOT / "build" / "refdata-float.json"
 
 # Only what does floating-point arithmetic, compares, converts or moves one scalar says a float.

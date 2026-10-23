@@ -9,7 +9,7 @@ import re
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+from project import ROOT
 CALL = re.compile(r"\b(?:FUN|thunk_FUN)_([0-9a-f]{9})\b")
 
 

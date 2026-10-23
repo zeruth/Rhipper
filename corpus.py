@@ -32,7 +32,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+import project
+from project import ROOT, HERE
 BUILD = ROOT / "build"
 FACTS = BUILD / "facts"
 CORPUS = BUILD / "corpus.jsonl"
@@ -49,16 +50,15 @@ _GOTO = re.compile(r"\bgoto\s+([A-Za-z_]\w*)\s*;")
 # ---- export --------------------------------------------------------------------------------
 
 def export() -> None:
-    ghidra = glob.glob(r"C:\Users\tyler\tools\ghidra_*")
-    if not ghidra:
-        sys.exit("no Ghidra install under C:\\Users\\tyler\\tools")
+    ghidra = [project.ghidra_install()]
     BUILD.mkdir(exist_ok=True)
     tmp = CORPUS.with_suffix(".jsonl.new")
     cmd = [os.path.join(ghidra[0], "support", "analyzeHeadless.bat"),
-           r"C:\Users\tyler\tools\ghidra-projects", "FrostLite", "-process", "WowClassic-clean.exe",
-           "-noanalysis", "-scriptPath", str(ROOT / "tools" / "ghidra"),
+           project.CONFIG["ghidra"]["projects"], project.CONFIG["ghidra"]["project"] or project.NAME, "-process",
+           project.CONFIG["ghidra"]["program"] or project.EXE.name,
+           "-noanalysis", "-scriptPath", str(HERE / "ghidra"),
            "-postScript", "ExportDecompAll.java", str(tmp)]
-    env = dict(os.environ, GHIDRA_HEADLESS_MAXMEM="14G")
+    env = dict(os.environ, GHIDRA_HEADLESS_MAXMEM=project.CONFIG["ghidra"]["maxmem"])
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
     for line in proc.stdout:
         if "ExportDecompAll" in line or "ERROR" in line:

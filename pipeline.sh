@@ -1,54 +1,61 @@
 #!/bin/bash
-# The whole pipeline, from the binary to src/gen, in three steps:
+# The whole pipeline, from the binary to the project's generated sources, in three steps:
 #
-#   1. facts: every extractor over WowClassic-clean.exe -> build/facts/*.json (in parallel)
+#   1. facts: every extractor over the reference binary -> build/facts/*.json (in parallel)
 #   2. Ghidra, one session: apply the facts, export the data and the corpus
-#   3. translate: tools/translate.py --handlers --depth 24 --fix
+#   3. translate: translate.py with the project's translate_args (rhipper.json)
 #
-#   bash tools/pipeline.sh              all three
-#   bash tools/pipeline.sh --no-ghidra  facts and translate (the corpus as it is)
-#   bash tools/pipeline.sh --facts      facts only
+#   bash path/to/Rhipper/pipeline.sh              all three
+#   bash path/to/Rhipper/pipeline.sh --no-ghidra  facts and translate (the corpus as it is)
+#   bash path/to/Rhipper/pipeline.sh --facts      facts only
 #
-# The prototypes come from tools/protos.py (parameters and results read off the instructions)
-# and are applied by ApplyFacts; the Decompiler Parameter ID pass (CommitPrototypes.java) is gone.
+# Run from inside the project (or with RHIPPER_PROJECT set): project.py finds its rhipper.json.
+# The prototypes come from protos.py (parameters and results read off the instructions) and are
+# applied by ApplyFacts; the Decompiler Parameter ID pass (CommitPrototypes.java) is gone.
 set -e
-cd "$(dirname "$0")/.."
+RH="$(cd "$(dirname "$0")" && pwd)"
+eval "$(python "$RH/project.py" --sh)"
+cd "$ROOT"
 start=$(date +%s)
 stamp() { echo "[$(( $(date +%s) - start ))s] $*"; }
 
 stamp "facts"
-# independent of one another
+# independent of one another (and the project's own extractors, rhipper.json "facts_extra")
 pids=()
-for t in pieces vtables srcrefs luabind cregister typetags noreturn globalptrs switches; do
-  ( python "tools/$t.py" 2>&1 | tail -1 | sed "s/^/  $t: /" ) &
+for t in pieces vtables srcrefs cregister typetags noreturn globalptrs switches; do
+  ( python "$RH/$t.py" 2>&1 | tail -1 | sed "s/^/  $t: /" ) &
+  pids+=($!)
+done
+for f in $FACTS_EXTRA; do
+  ( python "$f" 2>&1 | tail -1 | sed "s/^/  $(basename "$f" .py): /" ) &
   pids+=($!)
 done
 for p in "${pids[@]}"; do wait "$p"; done
 # (the return-address checks after the switches: their tables' bytes are no jumps over junk)
-python tools/retcheck.py 2>&1 | tail -1 | sed "s/^/  retcheck: /"
+python "$RH/retcheck.py" 2>&1 | tail -1 | sed "s/^/  retcheck: /"
 # these read the facts above (imports, vtables, noreturn, retcheck); protos.py also writes
 # varargs.json, the variadic functions read off their prologues
-( python tools/funcptrs.py 2>&1 | tail -1 | sed "s/^/  funcptrs: /" ) &
+( python "$RH/funcptrs.py" 2>&1 | tail -1 | sed "s/^/  funcptrs: /" ) &
 p1=$!
-python tools/protos.py 2>&1 | tail -2 | sed "s/^/  protos: /"
+python "$RH/protos.py" 2>&1 | tail -2 | sed "s/^/  protos: /"
 # (the integer positions the current corpus shows as floats, against those prototypes: sticky)
-python tools/intparams.py 2>&1 | tail -1 | sed "s/^/  intparams: /"
+python "$RH/intparams.py" 2>&1 | tail -1 | sed "s/^/  intparams: /"
 wait $p1
 # (the registers each function leaves alone, through the switches above, and protos.py's xmm0:
 # ApplyFacts gives them their keep conventions)
-python tools/preserved.py 2>&1 | tail -2 | sed "s/^/  preserved: /"
+python "$RH/preserved.py" 2>&1 | tail -2 | sed "s/^/  preserved: /"
 [ "$1" = "--facts" ] && { stamp "done"; exit 0; }
 
 if [ "$1" != "--no-ghidra" ]; then
   stamp "ghidra: apply + export"
-  bash tools/ghidra/ghidra.sh all
+  bash "$RH/ghidra/ghidra.sh" all
 fi
 
 stamp "translate"
 # (the arguments callees return in other registers, for the reads the new corpus has of them)
-python tools/leftover.py 2>&1 | tail -2 | sed "s/^/  leftover: /"
+python "$RH/leftover.py" 2>&1 | tail -2 | sed "s/^/  leftover: /"
 # (what still decodes as junk in the new corpus, and the entries that are no function at all, the
 # padding between two that Ghidra made functions of: translate.py leaves both out)
-python tools/junkscan.py 2>&1 | tail -4 | sed "s/^/  junkscan: /"
-python tools/translate.py --handlers --all --depth 24 --fix --jobs 4
+python "$RH/junkscan.py" 2>&1 | tail -4 | sed "s/^/  junkscan: /"
+python "$RH/translate.py" $TRANSLATE_ARGS
 stamp "done"

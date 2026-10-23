@@ -31,7 +31,7 @@ import re
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+from project import ROOT
 KEEP_FILES = ("src/services/", "src/client/CrashReport.cpp", "src/storm/ErrorReport.cpp", "src/storm/Memory.cpp",
               "src/client/Telemetry", "src/glue/ScriptAPIStubs.cpp")
 VALUE_TYPE = re.compile(r"^(?:const\s+)?(?:bool|int|unsigned|unsigned int|int(?:8|16|32|64)_t|uint(?:8|16|32|64)_t|"

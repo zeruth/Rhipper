@@ -23,7 +23,7 @@ from pathlib import Path
 
 from translate import PARAM_DECL, PORT_FNPTR, PORT_GLOBAL, port_globals
 
-ROOT = Path(__file__).resolve().parent.parent
+from project import ROOT
 DECL = re.compile(r"^(?!(?:struct|class|union|enum|typedef|using|return|namespace|template|static_assert|extern \"C\")\b)"
                   r"[A-Za-z_][\w:<>,\t \*&()]*?[\t \*&)](\w+)(?:\[[^\]\n]*\])?(?:[\t ]*(?:=|\{|\()[^;\n]*)?;\s*(//.*)?$")
 ADDR = re.compile(r"\b(?:DAT_|0x)(14[0-9a-f]{7})\b")

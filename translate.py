@@ -47,12 +47,13 @@ import fidelity as F
 import floatdata
 import lift
 import v16
-import aegis
+import project
 from corpus import load_corpus, strip_retcheck
 from wowbin import Binary
 
-ROOT = Path(__file__).resolve().parent.parent
-GEN = ROOT / "src/gen"
+from project import ROOT, GEN
+# the project's protection layer (an anti-tamper runtime and the guards it inlines), if it has one
+aegis = project.plugin("protection")
 
 
 def write_out(path: Path, text: str, **kw) -> None:
@@ -76,6 +77,9 @@ def write_out(path: Path, text: str, **kw) -> None:
             time.sleep(0.25)
 MANIFEST = GEN / "manifest.json"
 REFDATA = ROOT / "build/refdata.jsonl"
+# the project's cmake build (rhipper.json "build")
+BUILD_DIR = project.path(project.CONFIG["build"]["dir"])
+BUILD_CONFIG = project.CONFIG["build"]["config"]
 DEMOTED = GEN / "demoted.json"       # functions the compile loop found the translator cannot take
 PORT_CACHE = ROOT / "build/translate-port.json"  # the port's functions, from its last good link
 # corpus functions to a file's address range (about a quarter of them translated): ~195 files
@@ -4182,7 +4186,7 @@ def scope_at(text: str, pos: int) -> str:
 def port_globals() -> dict[int, dict]:
     """The reference globals the port holds, by the address comment on their declaration."""
     out = {}
-    for p in (ROOT / "src").rglob("*.[ch]pp"):
+    for p in (p for top in project.SOURCES for p in top.rglob("*.[ch]pp")):
         if "gen" in p.relative_to(ROOT).parts:
             continue
         text = p.read_text(encoding="utf-8", errors="replace")
@@ -4225,7 +4229,7 @@ def write_exports(exported: dict[int, dict]):
     by_file = defaultdict(list)
     for base, g in exported.items():
         by_file[g["file"]].append((base, g))
-    sources = [p for top in ("src", "vendor") for ext in ("*.cpp", "*.c") for p in (ROOT / top).rglob(ext)]
+    sources = [p for top in project.SOURCES for ext in ("*.cpp", "*.c") for p in top.rglob(ext)]
     for p in sources:
         rel = p.relative_to(ROOT).as_posix()
         if rel.startswith("src/gen/"):
@@ -4383,7 +4387,7 @@ class Translator:
         self.fragments = {int(k, 16): v["fragment"] for k, v in junk.items() if "fragment" in v}
         # the second anti-tamper layer (tools/aegis.py): its runtime, stubbed as protection, and
         # the guards it inlines into game functions, stripped from their bodies
-        layer = aegis.load(self.cor)
+        layer = aegis.load(self.cor) if aegis else {"protection": [], "guarded": []}
         self.protection = {int(a, 16) for a in layer["protection"]}
         self.protection_hex = set(layer["protection"])
         self.guarded = {int(a, 16) for a in layer["guarded"]}
@@ -7449,16 +7453,17 @@ class Translator:
 def stub_handlers() -> dict[int, str]:
     """The Lua API handlers no hand port covers (tools/gen_script_api.py lists them all; run
     its --emit first)."""
-    every = {int(a, 16): n for a, n in json.loads((ROOT / "build/script-handlers.json").read_text()).items()}
+    every = {int(a, 16): n for a, n in json.loads(project.path(project.CONFIG["handlers"]["roots"]).read_text()).items()}
     covered = set()
-    for path in (ROOT / "src").rglob("*.cpp"):
+    for path in (p for top in project.SOURCES for p in top.rglob("*.cpp")):
         rel = path.relative_to(ROOT).as_posix()
         if rel.startswith("src/gen/") or path.name in ("ScriptAPIRegistry.cpp", "ScriptAPIStubs.cpp"):
             continue
         covered |= {int(a, 16) for a in re.findall(r"// ref: FUN_([0-9a-fA-F]+)\n(?:static )?int Lua_",
                                                    path.read_text(errors="replace"))}
     # `xor eax, eax; ret` handlers are ported whole by the generator
-    stubs = (ROOT / "src/glue/ScriptAPIStubs.cpp").read_text(encoding="utf-8")
+    stubs = (project.path(project.CONFIG["handlers"]["stubs"]).read_text(encoding="utf-8")
+             if project.CONFIG["handlers"]["stubs"] else "")
     covered |= {int(a, 16) for a in re.findall(r"// Returns nothing\.\n// ref: FUN_([0-9a-f]+)", stubs)}
     return {a: n for a, n in every.items() if a not in covered}
 
@@ -7480,8 +7485,8 @@ def build_errors(reconfigure: bool = True) -> list[tuple[str, int, str]]:
     # the generated files are globbed: reconfigure when their set changed, or the old list builds
     if reconfigure:
         print("reconfiguring build/cmake ...", file=sys.stderr, flush=True)
-        subprocess.run(["cmake", str(ROOT / "build/cmake")], capture_output=True)
-    out = run_shown(["cmake", "--build", str(ROOT / "build/cmake"), "--config", "Release", "--target", "gen"])
+        subprocess.run(["cmake", str(BUILD_DIR)], capture_output=True)
+    out = run_shown(["cmake", "--build", str(BUILD_DIR), "--config", BUILD_CONFIG, "--target", project.CONFIG["build"]["gen_target"]])
     errors = []
     for line in out.splitlines():
         m = re.search(r"([\w.]+\.c)\((\d+),?\d*\): (?:fatal )?error (C\d+): (.*)$", line)
@@ -7497,8 +7502,9 @@ def build_errors(reconfigure: bool = True) -> list[tuple[str, int, str]]:
     # it compiles: then link, and name the translated functions whose symbols do not resolve.
     # A handler demoted this round needs its stub first (gen_script_api.py writes the stubs for
     # the handlers neither ported nor translated), or the link fails on the registry instead.
-    subprocess.run([sys.executable, str(ROOT / "tools/gen_script_api.py"), "--emit"], capture_output=True)
-    out = run_shown(["cmake", "--build", str(ROOT / "build/cmake"), "--config", "Release", "--target", "FrostLite"])
+    if project.hook("pre_link"):
+        subprocess.run(project.hook("pre_link"), capture_output=True)
+    out = run_shown(["cmake", "--build", str(BUILD_DIR), "--config", BUILD_CONFIG, "--target", project.CONFIG["build"]["target"]])
     for m in re.finditer(r"unresolved external symbol (\S+) referenced in function FUN_([0-9a-f]{9})", out):
         errors.append(("LINK", int(m.group(2), 16), f"LNK2019 unresolved {m.group(1)}"))
     # The linker names one referencing function per symbol and object, and none at all for the
@@ -7679,8 +7685,8 @@ def main() -> None:
         handlers = stub_handlers()
     # hand-written forwarders (`// translated: FUN_x` outside src/gen) call the translation
     forwarded = set()
-    for path in (ROOT / "src").rglob("*.cpp"):
-        if not path.relative_to(ROOT).as_posix().startswith("src/gen/"):
+    for path in (p for top in project.SOURCES for p in top.rglob("*.cpp")):
+        if GEN not in path.parents:
             forwarded |= {int(a, 16) for a in re.findall(r"^// translated: FUN_([0-9a-f]{9})$",
                                                          path.read_text(errors="replace"), re.M)}
     roots = sorted(set(handlers) | forwarded | load_indirect_roots()

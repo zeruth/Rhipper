@@ -20,7 +20,7 @@ from pathlib import Path
 from corpus import load_corpus
 from wowbin import Binary
 
-ROOT = Path(__file__).resolve().parent.parent
+from project import ROOT
 TAG = re.compile(r"(?://|/\*|^\s*\*+)\s*ref:\s*(?:FUN_|0x)([0-9a-fA-F]{9,})")
 # the trees tags live in: frostlite's own, and the vendored code ported from the client
 TAG_ROOTS = ("src", "vendor/lua-5.1.4/src")

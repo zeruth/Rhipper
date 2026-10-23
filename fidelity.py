@@ -53,7 +53,7 @@ import tags as tagscan
 from corpus import load_corpus
 from wowbin import Binary
 
-ROOT = Path(__file__).resolve().parent.parent
+from project import ROOT
 # the newer of the two builds: tools/translate.py links build/cmake, the user builds
 # cmake-build-release from CLion. Measuring the older one tied today's tags to yesterday's
 # functions (210 hand ports went untied, 2026-10-18).
@@ -63,7 +63,7 @@ PORT_EXE, PORT_PDB = max(
 LLVM = Path("C:/Program Files/LLVM/bin")
 OUT_JSON = ROOT / "build/fidelity.json"
 # links a source tag cannot express: a template instance or header code, by its PDB name
-LINKS = Path(__file__).with_name("links.json")
+LINKS = ROOT / "tools" / "links.json"
 PREV_JSON = ROOT / "build/fidelity.prev.json"
 REF_CACHE = ROOT / "build/fidelity-ref-cache.json"
 HISTORY = ROOT / "docs/fidelity.md"
@@ -265,7 +265,7 @@ PORT_LIB = re.compile(r"^(std::|`|__|_[A-Z_a-z]|mem(cpy|set|move|cmp|chr)\b|str\
 REF_KEEP = ("FUN_", "thunk_FUN", "Lua::", "Storm::", "CDataAllocator::")
 
 # deliberate divergences, each with its reason (tools/fidelity_exceptions.json)
-_EXCEPTIONS = json.loads((Path(__file__).with_name("fidelity_exceptions.json")).read_text(encoding="utf-8"))
+_EXCEPTIONS = json.loads((ROOT / "tools" / "fidelity_exceptions.json").read_text(encoding="utf-8"))
 REF_SKIP = {int(a, 16) for a in _EXCEPTIONS["skip"]} | {int(a, 16) for a in _EXCEPTIONS.get("lib", {})}
 REF_ALIAS = {int(a, 16): int(v["to"], 16) for a, v in _EXCEPTIONS["alias"].items()}
 

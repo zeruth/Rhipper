@@ -14,7 +14,8 @@ import subprocess
 import sys
 import time
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+import project
+ROOT = str(project.ROOT)
 SYMBOLIZER = r"C:\Program Files\LLVM\bin\llvm-symbolizer.exe"
 
 DEBUG_ONLY_THIS_PROCESS = 0x2
@@ -265,8 +266,8 @@ def dump_hits(process, exe, base, path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--exe", default=os.path.join(ROOT, "build", "cmake", "bin", "Release", "FrostLite.exe"))
-    ap.add_argument("--cwd", default=os.path.join(ROOT, "client", "_classic_"))
+    ap.add_argument("--exe", default=str(project.path(project.CONFIG["run"]["exe"])) if project.CONFIG["run"]["exe"] else None)
+    ap.add_argument("--cwd", default=str(project.path(project.CONFIG["run"]["cwd"])))
     ap.add_argument("--timeout", type=float, default=120.0)
     ap.add_argument("--log", default=None)
     ap.add_argument("--skip", type=int, default=0, help="let this many exceptions pass first")

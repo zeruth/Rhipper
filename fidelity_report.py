@@ -13,7 +13,7 @@ import re
 from collections import Counter, defaultdict
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+from project import ROOT
 SRC = ROOT / "build/fidelity.json"
 MANIFEST = ROOT / "src/gen/manifest.json"
 REACHED = ROOT / "build/reached.json"   # tools/reached.py --json, from a FROST_HITS run

@@ -18,9 +18,7 @@ from pathlib import Path
 
 import pefile
 
-ROOT = Path(__file__).resolve().parent.parent
-EXE = ROOT / "client" / "_classic_" / "WowClassic-clean.exe"
-FACTS = ROOT / "build" / "facts"
+from project import ROOT, EXE, FACTS
 
 
 def regs_access(insn) -> tuple[list[int], list[int]]:

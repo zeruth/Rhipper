@@ -20,7 +20,8 @@ import subprocess
 import sys
 import tempfile
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+from project import ROOT as _ROOT
+ROOT = str(_ROOT)
 VSWHERE = r"C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
 
 HEADERS = ["winsock2.h", "ws2tcpip.h", "windows.h", "bcrypt.h", "wincrypt.h", "cfgmgr32.h", "setupapi.h",

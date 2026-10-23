@@ -1,16 +1,16 @@
 #!/bin/bash
-# Rebuild every fact file from WowClassic-clean.exe, then apply them to the Ghidra project.
+# Rebuild every fact file from the project's reference binary, then apply them to its Ghidra
+# project.
 #
-#   tools/facts.sh            extract + apply
-#   tools/facts.sh --no-apply extract only (e.g. while Ghidra has the project open)
+#   bash path/to/Rhipper/facts.sh            extract + apply
+#   bash path/to/Rhipper/facts.sh --no-apply extract only (e.g. while Ghidra has the project open)
 #
-# The extractors are tools/pipeline.sh's first step (one list, run in parallel); the whole
-# pipeline, apply and both exports in one Ghidra session, is `bash tools/pipeline.sh`.
-# imports.json is not rebuilt here: it needs a live client (tools/iat_dump.py), and the
-# committed data/imports.json stands in for it.
+# The extractors are pipeline.sh's first step (one list, run in parallel); the whole pipeline,
+# apply and both exports in one Ghidra session, is `bash pipeline.sh`. imports.json is not rebuilt
+# here: it needs a live process (iat_dump.py), and the project's data/imports.json stands in for it.
 set -e
-cd "$(dirname "$0")"
-bash pipeline.sh --facts
+RH="$(cd "$(dirname "$0")" && pwd)"
+bash "$RH/pipeline.sh" --facts
 if [ "$1" != "--no-apply" ]; then
-  bash ghidra/ghidra.sh apply
+  bash "$RH/ghidra/ghidra.sh" apply
 fi

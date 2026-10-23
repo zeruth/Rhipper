@@ -1,8 +1,39 @@
-# FrostLite tools
+# Rhipper
 
-Recomp tooling for the WoW Classic 3.4.3.54261 client. **Every tool reads
-`client/_classic_/WowClassic-clean.exe`** (decrypted, Aegis junk nop'd), never the shipped
-`WowClassic.exe`, which is encrypted on disk.
+Ghidra-to-C recomp tooling: facts read off a PE in Python, applied to a Ghidra program, the
+whole program decompiled to a corpus, and the corpus translated to C that builds and runs beside
+a hand port (`translate.py`), with its fidelity to the reference measured function by function
+(`fidelity.py`). It grew inside FrostLite (the WoW Classic 3.4.3.54261 client) and was split out
+on 2026-10-23 to serve more than one project; its history came with it.
+
+## Projects
+
+Rhipper works on a **project**: a reference binary and the source tree its translation goes into,
+named by a `rhipper.json` at the project's root (see `project.py` for every setting). Every tool
+finds it from the working directory, or from `RHIPPER_PROJECT`:
+
+```bash
+cd path/to/project
+python path/to/Rhipper/project.py                  # the project found, and its settings
+bash path/to/Rhipper/pipeline.sh                   # facts, one Ghidra session, translate
+python path/to/Rhipper/translate.py --all --depth 24 --fix --jobs 4
+python path/to/Rhipper/fidelity.py --summary && python path/to/Rhipper/fidelity_report.py
+```
+
+A project keeps its own data where the tools look for it, relative to its root: `build/facts/`,
+`data/*.json`, and the per-project lists in `tools/` (`fidelity_exceptions.json`, `links.json`,
+`translate_patches.json`, `translate_layouts.json`). What only one binary needs (FrostLite's
+anti-tamper stripper `aegis.py`, its DB2, Lua and opcode generators) stays in that project, and the
+pipeline calls into it through `rhipper.json`: `plugins` (`protection`: the anti-tamper layer
+translate.py strips), `hooks` (`pre_link`) and `facts_extra` (more extractors for pipeline.sh).
+A project's own tools import Rhipper's modules through a small bootstrap (FrostLite's
+`tools/_rhipper.py`).
+
+The tools still assume an x86-64 Windows PE in places (the x64 calling convention, 8-byte
+pointers); `arch` and `image_base` in `rhipper.json` are where 32-bit support starts.
+
+The rest of this file is the tooling as it was built for FrostLite; its examples name FrostLite's
+binary and paths.
 
 ## The approach: facts in Python, applied in Ghidra
 

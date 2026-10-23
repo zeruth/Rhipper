@@ -1,27 +1,28 @@
 #!/bin/bash
-# Headless Ghidra against the FrostLite project (WowClassic-clean.exe, never the shipped exe).
+# Headless Ghidra against the project's Ghidra program (rhipper.json "ghidra"), run from inside
+# the project (or with RHIPPER_PROJECT set).
 #
-#   tools/ghidra/ghidra.sh apply                    apply build/facts/*.json
-#   tools/ghidra/ghidra.sh decomp <out> <addr>...   decompile functions to a file
-#   tools/ghidra/ghidra.sh script <Script.java> [args...]
-#   tools/ghidra/ghidra.sh all                      apply, then export the data and the corpus,
-#                                                   in one session (tools/pipeline.sh)
-#   tools/ghidra/ghidra.sh sample <list> <out>      apply, then decompile the listed functions
+#   ghidra.sh apply                    apply build/facts/*.json
+#   ghidra.sh decomp <out> <addr>...   decompile functions to a file
+#   ghidra.sh script <Script.java> [args...]
+#   ghidra.sh all                      apply, then export the data and the corpus,
+#                                      in one session (pipeline.sh)
+#   ghidra.sh sample <list> <out>      apply, then decompile the listed functions
 #
 # Each run takes a minute or more to open the program: batch addresses.
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
-ROOT="$(cd "$HERE/../.." && pwd)"
-G=$(ls -d /c/Users/tyler/tools/ghidra_* | head -1)
-PROJ='C:\Users\tyler\tools\ghidra-projects'
-PROG=WowClassic-clean.exe
+# ROOT, G (the Ghidra install), PROJ, GPROJECT, PROG, GMAXMEM: the project's settings
+eval "$(python "$HERE/../project.py" --sh)"
+G="$(cygpath -u "$G")"
+PROJ="$(cygpath -w "$PROJ")"
 # one directory only: cmd.exe splits a ";"-joined script path into separate arguments
 SCRIPTS="$(cygpath -w "$HERE")"
-export GHIDRA_HEADLESS_MAXMEM=${GHIDRA_HEADLESS_MAXMEM:-14G}
+export GHIDRA_HEADLESS_MAXMEM=${GHIDRA_HEADLESS_MAXMEM:-$GMAXMEM}
 mkdir -p "$ROOT/build"
 
 run() {
-  "$G/support/analyzeHeadless.bat" "$PROJ" FrostLite -process "$PROG" -noanalysis \
+  "$G/support/analyzeHeadless.bat" "$PROJ" "$GPROJECT" -process "$PROG" -noanalysis \
     -scriptPath "$SCRIPTS" "$@" > "$ROOT/build/ghidra-last.log" 2>&1 || true
   grep -E "ApplyFacts:|ERROR|Exception|wrote" "$ROOT/build/ghidra-last.log" | head -20
 }
@@ -38,7 +39,7 @@ case "$1" in
           # the program opens once (a minute or more): the facts go in, then both exports read the
           # result. Written beside the old files and moved over only when complete
           rm -f "$ROOT/build/refdata.jsonl.new" "$ROOT/build/corpus.jsonl.new"
-          "$G/support/analyzeHeadless.bat" "$PROJ" FrostLite -process "$PROG" -noanalysis \
+          "$G/support/analyzeHeadless.bat" "$PROJ" "$GPROJECT" -process "$PROG" -noanalysis \
             -scriptPath "$SCRIPTS" \
             -postScript ApplyFacts.java "$(cygpath -w "$ROOT/build/facts")" \
             -postScript ExportData.java "$(cygpath -w "$ROOT/build/refdata.jsonl.new")" \
@@ -67,7 +68,7 @@ case "$1" in
           [ -f "$ROOT/build/facts/imports.json" ] || cp "$ROOT/data/imports.json" "$ROOT/build/facts/"
           cp "$ROOT/data/names.json" "$ROOT/build/facts/names.json"
           list=$(cygpath -w "$2"); out=$(cygpath -w "$3")
-          "$G/support/analyzeHeadless.bat" "$PROJ" FrostLite -process "$PROG" -noanalysis \
+          "$G/support/analyzeHeadless.bat" "$PROJ" "$GPROJECT" -process "$PROG" -noanalysis \
             -scriptPath "$SCRIPTS" \
             -postScript ApplyFacts.java "$(cygpath -w "$ROOT/build/facts")" \
             -postScript ExportDecompAll.java "$out" "@$list" \
