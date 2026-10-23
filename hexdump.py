@@ -4,7 +4,7 @@
 """
 import sys
 
-from wowbin import Binary
+from pebin import Binary
 
 
 def main() -> None:

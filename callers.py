@@ -6,7 +6,7 @@ its source file.
 import json
 import sys
 
-from wowbin import ROOT, Binary
+from pebin import ROOT, Binary
 
 
 def main() -> None:

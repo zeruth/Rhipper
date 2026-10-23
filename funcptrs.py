@@ -21,7 +21,7 @@ import re
 import struct
 from collections import defaultdict
 
-from wowbin import FACTS, ROOT, Binary, hexa, write_facts
+from pebin import FACTS, ROOT, Binary, hexa, write_facts
 
 CORPUS = ROOT / "build" / "corpus.jsonl"
 

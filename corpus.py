@@ -35,7 +35,7 @@ from pathlib import Path
 import project
 from project import ROOT, HERE
 BUILD = ROOT / "build"
-FACTS = BUILD / "facts"
+FACTS = project.FACTS
 CORPUS = BUILD / "corpus.jsonl"
 MODULES = BUILD / "modules"
 

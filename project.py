@@ -85,7 +85,8 @@ POINTER_SIZE = 8 if ARCH == "x86_64" else 4
 IMAGE_BASE = int(str(CONFIG["image_base"]), 16)
 GEN = ROOT / CONFIG["gen"]
 BUILD = ROOT / "build"
-FACTS = BUILD / "facts"
+# (RHIPPER_FACTS redirects the facts, e.g. to compare two versions of the extractors' output)
+FACTS = Path(os.environ["RHIPPER_FACTS"]).resolve() if os.environ.get("RHIPPER_FACTS") else BUILD / "facts"
 CORPUS = BUILD / "corpus.jsonl"
 SOURCES = [ROOT / s for s in CONFIG["sources"]]
 
@@ -140,6 +141,8 @@ def _sh() -> None:
     pairs = {
         "ROOT": ROOT.as_posix(),
         "RHIPPER": HERE.as_posix(),
+        "EXE": EXE.as_posix(),
+        "ARCH": ARCH,
         "G": Path(ghidra_install()).as_posix() if g["install"] else "",
         "PROJ": g["projects"] or "",
         "GPROJECT": g["project"] or NAME,

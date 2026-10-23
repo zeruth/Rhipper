@@ -51,7 +51,7 @@ import numpy as np
 
 import tags as tagscan
 from corpus import load_corpus
-from wowbin import Binary
+from pebin import Binary
 
 from project import ROOT
 # the newer of the two builds: tools/translate.py links build/cmake, the user builds

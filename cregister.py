@@ -34,7 +34,7 @@ from collections import Counter, defaultdict
 import capstone
 from capstone import x86
 
-from wowbin import Binary, hexa, write_facts
+from pebin import Binary, hexa, write_facts
 
 NS = re.compile(r"C_[A-Za-z0-9_]+\Z")
 IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,80}\Z")

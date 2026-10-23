@@ -15,21 +15,29 @@ import bisect
 import struct
 from collections import defaultdict
 
-from wowbin import Binary, hexa, write_facts
+from pebin import Binary, hexa, write_facts
+from project import POINTER_SIZE as PS
+
+PTR = "<I" if PS == 4 else "<Q"
 
 
 def main() -> None:
     b = Binary()
     s, d = b.bytes_of(".rdata")
-    n = len(d) // 8
-    q = struct.unpack_from(f"<{n}Q", d)
+    n = len(d) // PS
+    q = struct.unpack_from(f"<{n}{PTR[1]}", d)
     # any pointer into .text: leaf stubs (ret, xor eax,eax; ret) have no .pdata entry
     is_fp = [b.is_code(v) for v in q]
 
-    # lea targets (8-aligned, pointing at a function pointer) and who takes them
+    def slot(t: int) -> bool:
+        """t is a pointer-aligned .rdata slot holding a code pointer."""
+        return s <= t < s + PS * n and (t - s) % PS == 0 and is_fp[(t - s) // PS]
+
+    # address-taken targets (pointing at a function pointer) and who takes them: x64
+    # `lea reg, [rip+vtable]`, 32-bit `mov dword ptr [ecx], offset vtable`
     takers: dict[int, set[int]] = defaultdict(set)
-    for insn, tgt in b.riprel_refs(keep=lambda t: s <= t < s + 8 * n and (t - s) % 8 == 0 and is_fp[(t - s) // 8]):
-        if s <= tgt < s + 8 * n and (tgt - s) % 8 == 0 and is_fp[(tgt - s) // 8]:
+    for insn, tgt in b.riprel_refs(keep=slot):
+        if slot(tgt):
             f = b.func_containing(insn)
             if f is not None:
                 takers[tgt].add(f)
@@ -49,8 +57,8 @@ def main() -> None:
         k = bisect.bisect_right(lea_starts, t) - 1
         if k < 0:
             return False
-        i = (lea_starts[k] - s) // 8
-        stop = (t - s) // 8
+        i = (lea_starts[k] - s) // PS
+        stop = (t - s) // PS
         while i < stop and is_fp[i]:
             i += 1
         return i == stop
@@ -58,16 +66,16 @@ def main() -> None:
     holders: dict[int, set[int]] = defaultdict(set)
     for sec in (".data",):
         ds, dd = b.bytes_of(sec)
-        for j in range(0, len(dd) - 7, 8):
-            t = struct.unpack_from("<Q", dd, j)[0]
-            if s <= t < s + 8 * n and (t - s) % 8 == 0 and is_fp[(t - s) // 8] and not covered(t):
+        for j in range(0, len(dd) - PS + 1, PS):
+            t = struct.unpack_from(PTR, dd, j)[0]
+            if slot(t) and not covered(t):
                 holders[t].add(ds + j)
     starts = sorted(set(takers) | set(holders))
 
     vtables = []
     for k, vt in enumerate(starts):
-        i = (vt - s) // 8
-        limit = (starts[k + 1] - s) // 8 if k + 1 < len(starts) else n
+        i = (vt - s) // PS
+        limit = (starts[k + 1] - s) // PS if k + 1 < len(starts) else n
         slots = []
         while i < limit and is_fp[i]:
             slots.append(hexa(q[i]))

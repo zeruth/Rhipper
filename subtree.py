@@ -9,7 +9,7 @@ import collections
 import json
 import re
 
-from wowbin import ROOT
+from pebin import ROOT
 
 CALL = re.compile(r"\b(?:FUN|thunk_FUN)_([0-9a-f]{9})\b")
 

@@ -27,7 +27,7 @@ import capstone
 from capstone import x86_const as X
 
 from protos import corpus_sizes
-from wowbin import Binary, hexa, write_facts
+from pebin import Binary, hexa, write_facts
 
 
 def wide(md, reg: int) -> str:

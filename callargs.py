@@ -12,7 +12,7 @@ from __future__ import annotations
 import capstone
 from capstone import x86
 
-from wowbin import regs_access
+from pebin import regs_access
 
 ARG_REGS = ("rcx", "rdx", "r8", "r9")
 _md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)

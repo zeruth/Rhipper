@@ -29,7 +29,7 @@ import capstone
 from capstone import x86 as X
 
 from corpus import load_corpus, load_facts
-from wowbin import Binary, hexa, regs_access, write_facts
+from pebin import Binary, hexa, regs_access, write_facts
 
 # (and xmm1-xmm5: FUN_1405f81a0 leaves xmm2 alone and its caller FUN_140622410 keeps a float there
 # across the call, `fVar13 = extraout_XMM2_Da`; 40 lost-register stubs read one, 2026-10-18.

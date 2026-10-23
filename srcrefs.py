@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 
-from wowbin import Binary, hexa, write_facts
+from pebin import Binary, hexa, write_facts
 
 PATH = re.compile(rb"[\x20-\x7e]{0,200}?\.(?:cpp|c|h|hpp|inl|cc)\0", re.I)
 

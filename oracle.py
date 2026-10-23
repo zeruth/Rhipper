@@ -23,7 +23,7 @@ from unicorn.x86_const import (
     UC_X86_REG_RIP, UC_X86_REG_RSP, UC_X86_REG_XMM0, UC_X86_REG_XMM1, UC_X86_REG_XMM2, UC_X86_REG_XMM3,
 )
 
-from wowbin import ROOT, Binary
+from pebin import ROOT, Binary
 
 STACK, STACK_SIZE = 0x7FF0_0000_0000, 0x100000
 TEB, TEB_SIZE = 0x7FF1_0000_0000, 0x10000

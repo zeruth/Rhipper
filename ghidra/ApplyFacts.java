@@ -107,7 +107,10 @@ public class ApplyFacts extends GhidraScript {
             }
         }
         File pr = new File(dir, "protos.json");
-        if (pr.exists()) {
+        if (pr.exists() && "x86".equals(jsonString(read(pr), "arch"))) {
+            // 32-bit (protos32.py): a convention per function, or register storage of its own
+            applyProtos32(read(pr));
+        } else if (pr.exists()) {
             JsonObject protos = read(pr);
             applyProtos(protos);
             applyIntParamHomes(protos.getAsJsonObject("functions"));
@@ -132,6 +135,65 @@ public class ApplyFacts extends GhidraScript {
 
     private JsonObject read(File f) throws Exception {
         return JsonParser.parseString(Files.readString(f.toPath())).getAsJsonObject();
+    }
+
+    private static String jsonString(JsonObject o, String key) {
+        return o.has(key) ? o.get(key).getAsString() : null;
+    }
+
+    // protos.json from protos32.py: "cc" __cdecl / __stdcall / __thiscall / __fastcall, given with
+    // dynamic storage and one undefined4 per parameter, or "custom": the registers in "regs", then the stack
+    // from entry + 4, as custom storage under __stdcall (callee cleans) or __cdecl. A signature
+    // someone set by hand or that came with a library match (USER_DEFINED, IMPORTED) is kept, and
+    // so are thunks, whose signature is their target's.
+    private void applyProtos32(JsonObject root) throws Exception {
+        int set = 0, keptSig = 0, missing = 0, failed = 0, custom = 0;
+        DataType u4 = Undefined.getUndefinedDataType(4);
+        for (Map.Entry<String, JsonElement> e : root.getAsJsonObject("functions").entrySet()) {
+            Function f = getFunctionAt(addr(e.getKey()));
+            if (f == null) {
+                missing++;
+                continue;
+            }
+            SourceType src = f.getSignatureSource();
+            if (f.isThunk() || src == SourceType.USER_DEFINED || src == SourceType.IMPORTED) {
+                keptSig++;
+                continue;
+            }
+            JsonObject o = e.getValue().getAsJsonObject();
+            String cc = o.get("cc").getAsString();
+            int stack = o.get("stack").getAsInt();
+            List<Variable> params = new ArrayList<>();
+            try {
+                if (cc.equals("custom")) {
+                    for (JsonElement r : o.getAsJsonArray("regs")) {
+                        String reg = r.getAsString();
+                        params.add(new ParameterImpl("in_" + reg, u4, new ghidra.program.model.listing.VariableStorage(
+                                currentProgram, currentProgram.getRegister(reg.toUpperCase())), currentProgram));
+                    }
+                    for (int off = 4; off < 4 + stack; off += 4) {
+                        params.add(new ParameterImpl("param_" + (params.size() + 1), u4,
+                                new ghidra.program.model.listing.VariableStorage(currentProgram, off, 4), currentProgram));
+                    }
+                    boolean callee = o.get("callee_cleans").getAsBoolean() && stack > 0;
+                    f.updateFunction(callee ? "__stdcall" : "__cdecl", f.getReturn(), params,
+                            FunctionUpdateType.CUSTOM_STORAGE, true, SourceType.ANALYSIS);
+                    custom++;
+                } else {
+                    // (the list names every parameter, register ones included: under dynamic storage
+                    // __thiscall's first is `this`, in ecx, and __fastcall's first two ecx and edx)
+                    int n = stack / 4 + (cc.equals("__fastcall") ? 2 : cc.equals("__thiscall") ? 1 : 0);
+                    for (int i = 0; i < n; i++) params.add(new ParameterImpl("param_" + (i + 1), u4, currentProgram));
+                    f.updateFunction(cc, null, params, FunctionUpdateType.DYNAMIC_STORAGE_ALL_PARAMS, true,
+                            SourceType.ANALYSIS);
+                }
+                set++;
+            } catch (Exception ex) {
+                if (failed++ < 5) printerr("ApplyFacts: prototype for " + f.getEntryPoint() + ": " + ex);
+            }
+        }
+        println("ApplyFacts: x86 prototypes set " + set + " (" + custom + " custom storage), kept " + keptSig
+                + " (thunks, hand-set or library), no function " + missing + ", failed " + failed);
     }
 
     private Address addr(String hex) {
@@ -243,15 +305,18 @@ public class ApplyFacts extends GhidraScript {
             int slots = v.getAsJsonArray("slots").size();
             String label = "vtable_" + a.toString();
             Symbol existing = getSymbolAt(a);
+            // (a name Ghidra's RTTI analysis gave, `Client::UI::AddonX::vftable` on a binary built
+            // with RTTI, says more than vtable_<address>: kept)
             if (existing == null || existing.getSource() == SourceType.DEFAULT
-                    || existing.getSource() == SourceType.ANALYSIS) {
+                    || (existing.getSource() == SourceType.ANALYSIS && !existing.getName().endsWith("vftable"))) {
                 createLabel(a, label, true, SourceType.IMPORTED);
                 labelled++;
             }
             if (slots > 0) {
+                int ptr = currentProgram.getDefaultPointerSize();
                 try {
-                    clearListing(a, a.add(8L * slots - 1));
-                    createData(a, new ArrayDataType(PointerDataType.dataType, slots, 8));
+                    clearListing(a, a.add((long) ptr * slots - 1));
+                    createData(a, new ArrayDataType(PointerDataType.dataType, slots, ptr));
                 } catch (Exception ex) {
                     // leave whatever analysis put there
                 }

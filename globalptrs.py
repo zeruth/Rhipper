@@ -22,7 +22,7 @@ from collections import Counter
 import capstone
 from capstone import x86_const as X
 
-from wowbin import Binary, hexa, regs_access, write_facts
+from pebin import Binary, hexa, regs_access, write_facts
 
 BRANCH = ("j", "call", "ret", "int3", "ud2", "hlt")
 

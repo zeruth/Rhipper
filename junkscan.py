@@ -14,7 +14,7 @@ import re
 from collections import Counter
 
 from corpus import load_corpus, load_facts
-from wowbin import write_facts
+from pebin import write_facts
 
 MARKERS = {
     "halt_baddata": re.compile(r"\bhalt_baddata\(\)"),
@@ -44,7 +44,7 @@ def fragments(cor) -> dict[int, str]:
 
     import capstone
 
-    from wowbin import Binary
+    from pebin import Binary
 
     b = Binary()
     md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)

@@ -1,11 +1,17 @@
-"""Shared access to the 3.4.3 client binary for the fact extractors.
+"""Shared access to the project's reference binary (a Windows PE) for the fact extractors.
 
-Every extractor works on WowClassic-clean.exe (the Aegis junk nop'd, decrypted image;
-never the shipped exe) and writes JSON facts under build/facts/, which
-tools/ghidra/ApplyFacts.java applies to the Ghidra program.
+Every extractor works on the project's "exe" (rhipper.json) and writes JSON facts under
+build/facts/, which ghidra/ApplyFacts.java applies to the Ghidra program.
 
 The binary is loaded once into memory as a flat image laid out by RVA, so any
 virtual address can be read without caring which section holds it.
+
+Function extents: an x86-64 image's .pdata gives them exactly, with the chained pieces the
+compiler moved out of line. A 32-bit x86 image has no .pdata; its extents come from Ghidra's own
+analysis, exported once by `ghidra.sh import` to build/facts/functions.json, each function's
+address ranges standing in for its pieces. Address references: x86-64 code reaches data
+RIP-relative; 32-bit code holds absolute addresses, every one of them a base relocation, so
+.reloc lists them all.
 """
 from __future__ import annotations
 
@@ -13,12 +19,21 @@ import bisect
 import json
 import re
 import struct
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 import pefile
 
-from project import ROOT, EXE, FACTS
+from project import ARCH, EXE, FACTS, ROOT
+
+X86 = ARCH == "x86"
+
+
+def disassembler():
+    """A capstone disassembler for the project's architecture (detail off)."""
+    import capstone
+    return capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32 if X86 else capstone.CS_MODE_64)
 
 
 def regs_access(insn) -> tuple[list[int], list[int]]:
@@ -79,6 +94,13 @@ class Binary:
                 self.base + s.VirtualAddress + s.Misc_VirtualSize,
                 bool(s.Characteristics & 0x20000000),
             ))
+        self.reloc_dir = pe.OPTIONAL_HEADER.DATA_DIRECTORY[pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_BASERELOC"]]
+        self.reloc_dir = (self.reloc_dir.VirtualAddress, self.reloc_dir.Size)
+        self.text = self.section(".text")
+        if X86:
+            pe.close()
+            self._load_functions()
+            return
         # .pdata: exact extents of every code piece. Half the entries (~74k of 148k) are
         # chained pieces of a larger function (UNW_FLAG_CHAININFO): the compiler splits
         # cold blocks out of line, and each piece points at its parent's entry. An
@@ -110,7 +132,28 @@ class Binary:
         self.piece_root = [root(p[0]) for p in pieces]
         self.func_starts = sorted({r for r in self.piece_root})
         self.chained = parent_of
-        self.text = self.section(".text")
+
+    def _load_functions(self) -> None:
+        """32-bit: the extents Ghidra's analysis found (build/facts/functions.json, written by
+        `ghidra.sh import` or `ghidra.sh functions`). Each of a function's address ranges is a
+        piece whose root is the function's entry. Nothing is chained: chained holds .pdata's
+        out-of-line pieces, which the facts tell Ghidra to fold back, and Ghidra made these
+        ranges itself."""
+        path = FACTS / "functions.json"
+        if not path.is_file():
+            sys.exit(f"{path}: no function extents; a 32-bit project needs `ghidra.sh import` "
+                     "(or `ghidra.sh functions`) first")
+        pieces = []
+        for f in json.loads(path.read_text())["functions"]:
+            entry = int(f["entry"], 16)
+            for lo, hi in f["ranges"]:
+                pieces.append((int(lo, 16), int(hi, 16), entry))
+        pieces.sort()
+        self.piece_starts = [p[0] for p in pieces]
+        self.piece_ends = [p[1] for p in pieces]
+        self.piece_root = [p[2] for p in pieces]
+        self.func_starts = sorted({p[2] for p in pieces})
+        self.chained = {}
 
     # ---- addresses -------------------------------------------------------------
     def section(self, name: str) -> Section:
@@ -137,6 +180,10 @@ class Binary:
 
     def u64(self, va: int) -> int:
         return struct.unpack_from("<Q", self.image, self.off(va))[0]
+
+    def ptr(self, va: int) -> int:
+        """A pointer-sized value: 4 bytes on x86, 8 on x86-64."""
+        return self.u32(va) if X86 else self.u64(va)
 
     def cstr(self, va: int, limit: int = 512) -> str | None:
         o = self.off(va)
@@ -183,7 +230,13 @@ class Binary:
         matches that survive are verified: the site must be an instruction boundary in
         a linear decode of its .pdata piece (2026-10-08: 101 of the matches on the
         anti-tamper global were mid-instruction). Without `keep` nothing is verified,
-        since that would mean decoding all of .text."""
+        since that would mean decoding all of .text.
+
+        32-bit: every absolute address in .text (a base relocation) whose target `keep`
+        accepts, with the instruction holding it: `push offset`, `mov reg, offset`, memory
+        operands, all of them (there is no RIP-relative form to pattern-match)."""
+        if X86:
+            return [(insn, tgt) for insn, tgt, _site in self._abs_refs(keep)]
         start, data = self.bytes_of(".text")
         out = []
         for m in self._RIPREL.finditer(data):
@@ -203,12 +256,22 @@ class Binary:
         riprel_refs this is not limited to REX.W lea/mov/cmp -- `mov dword [rip+X], imm`,
         SSE stores, 32-bit moves, calls through [rip+X] all count -- which is what finds the
         static initializers that set up globals. Each candidate is confirmed by decoding the
-        instruction it belongs to at a verified instruction boundary."""
+        instruction it belongs to at a verified instruction boundary.
+
+        32-bit: the relocated absolute addresses in .text that land in [lo, hi)."""
         import capstone
         import numpy as np
         from capstone import x86
 
         hi = lo + 1 if hi is None else hi
+        if X86:
+            md = disassembler()
+            out = []
+            for insn, tgt, _site in self._abs_refs(lambda t: lo <= t < hi):
+                o = self.off(insn)
+                ins = next(md.disasm(bytes(self.image[o : o + 16]), insn, 1))
+                out.append((insn, tgt, f"{ins.mnemonic} {ins.op_str}"))
+            return sorted(out)
         start, data = self.bytes_of(".text")
         n = len(data) - 4
         disp = np.ndarray(shape=(n,), dtype="<i4", buffer=data, offset=0, strides=(1,)).astype(np.int64)
@@ -269,22 +332,66 @@ class Binary:
                 out.append((va, "call" if raw[p] == 0xE8 else "jmp"))
         return out
 
+    _relocs: list[int] | None = None
+
+    def relocs(self) -> list[int]:
+        """Every base-relocation site (VA), sorted: the places the loader rebases, each one an
+        absolute address in the image (IMAGE_REL_BASED_HIGHLOW on x86, DIR64 on x86-64)."""
+        if self._relocs is None:
+            rva, size = self.reloc_dir
+            sites = []
+            p, end = rva, rva + size
+            while p + 8 <= end:
+                page, block = struct.unpack_from("<II", self.image, p)
+                if block < 8:
+                    break
+                for k in range(8, block, 2):
+                    e = struct.unpack_from("<H", self.image, p + k)[0]
+                    if e >> 12 in (3, 10):
+                        sites.append(self.base + page + (e & 0xFFF))
+                p += block
+            self._relocs = sorted(sites)
+        return self._relocs
+
+    def _abs_refs(self, keep=None) -> list[tuple[int, int, int]]:
+        """32-bit: (instruction VA, target VA, relocation site VA) for every relocated absolute
+        address in .text whose target `keep` accepts (all without it). The instruction is the
+        one whose bytes cover the site, at a verified instruction boundary; a site no decode
+        accounts for (data inside .text, such as a jump table) is left out."""
+        md = disassembler()
+        lo_i = bisect.bisect_left(self.relocs(), self.text.start)
+        hi_i = bisect.bisect_left(self.relocs(), self.text.end)
+        out = []
+        for site in self._relocs[lo_i:hi_i]:
+            tgt = self.u32(site)
+            if keep is not None and not keep(tgt):
+                continue
+            for back in range(1, 12):
+                insn = site - back
+                if not self.is_insn_start(insn):
+                    continue
+                o = self.off(insn)
+                ins = next(md.disasm_lite(bytes(self.image[o : o + 16]), insn, 1), None)
+                if ins is not None and site + 4 <= insn + ins[1]:
+                    out.append((insn, tgt, site))
+                    break
+        return out
+
     _bounds: dict[int, set[int]] | None = None
 
     def is_insn_start(self, va: int) -> bool:
-        """Whether va begins an instruction in a linear decode of its .pdata piece.
-        Pieces are exact and MSVC keeps jump tables out of .text, so a linear sweep of
-        one piece is reliable. Addresses outside every piece (leaf functions without
-        unwind info) are accepted."""
-        import capstone
-
+        """Whether va begins an instruction in a linear decode of its piece (.pdata, or on
+        32-bit the address range Ghidra gave its function). Pieces are exact and MSVC keeps
+        x64 jump tables out of .text (32-bit tables sit in .text, between the ranges Ghidra
+        found), so a linear sweep of one piece is reliable. Addresses outside every piece
+        (leaf functions without unwind info) are accepted."""
         i = bisect.bisect_right(self.piece_starts, va) - 1
         if i < 0 or va >= self.piece_ends[i]:
             return True
         piece = self.piece_starts[i]
         if self._bounds is None:
             self._bounds = {}
-            self._md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
+            self._md = disassembler()
         if piece not in self._bounds:
             if len(self._bounds) > 20000:
                 self._bounds.clear()

@@ -22,7 +22,7 @@ from pathlib import Path
 
 import numpy as np
 
-from wowbin import ROOT, Binary
+from pebin import ROOT, Binary
 
 # the table FUN_14026b874 hands _initterm (tools/translate.py, Translator.INIT_TABLE)
 INIT_TABLE = (0x14260e3f8, 0x142617540)

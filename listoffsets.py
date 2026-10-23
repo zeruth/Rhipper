@@ -19,7 +19,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from wowbin import ROOT, Binary
+from pebin import ROOT, Binary
 
 DECL = re.compile(r"^(?:static\s+)?(?:STORM_)?TS(?:Explicit)?List<[^;]*?>\s*(\w+)\s*(?:\(([^;]*)\))?\s*;(.*)$")
 ADDR = re.compile(r"\b(?:DAT_|0x)(14[0-9a-f]{7})\b")

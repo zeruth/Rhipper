@@ -18,7 +18,7 @@ from collections import Counter, defaultdict
 
 import capstone
 
-from wowbin import Binary, hexa, write_facts
+from pebin import Binary, hexa, write_facts
 
 _undname = ctypes.WinDLL("dbghelp").UnDecorateSymbolName
 _undname.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint32, ctypes.c_uint32]

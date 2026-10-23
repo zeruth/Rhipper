@@ -7,7 +7,7 @@ kinds (DEFAULT-named only) and lets the parent re-absorb the code.
     python tools/pieces.py      -> build/facts/pieces.json
 """
 from corpus import load_corpus
-from wowbin import Binary, hexa, write_facts
+from pebin import Binary, hexa, write_facts
 
 
 def main() -> None:

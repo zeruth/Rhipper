@@ -49,7 +49,7 @@ import lift
 import v16
 import project
 from corpus import load_corpus, strip_retcheck
-from wowbin import Binary
+from pebin import Binary
 
 from project import ROOT, GEN
 # the project's protection layer (an anti-tamper runtime and the guards it inlines), if it has one

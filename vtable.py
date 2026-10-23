@@ -7,7 +7,7 @@ Stops at the first slot that is not a code pointer (or after --count slots).
 import argparse
 import json
 
-from wowbin import ROOT, Binary
+from pebin import ROOT, Binary
 
 
 def main() -> None:

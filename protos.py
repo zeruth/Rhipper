@@ -38,7 +38,7 @@ from multiprocessing import Pool
 import capstone
 from capstone import x86_const as X
 
-from wowbin import FACTS, ROOT, Binary, hexa, regs_access, write_facts
+from pebin import FACTS, ROOT, Binary, hexa, regs_access, write_facts
 
 CORPUS = ROOT / "build" / "corpus.jsonl"
 
@@ -1275,7 +1275,7 @@ def corpus_sizes() -> dict[int, int]:
 def code_pointers(b: Binary) -> set[int]:
     """Every code address an absolute pointer outside .text holds, by the relocation table."""
     import pefile
-    from wowbin import EXE
+    from pebin import EXE
     pe = pefile.PE(str(EXE), fast_load=True)
     pe.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_BASERELOC"]])
     base = pe.OPTIONAL_HEADER.ImageBase
@@ -2023,4 +2023,10 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    from pebin import X86
+    if X86:
+        # a 32-bit image's conventions are read by protos32.py
+        import protos32
+        protos32.main()
+    else:
+        main()

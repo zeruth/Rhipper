@@ -8,6 +8,11 @@
 #   ghidra.sh all                      apply, then export the data and the corpus,
 #                                      in one session (pipeline.sh)
 #   ghidra.sh sample <list> <out>      apply, then decompile the listed functions
+#   ghidra.sh import                   import the reference binary into a new Ghidra program with
+#                                      full auto-analysis, then export its function extents
+#                                      (build/facts/functions.json, what 32-bit projects use in
+#                                      place of .pdata)
+#   ghidra.sh functions                re-export the function extents from the program as it is
 #
 # Each run takes a minute or more to open the program: batch addresses.
 set -e
@@ -27,15 +32,20 @@ run() {
   grep -E "ApplyFacts:|ERROR|Exception|wrote" "$ROOT/build/ghidra-last.log" | head -20
 }
 
+# the project's committed facts, where it has them: imports.json needs a live client to
+# regenerate, so a committed copy backs it; names.json is hand-identified, always current
+project_data() {
+  mkdir -p "$ROOT/build/facts"
+  if [ ! -f "$ROOT/build/facts/imports.json" ] && [ -f "$ROOT/data/imports.json" ]; then
+    cp "$ROOT/data/imports.json" "$ROOT/build/facts/"
+  fi
+  if [ -f "$ROOT/data/names.json" ]; then cp "$ROOT/data/names.json" "$ROOT/build/facts/names.json"; fi
+}
+
 case "$1" in
-  apply)  mkdir -p "$ROOT/build/facts"
-          # imports.json needs a live client to regenerate, so a committed copy backs it
-          [ -f "$ROOT/build/facts/imports.json" ] || cp "$ROOT/data/imports.json" "$ROOT/build/facts/"
-          cp "$ROOT/data/names.json" "$ROOT/build/facts/names.json"   # hand-identified, always current
+  apply)  project_data
           run -postScript ApplyFacts.java "$(cygpath -w "$ROOT/build/facts")" ;;
-  all)    mkdir -p "$ROOT/build/facts"
-          [ -f "$ROOT/build/facts/imports.json" ] || cp "$ROOT/data/imports.json" "$ROOT/build/facts/"
-          cp "$ROOT/data/names.json" "$ROOT/build/facts/names.json"
+  all)    project_data
           # the program opens once (a minute or more): the facts go in, then both exports read the
           # result. Written beside the old files and moved over only when complete
           rm -f "$ROOT/build/refdata.jsonl.new" "$ROOT/build/corpus.jsonl.new"
@@ -64,9 +74,7 @@ case "$1" in
   decomp) out=$(cygpath -w "$2"); shift 2; run -postScript DecompileList.java "$out" "$@"; echo "wrote $out" ;;
   # apply the facts, then decompile only the functions listed in a file (one hex address a
   # line) to corpus-format JSON lines: a check of the facts on a sample before `all`
-  sample) mkdir -p "$ROOT/build/facts"
-          [ -f "$ROOT/build/facts/imports.json" ] || cp "$ROOT/data/imports.json" "$ROOT/build/facts/"
-          cp "$ROOT/data/names.json" "$ROOT/build/facts/names.json"
+  sample) project_data
           list=$(cygpath -w "$2"); out=$(cygpath -w "$3")
           "$G/support/analyzeHeadless.bat" "$PROJ" "$GPROJECT" -process "$PROG" -noanalysis \
             -scriptPath "$SCRIPTS" \
@@ -75,5 +83,14 @@ case "$1" in
             2>&1 | tee "$ROOT/build/ghidra-last.log" | grep --line-buffered -E "ApplyFacts:|ExportD|ERROR|Exception" || true
           echo "wrote $3" ;;
   script) s="$2"; shift 2; run -postScript "$s" "$@" ;;
+  # (a one-time step: a project already in Ghidra keeps its program, and its hand naming, unless
+  # the program is deleted first)
+  import) mkdir -p "$ROOT/build/facts"
+          "$G/support/analyzeHeadless.bat" "$PROJ" "$GPROJECT" -import "$(cygpath -w "$EXE")" \
+            -scriptPath "$SCRIPTS" \
+            -postScript ExportFunctions.java "$(cygpath -w "$ROOT/build/facts/functions.json")" \
+            2>&1 | tee "$ROOT/build/ghidra-import.log" | grep --line-buffered -E "ExportFunctions:|ERROR|Exception|Import succeeded|already exists" || true ;;
+  functions) mkdir -p "$ROOT/build/facts"
+          run -postScript ExportFunctions.java "$(cygpath -w "$ROOT/build/facts/functions.json")" ;;
   *) sed -n '2,8p' "$0"; exit 1 ;;
 esac

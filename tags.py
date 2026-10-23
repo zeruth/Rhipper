@@ -18,7 +18,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from corpus import load_corpus
-from wowbin import Binary
+from pebin import Binary
 
 from project import ROOT
 TAG = re.compile(r"(?://|/\*|^\s*\*+)\s*ref:\s*(?:FUN_|0x)([0-9a-fA-F]{9,})")

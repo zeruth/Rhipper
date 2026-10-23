@@ -12,7 +12,7 @@ instruction of its check, so the decompile export and the recomp can skip it.
 from __future__ import annotations
 
 from corpus import load_facts
-from wowbin import Binary, hexa, write_facts
+from pebin import Binary, hexa, write_facts
 
 RANGE_BASE = 0x14261A0B0
 RANGE_LEN = 0x14261A0B8

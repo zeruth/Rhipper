@@ -23,7 +23,7 @@ import subprocess
 
 import pefile
 
-from wowbin import Binary, hexa, write_facts
+from pebin import Binary, hexa, write_facts
 
 k32 = ctypes.WinDLL("kernel32", use_last_error=True)
 psapi = ctypes.WinDLL("psapi", use_last_error=True)

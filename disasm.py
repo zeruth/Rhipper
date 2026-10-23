@@ -3,13 +3,14 @@
     python tools/disasm.py 0x1402cb0d0            # the whole function (its .pdata extent)
     python tools/disasm.py 0x1402cb0d0 0x40       # 0x40 bytes from the address
 
-RIP-relative operands get their target printed, with the C string there when there is one.
+RIP-relative operands (32-bit: absolute addresses) get their target printed, with the C string
+there when there is one.
 """
 import argparse
 
 import capstone
 
-from wowbin import Binary
+from pebin import X86, Binary, disassembler
 
 
 def main() -> None:
@@ -28,17 +29,22 @@ def main() -> None:
     else:
         length = args.length
 
-    md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
+    md = disassembler()
     md.detail = True
     code = b.image[b.off(start):b.off(start) + length]
     for insn in md.disasm(code, start):
         note = ""
-        if "rip" in insn.op_str:
-            for op in insn.operands:
-                if op.type == capstone.x86.X86_OP_MEM and op.mem.base == capstone.x86.X86_REG_RIP:
-                    target = insn.address + insn.size + op.mem.disp
-                    s = b.cstr(target, 80) if b.section_of(target) else None
-                    note = f"   ; {target:#x}" + (f" {s!r}" if s else "")
+        for op in insn.operands:
+            target = None
+            if op.type == capstone.x86.X86_OP_MEM and op.mem.base == capstone.x86.X86_REG_RIP:
+                target = insn.address + insn.size + op.mem.disp
+            elif X86 and op.type == capstone.x86.X86_OP_MEM and op.mem.base == 0 and op.mem.index == 0:
+                target = op.mem.disp & 0xFFFFFFFF
+            elif X86 and op.type == capstone.x86.X86_OP_IMM and b.section_of(op.imm & 0xFFFFFFFF):
+                target = op.imm & 0xFFFFFFFF
+            if target is not None and b.section_of(target):
+                s = b.cstr(target, 80)
+                note = f"   ; {target:#x}" + (f" {s!r}" if s else "")
         print(f"{insn.address:#x}  {insn.mnemonic:8} {insn.op_str}{note}")
 
 

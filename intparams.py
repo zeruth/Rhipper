@@ -15,10 +15,9 @@ shows the float that put it here.
 import json
 import re
 
-from wowbin import write_facts
-from corpus import ROOT
+from pebin import write_facts
+from corpus import FACTS, ROOT
 
-FACTS = ROOT / "build/facts"
 INT_CAST = (r"(?:int|uint|longlong|ulonglong|byte|char|short|ushort|undefined1|undefined2|undefined4|undefined8|"
             r"bool)")
 

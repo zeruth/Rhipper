@@ -16,7 +16,7 @@ from pathlib import Path
 
 import capstone
 
-from wowbin import Binary
+from pebin import Binary
 
 from project import ROOT
 CACHE = ROOT / "build" / "refdata-float.json"

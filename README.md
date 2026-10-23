@@ -76,7 +76,7 @@ facts are re-runnable, but what they replace is not kept.
 
 | tool | what it recovers | how |
 |---|---|---|
-| `wowbin.py` | shared core: flat image by RVA, `.pdata` function extents, C strings, RIP-relative reference scan | |
+| `pebin.py` | shared core: flat image by RVA, `.pdata` function extents, C strings, RIP-relative reference scan | |
 | `pe_survey.py` | sections and entropy, imports, TLS callbacks, debug directory | |
 | `name_anchors.py` | counts RTTI names, source paths, Lua names: what naming material exists | |
 | `vtables.py` | ~3.5k vtables, their slots, and the functions that load them (ctors/dtors) | lea targets inside runs of code pointers in `.rdata` |
@@ -135,7 +135,7 @@ created on chained pieces), `DecompileList.java` (batch decompile, via `ghidra.s
 
 - x64, image base `0x140000000`; `.text` 38 MB. **74,763 functions.** `.pdata` has 148,635
   entries, but 73,872 of them are chained pieces (`UNW_FLAG_CHAININFO`): cold blocks the
-  compiler moved out of line, each pointing at its parent. `wowbin.py` resolves every
+  compiler moved out of line, each pointing at its parent. `pebin.py` resolves every
   address through the chain to the root function, and every extractor attributes to roots.
   (Leaf functions without unwind info are not in `.pdata` at all.) An early run created
   1,787 functions at piece starts in Ghidra; `ghidra/RemovePieceFunctions.java` removed them.
@@ -173,7 +173,7 @@ created on chained pieces), `DecompileList.java` (batch decompile, via `ghidra.s
   replaces it with 35 functions: CRT (`abort`, `terminate`, `_CxxThrowException`,
   `_invoke_watson`, `_endthreadex`, ...), a `longjmp` error thrower (likely Lua's), and the
   game's crash/fatal paths. Game asserts are not among them: they return.
-- **RIP-relative references are verified.** `wowbin.riprel_refs(keep=...)` finds them by
+- **RIP-relative references are verified.** `pebin.riprel_refs(keep=...)` finds them by
   byte pattern, then keeps only sites that are real instruction boundaries in a decode of
   their piece. On string targets this changes almost nothing; on the anti-tamper global
   it removed 101 mid-instruction matches and two wrongly tagged functions.
@@ -204,5 +204,5 @@ they are labelled with every candidate (`htons_or_ntohs`) until a call site sett
 The CRT runs 4,648 static initializers from the `_initterm` table (`0x14260e3f8..0x142617540`)
 before `WinMain`. They are small leaf functions without `.pdata` entries, so Ghidra never made
 functions of most of them and the corpus does not contain them. Find the one that sets up a
-global with `wowbin.riprel_refs(keep=...)` on the global's address. Example: the SCmd lists'
+global with `pebin.riprel_refs(keep=...)` on the global's address. Example: the SCmd lists'
 `TSList` sentinels (`terminator | 1`) and their `atexit` destructors are set at `0x1401cb400`.
