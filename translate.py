@@ -2496,6 +2496,15 @@ def indirect_float_calls(body: str, params: list[str]) -> str:
         args_end = matching_paren(out, j + 1)
         args = split_args(out[j + 1:args_end - 1])
         arg_kinds = [kind(a) for a in args]
+        # a call through P's vtable passes P first, in rcx. Where Ghidra made that first slot a
+        # float it read a live xmm0 instead: FUN_1413406c0 tail-jumps to slot 0x28 with rcx the
+        # object and xmm1 the clamped weight, and came out `(**(code **)(*param_1 + 0x28))(
+        # (float)param_2, fVar1, ...)`, the float's bits arriving as the object (a fault at
+        # 0x3f4a1a74 in the animation blend, 2026-10-23; 5 calls in 3 functions). The slot is P's.
+        vt = re.fullmatch(r"\(\*\*\(code \*\*\)\(\*(\w+) \+ 0x[0-9a-f]+\)\)", out[start:callee_end].strip())
+        if vt and args and arg_kinds[0] in ("float", "double") and args[0].strip() != vt.group(1):
+            args[0] = vt.group(1)
+            arg_kinds[0] = None
         # the result: what the call is assigned to, as the statement opens
         line_start = max(out.rfind(c, 0, start) for c in ";{}\n") + 1
         prefix = out[line_start:start]
