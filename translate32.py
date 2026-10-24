@@ -578,6 +578,16 @@ def returned_local(v: str, lines: list[str]) -> bool:
     return True
 
 
+def stack_vs_const(c: str) -> str:
+    """A stack address compared with a small constant is never equal: _malloca's buffer checked
+    for NULL after its 8-byte header, `&stack0x00000000 != &DAT_00000020` (__crtLCMapStringA_stat,
+    __crtGetStringTypeA_stat, 2026-10-24). A stack lies far above the first 64 KB."""
+    small = r"(?:&DAT_0000[0-9a-f]{4}|\(\w+ \*\)0x[0-9a-f]{1,4}|0x[0-9a-f]{1,4}|\d{1,5})"
+    st = r"(?:\(\w+ \*\))?&stack0x[0-9a-f]{8}"
+    c = re.sub(rf"{st}\s*!=\s*{small}|{small}\s*!=\s*{st}", "1", c)
+    return re.sub(rf"{st}\s*==\s*{small}|{small}\s*==\s*{st}", "0", c)
+
+
 def returned_only(c: str) -> set[str]:
     """The result registers the decompiler lost that the function only returns: `in_EAX` (eax
     as the function found it) and `extraout_EAX` (what a void callee left in it), read nowhere but
@@ -1075,7 +1085,7 @@ class Translator32:
 
     # ---- one function ---------------------------------------------------------------------------
     def why_not(self, a: int) -> str | None:
-        c = v16_forms(cpu_state(strip_comments(self.corpus[a]["c"])))
+        c = stack_vs_const(v16_forms(cpu_state(strip_comments(self.corpus[a]["c"]))))
         if a not in self.sigs:
             return "no signature"
         # (and a full xmm register as an SSE pseudo-op's destination found it: zeroed, sse_ops)
@@ -1402,7 +1412,7 @@ class Translator32:
     def rewrite(self, a: int) -> str:
         """The function's C, translated (raises ValueError when it cannot be)."""
         sig = self.sigs[a]
-        c = v16_forms(cpu_state(strip_comments(self.corpus[a]["c"])))
+        c = stack_vs_const(v16_forms(cpu_state(strip_comments(self.corpus[a]["c"]))))
         # (a long C++ name Ghidra wraps at a `::`, `IpcChannel::\n        PacketBufferTmpl<...>::\n
         # vftable`: one name again, as the data export has it. 1,090 stubs, 2026-10-23)
         c = re.sub(r"::[ \t]*\n[ \t]*", "::", c)

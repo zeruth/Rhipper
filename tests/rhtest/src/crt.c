@@ -5,6 +5,7 @@
  * result is checked by its hash, so a check is one line whatever the text. */
 #define _CRT_SECURE_NO_WARNINGS   /* (the classic names, as old binaries call them) */
 #include <ctype.h>
+#include <malloc.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -159,6 +160,19 @@ NOINLINE u32 ints(int k) {
     return (u32)abs(-k * 3) + (u32)labs(-(long)k * 5) + (u32)q.quot * 17 + (u32)q.rem + (u32)lq.quot + (u32)lq.rem * 3;
 }
 
+/* _malloca: its buffer checked for NULL past the 8-byte marker, an address on the stack compared
+ * with a small constant (the CRT's __crtLCMapStringA_stat, stubbed in CrystalCore) */
+NOINLINE u32 malloca_sum(int n) {
+    int *p = (int *)_malloca(n * sizeof(int));
+    u32 h = 0;
+    int k;
+    if (p == NULL) return 0;
+    for (k = 0; k < n; k++) p[k] = k * k + n;
+    for (k = 0; k < n; k++) h = h * 31 + (u32)p[k];
+    _freea(p);
+    return h;
+}
+
 /* stdout: the CRT's own stream, flushed so its lines come where they are written */
 NOINLINE int print(int k) {
     int n = printf("printf: %d %s %.2f\n", k, "line", k * 0.5);
@@ -185,5 +199,6 @@ void rhtest_run(void) {
     check("strings", strings(s));
     check("ctypes", ctypes("Hello, World 42!"));
     check("ints", ints(i));
+    check("malloca", malloca_sum(i * 3));
     check("print", (u32)print(i));
 }

@@ -270,6 +270,17 @@ public class ApplyFacts extends GhidraScript {
                 // caller passes what it pushes, protos32.py's va_start of the slot past them)
                 if (o.has("variadic") != f.hasVarArgs()) f.setVarArgs(o.has("variadic"));
                 if (o.has("ret")) setReturn32(f, o.get("ret").getAsString());
+                // (a float result the facts do not give it is an earlier round's: void. xmm0 returns
+                // spread through wrappers left FUN_004c67d0 a float the facts no longer give, and
+                // the project keeps it, 2026-10-24)
+                else if (f.getReturnType() instanceof ghidra.program.model.data.AbstractFloatDataType) {
+                    if (f.hasCustomVariableStorage()) {
+                        f.setReturn(ghidra.program.model.data.VoidDataType.dataType,
+                                ghidra.program.model.listing.VariableStorage.VOID_STORAGE, SourceType.ANALYSIS);
+                    } else {
+                        f.setReturnType(ghidra.program.model.data.VoidDataType.dataType, SourceType.ANALYSIS);
+                    }
+                }
                 if (o.has("keep")) {
                     // (a custom one's storage stays its own: the convention only says what it keeps)
                     f.setCallingConvention(keepName32(keepBase32(o), o.getAsJsonArray("keep")));

@@ -116,6 +116,19 @@ NOINLINE u32 vec_check(void) {
     return fbits(dot(&a, &c)) ^ fbits(c.x) ^ fbits(c.y) * 3 ^ fbits(c.z) * 5;
 }
 
+/* a float zeroed with `xorps xmm0, xmm0` right after an integer call: no read of an xmm0 result.
+ * Taken for one after free, it made free and, through every wrapper, the allocators float ones
+ * (CrystalCore, 7,136 xmm0 returns) */
+static u32 g_calls;
+NOINLINE u32 bump(u32 k) { g_calls += k; return g_calls; }
+NOINLINE float after_call(u32 n, float step) {
+    u32 b = bump(n);
+    float acc = 0.0f;
+    u32 k;
+    for (k = 0; k < n; k++) acc += step * (float)k;
+    return acc + (float)b;
+}
+
 /* globals of float type */
 float g_scale = 1.5f;
 double g_offset = -0.125;
@@ -166,4 +179,5 @@ void rhtest_run(void) {
     checkf("fsum", fsum(fv, 6));
     check("vec", vec_check());
     checkd("scaled", scaled(s));
+    checkf("after_call", after_call((u32)s, sf * 0.25f));
 }
