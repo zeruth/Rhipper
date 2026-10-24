@@ -438,7 +438,26 @@ def frame_locals(body: str) -> str:
     return body.replace("{", "{\n  __declspec(align(16)) undefined1 gen_frame[0x%x];" % size, 1)
 
 
-RESULT_REG = re.compile(r"\b(?:in|extraout)_E[AD]X(?:_\d+)?\b")
+# (and al/ax, a byte or bool function's: ___scrt_initialize_onexit_tables returns `in_AL` after
+# __scrt_fastfail, which can return, its al whatever that left, rhtest calls 2026-10-24)
+RESULT_REG = re.compile(r"\b(?:in|extraout)_(?:E[AD]X|AL|AX)(?:_\d+)?\b")
+
+
+def returned_local(v: str, lines: list[str]) -> bool:
+    """A local whose every read is a `return v;`: what is assigned to it reaches nothing else."""
+    for line in lines:
+        if not re.search(r"\b" + re.escape(v) + r"\b", line):
+            continue
+        s = line.strip()
+        if re.fullmatch(r"[\w ]+\s+\**" + re.escape(v) + r";", s):
+            continue                                    # its declaration
+        if re.fullmatch(r"return\s+(?:\(\w+\)\s*)?" + re.escape(v) + r"\s*;", s):
+            continue
+        m = re.fullmatch(r"(\w+)\s*=\s*(.+);", s)
+        if m and m.group(1) == v and not re.search(r"\b" + re.escape(v) + r"\b", m.group(2)):
+            continue                                    # written
+        return False
+    return True
 
 
 def returned_only(c: str) -> set[str]:
@@ -468,7 +487,8 @@ def returned_only(c: str) -> set[str]:
                 if not re.search(r"\b" + n + r"\b", line):
                     continue
                 s = line.strip()
-                if re.fullmatch(r"(?:undefined\d?|uint|int|ulonglong|longlong|u?int\d*)\s+" + n + r";", s):
+                if re.fullmatch(r"(?:undefined\d?|uint|int|ulonglong|longlong|u?int\d*|byte|char|bool|u?short|ushort)\s+"
+                                + n + r";", s):
                     continue                                    # its declaration
                 if re.match(r"return\b", s):
                     continue
@@ -477,6 +497,11 @@ def returned_only(c: str) -> set[str]:
                     continue                                    # written
                 if m and m.group(1) in ok and re.fullmatch(r"(?:CONCAT44\()?[\w ,]+\)?", m.group(2)):
                     continue                                    # copied into another one
+                # (copied whole into a local read only by returns: the debug printf FUN_00430c00
+                # returns what OutputDebugStringA left in eax on one path, `uVar2 = extraout_EAX;
+                # ... return uVar2;`, a result no caller reads, 2026-10-24)
+                if m and m.group(2).strip() == n and returned_local(m.group(1), lines):
+                    continue
                 ok.discard(n)
                 changed = True
                 break
@@ -1462,7 +1487,7 @@ class Translator32:
         # (in the code, not in a string: "ios_base::eofbit set" is text)
         code_only = re.sub(r'"(?:[^"\\\n]|\\.)*"', '""', body)
         # (Ghidra's stack pieces, `_uStack_1c`; not a library signature's `_StackCookie`)
-        left = re.search(r"::|`|\bregister0x|\b_(?:local|param|[a-z]*Stack(?![A-Za-z])|auStack)\w*|\bin_(?!E[ACD]X\b|E[ACD]X_\d+\b|XMM\d+\b)[A-Z]", code_only)
+        left = re.search(r"::|`|\bregister0x|\b_(?:local|param|[a-z]*Stack(?![A-Za-z])|auStack)\w*|\bin_(?!E[ACD]X\b|E[ACD]X_\d+\b|A[LX]\b|A[LX]_\d+\b|XMM\d+\b)[A-Z]", code_only)
         if left:
             raise ValueError(f"a name C cannot take ({left.group(0)})")
         self.undeclared(body, var_types)

@@ -169,7 +169,7 @@ public class ApplyFacts extends GhidraScript {
         java.util.Set<String> keepNames = new java.util.TreeSet<>();
         for (Map.Entry<String, JsonElement> e : root.getAsJsonObject("functions").entrySet()) {
             JsonObject o = e.getValue().getAsJsonObject();
-            if (o.has("keep")) keepNames.add(keepName32(o.get("cc").getAsString(), o.getAsJsonArray("keep")));
+            if (o.has("keep")) keepNames.add(keepName32(keepBase32(o), o.getAsJsonArray("keep")));
         }
         if (!keepNames.isEmpty()) addKeepConventions32(keepNames);
         for (Map.Entry<String, JsonElement> e : root.getAsJsonObject("functions").entrySet()) {
@@ -250,10 +250,21 @@ public class ApplyFacts extends GhidraScript {
                                 SourceType.ANALYSIS);
                     }
                 }
+                // (variadic: its fixed parameters above, and each call site's own beyond them, so a
+                // caller passes what it pushes, protos32.py's va_start of the slot past them)
+                if (o.has("variadic") != f.hasVarArgs()) f.setVarArgs(o.has("variadic"));
                 if (o.has("ret")) setReturn32(f, o.get("ret").getAsString());
-                if (o.has("keep") && !cc.equals("custom")) {
-                    f.setCallingConvention(keepName32(cc, o.getAsJsonArray("keep")));
+                if (o.has("keep")) {
+                    // (a custom one's storage stays its own: the convention only says what it keeps)
+                    f.setCallingConvention(keepName32(keepBase32(o), o.getAsJsonArray("keep")));
                     keeps++;
+                    // (one that leaves eax alone returns nothing in it: void, whatever an earlier
+                    // round typed. __security_check_cookie kept the ulonglong it had, and its 7,155
+                    // callers returned that, not the eax they had set, 2026-10-24)
+                    if (o.getAsJsonArray("keep").contains(new com.google.gson.JsonPrimitive("eax"))
+                            && !(f.getReturnType() instanceof ghidra.program.model.data.VoidDataType)) {
+                        f.setReturnType(ghidra.program.model.data.VoidDataType.dataType, SourceType.ANALYSIS);
+                    }
                 }
                 set++;
             } catch (Exception ex) {
@@ -542,6 +553,15 @@ public class ApplyFacts extends GhidraScript {
     // decompiler takes the call to kill them and names what follows `extraout_ECX`. Each is the
     // base's own prototype from the language's x86win.cspec, renamed, the kept registers moved from
     // killedbycall and likelytrash into unaffected (eax too: then no output is killed by the call)
+    // the convention a keep one is made from: a custom function's is the base its storage was set
+    // under (__stdcall where it pops stack arguments), protos32.py giving a register convention
+    // that keeps some its registers by name (__security_check_cookie, 2026-10-24)
+    private static String keepBase32(JsonObject o) {
+        String cc = o.get("cc").getAsString();
+        if (!cc.equals("custom")) return cc;
+        return o.get("callee_cleans").getAsBoolean() && o.get("stack").getAsInt() > 0 ? "__stdcall" : "__cdecl";
+    }
+
     private static String keepName32(String cc, JsonArray regs) {
         StringBuilder n = new StringBuilder(cc).append("_keep");
         for (JsonElement r : regs) n.append('_').append(r.getAsString());
@@ -629,12 +649,29 @@ public class ApplyFacts extends GhidraScript {
         if (want != have) {
             if (f.hasCustomVariableStorage()) {
                 // (custom storage: the return's own too, or "Storage can't be resized: <VOID>")
-                // (an integer one only: edx:eax, and a float in st0's 10 bytes, are left as they are)
+                // (an integer one only: a float in st0's 10 bytes is left as it is, the port's
+                // float10 a double. edx:eax is the pair, high first: left to the decompiler, a
+                // double's bits returned there were typed double, and dbits' callers converted the
+                // value, -7.0 as -7, once a double parameter made the storage custom, rhtest
+                // float-Od 2026-10-24)
+                // A float in st0 the same: its 10 bytes as float10 (the register's size; the port's
+                // float10 is a double). Left alone, a fresh import's dmin and fsqrt returned nothing
                 int n = want.getLength();
-                if (want instanceof ghidra.program.model.data.AbstractFloatDataType || n > 4) return;
-                String reg = n == 1 ? "AL" : n == 2 ? "AX" : "EAX";
-                f.setReturn(want, new ghidra.program.model.listing.VariableStorage(currentProgram,
-                        currentProgram.getRegister(reg)), SourceType.ANALYSIS);
+                if (want instanceof ghidra.program.model.data.AbstractFloatDataType) {
+                    DataType f10 = ghidra.program.model.data.Float10DataType.dataType;
+                    if (!f10.isEquivalent(have)) {
+                        f.setReturn(f10, new ghidra.program.model.listing.VariableStorage(currentProgram,
+                                currentProgram.getRegister("ST0")), SourceType.ANALYSIS);
+                        returnsSet++;
+                    }
+                    return;
+                }
+                ghidra.program.model.listing.VariableStorage vs = n > 4
+                        ? new ghidra.program.model.listing.VariableStorage(currentProgram,
+                                currentProgram.getRegister("EDX"), currentProgram.getRegister("EAX"))
+                        : new ghidra.program.model.listing.VariableStorage(currentProgram,
+                                currentProgram.getRegister(n == 1 ? "AL" : n == 2 ? "AX" : "EAX"));
+                f.setReturn(want, vs, SourceType.ANALYSIS);
             } else {
                 f.setReturnType(want, SourceType.ANALYSIS);
             }

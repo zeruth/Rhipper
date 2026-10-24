@@ -148,6 +148,8 @@ def analyse(root: int, ranges):
     slots: dict[int, str] = {}                # stack parameter offset -> "d"/"f": read as a double/float
     touched: set[int] = set()                 # parameter slots something else used first
     addr_taken = False                        # `lea r, [param]`: the parameter block as an array (varargs)
+    direct_hi = 0                             # highest parameter byte read other than by address
+    lea_offs: set[int] = set()                # the parameter slots whose address it takes
     calls = []                                # (target, undefined mask, "call"/"jmp")
     open_ = False
     lost = 0
@@ -167,7 +169,7 @@ def analyse(root: int, ranges):
             work.append(a)
 
     def visit(a):
-        nonlocal inputs, stack_hi, addr_taken, open_, lost
+        nonlocal inputs, stack_hi, addr_taken, open_, lost, direct_hi
         mask, esp, ebp, pushed = state[a]
         ins = insns[a]
         mn = ins.mnemonic
@@ -181,7 +183,9 @@ def analyse(root: int, ranges):
         zero_idiom = (mn in ("xor", "sub", "sbb", "xorps", "xorpd", "pxor", "subps", "pcmpeqd") and same) or constant
         # (and the ones that do nothing: the CRT's hot-patch `mov edi, edi`, alignment filler
         # `lea ebx, [ebx]`. Read as reads, sprintf_s took edi, and so did its 7,953 callers)
-        nop = (mn == "mov" and same) or (mn == "lea" and len(ops) == 2 and ops[1].type == X.X86_OP_MEM
+        # (and a multi-byte nop, `nop word ptr [eax + eax]`, whose operand addresses nothing: as
+        # a read, mixed_va took eax ahead of its format, rhtest calls 2026-10-24)
+        nop = mn == "nop" or (mn == "mov" and same) or (mn == "lea" and len(ops) == 2 and ops[1].type == X.X86_OP_MEM
                                          and ops[1].mem.base == ops[0].reg and not ops[1].mem.index
                                          and not ops[1].mem.disp)
         # (`push reg` saves a callee-saved register, or is how MSVC reserves a 4-byte local
@@ -225,8 +229,11 @@ def analyse(root: int, ranges):
             width = scalar_width(mn, op.size)
             if off >= 4:
                 stack_hi = max(stack_hi, off + (width or 4))
+                if mn != "lea":
+                    direct_hi = max(direct_hi, off + (width or 4))
                 if mn == "lea":
                     addr_taken = True
+                    lea_offs.add(off)
                 # (a parameter read as a float, by its width: a double is two slots, and as two
                 # 4-byte integers the decompiler read it as `*(double *)&param_3`, 8 bytes of a
                 # 4-byte parameter, rhtest float 2026-10-24)
@@ -348,7 +355,12 @@ def analyse(root: int, ranges):
                         and after.operands[0].type == X.X86_OP_REG and after.operands[0].reg == X.X86_REG_ESP
                     # (what was pushed for it, not what the next call takes: next_call_deficit)
                     clean = 0 if cdecl else max(0, pushed - next_call_deficit(insns, prv, nxt, a))
-                    known = clean if not cdecl and t is None else None
+                    # (or a later call's cleanup pops its bytes too, icall_shape: the stack keeps
+                    # them, and the esp offsets after the call are as before it)
+                    if not cdecl and pushed and t is None and folded_cleanup(insns, nxt, a, pushed):
+                        known, clean = pushed, 0
+                    else:
+                        known = clean if not cdecl and t is None else None
                 if esp is not None:
                     esp += clean
                 # (each call consumes its own arguments, and what was pushed before them for a
@@ -452,8 +464,13 @@ def analyse(root: int, ranges):
     inputs |= pushed_inputs(insns, prv, nxt, state, labels)
     icalls = {a: icall_shape(insns, prv, nxt, state, a, labels, bool(inputs & ECX)) for a in state
               if insns[a].mnemonic == "call" and _target(insns[a]) is None and import_slot(insns, prv, a) is None}
+    # (variadic: the address of the slot just past the last parameter it reads, `lea eax, [esp + 8]`
+    # after reading [esp + 4]: va_start of what follows its fixed ones. Typed with only what it
+    # reads, sum_va(int n, ...) had one more parameter and its callers passed two, rhtest calls)
+    variadic = (direct_hi - 4) // 4 if direct_hi >= 8 and direct_hi in lea_offs and direct_hi % 4 == 0 \
+        and max(lea_offs) == direct_hi else None
     return {"inputs": inputs, "in_width": in_width, "stack_hi": stack_hi, "slots": slots,
-            "addr_taken": addr_taken, "calls": calls,
+            "addr_taken": addr_taken, "calls": calls, "variadic": variadic,
             "open": open_, "lost": lost, "ret": ret_bytes(insns), "visited": len(state), "insns": len(insns),
             "icalls": {a: s for a, s in icalls.items() if s is not None},
             "results": {t: k for t, k in results.items() if not isinstance(t, tuple)},
@@ -492,7 +509,9 @@ def result_reads(insns, state, nxt):
                 continue
             t = ("site", a)
         if ins.mnemonic == "jmp":
-            if not isinstance(t, tuple) and t not in insns:
+            # (a tail jump to one that does not return passes nothing back: __security_check_cookie's
+            # `jne ___report_gsfailure` made the cookie check an edx:eax one, 2026-10-24)
+            if not isinstance(t, tuple) and t not in insns and t not in _noreturn:
                 passes.append(t)
             continue
         if ins.mnemonic != "call" or t in _noreturn:
@@ -747,8 +766,68 @@ def icall_shape(insns, prv, nxt, state, a, labels, own_this):
                                                    # method passes `this` on the stack)
     if a not in state:
         return None
-    n = max(0, state[a][3] - next_call_deficit(insns, prv, nxt, a))
+    # (a __cdecl call whose cleanup the compiler folded into a later call's: `push ..; call [f];
+    # push ..; call [f]; add esp, 0x18` pops both. Taken for the callee's own, call_va's first
+    # call left its 16 bytes uncounted and the second read the wrong pointer, rhtest calls O2.
+    # Before next_call_deficit, which reads that cleanup as the next call's need)
+    raw = state[a][3]
+    if raw and folded_cleanup(insns, nxt, a, raw):
+        return ("__cdecl", raw // 4)
+    n = max(0, raw - next_call_deficit(insns, prv, nxt, a))
+    # (and edx beside ecx, written since the last call and read by nothing before this one, the
+    # call's own operand included: __fastcall's second register argument. `mov edx, 3; mov ecx,
+    # x; call [ebp + 8]` passed only x, and call_fc's callback took 3 from nowhere, rhtest calls)
+    if ecx_set and edx_argument(insns, prv, a):
+        return ("__fastcall", n // 4)
     return ("__thiscall" if ecx_set else "__stdcall", n // 4)
+
+
+def folded_cleanup(insns, nxt, a, n) -> bool:
+    """A later `add esp, K` in the straight line after the call at `a` that pops more than what is
+    pushed after it: the n argument bytes of `a` among them, so `a`'s callee left them."""
+    p, end, pushed = nxt[a], a + insns[a].size, 0
+    for _ in range(32):
+        if p is None or p != end or p not in insns:
+            return False
+        ins = insns[p]
+        end = p + ins.size
+        mn, ops = ins.mnemonic, ins.operands
+        if mn == "push":
+            pushed += 4
+        elif mn == "pop":
+            pushed -= 4
+        elif mn == "add" and len(ops) == 2 and ops[0].type == X.X86_OP_REG and ops[0].reg == X.X86_REG_ESP \
+                and ops[1].type == X.X86_OP_IMM:
+            return ops[1].imm >= pushed + n
+        elif mn in ("ret", "jmp") or mn.startswith("j") or any(
+                o.type == X.X86_OP_REG and o.reg == X.X86_REG_ESP for o in ops[:1]):
+            return False
+        p = nxt[p]
+    return False
+
+
+def edx_argument(insns, prv, a) -> bool:
+    """edx written in the straight line back to the previous call, not pushed, and read by
+    nothing between its write and the call at `a` (the call's operand included: `mov edx, [ecx];
+    call [edx + 8]` is a vtable's, no argument)."""
+    read_after = any(REG_BITS.get(r) == EDX for r in regs_access(insns[a])[0])
+    p = prv[a]
+    for _ in range(ICALL_WINDOW):
+        if p is None or p not in insns:
+            return False
+        ins = insns[p]
+        mn = ins.mnemonic
+        if mn in ("call", "jmp", "ret", "int3") or mn.startswith("j"):
+            return False
+        reads, writes = regs_access(ins)
+        if mn == "push" and any(REG_BITS.get(r) == EDX for r in reads):
+            return False
+        if any(REG_BITS.get(r) == EDX for r in writes) and not (mn == "push"):
+            return not read_after and REG_WIDTH.get(next(r for r in writes if REG_BITS.get(r) == EDX), 4) == 4
+        if any(REG_BITS.get(r) == EDX for r in reads):
+            read_after = True
+        p = prv[p]
+    return False
 
 
 def next_call_deficit(insns, prv, nxt, a) -> int:
@@ -1002,6 +1081,11 @@ def main() -> None:
         changed = False
         for f, v in local.items():
             for t, _undef, kind in v.get("calls", ()):
+                # (not into one that does not return: ___report_gsfailure reads the stack it is
+                # handed, and __security_check_cookie's `jne` to it gave the check a stack parameter
+                # its every caller filled with junk, WinMain's `unaff_EDI`, 2026-10-24)
+                if t in noreturn:
+                    continue
                 if kind == "jmp" and stack_hi.get(t, 0) > stack_hi[f]:
                     stack_hi[f] = stack_hi[t]
                     changed = True
@@ -1054,6 +1138,12 @@ def main() -> None:
                 # in one became one too)
                 if t in ret_of:
                     changed |= give(f, "i4" if ret_of[t] == "i8" else ret_of[t], f"returns {hexa(t)}'s")
+                # (one that leaves eax alone, the result is the caller's own: `mov eax, r; ...; call
+                # __security_check_cookie; ret`. 4,830 functions had theirs only through the cookie
+                # check's edx:eax, and many are called only through a vtable, 2026-10-24)
+                elif t in local and not local[t].get("writes_ret", 0) & EAX and not local[t].get("passes") \
+                        and not local[t].get("opaque") and v.get("writes_ret", 0) & EAX:
+                    changed |= give(f, "i4", f"keeps its eax across {hexa(t)}")
     for s in args.why_ret:
         a = int(s, 16)
         while a in why:
@@ -1075,6 +1165,9 @@ def main() -> None:
         for f, v in local.items():
             k = kills[f]
             for t, _u, _kind in v.get("calls", ()):
+                # (what a callee that does not return writes never reaches the caller's callers)
+                if t in noreturn:
+                    continue
                 k |= kills.get(t, EAX | ECX | EDX)
             if k != kills[f]:
                 kills[f] = k
@@ -1119,6 +1212,9 @@ def main() -> None:
         # [esp + 4], had none, and the decompiler's in_stack_00000004)
         stack = ret_n if callee_cleans and ret_n else max(0, stack_hi[f] - 4)
         stack = (stack + 3) & ~3
+        variadic = local[f].get("variadic") if not callee_cleans else None
+        if variadic is not None:
+            stack = 4 * variadic                  # (its fixed parameters; the rest each call's own)
         # (at most what the language's models place: x86win.cspec's stack entry is 500 bytes, and
         # FUN_00b2f1e0's 520, assigned whole, failed its decompilation, "Cannot assign parameter
         # address")
@@ -1148,6 +1244,8 @@ def main() -> None:
             e["open"] = True
         if v["addr_taken"]:
             e["param_addr"] = True        # `lea r, [param]`: a parameter passed by address, or a va_list
+        if variadic is not None:
+            e["variadic"] = variadic      # its fixed parameter count: ApplyFacts marks it varargs
         if callee_cleans and ret_n and stack_hi[f] - 4 > ret_n:
             e["reads_beyond"] = stack_hi[f] - 4   # reads past its own cleanup: a check for later
         if ret_n is None:
@@ -1160,8 +1258,27 @@ def main() -> None:
         # (on a __cdecl or __stdcall only, and never a register it takes: a keep convention is a new
         # name, which Ghidra does not treat as __thiscall, its `this` lost, and an input register
         # kept the decompiler reads as a saved one, unaff_ECX; 10,000 stubs, 2026-10-23)
+        # (on a register convention made custom below, though, its inputs are named in their
+        # registers, and one it hands back as it found it is kept too: /LTCG's callers rely on
+        # it, check()'s `push ecx ... pop ecx` keeping the caller's value in ecx across the call,
+        # its caller's next argument `extraout_ECX` otherwise, rhtest calls-GL 2026-10-24)
+        keep_inputs = [n for n in keep if reg & dict((nm, b) for b, nm in REG_NAMES)[n]]
         keep = [n for n in keep if not reg & dict((nm, b) for b, nm in REG_NAMES)[n]]
-        if keep and cc in ("__cdecl", "__stdcall"):
+        if keep_inputs and reg and cc in ("__thiscall", "__fastcall", "custom"):
+            keep = sorted(keep + keep_inputs, key=["eax", "ecx", "edx"].index)
+        # (a register convention that keeps some: custom, its inputs named in their registers, so
+        # the keep convention ApplyFacts makes on the __cdecl / __stdcall base loses no `this`.
+        # __security_check_cookie takes ecx and leaves eax and edx alone: as a __thiscall its
+        # callers' `return __security_check_cookie(...)` read a result it never makes, 0 in the
+        # port, and every function the cookie guards returned 0, 2026-10-24)
+        if keep and reg and cc in ("__thiscall", "__fastcall", "custom"):
+            widths = local[f].get("in_width", {})
+            e["cc"] = cc = "custom"
+            e["regs"] = [NARROW.get((n, widths.get(bit, 4)), n) for bit, n in REG_NAMES if reg & bit]
+            # (what it pops is its own `ret N`: a __thiscall's assumed cleanup made the cookie
+            # check, a plain `ret`, a __stdcall base popping 4 bytes)
+            e["callee_cleans"] = bool(ret_n)
+        if keep and cc in ("__cdecl", "__stdcall", "custom"):
             e["keep"] = keep                      # the volatile registers it leaves alone
         out[hexa(f)] = e
         counts[cc] = counts.get(cc, 0) + 1
@@ -1180,7 +1297,7 @@ def main() -> None:
     calls, ccs, rets = {}, {}, {}
     for f, v in local.items():
         for a, (cc, n) in v.get("icalls", {}).items():
-            calls[hexa(a)] = [["i", 4]] * (n + (cc == "__thiscall"))
+            calls[hexa(a)] = [["i", 4]] * (n + {"__thiscall": 1, "__fastcall": 2}.get(cc, 0))
             ccs[hexa(a)] = cc
             k = v.get("icall_rets", {}).get(a)
             if k:
