@@ -896,7 +896,21 @@ class Analyzer:
                 # path: the caller's own register handed on, an argument where it is a parameter)
                 res.dfresh[insn.address] = sum(1 << k for k in range(8) if frame.get(FRESH[k], 0)) | sum(
                     1 << (8 + k) for k in range(4) if defs[k] == 0 and not frame.get(DIRTY[k]))
-            if not (op is not None and op.type == X.X86_OP_IMM) or op.imm in self.variadic:
+            # (a call through an import slot whose API is known passes exactly the API's arguments:
+            # its call site is written as those, and the registers past them are no arguments
+            # handed on. Taken for any indirect call, `call [GetSystemTimeAsFileTime]` with rdx
+            # and r8 as the caller left them made the CRT's _time32 FUN_14240fc40 a forwarder,
+            # raised to the three registers its callers happened to hold, and its calls no longer
+            # compiled against the CRT's one-parameter _time32, 2026-10-24)
+            api = (self.import_params.get(insn.address + insn.size + op.mem.disp)
+                   if op is not None and op.type == X.X86_OP_MEM and op.mem.base == X.X86_REG_RIP else None)
+            if api is not None:
+                fresh = [0] * 8
+                for pos, (kind, size) in enumerate(api[:4]):
+                    fresh[pos + 4 if kind == "f" else pos] = min(size, 8)
+                seen = tuple(8 if fam % 4 >= len(api) else d for fam, d in enumerate(defs))
+                res.icalls[insn.address] = (tuple(fresh), seen, frame.get(OUTSTK, 0), 0)
+            elif not (op is not None and op.type == X.X86_OP_IMM) or op.imm in self.variadic:
                 # an indirect call (or a variadic one): what its arguments can be (written since
                 # the last call, or still the function's own incoming registers), for a call-site
                 # signature
@@ -1000,7 +1014,16 @@ class Analyzer:
                 # FUN_1420bd740 measures a string into r8 and `jmp [table + rax*8]`s on; shown as
                 # a call of nothing, the length was lost and SHA-256 hashed ~2^64 bytes after the
                 # web login (2026-10-20)
-                if frame.get(X.X86_REG_RSP) == 0:
+                # (a tail jump through a known import's slot passes the API's arguments, as a call)
+                api = (self.import_params.get(insn.address + insn.size + op.mem.disp)
+                       if op.type == X.X86_OP_MEM and op.mem.base == X.X86_REG_RIP else None)
+                if frame.get(X.X86_REG_RSP) == 0 and api is not None:
+                    fresh = [0] * 8
+                    for pos, (kind, size) in enumerate(api[:4]):
+                        fresh[pos + 4 if kind == "f" else pos] = min(size, 8)
+                    seen = tuple(8 if fam % 4 >= len(api) else d for fam, d in enumerate(defs))
+                    res.icalls[insn.address] = (tuple(fresh), seen, frame.get(OUTSTK, 0), 0)
+                elif frame.get(X.X86_REG_RSP) == 0:
                     fresh = [frame.get(k, 0) for k in FRESH]
                     for r in ((op.mem.base, op.mem.index) if op.type == X.X86_OP_MEM else (op.reg,)):
                         if r in FAMILY and FAMILY[r][0] < 4:
