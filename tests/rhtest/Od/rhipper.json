@@ -1,0 +1,15 @@
+{
+  "name": "rhtest-Od",
+  "exe": "ref/rhtest.exe",
+  "arch": "x86",
+  "image_base": "0x400000",
+  "sources": [],
+  "gen": "gen",
+  "ghidra": {
+    "install": "C:/Users/tyler/tools/ghidra_*",
+    "projects": "C:/Users/tyler/tools/ghidra-projects",
+    "project": "rhtest-Od",
+    "program": "rhtest.exe",
+    "maxmem": "4G"
+  }
+}
