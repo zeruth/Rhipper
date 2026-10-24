@@ -116,6 +116,9 @@ static __inline void gen_rcpps(void *r, const void *d, const void *s) { (void)d;
 static __inline void gen_sqrtps(void *r, const void *d, const void *s) { (void)d; gen_stps(r, _mm_sqrt_ps(gen_ldps(s))); }
 static __inline void gen_packssdw(void *r, const void *a, const void *b) { gen_sti(r, _mm_packs_epi32(gen_ldi(a), gen_ldi(b))); }
 static __inline void gen_psllw(void *r, const void *a, const void *n) { gen_sti(r, _mm_sll_epi16(gen_ldi(a), gen_ldi(n))); }
+/* (SSE4.1: MSVC's /O2 vectorizes an integer multiply loop with it, behind __isa_available) */
+#include <smmintrin.h>
+static __inline void gen_pmulld(void *r, const void *a, const void *b) { gen_sti(r, _mm_mullo_epi32(gen_ldi(a), gen_ldi(b))); }
 static __inline void gen_v16_or(void *r, const void *a, const void *b) { gen_sti(r, _mm_or_si128(gen_ldi(a), gen_ldi(b))); }
 static __inline void gen_v16_and(void *r, const void *a, const void *b) { gen_sti(r, _mm_and_si128(gen_ldi(a), gen_ldi(b))); }
 static __inline void gen_v16_xor(void *r, const void *a, const void *b) { gen_sti(r, _mm_xor_si128(gen_ldi(a), gen_ldi(b))); }
@@ -365,6 +368,52 @@ static __inline unsigned long long gen_piece_set(void *p, int off, int n, unsign
 #define TRUNC(x) trunc(x)
 #define FLOOR(x) floor(x)
 #define CEIL(x) ceil(x)
+
+/* Ghidra's `(code *)swi(n)`, called: the trap the instruction raises. `int3` (swi(3)) breaks
+   into a debugger; `int 0x29` (swi(0x29)) is __fastfail, which ends the process (Ghidra drops the
+   code in ecx: a generic one, 7). MSVC's /GS range checks end in one (Ghidra64.h's, 2026-10-23) */
+static unsigned int gen_swi_break(void) { __debugbreak(); return 0; }
+static unsigned int gen_swi_fastfail(void) { __fastfail(7); return 0; }
+#define swi(n) ((n) == 0x29 ? gen_swi_fastfail : gen_swi_break)
+/* `ud2`, which Ghidra spells `(code *)invalidInstructionException()` and calls */
+static unsigned int gen_ud2(void) { __ud2(); return 0; }
+#define invalidInstructionException() gen_ud2
+
+/* Ghidra's `cpuid` pseudo-functions: the leaf's registers as Ghidra's x86 spec reads them back,
+   EAX, EBX, EDX, ECX, each call its own slot of a small ring (Ghidra64.h's). The CRT's
+   __isa_available_init reads them, and its result picks /O2's vector paths */
+static __inline unsigned int *gen_cpuid(int leaf) {
+    static __declspec(thread) int regs[8][4];
+    static __declspec(thread) unsigned int next;
+    int *slot = regs[next++ & 7];
+    int r[4];
+    __cpuidex(r, leaf, 0);
+    slot[0] = r[0];
+    slot[1] = r[1];
+    slot[2] = r[3];
+    slot[3] = r[2];
+    return (unsigned int *)slot;
+}
+/* `xinuse(0)`: xgetbv with ecx = 1, the state components in use (in_XCR0, ecx = 0, is
+   translate32.py's _xgetbv(0)) */
+#define xinuse(x) _xgetbv(1)
+#define cpuid(x) gen_cpuid((int)(x))
+#define cpuid_basic_info(x) gen_cpuid(0)
+#define cpuid_Version_info(x) gen_cpuid(1)
+#define cpuid_cache_tlb_info(x) gen_cpuid(2)
+#define cpuid_serial_info(x) gen_cpuid(3)
+#define cpuid_Deterministic_Cache_Parameters_info(x) gen_cpuid(4)
+#define cpuid_MONITOR_MWAIT_Features_info(x) gen_cpuid(5)
+#define cpuid_Thermal_Power_Management_info(x) gen_cpuid(6)
+#define cpuid_Extended_Feature_Enumeration_info(x) gen_cpuid(7)
+#define cpuid_Direct_Cache_Access_info(x) gen_cpuid(9)
+#define cpuid_Architectural_Performance_Monitoring_info(x) gen_cpuid(10)
+#define cpuid_Extended_Topology_info(x) gen_cpuid(11)
+#define cpuid_Processor_Extended_States_info(x) gen_cpuid(13)
+#define cpuid_Quality_of_Service_info(x) gen_cpuid(15)
+#define cpuid_brand_part1_info(x) gen_cpuid((int)0x80000002)
+#define cpuid_brand_part2_info(x) gen_cpuid((int)0x80000003)
+#define cpuid_brand_part3_info(x) gen_cpuid((int)0x80000004)
 
 /* ---- the reference's own memory ----------------------------------------------------------- */
 /* a global of the image, at its address: REFG(type, addr) is the lvalue, REFP(addr) the address */

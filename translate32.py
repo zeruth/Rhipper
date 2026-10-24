@@ -42,6 +42,7 @@ from pathlib import Path
 
 import project
 from project import FACTS, GEN, ROOT
+from signedness import signed_tests
 
 CORPUS = ROOT / "build/corpus.jsonl"
 REFDATA = ROOT / "build/refdata.jsonl"
@@ -136,8 +137,11 @@ def header_names() -> set[str]:
 # where Ghidra maps the x86 fs segment (the TEB) of a 32-bit Windows program
 TEB_LO, TEB_HI = 0xFFDFF000, 0xFFE00000
 # imports whose adapters the runtime writes itself (their structures differ between x86 and x64):
-# rhipper.json "import_overrides"
-OVERRIDES = set(project.CONFIG.get("import_overrides", []))
+# every gen_imp_<name> runtime32's sources define (a project listing them too would be a duplicate
+# symbol otherwise), and rhipper.json "import_overrides" for a project's own
+OVERRIDES = set(project.CONFIG.get("import_overrides", [])) | {
+    n for f in (Path(__file__).resolve().parent / "runtime32").glob("*.cpp")
+    for n in re.findall(r"(?m)^\s*(?:extern \"C\"\s+)?unsigned int gen_imp_(\w+)\s*\(", f.read_text(encoding="utf-8"))}
 IDENT = r"[A-Za-z_~][\w$@]*(?:::[A-Za-z_~][\w$@]*)*"
 
 
@@ -212,6 +216,15 @@ def out_stack(body: str) -> str:
 V_SIZES = "8|12|16|24|32|48|64"
 
 
+def cpu_state(c: str) -> str:
+    """Processor state Ghidra reads as a lost register that the host has as an intrinsic: XCR0
+    (xgetbv, ecx = 0; the CRT's __isa_available_init, whose result picks /O2's vector paths)."""
+    if "in_XCR0" not in c:
+        return c
+    c = re.sub(r"(?m)^[ \t]*\w+ in_XCR0;\n", "", c)
+    return re.sub(r"\bin_XCR0\b", "(uint)_xgetbv(0)", c)
+
+
 def v16_forms(c: str) -> str:
     """An SSE register's 16 bytes as C can have them (Ghidra32.h gen_v16): `undefined1 (*p) [16]`
     a `gen_v16 *` (a pointer to the 16-byte array, stepping 16 and indexing its bytes), and a
@@ -243,8 +256,10 @@ def v16_forms(c: str) -> str:
     return sse_ops(c, arrays, v16)
 
 
-SSE_OPS = {"minps", "maxps", "divps", "rsqrtps", "rcpps", "sqrtps", "packssdw", "psllw"}
+SSE_OPS = {"minps", "maxps", "divps", "rsqrtps", "rcpps", "sqrtps", "packssdw", "psllw", "pmulld"}
 SSE_BITS = {"|": "or", "&": "and", "^": "xor"}
+# (the ones on integer lanes)
+SSE_INT_OPS = {"packssdw", "psllw", "pmulld"}
 
 
 def sse_ops(c: str, arrays: set[str], v16) -> str:
@@ -700,6 +715,9 @@ class Translator32:
                 continue
             self.sigs[a] = s
             self.by_printed.setdefault(s.name, a)
+        self.thunks = self.local_thunks()
+        for name, (_at, target) in self.thunks.items():
+            self.by_printed.setdefault(name, target)
         self.imports = self.load_imports()
         # names a plain identifier scan cannot take whole (templates, backquoted scopes, spaces):
         # looked up by a backward scan from where they end, at these lengths
@@ -749,9 +767,44 @@ class Translator32:
         pe.close()
         return out
 
+    def local_thunks(self) -> dict[str, tuple[int, int]]:
+        """name -> (thunk, target) for each `jmp rel32` thunk Ghidra made a function of in the
+        image's own code (functions.json "thunk", not an import's): the corpus leaves thunks out,
+        so a call by its name is the target's, and the runtime's jump at it goes to the target's
+        translation (`thunk_FUN_00403020`, which the /MD CRT's pre_c_initialization calls,
+        2026-10-24)."""
+        path = FACTS / "functions.json"
+        if not path.exists():
+            return {}
+        import pefile
+        pe = pefile.PE(str(project.EXE), fast_load=True)
+        base = pe.OPTIONAL_HEADER.ImageBase
+        out = {}
+        for f in json.loads(path.read_text())["functions"]:
+            if not f.get("thunk") or "::" in f["name"]:
+                continue
+            at = int(f["entry"], 16)
+            target = at
+            for _ in range(4):                       # (through thunks of thunks)
+                code = pe.get_data(target - base, 5)
+                if len(code) < 5 or code[0] != 0xE9:
+                    break
+                target = (target + 5 + int.from_bytes(code[1:5], "little", signed=True)) & 0xFFFFFFFF
+            if target != at and target in self.corpus:
+                out[f["name"]] = (at, target)
+        pe.close()
+        return out
+
+    def import_of(self, name: str) -> str | None:
+        """The import a name in the body calls: its own, or the one Ghidra printed without its
+        C underscore (ucrt's `_initterm_e` as `initterm_e`, `_crt_atexit` as `crt_atexit`)."""
+        if name in self.imports:
+            return name
+        return "_" + name if "_" + name in self.imports else None
+
     # ---- one function ---------------------------------------------------------------------------
     def why_not(self, a: int) -> str | None:
-        c = v16_forms(strip_comments(self.corpus[a]["c"]))
+        c = v16_forms(cpu_state(strip_comments(self.corpus[a]["c"])))
         if a not in self.sigs:
             return "no signature"
         # (and a full xmm register as an SSE pseudo-op's destination found it: zeroed, sse_ops)
@@ -811,7 +864,10 @@ class Translator32:
         if s:
             return ("struct", s)
         for _ in range(8):
-            if t in self.typedefs and t not in KNOWN_TYPES:
+            # (a Windows type Ghidra32.h has as a plain pointer, followed only to an exported
+            # composite: `HMODULE` -> `HINSTANCE__ *`, the CRT's PE header checks through it)
+            if t in self.typedefs and (t not in KNOWN_TYPES or
+                                       self.struct_of(re.sub(r"\s*\*$", "", self.typedefs[t].strip()))):
                 nxt = self.typedefs[t].strip()
                 if nxt.endswith("*") or re.search(r"\[\d+\]$", nxt):
                     return self.tinfo(nxt, length)
@@ -1074,7 +1130,7 @@ class Translator32:
     def rewrite(self, a: int) -> str:
         """The function's C, translated (raises ValueError when it cannot be)."""
         sig = self.sigs[a]
-        c = v16_forms(strip_comments(self.corpus[a]["c"]))
+        c = v16_forms(cpu_state(strip_comments(self.corpus[a]["c"])))
         # (a long C++ name Ghidra wraps at a `::`, `IpcChannel::\n        PacketBufferTmpl<...>::\n
         # vftable`: one name again, as the data export has it. 1,090 stubs, 2026-10-23)
         c = re.sub(r"::[ \t]*\n[ \t]*", "::", c)
@@ -1115,6 +1171,11 @@ class Translator32:
         for full, at in set(re.findall(r"\b(_*(?:DAT|UNK)_([0-9a-f]{8}))\._\d+_4_", body)):
             if self.refdata.get(int(at, 16), (0, ""))[0] == 16:
                 lanes.add(full)
+        # (but a register an integer op reads or writes has integer lanes: /O2's vectorized
+        # `s += k * k` builds its operands lane by lane from ints for pmulld, and as floats they
+        # were converted, rhtest's sum_to, 2026-10-24)
+        for args in re.findall(r"\bgen_(?:" + "|".join(SSE_INT_OPS) + r")\(([^;]*)\);", body):
+            lanes -= set(re.findall(r"&\(\s*([A-Za-z_]\w*)\s*\)", args))
 
         def piece(m):
             name, off, size = m.group(1), m.group(2), m.group(3)
@@ -1148,7 +1209,11 @@ class Translator32:
         body = re.sub(r"\(uint\)&stack0x[0-9a-f]+", "0u", body)
         body = RAM.sub(lambda m: f"REFG({RAM_TYPES.get(m.group(1), 'undefined4')}, 0x{m.group(2)})", body)
         body = re.sub(r"\b(\w+)_exref\b",
-                      lambda m: f"((code *)gen_imp_{m.group(1)})" if m.group(1) in self.imports else m.group(0), body)
+                      lambda m: f"((code *)gen_imp_{self.import_of(m.group(1))})" if self.import_of(m.group(1))
+                      else m.group(0), body)
+        # an undefinedN value in a signed comparison as the signed type of its width (Ghidra32.h's
+        # are unsigned: insertion_sort's `-1 < local_8` was never true at /Od, rhtest 2026-10-24)
+        body = signed_tests(body, [f"{t} {n}" for t, n in sig.params])
         # a label is followed by a statement, even where it ends a block
         body = re.sub(r"(?m)^(\s*[A-Za-z_]\w*\s*:)(\s*)$", r"\1 ;\2", body)
         body = re.sub(r"(?m)^(\s*[A-Za-z_]\w*\s*:)(\s*\})", r"\1 ;\2", body)
@@ -1297,7 +1362,8 @@ class Translator32:
             raise ValueError("a 4-byte piece indexed as a pointer")
         # (in the code, not in a string: "ios_base::eofbit set" is text)
         code_only = re.sub(r'"(?:[^"\\\n]|\\.)*"', '""', body)
-        left = re.search(r"::|`|\bregister0x|\b_(?:local|param|[a-z]*Stack|auStack)\w*|\bin_(?!E[ACD]X\b|E[ACD]X_\d+\b|XMM\d+\b)[A-Z]", code_only)
+        # (Ghidra's stack pieces, `_uStack_1c`; not a library signature's `_StackCookie`)
+        left = re.search(r"::|`|\bregister0x|\b_(?:local|param|[a-z]*Stack(?![A-Za-z])|auStack)\w*|\bin_(?!E[ACD]X\b|E[ACD]X_\d+\b|XMM\d+\b)[A-Z]", code_only)
         if left:
             raise ValueError(f"a name C cannot take ({left.group(0)})")
         self.undeclared(body, var_types)
@@ -1739,8 +1805,9 @@ class Translator32:
             a = self.by_printed.get(name)
             if a is not None:
                 return f"F_{a:08x}("
-            if name in self.imports:
-                return f"gen_imp_{name}("
+            imp = self.import_of(name)
+            if imp is not None:
+                return f"gen_imp_{imp}("
             if name in self.ref_names:
                 return f"((code *)REFP(0x{self.ref_names[name]:x}))("
             return m.group(0)
@@ -1767,6 +1834,12 @@ class Translator32:
             if name.startswith("switchdataD_"):
                 return f"REFP(0x{addr:x})"
             if name in address_only:
+                return f"REFG(undefined, 0x{addr:x})"
+            # (an UNK_ is a place with no data defined: 1 byte to the decompiler, so its
+            # `&UNK_x + k` counts bytes. rhtest's table of 12-byte records, `&UNK_004040f0 + i * 0xc`,
+            # stepped 48 as an undefined4 and read a name's bytes as its pointer, 2026-10-24.
+            # `_UNK_x`, a wider read of the same place, is sized by the default)
+            if name.startswith("UNK_") and addr not in self.refdata:
                 return f"REFG(undefined, 0x{addr:x})"
             return self.global_lvalue(addr)
         body = ADDR_SYM.sub(sym, body)
@@ -1953,7 +2026,9 @@ class Translator32:
         j = ['#include "translated.h"', "typedef struct { unsigned int ref; void *port; } GEN_JUMP;",
              "const GEN_JUMP g_genJumps[] = {"]
         j += [f"  {{0x{a:x}u, (void *)F_{a:08x}}}," for a in sorted(self.corpus)]
-        j += ["};", f"const unsigned int g_genJumpCount = {len(self.corpus)};"]
+        # (and each local thunk, to its target's)
+        j += [f"  {{0x{at:x}u, (void *)F_{t:08x}}}," for at, t in sorted(self.thunks.values())]
+        j += ["};", f"const unsigned int g_genJumpCount = {len(self.corpus) + len(self.thunks)};"]
         write(GEN / "jumps.c", "\n".join(j) + "\n")
         # imports: an adapter per name, its real function resolved by the runtime
         im = ['/* generated by translate32.py: the reference\'s imports. Each adapter takes the 32-bit',

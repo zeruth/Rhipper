@@ -35,6 +35,7 @@ import ghidra.program.model.listing.Instruction;
 import ghidra.program.model.listing.InstructionIterator;
 import ghidra.program.model.listing.Variable;
 import ghidra.program.model.symbol.Namespace;
+import ghidra.program.model.symbol.Reference;
 import ghidra.program.model.symbol.SourceType;
 import ghidra.program.model.symbol.Symbol;
 import ghidra.program.model.symbol.SymbolTable;
@@ -225,6 +226,44 @@ public class ApplyFacts extends GhidraScript {
         println("ApplyFacts: x86 prototypes set " + set + " (" + custom + " custom storage, " + returnsSet
                 + " returns typed, " + keeps + " with registers kept, " + keepNames.size() + " keep conventions), kept " + keptSig
                 + " (thunks, hand-set or library), no function " + missing + ", failed " + failed);
+        if (root.has("imports")) applyImportArgs32(root.getAsJsonObject("imports"));
+    }
+
+    // protos32.py "imports": a __cdecl import's stack arguments as its callers clean them up (thunk
+    // or IAT slot -> words). An import Ghidra has no prototype for is given that many; one with a
+    // signature of its own (a type library's, IMPORTED, or a hand-set one) keeps it. The /MD
+    // CRT's `_crt_atexit()` lost its function so, and ucrt called garbage at exit (2026-10-24)
+    private void applyImportArgs32(JsonObject imports) throws Exception {
+        int set = 0, kept = 0, missing = 0;
+        DataType u4 = Undefined.getUndefinedDataType(4);
+        for (Map.Entry<String, JsonElement> e : imports.entrySet()) {
+            Address a = addr(e.getKey());
+            Function f = getFunctionAt(a);
+            if (f != null && f.isThunk()) {
+                f = f.getThunkedFunction(true);
+            } else if (f == null) {
+                // (an IAT slot: the external function it refers to)
+                Reference r = currentProgram.getReferenceManager().getPrimaryReferenceFrom(a, 0);
+                f = r != null && r.isExternalReference() ? getFunctionAt(r.getToAddress()) : null;
+            }
+            if (f == null) {
+                missing++;
+                continue;
+            }
+            int n = e.getValue().getAsInt();
+            SourceType src = f.getSignatureSource();
+            if (src == SourceType.USER_DEFINED || src == SourceType.IMPORTED || f.getParameterCount() >= n) {
+                kept++;
+                continue;
+            }
+            List<Variable> params = new ArrayList<>();
+            for (int i = 0; i < n; i++) params.add(new ParameterImpl("param_" + (i + 1), u4, currentProgram));
+            f.updateFunction("__cdecl", null, params, FunctionUpdateType.DYNAMIC_STORAGE_ALL_PARAMS, true,
+                    SourceType.ANALYSIS);
+            set++;
+        }
+        println("ApplyFacts: import arguments set " + set + ", kept " + kept + " (a signature of their own), no function "
+                + missing);
     }
 
     // structs.json: {"structs": {name: {"size": n, "fields": [[name, offset, type], ...]}}}. A type

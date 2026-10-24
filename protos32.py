@@ -272,6 +272,13 @@ def analyse(root: int, ranges):
                 ebp = None if esp is None else esp + src.mem.disp
             else:
                 ebp = None
+        elif mn == "mov" and len(ops) == 2 and ops[0].type == X.X86_OP_MEM and ops[0].mem.base == X.X86_REG_EBP \
+                and ops[1].type == X.X86_OP_REG and ops[1].reg == X.X86_REG_ESP:
+            # (esp saved in the frame, `mov [ebp - 0x18], esp`: the inline SEH prologue's restore
+            # point, its registration record and cookie pushed before it frame now, as
+            # __SEH_prolog4's are. Counted as arguments, they were __scrt_common_main_seh's
+            # guard_check_icall's five more, its saved registers, rhtest 2026-10-24)
+            pushed = 0
         elif X.X86_REG_EBP in writes or X.X86_REG_ESP in writes and mn not in ("call", "ret", "jmp"):
             if X.X86_REG_EBP in writes:
                 ebp = None
@@ -755,6 +762,64 @@ def code_pointers(b: Binary) -> set[int]:
     return {t for t in out if b.image[b.off(t)] not in (0x00, 0xCC)}
 
 
+def import_args(b: Binary, ranges, funcs) -> dict[str, int]:
+    """Each __cdecl import's stack arguments as its callers clean them up: thunk (or IAT slot) ->
+    the words of the `add esp, k` right after a call to it, the count most sites agree on (one
+    `add` can clean up after two calls). Ghidra has no prototype for some of the ucrt's, and its
+    decompiler then passes none: the /MD CRT's atexit called `_crt_atexit()` without the function,
+    which ucrt then called at exit from whatever ecx held, 2026-10-24. ApplyFacts gives such an
+    import that many, where it has no signature of its own."""
+    from collections import Counter
+    thunks = {int(f["entry"], 16) for f in funcs if f.get("thunk") and "::" in f["name"]}
+    lo, hi = b.iat
+    md = disassembler()
+    seen: dict[int, Counter] = {}
+    pend_pushes = 0
+    for root, rs in ranges.items():
+        if root in thunks:
+            continue
+        for lo_r, hi_r in rs:
+            prev, pushes, ahead = None, 0, 0
+            for ins in md.disasm_lite(bytes(b.image[b.off(lo_r):b.off(hi_r)]), lo_r):
+                if prev is not None:
+                    # (the cleanup, scheduled up to a few instructions on: `call _crt_atexit; xor
+                    # ecx, ecx; add esp, 4`, nothing between that branches or moves esp)
+                    tgt, k = prev, None
+                    if ins[2] == "add" and ins[3].startswith("esp, "):
+                        try:
+                            k = int(ins[3][5:], 16) // 4
+                        except ValueError:
+                            k = None
+                    elif ins[2] == "pop" and ins[3] in ("ecx", "edx") and ahead == 0:
+                        k = 1                          # (MSVC's cleanup of one word, right after)
+                    if k is not None:
+                        # (no more than was pushed for it, nothing if nothing was: one `add` cleans
+                        # up after two calls, and an epilogue's `pop ecx` after a call of none)
+                        if pend_pushes:
+                            seen.setdefault(tgt, Counter())[min(k, pend_pushes)] += 1
+                        prev = None
+                    else:
+                        ahead += 1
+                        if ahead > 4 or ins[2] in ("call", "ret", "push", "pop", "leave") or ins[2].startswith("j") \
+                                or "esp" in ins[3]:
+                            prev = None
+                if ins[2] == "push":
+                    pushes += 1
+                if ins[2] == "call":
+                    ops = ins[3]
+                    t = None
+                    if ops.startswith("0x"):
+                        t = int(ops, 16) if int(ops, 16) in thunks else None
+                    else:
+                        m = re.fullmatch(r"dword ptr \[(0x[0-9a-f]+)\]", ops)
+                        if m and lo <= int(m.group(1), 16) < hi:
+                            t = int(m.group(1), 16)
+                    if t is not None:
+                        prev, pend_pushes, ahead = t, pushes, 0
+                    pushes = 0
+    return {hexa(t): max(c.items(), key=lambda kv: (kv[1], -kv[0]))[0] for t, c in sorted(seen.items())}
+
+
 def op_size(op) -> int:
     return op.size if op.size in (2, 4) else 4
 
@@ -1014,6 +1079,7 @@ def main() -> None:
                 "slot read through esp or ebp",
         "arch": "x86",
         "functions": out,
+        "imports": import_args(b, ranges, funcs),
         "leaves": [hexa(g) for g in sorted(leaves)],
         "pointed": [hexa(g) for g in sorted(pointed)]})
     # each indirect call's convention and arguments: ApplyFacts' call-site signatures

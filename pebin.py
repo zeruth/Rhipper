@@ -353,8 +353,59 @@ class Binary:
                     if e >> 12 in (3, 10):
                         sites.append(self.base + page + (e & 0xFFF))
                 p += block
+            if not sites and X86:
+                sites = self._stripped_relocs()
             self._relocs = sorted(sites)
         return self._relocs
+
+    def _stripped_relocs(self) -> list[int]:
+        """32-bit, an image linked without its relocations (/FIXED, the default for an exe with
+        /DYNAMICBASE:NO, and many older binaries): the sites the table would have listed, found
+        in the image. In code, each instruction's 4-byte immediate or displacement that holds an
+        address in the image (a linear decode of every function's ranges); outside code, and in
+        the gaps of .text between functions (jump tables), each aligned dword that holds one.
+        Every fact that reads references through relocs() sees the image's pointers then: rhtest's
+        initializer tables (__xi_a..__xi_z) were found by none, and _initterm called into int3s,
+        2026-10-24."""
+        import numpy as np
+        from capstone import x86
+
+        lo, hi = self.base, self.base + len(self.image)
+        sites = []
+
+        def aligned(start: int, end: int) -> None:
+            start = (start + 3) & ~3
+            n = (end - start) // 4
+            if n <= 0:
+                return
+            v = np.frombuffer(self.image, dtype="<u4", count=n, offset=self.off(start))
+            sites.extend((start + 4 * np.nonzero((v >= lo) & (v < hi))[0]).tolist())
+
+        for s in self.sections:
+            if not s.exec:
+                aligned(s.start, s.end)
+        md = disassembler()
+        md.detail = True
+        prev = self.text.start
+        for p_lo, p_hi in sorted(zip(self.piece_starts, self.piece_ends)):
+            if p_lo > prev:
+                aligned(prev, min(p_lo, self.text.end))
+            prev = max(prev, p_hi)
+            for ins in md.disasm(bytes(self.image[self.off(p_lo):self.off(p_hi)]), p_lo):
+                # (the field must hold the address itself: a call or jump's rel32, which capstone
+                # reports as its absolute target, does not)
+                for op in ins.operands:
+                    if op.type == x86.X86_OP_IMM and ins.imm_size == 4:
+                        site = ins.address + ins.imm_offset
+                    elif op.type == x86.X86_OP_MEM and ins.disp_size == 4:
+                        site = ins.address + ins.disp_offset
+                    else:
+                        continue
+                    if lo <= self.u32(site) < hi:
+                        sites.append(site)
+        if prev < self.text.end:
+            aligned(prev, self.text.end)
+        return sorted(set(sites))
 
     def _abs_refs(self, keep=None) -> list[tuple[int, int, int]]:
         """32-bit: (instruction VA, target VA, relocation site VA) for every relocated absolute

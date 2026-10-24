@@ -32,6 +32,8 @@ extern const GEN_IMPORT g_genImports[];
 extern const unsigned int g_genImportCount;
 
 unsigned int gen_tls_array(void);
+// the reference's image base, once mapped (Adapters.cpp's GetModuleHandle(NULL), the PEB's)
+uint32_t gen_ref_base = 0x400000;
 // MXCSR as the reference reads and writes it (Ghidra32.h): its default
 __declspec(thread) unsigned int gen_MXCSR = 0x1f80;
 void GenUnimplemented(unsigned int address);
@@ -181,7 +183,7 @@ extern "C" unsigned int gen_teb32(void) {
     if (teb == nullptr) {
         if (peb == nullptr) {
             auto p = static_cast<uint8_t*>(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, 0x1000));
-            *reinterpret_cast<uint32_t*>(p + 0x08) = 0x400000;                    // ImageBaseAddress
+            *reinterpret_cast<uint32_t*>(p + 0x08) = gen_ref_base;                // ImageBaseAddress
             *reinterpret_cast<uint32_t*>(p + 0x18) =
                 static_cast<uint32_t>(reinterpret_cast<uintptr_t>(GetProcessHeap()));  // ProcessHeap
             peb = p;
@@ -285,6 +287,7 @@ bool RefMapImage(const wchar_t* path) {
     }
     const uint32_t base = h.nt.OptionalHeader.ImageBase;
     const uint32_t size = h.nt.OptionalHeader.SizeOfImage;
+    gen_ref_base = base;
     // (the launcher reserved the range: commit it)
     auto image = static_cast<uint8_t*>(VirtualAlloc(reinterpret_cast<void*>(static_cast<uintptr_t>(base)), size,
                                                     MEM_COMMIT, PAGE_READWRITE));

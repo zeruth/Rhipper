@@ -61,6 +61,7 @@ Fix them, then start again from the facts.
 | `corpus.py` | renders the corpus by address, range or source file |
 | `translate32.py` | the x86 translator: the reference's 32-bit memory model on x64 (see `runtime32/Ghidra32.h`) |
 | `translate64.py` | the x64 translator, beside a hand port |
+| `signedness.py` | both translators' signed comparisons of Ghidra's sign-agnostic `undefinedN` values |
 | `fidelity.py`, `fidelity_report.py` | each port's fidelity to the reference, function by function |
 | `disasm.py`, `callers.py`, `calltree.py`, `xrefs.py`, `hexdump.py` | inspection |
 | `oracle.py` | runs reference functions under emulation (Unicorn), to check a port |
@@ -78,9 +79,17 @@ Ghidra scripts are in `ghidra/`; `ghidra.sh` runs them headless (`import`, `func
   copies it into the project's gen directory.
 - An example runtime: mapping the reference's image at its own base below 2 GB, the jumps from
   its entry points into the translation, its imports through adapters (`Adapters.cpp`: the
-  imports whose structures differ on x64, named in `import_overrides`), the x86 TEB and TLS, a
-  handler for calls into untranslated code, and a hang dump. Link the port with
-  `/LARGEADDRESSAWARE:NO /DYNAMICBASE:NO /FIXED` at a base above the reference's image.
+  imports whose structures differ on x64, the `/MD` C runtime's startup among them; translate32.py
+  leaves every `gen_imp_<name>` runtime32 defines to it, and a project's own in
+  `import_overrides`), the x86 TEB and TLS, a handler for calls into untranslated code, and a hang
+  dump. Link the port with `/LARGEADDRESSAWARE:NO /DYNAMICBASE:NO /FIXED` at a base above the
+  reference's image.
+
+## Tests
+
+`tests/rhtest/` builds a program from source with MSVC (x86 `/MD`, `/O2` and `/Od`), runs the
+whole pipeline on it, and checks that the port prints what the reference does:
+`python tests/rhtest/rhtest.py`. The program grows by levels (its README).
 
 ## 64-bit programs
 

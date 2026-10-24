@@ -171,8 +171,10 @@ public class ExportDecompAll extends GhidraScript {
         for (int i = 1; i < args.length; i++) {
             if (args[i].startsWith("@")) {
                 only = readAddresses(args[i].substring(1));
-            } else if (args[i].startsWith("slow=")) {
-                java.nio.file.Path p = java.nio.file.Paths.get(args[i].substring(5));
+            } else if (args[i].startsWith("slow=") || (args[i].equals("slow") && i + 1 < args.length)) {
+                // (analyzeHeadless.bat is cmd.exe's, which splits an argument at `=`: `slow` and
+                // the path arrive as two, and the path then failed as a bound, 2026-10-24)
+                java.nio.file.Path p = java.nio.file.Paths.get(args[i].equals("slow") ? args[++i] : args[i].substring(5));
                 if (java.nio.file.Files.exists(p)) {
                     slow = readAddresses(p.toString());
                 }
