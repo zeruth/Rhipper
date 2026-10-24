@@ -185,7 +185,7 @@ class Parser:
 # ---- types ---------------------------------------------------------------------------------
 
 V = "v16"
-PIECE = re.compile(r"\._(\d+)_(\d+)_$")
+PIECE = re.compile(r"\._(\d+)_(\d+)f?_$")
 # CONCATab with a + b == 16, ZEXTa16 / SEXTa16, SUB16a
 CONCAT = re.compile(r"^CONCAT(\d)(\d+)$|^CONCAT(\d\d)(\d)$")
 EXT16 = re.compile(r"^([ZS])EXT(\d{1,2})16$")

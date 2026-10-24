@@ -71,10 +71,19 @@ REG_BITS = {X.X86_REG_EAX: EAX, X.X86_REG_AX: EAX, X.X86_REG_AL: EAX, X.X86_REG_
             X.X86_REG_EDX: EDX, X.X86_REG_DX: EDX, X.X86_REG_DL: EDX, X.X86_REG_DH: EDX,
             X.X86_REG_EBX: EBX, X.X86_REG_BX: EBX, X.X86_REG_BL: EBX, X.X86_REG_BH: EBX,
             X.X86_REG_ESI: ESI, X.X86_REG_SI: ESI, X.X86_REG_EDI: EDI, X.X86_REG_DI: EDI, **XMM_BITS}
+# the bytes a read of each general register's part takes (its high byte, ah, counted whole: no
+# parameter is passed there alone)
+REG_WIDTH = {**{r: 1 for r in (X.X86_REG_AL, X.X86_REG_CL, X.X86_REG_DL, X.X86_REG_BL)},
+             **{r: 2 for r in (X.X86_REG_AX, X.X86_REG_CX, X.X86_REG_DX, X.X86_REG_BX, X.X86_REG_SI, X.X86_REG_DI)}}
+# a register parameter's name at a width (protos.json "regs": `cl`, the shift count of the CRT's
+# __allshl, a byte; as ecx, every caller's decompilation needed ecx's upper bytes, extraout_ECX)
+NARROW = {("ecx", 1): "cl", ("edx", 1): "dl", ("eax", 1): "al", ("ebx", 1): "bl",
+          ("ecx", 2): "cx", ("edx", 2): "dx", ("eax", 2): "ax", ("ebx", 2): "bx", ("esi", 2): "si", ("edi", 2): "di"}
 FULL = {X.X86_REG_EAX: EAX, X.X86_REG_ECX: ECX, X.X86_REG_EDX: EDX, X.X86_REG_EBX: EBX,
         X.X86_REG_ESI: ESI, X.X86_REG_EDI: EDI}
 END = {"ret", "retf", "int3", "ud2", "hlt", "iretd"}
 FRAME_HELPERS = ("SEH_prolog", "EH_prolog")
+DVRM_HELPERS = ("alldvrm", "aulldvrm")
 ALLOCA = ("alloca_probe", "chkstk")
 
 _b: Binary | None = None
@@ -134,7 +143,10 @@ def analyse(root: int, ranges):
     state = {root: entry_state}
     work = [root]
     inputs = 0
+    in_width: dict[int, int] = {}             # input register -> the widest read of it as an input
     stack_hi = 0                              # highest entry-relative byte read above the return address
+    slots: dict[int, str] = {}                # stack parameter offset -> "d"/"f": read as a double/float
+    touched: set[int] = set()                 # parameter slots something else used first
     addr_taken = False                        # `lea r, [param]`: the parameter block as an array (varargs)
     calls = []                                # (target, undefined mask, "call"/"jmp")
     open_ = False
@@ -188,6 +200,7 @@ def analyse(root: int, ranges):
                     continue
                 if bit and not mask & bit:
                     inputs |= bit
+                    in_width[bit] = max(in_width.get(bit, 0), REG_WIDTH.get(r, 4))
         # (st0: read by an x87 instruction before anything loaded it, an input; a load defines it)
         if mn in X87_READS and not mask & ST0:
             inputs |= ST0
@@ -209,10 +222,26 @@ def analyse(root: int, ranges):
             if at is None or op.mem.index:
                 continue
             off = at + op.mem.disp
+            width = scalar_width(mn, op.size)
             if off >= 4:
-                stack_hi = max(stack_hi, off + (op.size or 4))
+                stack_hi = max(stack_hi, off + (width or 4))
                 if mn == "lea":
                     addr_taken = True
+                # (a parameter read as a float, by its width: a double is two slots, and as two
+                # 4-byte integers the decompiler read it as `*(double *)&param_3`, 8 bytes of a
+                # 4-byte parameter, rhtest float 2026-10-24)
+                # (by the first use of the slot: one read as integers or written first holds
+                # something else then, ul2d's u64 masked in place and reloaded through
+                # `fstp/fld qword [esp+4]` was a double, rhtest float-IA32 2026-10-24)
+                elif float_read(mn) and width in (4, 8) and (off - 4) % 4 == 0 and off not in touched:
+                    slots[off] = "d" if width == 8 else slots.get(off, "f")
+                elif float_read(mn) and off in touched and off not in slots:
+                    # (an integer the function reuses the slot of for a float once read: an "n",
+                    # an integer as ApplyFacts types it, or the decompiler took the float for the
+                    # parameter, fsum's count `(int)gen_fl2bits(param_2)`, rhtest float-IA32)
+                    slots[off] = "n"
+                elif off not in slots:
+                    touched.update(range(off - off % 4, off + (op.size or 4), 4))
         # registers written (a full write defines; partial writes do not)
         # (a byte or word write defines the register too: `mov bl, [edi]; test bl, bl` read
         # its own byte, and counted as wanting ebx in 2,383 functions. Code that writes the low
@@ -344,6 +373,10 @@ def analyse(root: int, ranges):
                 else:
                     pushed = 0
             mask |= VOLATILE                  # eax, ecx and edx are the callee's to clobber
+            # (the CRT's 64-bit divide-with-remainder returns the remainder in ebx:ecx: ebx is its
+            # output, not the caller's input; ApplyFacts' call fixup gives the decompiler the same)
+            if t is not None and re.sub(r"^_+", "", name.split("::")[-1]) in DVRM_HELPERS:
+                mask |= EBX
             if t is not None and t in _noreturn:
                 fall = None
             if fall is not None:
@@ -386,7 +419,7 @@ def analyse(root: int, ranges):
                 merge(a, seed)
                 while work:
                     visit(work.pop())
-    results, passes = result_reads(insns, state, nxt)
+    results, passes, handoffs = result_reads(insns, state, nxt)
     # (which result registers the function writes itself, anywhere: a read after a call to one
     # that writes neither is of a value the caller kept across it, /LTCG knowing the callee)
     writes_ret = 0
@@ -419,10 +452,12 @@ def analyse(root: int, ranges):
     inputs |= pushed_inputs(insns, prv, nxt, state, labels)
     icalls = {a: icall_shape(insns, prv, nxt, state, a, labels, bool(inputs & ECX)) for a in state
               if insns[a].mnemonic == "call" and _target(insns[a]) is None and import_slot(insns, prv, a) is None}
-    return {"inputs": inputs, "stack_hi": stack_hi, "addr_taken": addr_taken, "calls": calls,
+    return {"inputs": inputs, "in_width": in_width, "stack_hi": stack_hi, "slots": slots,
+            "addr_taken": addr_taken, "calls": calls,
             "open": open_, "lost": lost, "ret": ret_bytes(insns), "visited": len(state), "insns": len(insns),
             "icalls": {a: s for a, s in icalls.items() if s is not None},
             "results": {t: k for t, k in results.items() if not isinstance(t, tuple)},
+            "handoffs": handoffs,
             # (an indirect call's x87 result, for its call-site signature: `(float)extraout_ST0`
             # after a virtual getter of a float, 305 stubs, 2026-10-23)
             "icall_rets": {t[1]: k for t, k in results.items() if isinstance(t, tuple) and k in ("f4", "d8")},
@@ -443,6 +478,10 @@ def result_reads(insns, state, nxt):
     straight line: eax or edx read before written, an x87 instruction taking st0."""
     reads: dict[int, str] = {}
     passes: list[int] = []
+    # (callee -> the next direct call reached with its eax / edx untouched: that call's register
+    # inputs read them, `call lcg64; mov ecx, esi; call __aullshr`, the shift of lcg64's edx:eax.
+    # Credited once the inputs are known, main())
+    handoffs: list[tuple[int, int, bool, bool]] = []
     for a, ins in insns.items():
         t = _target(ins)
         if a not in state:
@@ -489,6 +528,9 @@ def result_reads(insns, state, nxt):
                     kind = kind or ("f4" if width == 4 else "d8")
                 break
             if mn in ("call", "jmp") or mn.startswith("j") or mn.startswith("loop"):
+                t2 = _target(pi)
+                if mn == "call" and t2 is not None and not isinstance(t, tuple) and not (eax_w and edx_w):
+                    handoffs.append((t, t2, eax_w, edx_w))
                 break
             r, w = regs_access(pi)
             ops = pi.operands
@@ -520,7 +562,7 @@ def result_reads(insns, state, nxt):
         if kind is not None:
             old = reads.get(t)
             reads[t] = kind if old is None or RET_RANK[kind] > RET_RANK[old] else old
-    return reads, passes
+    return reads, passes, handoffs
 
 
 # a return's kinds, the wider winning where callers differ
@@ -548,6 +590,9 @@ def pushed_inputs(insns, prv, nxt, state, labels) -> int:
         if not n:
             continue
         left, q, p = n // 4, a, prv[a]
+        # (the argument slots written after their push, by esp offset at the call: `push ecx;
+        # movss [esp], xmm0; call fbits` passes the float, the push only made the room)
+        depth, written = 0, set()
         while left > 0 and p is not None and p in insns and q not in labels:
             pi = insns[p]
             mn = pi.mnemonic
@@ -558,8 +603,14 @@ def pushed_inputs(insns, prv, nxt, state, labels) -> int:
                 left -= 1
                 o = pi.operands[0] if pi.operands else None
                 if o is not None and o.type == X.X86_OP_REG and o.reg in FULL and p in state \
-                        and not state[p][0] & FULL[o.reg]:
+                        and not state[p][0] & FULL[o.reg] and depth not in written:
                     found |= FULL[o.reg]
+                depth += 4
+            else:
+                for i, o in enumerate(pi.operands):
+                    if i == 0 and o.type == X.X86_OP_MEM and o.mem.base == X.X86_REG_ESP and not o.mem.index \
+                            and mn.startswith(("mov", "fst")):
+                        written.add(depth + o.mem.disp)
             q, p = p, prv[p]
     return found
 
@@ -820,6 +871,28 @@ def import_args(b: Binary, ranges, funcs) -> dict[str, int]:
     return {hexa(t): max(c.items(), key=lambda kv: (kv[1], -kv[0]))[0] for t, c in sorted(seen.items())}
 
 
+SSE_FLOAT = {f"{op}{w}" for op in ("mov", "add", "sub", "mul", "div", "sqrt", "min", "max", "comi", "ucomi")
+             for w in ("ss", "sd")} | {"cvtss2sd", "cvtsd2ss", "cvtss2si", "cvtsd2si", "cvttss2si", "cvttsd2si"}
+X87_FLOAT = {"fld", "fst", "fstp", "fadd", "fsub", "fsubr", "fmul", "fdiv", "fdivr", "fcom", "fcomp"}
+
+
+def scalar_width(mn: str, size: int) -> int:
+    """A scalar SSE instruction's memory operand by what it reads, `ss` 4 bytes and `sd` 8 (the
+    source's for a conversion, cvtss2sd's 4): capstone sizes comisd's `xmmword ptr` 16, and as
+    16 bytes dclamp's last double read two more parameters (rhtest float-Od, 2026-10-24)."""
+    if mn not in SSE_FLOAT:
+        return size
+    m = re.match(r"cvtt?(ss|sd)2", mn)
+    return {"ss": 4, "sd": 8}.get(m.group(1) if m else mn[-2:], size)
+
+
+def float_read(mn: str) -> bool:
+    """Whether an instruction's memory operand is a float: SSE scalar and x87 arithmetic (not
+    x87's integer loads and stores, fild/fist, nor its control and state ones). (A string
+    `movsd` reads through esi, never a parameter slot.)"""
+    return mn in SSE_FLOAT or mn in X87_FLOAT
+
+
 def op_size(op) -> int:
     return op.size if op.size in (2, 4) else 4
 
@@ -959,6 +1032,13 @@ def main() -> None:
     for f, v in local.items():
         for t, k in v.get("results", {}).items():
             give(t, k, f"read by {hexa(f)}")
+        # (a result the next call takes in its registers: the 64-bit shift helpers' edx:eax)
+        for t, t2, eax_w, edx_w in v.get("handoffs", ()):
+            took = inputs.get(t2, 0)
+            if took & EDX and not edx_w and not eax_w:
+                give(t, "i8", f"passed by {hexa(f)} to {hexa(t2)}")
+            elif took & EAX and not eax_w:
+                give(t, "i4", f"passed by {hexa(f)} to {hexa(t2)}")
     changed = True
     while changed:
         changed = False
@@ -1045,10 +1125,24 @@ def main() -> None:
         if not callee_cleans or not ret_n:
             stack = min(stack, 496)
         regs = [n for bit, n in REG_NAMES if reg & bit]
-        params = [["i", 4]] * (len(regs) + stack // 4)
+        # (the stack ones by what reads them: a double two slots, ApplyFacts' double)
+        slot_kinds = local[f].get("slots", {})
+        stack_params, off = [], 4
+        while off < 4 + stack:
+            k = slot_kinds.get(off)
+            if k == "d" and off + 8 <= 4 + stack:
+                stack_params.append(["d", 8])
+                off += 8
+                continue
+            stack_params.append([k, 4] if k in ("f", "n") else ["i", 4])
+            off += 4
+        params = [["i", 4]] * len(regs) + stack_params
         e = {"cc": cc, "params": params, "stack": stack}
         if cc == "custom":
-            e["regs"] = regs                  # the register parameters, before the stack ones
+            # (the register parameters, before the stack ones; each at the width its own reads take,
+            # an input it only hands on through a call whole)
+            widths = local[f].get("in_width", {})
+            e["regs"] = [NARROW.get((n, widths.get(bit, 4)), n) for bit, n in REG_NAMES if reg & bit]
             e["callee_cleans"] = callee_cleans
         if v["open"]:
             e["open"] = True

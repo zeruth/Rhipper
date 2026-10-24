@@ -51,6 +51,7 @@ import java.util.Set;
 public class ApplyFacts extends GhidraScript {
     private SymbolTable symbols;
     private int named, kept, created, tagged, labelled;
+    private final Map<Address, String> helperAt = new HashMap<>();
     // the variadic functions' fixed parameter counts (varargs.json), for applyProtos
     private final Map<Address, Integer> vaFixed = new HashMap<>();
 
@@ -111,6 +112,12 @@ public class ApplyFacts extends GhidraScript {
         // before the prototypes, which name them
         File st = new File(dir, "structs.json");
         if (st.exists()) applyStructs(read(st));
+        // (the compiler's helpers identified by running them, for their call fixups: applyLongHelpers32)
+        File hp = new File(dir, "helpers32.json");
+        if (hp.exists()) {
+            for (Map.Entry<String, JsonElement> e : read(hp).getAsJsonObject("helpers").entrySet())
+                helperAt.put(addr(e.getKey()), e.getValue().getAsString());
+        }
         File pr = new File(dir, "protos.json");
         if (pr.exists() && "x86".equals(jsonString(read(pr), "arch"))) {
             // 32-bit (protos32.py): a convention per function, or register storage of its own
@@ -191,15 +198,21 @@ public class ApplyFacts extends GhidraScript {
                         String reg = r.getAsString();
                         // (an xmm register: a float, in its low lane, as /LTCG passes one)
                         boolean xmm = reg.startsWith("xmm"), st = reg.equals("st0");
-                        DataType pt = xmm ? ghidra.program.model.data.FloatDataType.dataType
-                                : st ? ghidra.program.model.data.Float10DataType.dataType : u4;
                         String rn = xmm ? reg.toUpperCase() + "_Da" : reg.toUpperCase();
+                        // (a part of a register, `cl`, at its own size: protos32.py names an input
+                        // by the width its reads take, the CRT's 64-bit shifts' count in cl)
+                        DataType pt = xmm ? ghidra.program.model.data.FloatDataType.dataType
+                                : st ? ghidra.program.model.data.Float10DataType.dataType
+                                : Undefined.getUndefinedDataType(currentProgram.getRegister(rn).getMinimumByteSize());
                         params.add(new ParameterImpl("in_" + reg, pt, new ghidra.program.model.listing.VariableStorage(
                                 currentProgram, currentProgram.getRegister(rn)), currentProgram));
                     }
-                    for (int off = 4; off < 4 + stack; off += 4) {
-                        params.add(new ParameterImpl("param_" + (params.size() + 1), u4,
-                                new ghidra.program.model.listing.VariableStorage(currentProgram, off, 4), currentProgram));
+                    int off = 4;
+                    for (DataType t : stackTypes32(o, o.getAsJsonArray("regs").size(), stack)) {
+                        params.add(new ParameterImpl("param_" + (params.size() + 1), t,
+                                new ghidra.program.model.listing.VariableStorage(currentProgram, off, t.getLength()),
+                                currentProgram));
+                        off += t.getLength();
                     }
                     boolean callee = o.get("callee_cleans").getAsBoolean() && stack > 0;
                     f.updateFunction(callee ? "__stdcall" : "__cdecl", f.getReturn(), params,
@@ -208,10 +221,34 @@ public class ApplyFacts extends GhidraScript {
                 } else {
                     // (the list names every parameter, register ones included: under dynamic storage
                     // __thiscall's first is `this`, in ecx, and __fastcall's first two ecx and edx)
-                    int n = stack / 4 + (cc.equals("__fastcall") ? 2 : cc.equals("__thiscall") ? 1 : 0);
-                    for (int i = 0; i < n; i++) params.add(new ParameterImpl("param_" + (i + 1), u4, currentProgram));
-                    f.updateFunction(cc, null, params, FunctionUpdateType.DYNAMIC_STORAGE_ALL_PARAMS, true,
-                            SourceType.ANALYSIS);
+                    int nreg = cc.equals("__fastcall") ? 2 : cc.equals("__thiscall") ? 1 : 0;
+                    List<DataType> st = stackTypes32(o, nreg, stack);
+                    boolean floats = st.stream().anyMatch(t -> t.getLength() != 4 || !(t instanceof Undefined));
+                    if (!floats) {
+                        for (int i = 0; i < nreg; i++) params.add(new ParameterImpl("param_" + (i + 1), u4, currentProgram));
+                        for (DataType t : st)
+                            params.add(new ParameterImpl("param_" + (params.size() + 1), t, currentProgram));
+                        f.updateFunction(cc, null, params, FunctionUpdateType.DYNAMIC_STORAGE_ALL_PARAMS, true,
+                                SourceType.ANALYSIS);
+                    } else {
+                        // (a float or double parameter at the offset its reads take: the convention's
+                        // own storage aligns a double to 8, and `dmix(float, double, int)` read its
+                        // double at [esp + 0xc] for [esp + 8], in_stack_00000008, rhtest float)
+                        String[] regs = {"ECX", "EDX"};
+                        for (int i = 0; i < nreg; i++) {
+                            params.add(new ParameterImpl("param_" + (i + 1), u4, new ghidra.program.model.listing
+                                    .VariableStorage(currentProgram, currentProgram.getRegister(regs[i])), currentProgram));
+                        }
+                        int off = 4;
+                        for (DataType t : st) {
+                            params.add(new ParameterImpl("param_" + (params.size() + 1), t,
+                                    new ghidra.program.model.listing.VariableStorage(currentProgram, off, t.getLength()),
+                                    currentProgram));
+                            off += t.getLength();
+                        }
+                        f.updateFunction(cc, f.getReturn(), params, FunctionUpdateType.CUSTOM_STORAGE, true,
+                                SourceType.ANALYSIS);
+                    }
                 }
                 if (o.has("ret")) setReturn32(f, o.get("ret").getAsString());
                 if (o.has("keep") && !cc.equals("custom")) {
@@ -227,6 +264,133 @@ public class ApplyFacts extends GhidraScript {
                 + " returns typed, " + keeps + " with registers kept, " + keepNames.size() + " keep conventions), kept " + keptSig
                 + " (thunks, hand-set or library), no function " + missing + ", failed " + failed);
         if (root.has("imports")) applyImportArgs32(root.getAsJsonObject("imports"));
+        applyLongHelpers32();
+    }
+
+    // MSVC's x86 64-bit helpers (llmul.asm, lldiv.asm, ...): conventions of their own, values in
+    // edx:eax and on the stack (the callee pops 16 bytes), a shift count in cl, __alldvrm's
+    // remainder in ebx:ecx. Each is a call fixup: its p-code at every call site, so the caller
+    // decompiles to the 64-bit operation itself. As calls, divmod64's remainder was `in_ebx` and
+    // `extraout_ECX`, and every 64-bit shift's count `CONCAT31(extraout_ECX >> 8, 0x20)` (rhtest
+    // int64, 2026-10-24)
+    private void applyLongHelpers32() throws Exception {
+        // (a fixup runs after the call pushed its return address, as x86win.cspec's alloca_probe
+        // and SEH_prolog4 read theirs: the arguments from ESP + 4, and the helper's `ret 16` is
+        // ESP + 20. Read from ESP, the first argument was the return address and the stack 4 bytes
+        // off: rhtest_run lost seed()'s value, unaff_EBX)
+        String args = "p:4 = ESP + 4; lo1:4 = *:4 p; p = ESP + 8; hi1:4 = *:4 p; p = ESP + 12; lo2:4 = *:4 p;\n"
+                + "p = ESP + 16; hi2:4 = *:4 p;\n"
+                + "a:8 = (zext(hi1) << 32) | zext(lo1); b:8 = (zext(hi2) << 32) | zext(lo2);\n";
+        String value = "v:8 = (zext(EDX) << 32) | zext(EAX); c:8 = zext(CL);\n";
+        String pop16 = " ESP = ESP + 20;", pop0 = " ESP = ESP + 4;";
+        Map<String, String> bodies = new java.util.LinkedHashMap<>();
+        bodies.put("allmul", args + "r:8 = a * b; EAX = r:4; EDX = r(4);" + pop16);
+        bodies.put("alldiv", args + "r:8 = a s/ b; EAX = r:4; EDX = r(4);" + pop16);
+        bodies.put("aulldiv", args + "r:8 = a / b; EAX = r:4; EDX = r(4);" + pop16);
+        bodies.put("allrem", args + "r:8 = a s% b; EAX = r:4; EDX = r(4);" + pop16);
+        bodies.put("aullrem", args + "r:8 = a % b; EAX = r:4; EDX = r(4);" + pop16);
+        bodies.put("alldvrm", args + "q:8 = a s/ b; r:8 = a s% b; EAX = q:4; EDX = q(4); ECX = r:4; EBX = r(4);"
+                + pop16);
+        bodies.put("aulldvrm", args + "q:8 = a / b; r:8 = a % b; EAX = q:4; EDX = q(4); ECX = r:4; EBX = r(4);"
+                + pop16);
+        bodies.put("allshl", value + "v = v << c; EAX = v:4; EDX = v(4);" + pop0);
+        bodies.put("allshr", value + "v = v s>> c; EAX = v:4; EDX = v(4);" + pop0);
+        bodies.put("aullshr", value + "v = v >> c; EAX = v:4; EDX = v(4);" + pop0);
+        // and the floating-point conversions: SSE2's take or give the double in xmm0 and the
+        // integer in edx:eax; x87's (_ftol2, _ftoul2) take st0 and pop it. P-code converts only
+        // signed integers, so an unsigned one is chosen by the value's top bit (or 2^63)
+        String pop87 = " ST0 = ST1; ST1 = ST2; ST2 = ST3; ST3 = ST4; ST4 = ST5; ST5 = ST6; ST6 = ST7;";
+        String two63 = "h:8 = 0x4000000000000000; t:8 = int2float(h); two:8 = int2float(2:8); big:8 = t f* two;\n";
+        bodies.put("dtol3", "r:8 = trunc(XMM0_Qa); EAX = r:4; EDX = r(4);" + pop0);
+        // (every zext into a temporary of its size: sleigh cannot size `int2float(zext(x))`)
+        bodies.put("dtoul3", two63 + "hi:1 = XMM0_Qa f>= big; a:8 = trunc(XMM0_Qa); b:8 = trunc(XMM0_Qa f- big);\n"
+                + "zh:8 = zext(hi); zl:8 = zext(!hi);\n"
+                + "r:8 = (zh * (b + 0x8000000000000000)) + (zl * a); EAX = r:4; EDX = r(4);" + pop0);
+        // (the 64-bit integer in edx:ecx, the low half in ecx: __ltod3's `movd xmm0, ecx`)
+        bodies.put("ltod3", "v:8 = (zext(EDX) << 32) | zext(ECX); XMM0_Qa = int2float(v);" + pop0);
+        bodies.put("ultod3", "v:8 = (zext(EDX) << 32) | zext(ECX); hv:8 = (v >> 1) | (v & 1);\n"
+                + "neg:1 = v s< 0; zn:8 = zext(neg); zp:8 = zext(!neg);\n"
+                + "f1:8 = int2float(v); f2:8 = int2float(hv) f+ int2float(hv);\n"
+                + "XMM0_Qa = (int2float(zn) f* f2) f+ (int2float(zp) f* f1);" + pop0);
+        bodies.put("ftol2", "r:8 = trunc(ST0); EAX = r:4; EDX = r(4);" + pop87 + pop0);
+        bodies.put("ftol2_sse", "r:8 = trunc(ST0); EAX = r:4; EDX = r(4);" + pop87 + pop0);
+        bodies.put("ftoi2", "r:4 = trunc(ST0); EAX = r;" + pop87 + pop0);
+        String ftoul = "h:8 = 0x4000000000000000; t:10 = int2float(h); two:10 = int2float(2:8); big:10 = t f* two;\n"
+                + "hi:1 = ST0 f>= big; a:8 = trunc(ST0); b:8 = trunc(ST0 f- big); zh:8 = zext(hi); zl:8 = zext(!hi);\n"
+                + "r:8 = (zh * (b + 0x8000000000000000)) + (zl * a); EAX = r:4; EDX = r(4);" + pop87 + pop0;
+        bodies.put("ftoul2", ftoul);
+        bodies.put("ftoul2_legacy", ftoul);
+        // (the CRT's square roots, imported: x87's in st0, SSE2's in xmm0)
+        bodies.put("CIsqrt", "ST0 = sqrt(ST0);" + pop0);
+        bodies.put("libm_sse2_sqrt_precise", "XMM0_Qa = sqrt(XMM0_Qa);" + pop0);
+        Class<?> se = Function.class.getClassLoader().loadClass("ghidra.program.database.SpecExtension");
+        Object ext = se.getConstructor(ghidra.program.model.listing.Program.class).newInstance(currentProgram);
+        java.lang.reflect.Method add = se.getMethod("addReplaceCompilerSpecExtension", String.class,
+                ghidra.util.task.TaskMonitor.class);
+        java.util.Set<String> installed = new java.util.HashSet<>();
+        for (Map.Entry<String, String> e : bodies.entrySet()) {
+            String n = e.getKey();
+            String xml = "<callfixup name=\"rh_" + n + "\"><target name=\"__" + n + "\"/><target name=\"_" + n
+                    + "\"/><pcode><body><![CDATA[\n" + e.getValue() + "\n]]></body></pcode></callfixup>";
+            // (one that does not compile is reported and left out; the session goes on: a sizing
+            // error in one aborted every fact after it, rhtest float 2026-10-24)
+            try {
+                add.invoke(ext, xml, monitor);
+                installed.add(n);
+            } catch (java.lang.reflect.InvocationTargetException ex) {
+                printerr("ApplyFacts: call fixup rh_" + n + " does not compile: " + ex.getCause());
+            }
+        }
+        int set = 0;
+        for (Function f : currentProgram.getFunctionManager().getFunctions(true)) {
+            // (and an import's thunk, by the import's name: __CIsqrt)
+            String n = f.getName().replaceFirst("^.*::", "").replaceFirst("^_+", "");
+            if (installed.contains(n) && !("rh_" + n).equals(f.getCallFixup())) {
+                f.setCallFixup("rh_" + n);
+                set++;
+            }
+        }
+        // (the ones function ID left unnamed, identified by running them: helpers32.py)
+        for (Map.Entry<Address, String> e : helperAt.entrySet()) {
+            Function f = getFunctionAt(e.getKey());
+            if (f != null && installed.contains(e.getValue()) && !("rh_" + e.getValue()).equals(f.getCallFixup())) {
+                f.setCallFixup("rh_" + e.getValue());
+                set++;
+            }
+        }
+        // (and a thunk of one, `__ftol2_sse: jmp __ftoi2`, the same)
+        for (Function f : currentProgram.getFunctionManager().getFunctions(true)) {
+            Function t = f.isThunk() ? f.getThunkedFunction(true) : null;
+            if (t != null && t.getCallFixup() != null && t.getCallFixup().startsWith("rh_")
+                    && !t.getCallFixup().equals(f.getCallFixup())) {
+                f.setCallFixup(t.getCallFixup());
+                set++;
+            }
+        }
+        println("ApplyFacts: 64-bit and float helper call fixups set " + set);
+    }
+
+    // A function's stack parameters as protos32.py read them ("params" after its `nreg` register
+    // ones): a slot read as a double one 8-byte parameter, as a float a float, else 4 bytes. All
+    // 4-byte integers, a double was two and the decompiler read it `*(double *)&param_3` (rhtest
+    // float, 2026-10-24); without "params", `stack` bytes of them
+    private List<DataType> stackTypes32(JsonObject o, int nreg, int stack) {
+        DataType u4 = Undefined.getUndefinedDataType(4);
+        List<DataType> out = new ArrayList<>();
+        JsonArray ps = o.has("params") ? o.getAsJsonArray("params") : null;
+        int bytes = 0;
+        if (ps != null) {
+            for (int i = nreg; i < ps.size() && bytes < stack; i++) {
+                String k = ps.get(i).getAsJsonArray().get(0).getAsString();
+                DataType t = k.equals("d") ? ghidra.program.model.data.DoubleDataType.dataType
+                        : k.equals("f") ? ghidra.program.model.data.FloatDataType.dataType
+                        : k.equals("n") ? concreteInt(4) : u4;
+                out.add(t);
+                bytes += t.getLength();
+            }
+        }
+        for (; bytes < stack; bytes += 4) out.add(u4);
+        return out;
     }
 
     // protos32.py "imports": a __cdecl import's stack arguments as its callers clean them up (thunk
@@ -1791,6 +1955,10 @@ public class ApplyFacts extends GhidraScript {
                 return haveFloat && have.getLength() == 4 ? have : ghidra.program.model.data.FloatDataType.dataType;
             case "d":
                 return haveFloat && have.getLength() == 8 ? have : ghidra.program.model.data.DoubleDataType.dataType;
+            case "n":
+                // an integer whose slot the function reuses for a float (protos32.py): an integer
+                // type, or the decompiler takes the float's for the parameter
+                return concreteInt(size);
             case "x":
                 // an xmm argument only ever moved whole: float or double is not in the code
                 return haveFloat ? have : ghidra.program.model.data.FloatDataType.dataType;

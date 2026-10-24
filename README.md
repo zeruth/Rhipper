@@ -37,6 +37,7 @@ placeholders, `imports.json`). Binary-specific extractors stay in the project an
 bash ghidra/ghidra.sh import            # once: import and analyze, export function extents
 python noreturn.py                       # facts (x86: protos32.py; x64: facts.sh runs them all)
 python protos32.py --jobs 2
+python helpers32.py                      # x86: the compiler's 64-bit/float helpers, by running them
 bash ghidra/ghidra.sh all                # apply the facts, export types, data and the corpus
 python translate32.py --jobs 2           # translate, compile, report (x64: translate64.py)
 ```

@@ -37,6 +37,11 @@ OpToken PrintC::multiply = { "*", "", 2, 54, true, OpToken::binary, 1, 0, (OpTok
 OpToken PrintC::divide = { "/", "", 2, 54, false, OpToken::binary, 1, 0, (OpToken *)0 };
 OpToken PrintC::modulo = { "%", "", 2, 54, false, OpToken::binary, 1, 0, (OpToken *)0 };
 OpToken PrintC::binary_plus = { "+", "", 2, 50, true, OpToken::binary, 1, 0, (OpToken *)0 };
+// RHIPPER: float + and * as the integer ones but not associative: a right-nested sum keeps its
+// parentheses, `t8 + (t7 + (... + d))`. Printed `t8 + t7 + ... + d`, C summed it in another order
+// and rounded otherwise (rhtest float's series, 2026-10-24)
+OpToken PrintC::float_plus = { "+", "", 2, 50, false, OpToken::binary, 1, 0, (OpToken *)0 };
+OpToken PrintC::float_multiply = { "*", "", 2, 54, false, OpToken::binary, 1, 0, (OpToken *)0 };
 OpToken PrintC::binary_minus = { "-", "", 2, 50, false, OpToken::binary, 1, 0, (OpToken *)0 };
 OpToken PrintC::shift_left = { "<<", "", 2, 46, false, OpToken::binary, 1, 0, (OpToken *)0 };
 OpToken PrintC::shift_right = { ">>", "", 2, 46, false, OpToken::binary, 1, 0, (OpToken *)0 };
@@ -443,6 +448,19 @@ bool PrintC::checkAddressOfCast(const PcodeOp *op) const
 void PrintC::opFunc(const PcodeOp *op)
 
 {
+  // RHIPPER: a function-style op whose value is used in place (`CONCAT44(a,b) / d`) and that type
+  // inference made signed prints its type, `(longlong)CONCAT44(a,b)`. The name says nothing of
+  // its sign, and C reads it as the helper the reader defines (unsigned): a signed 64-bit divide
+  // (MSVC's __alldiv) printed `CONCAT44(...) / CONCAT44(...)`, the same text as an unsigned one,
+  // and was compiled as unsigned (rhtest int64, 2026-10-24)
+  const Varnode *out = op->getOut();
+  if (out != (const Varnode *)0 && out->isImplied()) {
+    Datatype *dt = out->getHighTypeDefFacing();
+    if (dt->getMetatype() == TYPE_INT) {
+      pushOp(&typecast,op);
+      pushType(dt);
+    }
+  }
   pushOp(&function_call,op);
   // Using function syntax but don't markup the name as
   // a normal function call
@@ -471,6 +489,37 @@ void PrintC::opTypeCast(const PcodeOp *op)
   if (dt->isPointerToArray()) {
     if (checkAddressOfCast(op)) {
       pushOp(&addressof,op);
+      pushVn(op->getIn(0),op,mods);
+      return;
+    }
+  }
+  // RHIPPER: a CAST between a float and an integer of its size changes no bits (the conversions
+  // are their own ops, INT2FLOAT and TRUNC), but C reads `(uint)f` as a conversion: printed as
+  // the reader's bit views, gen_fl2bits / gen_d2bits / gen_bits2f / gen_bits2d. `(float)((uint)
+  // param_1 ^ mask)`, xorps flipping a sign, compiled to a value conversion and back, and fneg(7)
+  // came out 0x80000000 (rhtest float, 2026-10-24)
+  // (and a SUBPIECE printed as a cast, the low bytes of a wider value: `local._4_4_ = (float)
+  // ((ulonglong)d >> 0x20)` keeps 4 bytes of an integer in a float-typed piece, the same bits;
+  // as a conversion, every double rhtest float printed through check64 lost its low bits)
+  if (!option_nocasts && (op->code() == CPUI_CAST || op->code() == CPUI_SUBPIECE)) {
+    Datatype *in = op->getIn(0)->getHighTypeReadFacing(op);
+    bool inF = in->getMetatype() == TYPE_FLOAT;
+    bool outF = dt->getMetatype() == TYPE_FLOAT;
+    int4 sz = dt->getSize(), isz = in->getSize();
+    bool sizes = op->code() == CPUI_CAST ? isz == sz : isz > sz;
+    if (inF != outF && sizes && (sz == 4 || sz == 8) && (!inF || isz == 4 || isz == 8)
+        && in->getMetatype() != TYPE_PTR && dt->getMetatype() != TYPE_PTR) {
+      if (!outF) {		// (the integer the bits are, as its type: `(int)gen_fl2bits(f)`)
+        pushOp(&typecast,op);
+        pushType(dt);
+      }
+      pushOp(&function_call,op);
+      string nm = inF ? (isz == 4 ? "gen_fl2bits" : "gen_d2bits") : (sz == 4 ? "gen_bits2f" : "gen_bits2d");
+      pushAtom(Atom(nm,optoken,EmitMarkup::no_color,op));
+      if (outF && isz != sz) {	// (the integer cut to the float's size first: `gen_bits2f((uint)x)`)
+        pushOp(&typecast,op);
+        pushType(glb->types->getBase(sz,TYPE_UINT));
+      }
       pushVn(op->getIn(0),op,mods);
       return;
     }
@@ -2122,6 +2171,11 @@ void PrintC::pushPartialSymbol(const Symbol *sym,int4 off,int4 sz,
 	push_integer(entry.offset, entry.size, (entry.offset < 0), syntax, (Varnode *)0, op, 0);
       else {
 	string field = unnamedField(entry.offset,entry.size);
+	// RHIPPER: a piece the decompiler types as a float says so, `_4_4f_`: as `_4_4_` its reader
+	// took it for an integer, and `local._4_4_ = gen_bits2f(...)` (the high half of a double
+	// stored as bits) converted the float back to an integer (rhtest float, 2026-10-24)
+	if (i == stack.size() - 1 && vn != (const Varnode *)0 && vn->getHigh()->getType()->getMetatype() == TYPE_FLOAT)
+	  field.insert(field.size() - 1, "f");
 	pushAtom(Atom(field,syntax,entry.hilite,op));
       }
     }
@@ -2337,6 +2391,32 @@ void PrintC::emitPrototypeInputs(const FuncProto *proto)
 /// A formal variable declaration is emitted for every symbol in the given
 /// function scope. I.e. all local variables are declared.
 /// \param fd is the function being emitted
+/// RHIPPER: each local whose symbol is an unlocked undefinedN (the stack analysis's, from the
+/// program) takes the type the decompiler gave its variable, before anything is printed: the
+/// declarations and every access through the symbol then agree with the code. `undefined8
+/// local_50`, a double to the decompiler throughout, was declared and pieced as an integer, and C
+/// converted its value where the code moved its bits (rhtest float, 2026-10-24)
+static void rh_retypeLocals(const Funcdata *fd)
+
+{
+  ScopeLocal *scope = const_cast<ScopeLocal *>(fd->getScopeLocal());
+  vector<Symbol *> todo;
+  for(MapIterator iter=scope->begin();iter!=scope->end();++iter) {
+    Symbol *sym = (*iter)->getSymbol();
+    if (sym->getCategory() == Symbol::function_parameter) continue;
+    Datatype *ct = sym->getType();
+    if (ct->getMetatype() != TYPE_UNKNOWN || sym->isTypeLocked()) continue;
+    todo.push_back(sym);
+  }
+  for(Symbol *sym : todo) {
+    HighVariable *h = fd->findHigh(sym->getName());
+    if (h == (HighVariable *)0) continue;
+    Datatype *ht = h->getType();
+    if (ht->getSize() == sym->getType()->getSize() && ht->getMetatype() != TYPE_UNKNOWN)
+      scope->retypeSymbol(sym,ht);
+  }
+}
+
 void PrintC::emitLocalVarDecls(const Funcdata *fd)
 
 {
@@ -2793,6 +2873,7 @@ void PrintC::docFunction(const Funcdata *fd)
   if ((!isSet(flat))&&(fd->hasNoStructBlocks()))
     throw RecovError("Function not fully decompiled. No structure present.");
   try {
+    rh_retypeLocals(fd);
     commsorter.setupFunctionList(instr_comment_type|head_comment_type,fd,*fd->getArch()->commentdb,option_unplaced);
     int4 id1 = emit->beginFunction(fd);
     emitCommentFuncHeader(fd);

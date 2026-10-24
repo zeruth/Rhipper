@@ -1,0 +1,186 @@
+/* calls: function pointers and calling conventions on x86. __cdecl (the caller pops), __stdcall
+ * (the callee pops, `ret N`), __fastcall (ecx, edx, then the stack), varargs (va_list over the
+ * caller's arguments), callbacks and tables of pointers, a pointer returned and called, 64-bit and
+ * double arguments by each convention, structs passed and returned by value through them. The GL
+ * variant (/GL /LTCG) lets the compiler choose its own conventions between functions it sees whole:
+ * registers no declared convention uses, arguments it drops. */
+#include <stdarg.h>
+#include "rhtest.h"
+
+/* conventions, each with a few argument shapes */
+NOINLINE int __cdecl cd3(int a, int b, int c) { return a * 100 + b * 10 + c; }
+NOINLINE int __stdcall sd3(int a, int b, int c) { return a * 100 - b * 10 + c; }
+NOINLINE int __fastcall fc1(int a) { return a * 3 + 1; }
+NOINLINE int __fastcall fc2(int a, int b) { return a * b - (a ^ b); }
+NOINLINE int __fastcall fc4(int a, int b, int c, int d) { return (a - b) * (c + d); }
+NOINLINE int __fastcall fc_byte(u8 a, u16 b, int c) { return a + b * 2 + c * 3; }
+NOINLINE i64 __stdcall sd_i64(i64 a, int b, i64 c) { return a * b + c; }
+NOINLINE i64 __fastcall fc_i64(int a, i64 b, int c) { return b - (i64)a * c; }
+NOINLINE double __stdcall sd_dbl(double a, int b, double c) { return a * b + c; }
+NOINLINE double __fastcall fc_dbl(int a, double b, int c) { return b * a - c; }
+NOINLINE int __stdcall sd8(int a, int b, int c, int d, int e, int f, int g, int h) {
+    return ((((((a * 3 + b) * 3 + c) * 3 + d) * 3 + e) * 3 + f) * 3 + g) * 3 + h;
+}
+
+/* structs by value through the conventions */
+typedef struct {
+    int x, y;
+} Pt;
+typedef struct {
+    int a, b, c, d;
+} Quad;
+
+NOINLINE Pt __stdcall pt_add(Pt p, Pt q) {
+    Pt r;
+    r.x = p.x + q.x;
+    r.y = p.y * q.y;
+    return r;
+}
+NOINLINE Quad __fastcall quad_mix(int k, Quad q) {
+    Quad r;
+    r.a = q.d + k;
+    r.b = q.c * k;
+    r.c = q.b - k;
+    r.d = q.a ^ k;
+    return r;
+}
+NOINLINE u32 quad_hash(Quad q) { return (u32)(q.a * 31 + q.b) * 31u + (u32)(q.c * 31 + q.d); }
+
+/* varargs */
+NOINLINE int sum_va(int n, ...) {
+    va_list ap;
+    int s = 0, k;
+    va_start(ap, n);
+    for (k = 0; k < n; k++) s += va_arg(ap, int) * (k + 1);
+    va_end(ap);
+    return s;
+}
+NOINLINE i64 mixed_va(const char *fmt, ...) {
+    va_list ap;
+    i64 s = 0;
+    va_start(ap, fmt);
+    for (; *fmt; fmt++) {
+        if (*fmt == 'i')
+            s = s * 3 + va_arg(ap, int);
+        else if (*fmt == 'l')
+            s = s * 5 + va_arg(ap, i64);
+        else if (*fmt == 'd')
+            s = s * 7 + (i64)(va_arg(ap, double) * 16.0);
+    }
+    va_end(ap);
+    return s;
+}
+/* a va_list handed on */
+NOINLINE int vsum(int n, va_list ap) {
+    int s = 0;
+    while (n--) s ^= va_arg(ap, int) << (n & 7);
+    return s;
+}
+NOINLINE int sum_via(int n, ...) {
+    va_list ap;
+    int r;
+    va_start(ap, n);
+    r = vsum(n, ap);
+    va_end(ap);
+    return r;
+}
+
+/* function pointers: a table, a callback, a pointer returned */
+typedef int (*binop)(int, int);
+NOINLINE int op_add(int a, int b) { return a + b; }
+NOINLINE int op_sub(int a, int b) { return a - b; }
+NOINLINE int op_mul(int a, int b) { return a * b; }
+NOINLINE int op_xor(int a, int b) { return a ^ b; }
+static const binop ops[] = {op_add, op_sub, op_mul, op_xor};
+
+NOINLINE int fold(const int *v, int n, binop f, int init) {
+    int k;
+    for (k = 0; k < n; k++) init = f(init, v[k]);
+    return init;
+}
+NOINLINE binop pick(u32 k) { return ops[k & 3]; }
+NOINLINE int run_ops(u32 s) {
+    int v[5], k, r = 0;
+    for (k = 0; k < 5; k++) v[k] = (int)s * (k + 2) - 9;
+    for (k = 0; k < 4; k++) r = r * 7 + fold(v, 5, pick(s + k), k);
+    return r;
+}
+
+/* callbacks of each convention, and a pointer in a struct */
+typedef int(__stdcall *sd_cb)(int, int, int);
+typedef int(__fastcall *fc_cb)(int, int);
+typedef struct {
+    const char *name;
+    fc_cb f;
+    int bias;
+} Handler;
+
+NOINLINE int call_sd(sd_cb f, int x) { return f(x, x + 1, x + 2) + f(1, 2, 3); }
+NOINLINE int call_fc(fc_cb f, int x) { return f(x, 3) - f(5, x); }
+NOINLINE int __fastcall fc_or(int a, int b) { return (a | b) + 1; }
+static Handler handlers[] = {{"mul", fc2, 1}, {"or", fc_or, 2}};
+NOINLINE int run_handlers(int x) {
+    int r = 0, k;
+    for (k = 0; k < 2; k++) r += handlers[k].f(x + handlers[k].bias, handlers[k].name[0]);
+    return r;
+}
+
+/* recursion through a pointer, and a pointer to a varargs function */
+typedef struct Self {
+    u32 (*f)(u32, const struct Self *);
+} Self;
+NOINLINE u32 tri(u32 n, const Self *self) { return n ? n + self->f(n - 1, self) : 0; }
+NOINLINE int call_va(int (*f)(int, ...), int a) { return f(3, a, a * 2, a * 3) + f(1, a); }
+
+/* a sort with a comparator (its own: the CRT's qsort is a program of its own) */
+NOINLINE void isort(int *v, int n, int (*cmp)(const int *, const int *)) {
+    int i, j;
+    for (i = 1; i < n; i++) {
+        int t = v[i];
+        for (j = i; j > 0 && cmp(&v[j - 1], &t) > 0; j--) v[j] = v[j - 1];
+        v[j] = t;
+    }
+}
+NOINLINE int cmp_desc(const int *a, const int *b) { return *b - *a; }
+NOINLINE int cmp_mod(const int *a, const int *b) { return (*a % 7) - (*b % 7); }
+NOINLINE u32 sort_check(u32 s, int (*cmp)(const int *, const int *)) {
+    int v[9], k;
+    u32 h = 0;
+    for (k = 0; k < 9; k++) v[k] = (int)((s * 2654435761u) >> (k * 3)) % 50;
+    isort(v, 9, cmp);
+    for (k = 0; k < 9; k++) h = h * 33 + (u32)v[k];
+    return h;
+}
+
+void rhtest_run(void) {
+    u32 s = seed();   /* 7 */
+    int i = (int)s;
+    Pt p = {i, i + 1}, q = {3, -i};
+    Quad qd = {i, i * 2, i * 3, i * 4};
+    Self self = {tri};
+    check("cd3", (u32)cd3(i, i + 1, i + 2));
+    check("sd3", (u32)sd3(i, i + 1, i + 2));
+    check("fc1", (u32)fc1(i));
+    check("fc2", (u32)fc2(i, -i * 5));
+    check("fc4", (u32)fc4(i, 2, i * 3, -1));
+    check("fc_byte", (u32)fc_byte((u8)(s * 40), (u16)(s * 9000), -i));
+    check64("sd_i64", (u64)sd_i64((i64)s << 33, i, -(i64)s * 1000000007));
+    check64("fc_i64", (u64)fc_i64(i, (i64)s << 40, -i * 3));
+    check("sd_dbl", (u32)(int)(sd_dbl(i * 1.5, i, 0.25) * 4.0));
+    check("fc_dbl", (u32)(int)(fc_dbl(i, i / 4.0, 3) * 8.0));
+    check("sd8", (u32)sd8(i, 1, 2, i, 4, 5, i, 7));
+    p = pt_add(p, q);
+    check("pt_add", (u32)(p.x * 1000 + p.y));
+    check("quad_mix", quad_hash(quad_mix(i, qd)));
+    check("sum_va", (u32)sum_va(4, i, 2, i * 3, 4));
+    check64("mixed_va", (u64)mixed_va("ildi", i, (i64)s << 35, i * 0.75, -i));
+    check("sum_via", (u32)sum_via(5, i, i + 1, i + 2, i + 3, i + 4));
+    check("run_ops", (u32)run_ops(s));
+    check("call_sd", (u32)call_sd(sd3, i));
+    check("call_fc", (u32)call_fc(fc2, i));
+    check("handlers", (u32)run_handlers(i));
+    check("tri", tri(s * 9, &self));
+    check("call_va", (u32)call_va(sum_va, i));
+    check("sort_desc", sort_check(s, cmp_desc));
+    check("sort_mod", sort_check(s + 1, cmp_mod));
+}

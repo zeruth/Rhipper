@@ -1278,7 +1278,7 @@ def global_pieces(text: str) -> str:
                     f"{(1 << (8 * size)) - 1:#x}ULL)")
         return f"(*({PIECE_TYPE[size]} *)((char *){base} + {off}))"
 
-    text = re.sub(r"\b((?:PTR_)*(?:_?DAT|_?UNK|s|u|ws|PTR)_\w*?_?[0-9a-f]{9})\._(\d+)_(\d+)_", piece, text)
+    text = re.sub(r"\b((?:PTR_)*(?:_?DAT|_?UNK|s|u|ws|PTR)_\w*?_?[0-9a-f]{9})\._(\d+)_(\d+)f?_", piece, text)
 
     # the same notation on a local or a parameter (`local_res18[0]._1_3_`, a register's upper
     # bytes): a typed access at its address, or, for an odd width only read, a shift and a mask
@@ -1295,7 +1295,7 @@ def global_pieces(text: str) -> str:
         mask = ((1 << (8 * size)) - 1) << (8 * off)
         return f"{indent}{var} = ({var} & ~{mask:#x}ULL) | (((ulonglong)({rhs}) << {8 * off}) & {mask:#x}ULL);"
 
-    text = re.sub(r"^([ \t]*)([A-Za-z_]\w*(?:\[[^\]\[]+\])?)\._(\d+)_(\d+)_ = ([^;\n]+);", odd_write, text, flags=re.M)
+    text = re.sub(r"^([ \t]*)([A-Za-z_]\w*(?:\[[^\]\[]+\])?)\._(\d+)_(\d+)f?_ = ([^;\n]+);", odd_write, text, flags=re.M)
 
     def local_piece(m):
         var, off, size = m.group(1), int(m.group(2)), int(m.group(3))
@@ -1307,7 +1307,7 @@ def global_pieces(text: str) -> str:
             return m.group(0)      # an odd-width piece written: no C lvalue for it
         return f"(((ulonglong)({var}) >> {8 * off}) & {(1 << (8 * size)) - 1:#x})"
 
-    return re.sub(r"(?<![\w.])([A-Za-z_]\w*(?:\[[^\]\[]+\])?)\._(\d+)_(\d+)_", local_piece, text)
+    return re.sub(r"(?<![\w.])([A-Za-z_]\w*(?:\[[^\]\[]+\])?)\._(\d+)_(\d+)f?_", local_piece, text)
 
 
 def virtual_this(text: str) -> str:
@@ -1346,7 +1346,11 @@ def virtual_this(text: str) -> str:
 
 # a call through a code pointer, as the body spells one by now: `(**(code **)(x))(`,
 # `(*(code *)x)(`, `(*(code **)x)(`, `(*(*(code **)x))(`, `(*REFG(code *, x))(`
-INDIRECT_CALL = re.compile(r"\((?:\*\*\(code \*\*\)|\*\(code \*\*?\)|\*\(\*\(code \*\*?\)|\*REFG\(code \*,)")
+# (`code * *` too, as an earlier pass may space the stars: SChannel's InitializeSecurityContextW,
+# called `(**(code * *)(*(longlong *)(lVar4 + 8) + 0x30))(...)` in FUN_141f720b0, had its literal-0
+# ninth argument, phNewContext, stored in 4 of its 8 bytes; the stale upper half made it
+# 0x100000000 and the Battle.net TLS handshake faulted in sspicli, 2026-10-24)
+INDIRECT_CALL = re.compile(r"\((?:\*\*\(code \*\s*\*\)|\*\(code \*(?:\s*\*)?\)|\*\(\*\(code \*(?:\s*\*)?\)|\*REFG\(code \*,)")
 # a top-level operator that makes an expression something other than its operands' type
 NOT_FLOAT_OP = re.compile(r"<|(?<!-)>|[!=]=|&&|\|\||\?|%|\^|(?<![&])&(?![&])|\|")
 
@@ -3102,7 +3106,7 @@ def wide_vectors(text: str, a: int) -> str:
     body = WIDE_VAR_DECL.sub(lambda m: f"{m.group(1)}gen_v{m.group(3)} {m.group(2)} = {{0}};" if m.group(2) in sizes else m.group(0), body)
     names = "|".join(map(re.escape, sizes))
     wide_name = re.compile(rf"\b(?:{names})\b") if names else None
-    piece = re.compile(rf"\b({names})\._(\d+)_(\d+)_") if names else None
+    piece = re.compile(rf"\b({names})\._(\d+)_(\d+)f?_") if names else None
     trap = f"GenWidePath(0x{a:x}ULL)"
     out = []
     for s, e in v16.spans(body):
@@ -3113,7 +3117,7 @@ def wide_vectors(text: str, a: int) -> str:
         if re.match(r"gen_v(?:32|64) \w+ = \{0\}$", x):
             continue
         # a wide piece copied whole: `X._16_48_ = Y._16_48_`
-        m = re.fullmatch(rf"({names})\._(\d+)_(\d+)_\s*=\s*({names})\._(\d+)_(\d+)_", x) if names else None
+        m = re.fullmatch(rf"({names})\._(\d+)_(\d+)f?_\s*=\s*({names})\._(\d+)_(\d+)f?_", x) if names else None
         if m and m.group(3) == m.group(6):
             out.append((s, e, f"memcpy((char *)&{m.group(1)} + {m.group(2)}, (char *)&{m.group(4)} + {m.group(5)}, {m.group(3)})"))
             continue
@@ -4765,7 +4769,9 @@ class Translator:
         name = rec["name"]
         # (a function in a named namespace's anonymous one, casc::`anonymous namespace'::FileExists,
         # is casc::FileExists from the file's scope; a static member is a plain function too)
-        plain = name.replace("`anonymous namespace'::", "")
+        # (and the PDB's raw spelling of one, `A0xc187eab9::`: GlueMgr.cpp's Lua_GetMouseFocus was
+        # written as `&A0xc187eab9::Lua_GetMouseFocus`, and the port did not build, 2026-10-24)
+        plain = re.sub(r"\bA0x[0-9a-f]{8}::", "", name.replace("`anonymous namespace'::", ""))
         rel = rec["file"].replace("\\", "/")
         if (sig[2] or "<" in name or "`" in plain or "operator" in plain
                 or not rel.startswith(("src/", "vendor/")) or rel.startswith("src/gen/")
@@ -5046,7 +5052,7 @@ class Translator:
         # (several brackets, not all closed: `s_<Realm_Name>_____<Realm_IP>_____<_142618260`, C2065)
         # (and one whose text holds a `>`, read as a piece: `s_fff>D__BuildServer_A_work_git_wo_
         # 14280032c._0_4_`, the first four bytes of the data there, C2065, 2026-10-18)
-        text = re.sub(r"\bs_\w*[<>][\w<>]*?_(1[0-9a-f]{8})\._(\d+)_(\d+)_",
+        text = re.sub(r"\bs_\w*[<>][\w<>]*?_(1[0-9a-f]{8})\._(\d+)_(\d+)f?_",
                       lambda m: f"(*(undefined{m.group(3)} *)((char *)REFP(0x{m.group(1)}) + {m.group(2)}))"
                       if m.group(3) in ("1", "2", "4", "8") else m.group(0), text)
         text = re.sub(r"\bs_<[\w<>]*?_(1[0-9a-f]{8})\b", r"((char *)REFP(0x\1))", text)

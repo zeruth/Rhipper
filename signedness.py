@@ -202,3 +202,69 @@ def signed_tests(body: str, params=()) -> str:
         at = end
     out.append(body[at:])
     return "".join(out)
+
+
+# the signed types Ghidra prints (and their widths), for a sibling operand that says an op is signed
+SIGNED_TYPES = {"char": "1", "short": "2", "int": "4", "long": "4", "longlong": "8", "int8_t": "1",
+                "int16_t": "2", "int32_t": "4", "int64_t": "8", "sbyte": "1", "int1": "1", "int2": "2",
+                "int4": "4", "int8": "8"}
+SIGN_OPS = re.compile(r" (/|%|>>|<=|>=|<|>) ")
+SIGNED_CAST = re.compile(r"\((" + "|".join(SIGNED_TYPES) + r")\)")
+DECL = re.compile(r"^[ \t]*(\w+) (\w+)(?: = [^;]*)?;", re.M)
+
+
+def signed_siblings(body: str, params=()) -> str:
+    """An undefinedN variable an op reads beside a signed operand, read as the signed type of its
+    width. Ghidra casts whichever operand's type the op does not take; an undefined one takes any,
+    so the other side's type is the op's: `uStack_1c / (longlong)CONCAT44(b, a)` is a signed
+    divide (MSVC's __alldiv, through Ghidra's call fixup), and in C an unsigned long long beside a
+    long long makes it unsigned (rhtest int64's divmod64, 2026-10-24). Read by the ops whose sign
+    matters: / % >> and the comparisons; the variable as a whole operand, the sibling a signed
+    cast or a variable declared signed."""
+    decls = [m.groups() for m in DECL.finditer(body)] + [tuple(p.split()) for p in params if len(p.split()) == 2]
+    und = {n: t[len("undefined"):] for t, n in decls if re.fullmatch(r"undefined[1248]", t)}
+    signed = {n for t, n in decls if t in SIGNED_TYPES}
+    if not und:
+        return body
+    alt = "|".join(map(re.escape, und))
+    # (a whole operand: not a member, an element or a call, nor under a cast already)
+    left_var = re.compile(r"(?<![\w.>)\]])(?<!\)\s)(" + alt + r")$")
+    right_var = re.compile(r"^(" + alt + r")(?![\w\[(.]|->)")
+
+    def signed_left(text: str) -> bool:
+        """Whether the operand ending text is signed: a signed variable, or a signed cast's operand."""
+        t = text.rstrip()
+        m = re.search(r"(?<![\w.>])(\w+)$", t)
+        if m and m.group(1) in signed and not re.search(r"\)\s*$", t[:m.start()]):
+            return True
+        if t.endswith(")"):
+            depth, k = 0, len(t) - 1
+            while k >= 0:
+                depth += t[k] == ")"
+                depth -= t[k] == "("
+                if depth == 0:
+                    break
+                k -= 1
+            head = re.search(r"(\w*)$", t[:k]).group(1)
+            before = t[:k - len(head)]
+            return bool(re.search(SIGNED_CAST.pattern + r"\s*$", before))
+        return False
+
+    def signed_right(text: str) -> bool:
+        m = re.match(r"(\w+)(?![\w\[(.]|->)", text)
+        return bool(SIGNED_CAST.match(text) or (m and m.group(1) in signed))
+
+    edits = []                                     # (start, end, replacement)
+    for m in SIGN_OPS.finditer(body):
+        op = m.group(1)
+        before, after = body[:m.start()], body[m.end():]
+        lv = left_var.search(before)
+        if lv and signed_right(after) and not re.search(r"[*/%]\s*$", before[:lv.start()]):
+            edits.append((lv.start(), lv.end(), f"(({SIGNED_OF[und[lv.group(1)]]}){lv.group(1)})"))
+        rv = right_var.match(after) if op != ">>" else None
+        if rv and signed_left(before):
+            s = m.end()
+            edits.append((s, s + rv.end(), f"(({SIGNED_OF[und[rv.group(1)]]}){rv.group(1)})"))
+    for s, e, rep in sorted(set(edits), reverse=True):
+        body = body[:s] + rep + body[e:]
+    return body

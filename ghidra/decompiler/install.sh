@@ -9,7 +9,24 @@
 #   dynamic.cc  dynamic hashes tell apart up to 64 colliding varnodes, not 8: a SIMD instruction's
 #               lanes hash alike, and "Unable to find unique hash for varnode" failed whole functions
 #   printc.cc   a value wider than the symbol at its address prints as `*(T *)&sym`, not the
-#               release's `_sym` (a mark for a reader, no C: 993 functions of WowClassic 3.4.3)
+#               release's `_sym` (a mark for a reader, no C: 993 functions of WowClassic 3.4.3);
+#               a signed CONCAT/SUB used in place prints its type, `(longlong)CONCAT44(a,b)`; a
+#               CAST or SUBPIECE between a float and an integer prints as the reader's bit views
+#               (gen_fl2bits, gen_bits2f, ...), not a C conversion; a float-typed piece is `_4_4f_`
+#               float + and * are not associative (a nested sum keeps its parentheses), and an
+#               unlocked undefinedN local takes its variable's inferred type before printing
+#   printc.hh   (the float tokens' declarations)
+#   ruleaction.cc  a NaN test guarding a float comparison stays (the default drops it): x87 and SSE
+#               compares set the less/equal flags on unordered, and branches read them so; a test
+#               and comparison one comparison means exactly fold, `NAN(a) || NAN(b) || a <= b`
+#               to `!(b < a)`
+#   opcodes.cc  a float < or <= is not negated by flipping (`!(a < b)` is not `b <= a` for a NaN)
+#   subflow.cc  a float operation is narrowed only when every input fits (a double operand kept
+#               `f * d` from becoming `f * (float)d`), and an x87 value never below a double:
+#               MSVC's x87 runs at 53 bits, so a float's arithmetic there is a double's
+#   cast.cc     a float into an untyped place (copy, store, argument) gets a cast: its bits
+#   typeop.cc/.hh  a float into a PIECE or SUBPIECE (CONCAT44(f,g), SUB84(d,0)) gets an integer
+#               cast: its bits, as the reader's CONCAT and SUB take integers
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
 RH="$(cd "$HERE/../.." && pwd)"

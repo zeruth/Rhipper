@@ -1,0 +1,723 @@
+"""Fidelity of a 32-bit project's translation (translate32.py), binary against binary.
+
+Each reference function is compared with its translation, F_<address> in the port's PDB (the x64
+port, rhipper.json "run" "exe" and the .pdb beside it), on fidelity.py's signals:
+
+  calls   the functions called directly, by presence (the order is each compiler's block layout,
+          and one compiler merges two calls another keeps). A port callee F_x is reference function x, a
+          gen_imp_<name> adapter the reference's import <name> (`call [slot]` or its `jmp [slot]`
+          thunk there): imp:<name>, the C underscore aside. The runtime's own helpers
+          (gen_trace_enter, GenUnimplemented, gen_teb32, ...) are left out, and a translated
+          function the port's compiler inlined is put back where the PDB says it was.
+  fields  the displacements read and written through a pointer ([reg+0x1c]), the stack and
+          indexed operands aside.
+  consts  strings, float constants and integer immediates; and the reference's globals, g:<addr>,
+          which both sides name by the same address (x86: an absolute operand or immediate in the
+          image; the port: REFG/REFP, an immediate or displacement in the reference's image).
+  shape   mnemonic trigrams: x86 against x64, so reported only.
+
+Fields and constants count by presence too (how often is the compilers' choice), a comparison's
+constant matches its neighbour (`cmp 1000` / `cmp 1001`), and a global matches one up to 16 bytes
+below it (neighbours stored as one vector). The port is best measured built without inlining or
+identical-code folding (/Ob0, /OPT:NOICF), each translation its own function.
+
+A stubbed function scores 0 and is listed with its reason (gen/manifest.json).
+
+    python fidelity32.py                  the totals, then the 25 lowest
+    python fidelity32.py --all            every function, lowest first
+    python fidelity32.py --show 0x401440  one function in full: its calls side by side, what the
+                                          port misses and adds
+    python fidelity32.py --html           also build/fidelity.html
+
+Writes build/fidelity.json.
+"""
+from __future__ import annotations
+
+import argparse
+import datetime
+import html
+import json
+import re
+import sys
+from collections import Counter
+from pathlib import Path
+
+import capstone
+import pefile
+from capstone import x86
+
+import fidelity as F
+import project
+from corpus import load_corpus
+from pebin import Binary
+from project import ROOT
+
+OUT_JSON = ROOT / "build/fidelity.json"
+OUT_HTML = ROOT / "build/fidelity.html"
+JCC = re.compile(r"^j(?!mp)\w+$")
+STACK_REGS = {"esp", "ebp", "rsp", "rbp"}
+# Ghidra32.h's traps, the reference's `int 3` / `int 0x29`
+TRAPS = {"gen_swi_break": "trap:3", "gen_swi_fastfail": "trap:29", "gen_ud2": "trap:ud2"}
+FLOAT_MNEMONIC = re.compile(r"(ss|sd|ps|pd)$|^f(?!(?:nstcw|ldcw|nstsw|stsw|xch|wait|nclex))")
+
+
+class Image:
+    """A PE mapped at its own base: the bytes and sections fidelity reads."""
+
+    def __init__(self, path: Path):
+        pe = pefile.PE(str(path), fast_load=True)
+        self.base = pe.OPTIONAL_HEADER.ImageBase
+        # (the whole image: the mapped bytes stop at the last section's raw data, and a global in
+        # .data's zero-filled tail read as an integer, not an address of the image)
+        self.image = bytearray(pe.get_memory_mapped_image()).ljust(pe.OPTIONAL_HEADER.SizeOfImage, b"\0")
+        self.sections = []
+        for s in pe.sections:
+            self.sections.append(type("S", (), {"start": self.base + s.VirtualAddress,
+                                                "end": self.base + s.VirtualAddress + s.Misc_VirtualSize,
+                                                "exec": bool(s.Characteristics & 0x20000000)})())
+        self.iat = {}
+        pe.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_IMPORT"]])
+        for dll in getattr(pe, "DIRECTORY_ENTRY_IMPORT", []):
+            for imp in dll.imports:
+                if imp.name:
+                    self.iat[imp.address] = imp.name.decode().lstrip("_")
+        pe.close()
+
+    def contains(self, va: int) -> bool:
+        return self.base <= va < self.base + len(self.image)
+
+    def is_code(self, va: int) -> bool:
+        return any(s.exec and s.start <= va < s.end for s in self.sections)
+
+    def cstr(self, va: int, limit: int = 256) -> str | None:
+        if not self.contains(va):
+            return None
+        o = va - self.base
+        end = self.image.find(b"\0", o, o + limit)
+        if end < 0:
+            return None
+        try:
+            s = bytes(self.image[o:end]).decode("ascii")
+        except UnicodeDecodeError:
+            return None
+        return s if len(s) >= 3 and s.isprintable() else None
+
+    def read(self, va: int, n: int) -> bytes:
+        return bytes(self.image[va - self.base:va - self.base + n])
+
+
+def norm_mnemonic(mn: str) -> str:
+    return "jcc" if JCC.match(mn) else ("cmov" if mn.startswith("cmov") else mn)
+
+
+class Fn:
+    """What one function's instructions use, comparable across x86 and x64."""
+
+    def __init__(self):
+        self.calls: list = []        # (site, target address or "imp:name")
+        self.fields = Counter()
+        self.consts = Counter()
+        self.mnemonics: list[str] = []
+        self.float_at: dict[int, str] = {}   # a float constant's reference address -> its f: key
+        self.packed: set[int] = set()        # 16-byte float constants read whole
+
+
+def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, port: bool,
+         dead: set[int] = frozenset(), injected: set[int] = frozenset()) -> Fn:
+    """A function's features. `ref` names the reference's globals and strings: the port reads
+    them at the reference's own addresses. `dead`: the starts of blocks the decompiler proved
+    unreachable, left out to the next jump or return (__RTC_Initialize's loop over an empty table).
+    `injected`: functions the decompiler replaced with their p-code (call fixups): a count loaded
+    into cl for one, `mov cl, 0x20; call __aullshr`, is the operation's, which the decompiler may
+    fold away (`(edx:eax) >> 32` is the high half), no constant of the function."""
+    f = Fn()
+    skipping = False
+    last_cl = None
+    select: dict = {}                       # register -> the mask of an `sbb r, r; and r, -k` select
+
+    def inside(t):
+        return any(lo <= t < hi for lo, hi in ranges)
+
+    def global_or_const(v: int, mn: str, size: int) -> str | None:
+        """An address in the reference's image: a string, a float constant it loads, a global."""
+        if not ref.contains(v) or (port and img.contains(v) and img is not ref):
+            return None
+        # (a scalar operand by its suffix: capstone sizes comisd's `xmmword ptr` 16)
+        # (cvtsi2sd's source is an integer)
+        m = re.search(r"(?:^cvtt?(ss|sd)2|(ss|sd)$)", mn)
+        if mn.startswith("cvtsi2"):
+            return f"g:{v:x}"
+        if m:
+            size = 4 if (m.group(1) or m.group(2)) == "ss" else 8
+        if FLOAT_MNEMONIC.search(mn) and size in (4, 8):
+            k = F.float_text(ref.read(v, size))
+            f.float_at[v] = k
+            return k
+        if FLOAT_MNEMONIC.search(mn) and size == 16:
+            f.packed.add(v)
+        s = ref.cstr(v)
+        if s is not None:
+            return "s:" + s
+        # (an address in the reference's code is a function's or a jump table's: the port has its
+        # own tables, and a function taken as a value is a call target, not data)
+        if ref.is_code(v):
+            return "code"
+        return f"g:{v:x}"
+
+    def overwritten(insn, after) -> bool:
+        """The register an instruction only writes, overwritten by the next one unread: a value
+        no one uses, which the decompiler drops (the CRT's dtol3 raises inexact with `cvttss2si
+        ebx, [m]` and pops ebx straight after: no constant of the source)."""
+        ops = insn.operands
+        if after is None or not (insn.mnemonic.startswith(("cvt", "mov")) and len(ops) == 2
+                                 and ops[0].type == x86.X86_OP_REG and ops[1].type == x86.X86_OP_MEM):
+            return False
+        r = ops[0].reg
+        nxt = after.operands
+        return after.mnemonic == "pop" and nxt and nxt[0].type == x86.X86_OP_REG and nxt[0].reg == r
+
+    for lo, hi in ranges:
+        insns = list(md.disasm(img.read(lo, hi - lo), lo))
+        for at, insn in enumerate(insns):
+            mn = insn.mnemonic
+            if insn.address in dead:
+                skipping = True
+            if skipping:
+                skipping = not (mn in ("jmp", "ret") or JCC.match(mn))
+                continue
+            f.mnemonics.append(norm_mnemonic(mn))
+            ops = insn.operands
+            if not port and overwritten(insn, insns[at + 1] if at + 1 < len(insns) else None):
+                continue
+            # (a trap is no constant: `int 0x29` is __fastfail, which the port raises in its
+            # gen_swi_* helpers; compared as a call)
+            if mn == "int3" or (mn == "int" and ops):
+                f.calls.append((insn.address, f"trap:{ops[0].imm & 0xff:x}" if ops else "trap:3"))
+                continue
+            if mn == "ret":
+                continue                               # (`ret 0x10`: the callee's cleanup, no constant)
+            # (a mask on ah is a float comparison's flags, `fnstsw ax` or `lahf` then `test ah,
+            # 0x44`: how the compiler reads C0/C2/C3 or ZF/PF, no constant of the source)
+            if ops and ops[0].type == x86.X86_OP_REG and insn.reg_name(ops[0].reg) == "ah":
+                continue
+            # (a select between two constants without a branch: `sbb rcx, rcx; and rcx, -0xa0;
+            # movsd xmm2, [rcx + 0x4041b8]` reads 0x4041b8 or 0x404118. The mask is the distance
+            # between them, and the constant at its far end is read too, series' 1.0 and -1.0)
+            if mn == "sbb" and len(ops) == 2 and ops[0].type == ops[1].type == x86.X86_OP_REG \
+                    and ops[0].reg == ops[1].reg:
+                select[ops[0].reg] = None
+            elif mn == "and" and len(ops) == 2 and ops[0].type == x86.X86_OP_REG and ops[1].type == x86.X86_OP_IMM \
+                    and ops[0].reg in select and -0x10000 < ops[1].imm < 0:
+                select[ops[0].reg] = ops[1].imm
+                continue
+            elif select and ops and ops[0].type == x86.X86_OP_REG and ops[0].reg in select and mn not in ("and", "sbb"):
+                select.pop(ops[0].reg)
+            for op in ops:
+                if op.type == x86.X86_OP_MEM and select.get(op.mem.base) and not op.mem.index:
+                    k = global_or_const((op.mem.disp + select[op.mem.base]) & 0xFFFFFFFF, mn, op.size)
+                    if k is not None and k != "code":
+                        f.consts[k] += 1
+            if mn in ("call", "jmp") or JCC.match(mn):
+                if ops and ops[0].type == x86.X86_OP_IMM and ops[0].imm in injected and last_cl:
+                    f.consts[last_cl] -= 1
+                    if f.consts[last_cl] <= 0:
+                        del f.consts[last_cl]
+                last_cl = None
+                if ops and ops[0].type == x86.X86_OP_IMM:
+                    t = ops[0].imm
+                    if not inside(t):
+                        # (a jump is a tail call only to a function's entry: a jump into another's
+                        # middle is code the two share, an epilogue an SEH funclet was cut from)
+                        f.calls.append((insn.address, t if mn == "call" else ("jump", t)))
+                    continue
+                if ops and ops[0].type == x86.X86_OP_MEM and not ops[0].mem.base and not ops[0].mem.index:
+                    slot = ops[0].mem.disp & 0xFFFFFFFF
+                    if slot in img.iat:
+                        f.calls.append((insn.address, "imp:" + img.iat[slot]))
+                    continue
+            for op in ops:
+                if op.type == x86.X86_OP_MEM:
+                    base = insn.reg_name(op.mem.base) if op.mem.base else ""
+                    disp = op.mem.disp
+                    if base == "rip":
+                        t = insn.address + insn.size + disp
+                        if mn == "lea" and img.is_code(t):
+                            # (a function's address taken: Ghidra32.h's swi(n) is a trap helper's,
+                            # called through a register)
+                            f.calls.append((insn.address, ("addr", t)))
+                            continue
+                        if mn == "lea" and img.cstr(t):
+                            f.consts["s:" + img.cstr(t)] += 1
+                        elif FLOAT_MNEMONIC.search(mn) and op.size in (4, 8):
+                            f.consts[F.float_text(img.read(t, op.size))] += 1
+                        continue
+                    k = global_or_const(disp & 0xFFFFFFFF, mn, op.size)
+                    if k is not None and disp > 0x10000:
+                        if k != "code" and not (img is ref and disp & 0xFFFFFFFF in img.iat):
+                            f.consts[k] += 1
+                        continue
+                    # (not an indexed operand's: `[esi + eax*4 + 4]` is an array offset, which the
+                    # other compiler folds as it likes)
+                    if base not in STACK_REGS and mn != "lea" and op.mem.base and not op.mem.index:
+                        # (a wide access is the 4-byte ones x86 makes of it: a 64-bit value at
+                        # [rcx] is the reference's [esi] and [esi + 4])
+                        for d in range(disp, disp + max(op.size, 4), 4):
+                            if d > 0:
+                                f.fields[d] += 1
+                elif op.type == x86.X86_OP_IMM:
+                    v = op.imm & 0xFFFFFFFF
+                    if v == own:
+                        continue                       # (GEN_ENTER's own address)
+                    k = global_or_const(v, mn, 0) if v > 0x10000 else None
+                    if k is not None:
+                        if k != "code":
+                            f.consts[k] += 1
+                    elif 0x10 <= v <= 0xFFFFFFF0 and not (mn in ("add", "sub") and ops[0].type == x86.X86_OP_REG
+                                                          and insn.reg_name(ops[0].reg) in STACK_REGS):
+                        f.consts[f"i:{v:x}"] += 1
+                        if mn == "mov" and ops[0].type == x86.X86_OP_REG and insn.reg_name(ops[0].reg) in ("cl", "ecx"):
+                            last_cl = f"i:{v:x}"
+    return f
+
+
+def near(k, have: set) -> bool:
+    """A constant the other side has, or a comparison's by one (`x > 1000` is `cmp 1000` to one
+    compiler and `cmp 1001` to another)."""
+    if k in have:
+        return True
+    if isinstance(k, str) and k.startswith("i:"):
+        v = int(k[2:], 16)
+        # (or negated: `sub ecx, 0x20` is `add ecx, -0x20` to another compiler)
+        return any(f"i:{w & 0xFFFFFFFF:x}" in have for w in (v + 1, v - 1, -v))
+    if isinstance(k, str) and k.startswith("g:"):
+        # (a global within 16 bytes of one the other side uses: neighbours stored as one vector,
+        # `movups [g], xmm0` for four of them, or one address made from another's register)
+        v = int(k[2:], 16)
+        return any(f"g:{v + d:x}" in have for d in range(-15, 16) if d)
+    return False
+
+
+def presence(ref: Counter, port: Counter, source: set[int] = frozenset(),
+             bases: tuple[set[int], set[int]] = (frozenset(), frozenset())) -> tuple[float | None, list]:
+    """The share of what the reference uses that the port uses too, by presence: how often a
+    constant or field appears is the compilers' (unrolling, what stays in a register), x86 and x64
+    apart. And what it misses. `source`: the integers the translation's C has, where an integer
+    constant the x64 compiler turned into something else counts (`| 0x80000000` as `bts eax, 31`,
+    `* 100` as `lea`s, a switch's cases as ranges): the translation kept it."""
+    if not ref:
+        return None, []
+    have = set(port)
+
+    def kept(k):
+        if near(k, have):
+            return True
+        if isinstance(k, int):
+            # (a field: its offset in the translation's address arithmetic, `*(int *)(p + 8)`,
+            # or an index scaled by its element, `param_1[3]` of an int *)
+            if any(k % s == 0 and k // s in source for s in (1, 2, 4, 8)):
+                return True
+            # (or a record's field the decompiler addressed from a global, `&DAT_004040f2 + i * 0xc`
+            # for the record at 0x4040e8's +0xa: the port uses the global G + k)
+            ref_globals, port_globals = bases
+            return any(g + k in port_globals for g in ref_globals)
+        if isinstance(k, str) and k.startswith("i:"):
+            v = int(k[2:], 16)
+            if v in source or (v + 1) & 0xFFFFFFFF in source or (v - 1) & 0xFFFFFFFF in source:
+                return True
+            # (a division by a constant as the reference's compiler made it: its divisor's
+            # reciprocal, and the signed one's `>> 31` correction, where the translation divides)
+            if v == 0x1f and any(division_magic(m, source) for m in ref if isinstance(m, str) and m.startswith("i:")):
+                return True
+            if division_magic(k, source):
+                return True
+            # (or the difference of two: a compare chain walks a switch's cases by subtracting
+            # each from the next, `sub ecx, 0x5a` between case 10 and case 100)
+            return any((v + s) & 0xFFFFFFFF in source for s in source if s < 0x10000)
+        return False
+    missing = sorted((k for k in ref if not kept(k)), key=str)
+    return 1 - len(missing) / len(ref), missing
+
+
+def division_magic(k: str, source: set[int]) -> bool:
+    """Whether i:<v> is the multiplier a compiler divides by one of the source's constants with
+    (v = ceil(2^(32+s) / d), signed or unsigned)."""
+    v = int(k[2:], 16)
+    if v < 0x10000:
+        return False
+    for d in source:
+        if 2 < d < 0x100000:
+            for s in range(0, 33):
+                m = -(-(1 << (32 + s)) // d)
+                if m & 0xFFFFFFFF == v or (m - (1 << 32)) & 0xFFFFFFFF == v:
+                    return True
+    return False
+
+
+INT_LITERAL = re.compile(r"(?<![\w.])(-?)(0x[0-9a-fA-F]+|\d+)[uUlL]*(?![\w.])")
+
+
+CHAR_LITERAL = re.compile(r"'(\\x[0-9a-fA-F]{1,2}|\\[0-7]{1,3}|\\.|[^'\\])'")
+ESCAPES = {"n": 10, "t": 9, "r": 13, "0": 0, "\\": 92, "'": 39, '"': 34, "a": 7, "b": 8, "f": 12, "v": 11}
+
+
+def literals(c: str) -> set[int]:
+    """Every integer literal in a translation (and character literal), as 32 bits, negated and
+    complemented too (`& ~0x40` is `and 0xffffffbf`)."""
+    vals = []
+    for _sign, num in INT_LITERAL.findall(c):
+        vals.append(int(num, 0) if num.lower().startswith("0x") else int(num))
+    for ch in CHAR_LITERAL.findall(c):
+        if ch.startswith("\\x"):
+            vals.append(int(ch[2:], 16))
+        elif ch.startswith("\\") and ch[1:].isdigit():
+            vals.append(int(ch[1:], 8))
+        elif ch.startswith("\\"):
+            vals.append(ESCAPES.get(ch[1], ord(ch[1])))
+        else:
+            vals.append(ord(ch))
+    out = set()
+    for v in vals:
+        out |= {v & 0xFFFFFFFF, (-v) & 0xFFFFFFFF, ~v & 0xFFFFFFFF}
+        if v > 0xFFFFFFFF:
+            # (a 64-bit constant is two to x86: `0x5851f42d4c957f2d` the push of each half)
+            out |= {(v >> 32) & 0xFFFFFFFF, ((-v) >> 32) & 0xFFFFFFFF}
+    return out
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--all", action="store_true", help="every function, lowest first")
+    ap.add_argument("--show", nargs="*", default=[], help="these reference addresses in full")
+    ap.add_argument("--limit", type=int, default=25)
+    ap.add_argument("--html", action="store_true", help="also write build/fidelity.html")
+    ap.add_argument("--quiet", action="store_true", help="the totals only")
+    ap.add_argument("--port", type=Path, help="the port to measure (default rhipper.json \"run\" \"exe\"): "
+                                              "best one with its translation built /Od /Ob0")
+    args = ap.parse_args()
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+    run_exe = args.port or project.CONFIG["run"].get("exe")
+    if not run_exe:
+        sys.exit("rhipper.json has no \"run\" \"exe\" (the port)")
+    port_exe = ROOT / run_exe
+    port_pdb = port_exe.with_suffix(".pdb")
+    if not port_exe.exists() or not port_pdb.exists():
+        sys.exit(f"no port at {port_exe} (and its .pdb)")
+    F.PORT_EXE, F.PORT_PDB = port_exe, port_pdb
+
+    refbin = Binary()
+    ref = Image(project.EXE)
+    port = Image(port_exe)
+    md32 = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+    md64 = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
+    md32.detail = md64.detail = True
+    cor = load_corpus()
+    gen = Path(project.GEN)
+    manifest = json.loads((gen / "manifest.json").read_text(encoding="utf-8"))
+    stubbed = {int(a, 16): why for a, why in manifest.get("stubs", {}).items()}
+
+    by_name = {e["name"]: a for a, e in cor.items()}
+
+    def injections(c: str) -> set:
+        """The callees the decompiler replaced with p-code (call fixups) in a function, by the
+        warnings it leaves: a function's address, a thunk's target (`thunk_FUN_00402350`, which
+        the reference's call reaches through), or an import (`imp:libm_sse2_sqrt_precise`)."""
+        out = set()
+        for n in re.findall(r"Function: (\S+) replaced with injection", c):
+            t = n[len("thunk_"):] if n.startswith("thunk_") else n
+            if t in by_name:
+                out.add(by_name[t])
+            elif re.fullmatch(r"FUN_[0-9a-f]{8}", t):
+                out.add(int(t[4:], 16))
+            else:
+                out.add("imp:" + t.lstrip("_"))
+        return out
+    # the functions the decompiler injects as p-code (call fixups), by the warnings it leaves
+    fixed_up = {x for e in cor.values() for x in injections(e["c"]) if isinstance(x, int)}
+    # each translation's C, by its reference address (gen/translated_*.c, `/* ref: */` headed)
+    translations: dict[int, str] = {}
+    for path in sorted(gen.glob("translated_*.c")):
+        text = path.read_text(encoding="utf-8")
+        for m in re.finditer(r"/\* ref: [^\n]*\*/\n[^\n]*\bF_([0-9a-f]{8})\(.*?\n}\n", text, re.S):
+            translations[int(m.group(1), 16)] = re.sub(r"GEN_ENTER\([^;]*\);", "", m.group(0))
+    procs, inline_sites = F.load_pdb(port)
+    proc_at = {va: (size, name) for va, size, name in procs}
+    f_of_ref = {}
+    for va, size, name in procs:
+        m = re.fullmatch(r"F_([0-9a-f]{8})", name)
+        if m:
+            f_of_ref[int(m.group(1), 16)] = va
+
+    # the reference's import thunks (`jmp [slot]`) by name
+    ref_thunk = {}
+    for root in refbin.func_starts:
+        code = ref.read(root, 6)
+        if code[:2] == b"\xff\x25":
+            slot = int.from_bytes(code[2:6], "little")
+            if slot in ref.iat:
+                ref_thunk[root] = "imp:" + ref.iat[slot]
+    pieces: dict[int, list] = {}
+    for lo, hi, root in zip(refbin.piece_starts, refbin.piece_ends, refbin.piece_root):
+        pieces.setdefault(root, []).append((lo, hi))
+
+    entries = set(refbin.func_starts)
+
+    def ref_calls(fn: Fn) -> list:
+        out = []
+        for _site, t in fn.calls:
+            if isinstance(t, tuple):
+                if t[1] not in entries:
+                    continue
+                t = t[1]
+            if isinstance(t, int):
+                # (through local `jmp rel32` thunks: translate32.py calls their targets)
+                for _ in range(4):
+                    code = ref.read(t, 5)
+                    if t in ref_thunk or len(code) < 5 or code[0] != 0xE9:
+                        break
+                    t = (t + 5 + int.from_bytes(code[1:5], "little", signed=True)) & 0xFFFFFFFF
+                t = ref_thunk.get(t, t)
+                if isinstance(t, int):
+                    root = refbin.func_containing(t)
+                    t = root if root is not None else t
+            out.append(t)
+        return out
+
+    def port_calls(va: int, fn: Fn) -> list:
+        events = [(site, t) for site, t in fn.calls]
+        events += [(site, ("inline", name)) for site, name in inline_sites.get(va, [])]
+        events.sort(key=lambda e: e[0])
+        out = []
+        for _site, t in events:
+            if isinstance(t, tuple) and t[0] == "addr":
+                name = proc_at.get(t[1], (0, ""))[1]
+                if name in TRAPS:
+                    out.append(TRAPS[name])
+                continue
+            if isinstance(t, tuple) and t[0] == "jump":
+                t = t[1]
+            elif isinstance(t, tuple):
+                m = re.fullmatch(r"F_([0-9a-f]{8})", t[1])
+                if m:
+                    out.append(int(m.group(1), 16))
+                continue
+            if isinstance(t, str):
+                out.append(t)
+                continue
+            name = proc_at.get(t, (0, ""))[1]
+            m = re.fullmatch(r"F_([0-9a-f]{8})", name)
+            if m:
+                out.append(int(m.group(1), 16))
+            elif name.startswith("gen_imp_"):
+                out.append("imp:" + name[len("gen_imp_"):].lstrip("_"))
+            elif name in TRAPS:
+                out.append(TRAPS[name])
+            # (anything else is the runtime's own: tracing, the TEB, locks, the stub logger)
+        return out
+
+    # the /GS cookie: the global __security_check_cookie compares with
+    cookies = set()
+    for a, e in cor.items():
+        if e["name"].lstrip("_@") .startswith("security_check_cookie"):
+            fn = scan(ref, ref, md32, sorted(pieces.get(a, [(a, a + e.get("size", 0))])), a, False)
+            cookies |= {int(k[2:], 16) for k in fn.consts if k.startswith("g:")}
+
+    def label(x) -> str:
+        if isinstance(x, str):
+            return x
+        e = cor.get(x)
+        return f"{x:08x} {e['name']}" if e else f"{x:08x}"
+
+    rows = []
+    for a in sorted(cor):
+        e = cor[a]
+        size = e.get("size", 0)
+        row = {"addr": f"{a:08x}", "name": e["name"], "size": size}
+        if a in fixed_up:
+            # (a helper the decompiler injects at every call, ApplyFacts' call fixups: its p-code
+            # is its translation, wherever it is called; its own body never runs)
+            row.update(kind="folded", score=1.0, why="injected at every call site (a call fixup)")
+            rows.append(row)
+            continue
+        if a in stubbed or a not in f_of_ref:
+            row.update(kind="stub", score=0.0, why=stubbed.get(a, "not in the port"))
+            rows.append(row)
+            continue
+        # (a function the decompiler proved does nothing, its blocks unreachable and its body
+        # empty, __RTC_Initialize's loop over an empty table: its translation does nothing too)
+        body = e["c"].partition("{")[2]
+        if "Removing unreachable block" in e["c"] and \
+                not re.sub(r"\breturn\s*;|[{}\s]|/\*.*?\*/", "", body, flags=re.S):
+            row.update(kind="folded", score=1.0, why="the decompiler proved it does nothing (unreachable blocks removed)")
+            rows.append(row)
+            continue
+        dead = {int(x, 16) for x in re.findall(r"Removing unreachable block \(ram,0x([0-9a-f]+)\)", e["c"])}
+        rf = scan(ref, ref, md32, sorted(pieces.get(a, [(a, a + size)])), a, False, dead, fixed_up)
+        pva = f_of_ref[a]
+        psize = proc_at[pva][0]
+        pf = scan(port, ref, md64, [(pva, pva + psize)], a, True)
+        # (a call Ghidra replaced with an injection, the stack cookie check, is in no translation)
+        injected = injections(e["c"])
+        rseq = [x for x in ref_calls(rf) if x not in injected]
+        pseq = port_calls(pva, pf)
+        # (by which callees, not in what order: the order is each compiler's block layout, a cold
+        # path's call last in one and first in the other, and two calls of one function in two
+        # branches one call to a compiler that merges them)
+        calls, missing_calls = presence(Counter(rseq), Counter(pseq))
+        if "replaced with injection: security_check_cookie" in e["c"]:
+            # (and the cookie the injected check compares with, read in the prologue)
+            for g in cookies:
+                rf.consts.pop(f"g:{g:x}", None)
+        # (a float constant one side loads as a float and the other moves as bits, `movsd xmm0,
+        # [0x404288]` and `mov rax, [0x404288]` into a select: the same constant, by its address)
+        for one, other in ((rf, pf), (pf, rf)):
+            for v, k in one.float_at.items():
+                g = f"g:{v:x}"
+                if g in other.consts and k not in other.consts:
+                    other.consts[k] += other.consts.pop(g)
+        # (a 16-byte constant one side reads whole, `movaps xmm0, [0x404290]` for two doubles of
+        # an array it fills, and the other a lane at a time: the same constant, by a lane's value)
+        for v in rf.packed:
+            g = f"g:{v:x}"
+            data = ref.read(v, 16)
+            lanes = {F.float_text(data[i:i + 8]) for i in (0, 8)} | {F.float_text(data[i:i + 4]) for i in (0, 4, 8, 12)}
+            hit = next((k for k in sorted(lanes) if k in pf.consts), None)
+            if g in rf.consts and g not in pf.consts and hit:
+                rf.consts[hit] += rf.consts.pop(g)
+        # (and a float the reference stores as its bits, `mov [esp + 0x20], 0x3dcccccd`, that the
+        # port loads as the float: 0.1f, by its value)
+        for k in [k for k in rf.consts if k.startswith("i:") and k not in pf.consts]:
+            v = int(k[2:], 16)
+            fk = F.float_text(v.to_bytes(4, "little"))
+            if v > 0xFFFF and fk in pf.consts:
+                rf.consts[fk] += rf.consts.pop(k)
+        source = literals(translations.get(a, ""))
+        globals_of = (lambda fn: {int(k[2:], 16) for k in fn.consts if k.startswith("g:")})
+        fields, missing_fields = presence(rf.fields, pf.fields, source, (globals_of(rf), globals_of(pf)))
+        consts, missing_consts = presence(rf.consts, pf.consts, source)
+        parts = {
+            "calls": calls,
+            "fields": fields,
+            "consts": consts,
+            "shape": F.trigram_score(rf.mnemonics, pf.mnemonics),
+        }
+        avail = {k: v for k, v in parts.items() if v is not None and F.WEIGHTS[k] > 0}
+        score = sum(F.WEIGHTS[k] * v for k, v in avail.items()) / sum(F.WEIGHTS[k] for k in avail) if avail else 1.0
+        row.update(kind="translated", score=round(score, 4), parts={k: (round(v, 4) if v is not None else None)
+                                                                     for k, v in parts.items()},
+                   missing_calls=[label(x) for x in missing_calls],
+                   extra_calls=[label(x) for x in sorted(set(pseq) - set(rseq), key=str)],
+                   missing_fields=[f"{k:#x}" for k in missing_fields],
+                   missing_consts=missing_consts,
+                   extra_consts=sorted(k for k in pf.consts if not near(k, set(rf.consts))))
+        rows.append(row)
+        if f"{a:08x}" in {s.lower().removeprefix("0x").rjust(8, "0") for s in args.show}:
+            print(f"==== {a:08x} {e['name']}  score {score:.3f}  {row['parts']}")
+            print(f"  reference calls: {[label(x) for x in rseq]}")
+            print(f"  port calls:      {[label(x) for x in pseq]}")
+            for k in ("missing_calls", "extra_calls", "missing_fields", "missing_consts", "extra_consts"):
+                if row[k]:
+                    print(f"  {k}: {row[k]}")
+
+    OUT_JSON.write_text(json.dumps(rows, indent=1), encoding="utf-8")
+    scored = [r for r in rows if r["kind"] != "stub"]
+    stubs = [r for r in rows if r["kind"] == "stub"]
+    total_size = sum(r["size"] for r in rows) or 1
+    mean = sum(r["score"] for r in rows) / len(rows) if rows else 0.0
+    weighted = sum(r["score"] * r["size"] for r in rows) / total_size
+    perfect = sum(r["score"] >= 0.999 for r in scored)
+    print(f"{project.NAME}: {len(rows)} functions, {len(scored)} translated ({perfect} at 1.0), {len(stubs)} stubs; "
+          f"mean {mean:.3f}, by size {weighted:.3f}")
+    if not args.quiet:
+        low = sorted((r for r in rows if r["score"] < 0.999), key=lambda r: (r["score"], -r["size"]))
+        for r in low if args.all else low[:args.limit]:
+            if r["kind"] == "stub":
+                print(f"  {r['addr']}  stub   {r['name'][:28]:<28} {r['why'][:70]}")
+                continue
+            p = r["parts"]
+            ps = " ".join(f"{k}={p[k]:.2f}" if p[k] is not None else f"{k}=-" for k in ("calls", "fields", "consts"))
+            what = "; ".join(f"{k.replace('_', ' ')} {r[k][:3]}" for k in ("missing_calls", "missing_fields", "missing_consts")
+                             if r[k])
+            print(f"  {r['addr']}  {r['score']:.3f}  {r['name'][:28]:<28} {ps}  {what[:110]}")
+    if args.html:
+        write_html(rows, mean, weighted, perfect, stubs)
+        print(f"wrote {OUT_HTML}")
+
+
+def write_html(rows: list, mean: float, weighted: float, perfect: int, stubs: list) -> None:
+    hist = [0] * 10
+    for r in rows:
+        hist[min(9, int(r["score"] * 10))] += 1
+    peak = max(hist) or 1
+    bars = "".join(
+        f'<div class="col"><div class="bar" style="height:{100 * n / peak:.1f}%"></div>'
+        f'<div class="n">{n}</div><div class="k">{i / 10:.1f}</div></div>' for i, n in enumerate(hist))
+
+    def cell(v):
+        return '<td class="num muted">–</td>' if v is None else f'<td class="num">{v:.2f}</td>'
+
+    body = []
+    for r in sorted(rows, key=lambda r: (r["score"], -r["size"])):
+        if r["kind"] == "folded":
+            body.append(f'<tr><td>{r["addr"]}</td><td>{html.escape(r["name"])}</td>'
+                        f'<td class="num">{r["size"]}</td><td class="num score s3">1.000</td>'
+                        f'<td colspan="4" class="muted">{html.escape(r["why"])}</td></tr>')
+            continue
+        if r["kind"] == "stub":
+            body.append(f'<tr class="stub"><td>{r["addr"]}</td><td>{html.escape(r["name"])}</td>'
+                        f'<td class="num">{r["size"]}</td><td class="num score s0">stub</td>'
+                        f'<td colspan="4" class="muted">{html.escape(r["why"])}</td></tr>')
+            continue
+        p = r["parts"]
+        notes = "; ".join(f"{k.replace('_', ' ')}: {', '.join(map(str, r[k][:4]))}"
+                          for k in ("missing_calls", "extra_calls", "missing_fields", "missing_consts") if r[k])
+        band = "s3" if r["score"] >= 0.999 else "s2" if r["score"] >= 0.9 else "s1" if r["score"] >= 0.6 else "s0"
+        body.append(f'<tr><td>{r["addr"]}</td><td>{html.escape(r["name"])}</td><td class="num">{r["size"]}</td>'
+                    f'<td class="num score {band}">{r["score"]:.3f}</td>{cell(p["calls"])}{cell(p["fields"])}'
+                    f'{cell(p["consts"])}<td class="muted">{html.escape(notes)}</td></tr>')
+    title = html.escape(f"{project.NAME} fidelity")
+    page = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>{title}</title>
+<style>
+:root {{ --bg:#fbfbfa; --fg:#1d1d1b; --muted:#6b6b66; --line:#e4e3df; --bar:#5b6cf0;
+  --s3:#2f9e5b; --s2:#7aa83a; --s1:#d49a2a; --s0:#d0503c; }}
+@media (prefers-color-scheme: dark) {{ :root {{ --bg:#17171a; --fg:#e9e8e4; --muted:#9a9993; --line:#2c2c31;
+  --bar:#8592ff; }} }}
+body {{ background:var(--bg); color:var(--fg); font:14px/1.45 system-ui,sans-serif; margin:0; padding:24px 16px; }}
+main {{ max-width:1200px; margin:0 auto; }}
+h1 {{ font-size:20px; margin:0 0 4px; }} .sub {{ color:var(--muted); margin-bottom:20px; }}
+.tiles {{ display:flex; gap:12px; flex-wrap:wrap; margin-bottom:20px; }}
+.tile {{ border:1px solid var(--line); border-radius:8px; padding:10px 14px; min-width:120px; }}
+.tile b {{ display:block; font-size:22px; font-variant-numeric:tabular-nums; }} .tile span {{ color:var(--muted); font-size:12px; }}
+.hist {{ display:flex; align-items:flex-end; gap:6px; height:120px; margin:8px 0 28px; }}
+.col {{ flex:1; display:flex; flex-direction:column; justify-content:flex-end; height:100%; text-align:center; font-size:11px; }}
+.bar {{ background:var(--bar); border-radius:3px 3px 0 0; min-height:1px; }} .n {{ font-variant-numeric:tabular-nums; }}
+.k {{ color:var(--muted); }}
+.wrap {{ overflow-x:auto; }} table {{ border-collapse:collapse; width:100%; font-size:13px; }}
+th,td {{ text-align:left; padding:5px 8px; border-bottom:1px solid var(--line); vertical-align:top; }}
+th {{ color:var(--muted); font-weight:600; }} .num {{ text-align:right; font-variant-numeric:tabular-nums; }}
+.muted {{ color:var(--muted); }} td:first-child {{ font-family:ui-monospace,monospace; }}
+.score {{ font-weight:600; }} .s3 {{ color:var(--s3); }} .s2 {{ color:var(--s2); }} .s1 {{ color:var(--s1); }} .s0 {{ color:var(--s0); }}
+</style></head><body><main>
+<h1>{title}</h1>
+<div class="sub">Each reference function against its translation: calls in order, fields, constants
+(shape is reported only: x86 against x64). {datetime.datetime.now():%Y-%m-%d %H:%M}</div>
+<div class="tiles">
+<div class="tile"><b>{len(rows)}</b><span>functions</span></div>
+<div class="tile"><b>{perfect}</b><span>at 1.0</span></div>
+<div class="tile"><b>{len(stubs)}</b><span>stubs</span></div>
+<div class="tile"><b>{mean:.3f}</b><span>mean score</span></div>
+<div class="tile"><b>{weighted:.3f}</b><span>by size</span></div>
+</div>
+<div class="hist">{bars}</div>
+<div class="wrap"><table><thead><tr><th>address</th><th>function</th><th class="num">size</th>
+<th class="num">score</th><th class="num">calls</th><th class="num">fields</th><th class="num">consts</th>
+<th>what differs</th></tr></thead><tbody>
+{"".join(body)}
+</tbody></table></div></main></body></html>
+"""
+    OUT_HTML.write_text(page, encoding="utf-8")
+
+
+if __name__ == "__main__":
+    main()

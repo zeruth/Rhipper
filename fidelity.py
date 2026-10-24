@@ -265,7 +265,10 @@ PORT_LIB = re.compile(r"^(std::|`|__|_[A-Z_a-z]|mem(cpy|set|move|cmp|chr)\b|str\
 REF_KEEP = ("FUN_", "thunk_FUN", "Lua::", "Storm::", "CDataAllocator::")
 
 # deliberate divergences, each with its reason (tools/fidelity_exceptions.json)
-_EXCEPTIONS = json.loads((ROOT / "tools" / "fidelity_exceptions.json").read_text(encoding="utf-8"))
+# (a project without the file has none: fidelity32.py imports the scoring from here)
+_EXCEPTIONS_PATH = ROOT / "tools" / "fidelity_exceptions.json"
+_EXCEPTIONS = json.loads(_EXCEPTIONS_PATH.read_text(encoding="utf-8")) if _EXCEPTIONS_PATH.exists() else \
+    {"skip": [], "alias": {}}
 REF_SKIP = {int(a, 16) for a in _EXCEPTIONS["skip"]} | {int(a, 16) for a in _EXCEPTIONS.get("lib", {})}
 REF_ALIAS = {int(a, 16): int(v["to"], 16) for a, v in _EXCEPTIONS["alias"].items()}
 

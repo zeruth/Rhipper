@@ -42,7 +42,7 @@ from pathlib import Path
 
 import project
 from project import FACTS, GEN, ROOT
-from signedness import signed_tests
+from signedness import signed_siblings, signed_tests
 
 CORPUS = ROOT / "build/corpus.jsonl"
 REFDATA = ROOT / "build/refdata.jsonl"
@@ -117,7 +117,7 @@ HEADER_NAMES = {"REFG", "REFP", "GP", "PTR32", "MXCSR", "ExceptionList", "GenUni
                 "int8_t", "__ptr32", "__uptr", "_InterlockedExchange", "NAN", "INFINITY",
                 "__debugbreak", "_rotl", "_rotr", "_rotl64", "_rotr64", "fabs", "sqrt",
                 "floor", "ceil", "trunc", "nearbyint", "memcpy", "memset", "rdtsc", "GEN_PIECE", "GEN_ISNAN",
-                "gen_piece_set", "gen_fl2bits", "gen_d2bits", "gen_bits2f", "gen_bits2d", "GEN_TOF", "GEN_TOD",
+                "gen_piece_set", "gen_fl2bits", "gen_d2bits", "gen_bits2f", "gen_bits2d", "GEN_TOF", "GEN_TOD", "GEN_SLOT",
                 "GEN_TOP", "GEN_FLT_TO"}
 _header_names: set[str] | None = None
 
@@ -143,6 +143,28 @@ OVERRIDES = set(project.CONFIG.get("import_overrides", [])) | {
     n for f in (Path(__file__).resolve().parent / "runtime32").glob("*.cpp")
     for n in re.findall(r"(?m)^\s*(?:extern \"C\"\s+)?unsigned int gen_imp_(\w+)\s*\(", f.read_text(encoding="utf-8"))}
 IDENT = r"[A-Za-z_~][\w$@]*(?:::[A-Za-z_~][\w$@]*)*"
+# the C runtime's math imports, typed: their floats pass and return as floats (the integer adapter
+# returned fabs's double as the int in eax, rhtest float-Od dabs, 2026-10-24). Pointers are the
+# reference's, below 2 GB.
+_D1 = ("double", ["double"])
+_F1 = ("float", ["float"])
+MATH = {
+    **{n: _D1 for n in ("fabs", "sqrt", "sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh",
+                        "tanh", "exp", "exp2", "expm1", "log", "log10", "log2", "log1p", "floor", "ceil",
+                        "trunc", "round", "rint", "nearbyint", "cbrt", "erf", "erfc", "tgamma", "lgamma")},
+    **{n + "f": _F1 for n in ("fabs", "sqrt", "sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh",
+                              "tanh", "exp", "exp2", "log", "log10", "log2", "floor", "ceil", "trunc",
+                              "round", "cbrt")},
+    **{n: ("double", ["double", "double"]) for n in ("pow", "atan2", "fmod", "hypot", "_hypot", "fmin",
+                                                     "fmax", "copysign", "_copysign", "remainder", "nextafter")},
+    **{n: ("float", ["float", "float"]) for n in ("powf", "atan2f", "fmodf", "hypotf", "_hypotf", "fminf",
+                                                  "fmaxf", "copysignf", "_copysignf")},
+    "ldexp": ("double", ["double", "int"]), "frexp": ("double", ["double", "int *"]),
+    "modf": ("double", ["double", "double *"]), "_chgsign": _D1, "_logb": _D1,
+    "lround": ("long", ["double"]), "lrint": ("long", ["double"]),
+    "llround": ("long long", ["double"]), "llrint": ("long long", ["double"]),
+    "ilogb": ("int", ["double"]), "_finite": ("int", ["double"]), "_isnan": ("int", ["double"]),
+}
 
 
 # the C runtime's and Winsock's type names Ghidra uses, at the reference's widths (intptr_t and
@@ -193,7 +215,16 @@ def out_stack(body: str) -> str:
     offs = sorted({int(m.group(1), 16) for m in re.finditer(r"\b" + OUT_STACK.pattern + r"\b", body)})
     if not offs:
         return body
+    # (in a function whose frame frame_locals lays out, the same frame: each place GEN_SLOT(d),
+    # d bytes below the entry esp, which frame_locals puts in its buffer. As a buffer of its own
+    # it lay wherever the compiler put it: rhtest's put_u writes its digits from `&stack0xffffffef
+    # + k`, one below its char array local_10, and its 4-byte gen_out took eleven, the caller's
+    # locals the rest, 2026-10-24)
+    framed = has_frame(body)
     lo, hi = offs[0], offs[-1] + 4
+
+    def place(off: int) -> str:
+        return f"GEN_SLOT(0x{(1 << 32) - off:x})" if framed else f"(gen_out + 0x{off - lo:x})"
     # (their declarations go: each is a place in the buffer now, of its declared type, a pointer
     # stored as the reference stores one)
     types = {}
@@ -205,10 +236,12 @@ def out_stack(body: str) -> str:
         types[m.group(2)] = "gen_code32" if base == "code" and stars == 1 else \
             (base + " * PTR32" * stars) if stars else t
     body = re.sub(r"(?m)^\s*[A-Za-z_][\w ]*?[\s*]+in_stack_f[0-9a-f]{7}\s*;\s*\n", "", body)
-    body = re.sub(r"&\s*stack0x(f[0-9a-f]{7})\b", lambda m: f"(gen_out + 0x{int(m.group(1), 16) - lo:x})", body)
-    body = re.sub(r"\(uint\)\s*\(gen_out", "(uint)(uintptr_t)(gen_out", body)
+    body = re.sub(r"&\s*stack0x(f[0-9a-f]{7})\b", lambda m: place(int(m.group(1), 16)), body)
+    body = re.sub(r"\(uint\)\s*(\(gen_out|GEN_SLOT)", r"(uint)(uintptr_t)\1", body)
     body = re.sub(r"\bin_stack_(f[0-9a-f]{7})\b",
-                  lambda m: f"(*({types.get(m.group(1), 'undefined4')} *)(gen_out + 0x{int(m.group(1), 16) - lo:x}))", body)
+                  lambda m: f"(*({types.get(m.group(1), 'undefined4')} *){place(int(m.group(1), 16))})", body)
+    if framed:
+        return body
     return body.replace("{", "{\n  undefined1 gen_out[0x%x];" % (hi - lo), 1)
 
 
@@ -354,21 +387,30 @@ FRAME_DECL = re.compile(r"(?m)^[ \t]+(?!(?:return|goto|case|else|do)\b)(?!(?:loc
                         r"[ \t]*\b(" + FRAME_LOCAL + r")[ \t]*(\[[ \t]*(?:0x)?[0-9a-f]+[ \t]*\])?[ \t]*;[ \t]*\n")
 
 
+def has_frame(body: str) -> bool:
+    """Whether frame_locals lays the function's frame out: its code takes a local's address or
+    uses a local array."""
+    return bool(re.search(r"&\s*" + FRAME_LOCAL + r"\b", body) or
+                re.search(r"(?m)^[ \t]+[A-Za-z_][\w \t*]*?\b" + FRAME_LOCAL + r"[ \t]*\[", body))
+
+
 def frame_locals(body: str) -> str:
     """The reference's frame, where its code takes a local's address or uses a local array: every
     `local_N` and `*Stack_N` a slot of one buffer at its offset in the x86 frame (N, below the
-    entry esp). Ghidra splits an aggregate the code builds on the stack into one local per field;
-    as separate C locals they lie wherever the compiler puts them, and a callee handed the first's
-    address read the others from the wrong place: FUN_00415b00's config entry `&local_24`, its
-    string pointer `local_18` at +0xc of it, read as 0 (2026-10-23)."""
-    if not (re.search(r"&\s*" + FRAME_LOCAL + r"\b", body) or
-            re.search(r"(?m)^[ \t]+[A-Za-z_][\w \t*]*?\b" + FRAME_LOCAL + r"[ \t]*\[", body)):
+    entry esp), and every place out_stack found below them (GEN_SLOT(d), d bytes below). Ghidra
+    splits an aggregate the code builds on the stack into one local per field; as separate C
+    locals they lie wherever the compiler puts them, and a callee handed the first's address read
+    the others from the wrong place: FUN_00415b00's config entry `&local_24`, its string pointer
+    `local_18` at +0xc of it, read as 0 (2026-10-23)."""
+    slots = [int(d, 16) for d in re.findall(r"\bGEN_SLOT\(0x([0-9a-f]+)\)", body)]
+    if not slots and not has_frame(body):
         return body
     decls = list(FRAME_DECL.finditer(body))
-    if not decls:
+    if not decls and not slots:
         return body
-    size = max(int(m.group(3), 16) for m in decls)
+    size = max([int(m.group(3), 16) for m in decls] + slots)
     size = (size + 15) & ~15
+    body = re.sub(r"\bGEN_SLOT\(0x([0-9a-f]+)\)", lambda m: f"(gen_frame + 0x{size - int(m.group(1), 16):x})", body)
     repl = {}
     for m in decls:
         t = " ".join(m.group(1).split())
@@ -391,7 +433,8 @@ def frame_locals(body: str) -> str:
         for _ in range(3):
             body = re.sub(r"&\s*\(\s*(" + alt + r")\s*\)", r"&\1", body)
         body = re.sub(r"&\s*(" + alt + r")(?![\w$\[])", lambda m: repl[m.group(1)], body)
-    body = re.sub(r"(?<![\w$])(" + "|".join(map(re.escape, repl)) + r")(?![\w$])", lambda m: repl[m.group(1)], body)
+    if repl:
+        body = re.sub(r"(?<![\w$])(" + "|".join(map(re.escape, repl)) + r")(?![\w$])", lambda m: repl[m.group(1)], body)
     return body.replace("{", "{\n  __declspec(align(16)) undefined1 gen_frame[0x%x];" % size, 1)
 
 
@@ -802,13 +845,30 @@ class Translator32:
             return name
         return "_" + name if "_" + name in self.imports else None
 
+    def noreturn_args_only(self, a: int, c: str) -> set[str]:
+        """The registers the decompiler lost that are read only as the arguments of a call that does
+        not return (Ghidra marks it `WARNING: Subroutine does not return`): what they hold cannot
+        reach anything after it. __security_check_cookie hands ___report_gsfailure the unaff_
+        registers it found; a stub of it returned 0 for every function the cookie guards, the
+        result it passes through in eax (CrystalCore, 2026-10-24). They are 0 in the port."""
+        calls = re.findall(r"/\*\s*WARNING: Subroutine does not return\s*\*/\s*\n\s*([^;{}]*;)", self.corpus[a]["c"])
+        if not calls:
+            return set()
+        out = set()
+        for n in set(m.group(1) for s in calls for m in LOST.finditer(s)):
+            uses = len(re.findall(r"\b" + re.escape(n) + r"\b", c))
+            decls = len(re.findall(r"(?m)^[ \t]+[A-Za-z_][\w ]*?\s+" + re.escape(n) + r"\s*;", c))
+            if uses - decls == sum(len(re.findall(r"\b" + re.escape(n) + r"\b", s)) for s in calls):
+                out.add(n)
+        return out
+
     # ---- one function ---------------------------------------------------------------------------
     def why_not(self, a: int) -> str | None:
         c = v16_forms(cpu_state(strip_comments(self.corpus[a]["c"])))
         if a not in self.sigs:
             return "no signature"
         # (and a full xmm register as an SSE pseudo-op's destination found it: zeroed, sse_ops)
-        ok = returned_only(c) | {"in_FPUControlWord"} | \
+        ok = returned_only(c) | self.noreturn_args_only(a, c) | {"in_FPUControlWord"} | \
             set(re.findall(r"(?m)^[ \t]+undefined1\s+(in_XMM\d+)\s*\[\s*16\s*\]\s*;", c))
         m = next((m for m in LOST.finditer(c) if m.group(1) not in ok and not OUT_STACK.fullmatch(m.group(1))), None)
         if m:
@@ -1092,7 +1152,7 @@ class Translator32:
 
     def paren_pieces(self, body: str) -> str:
         out, i = [], 0
-        for m in re.finditer(r"\)\s*\._(\d+)_(\d+)_", body):
+        for m in re.finditer(r"\)\s*\._(\d+)_(\d+)(f?)_", body):
             if m.start() < i:
                 continue
             start = self.base_start(body, m.start() + 1)
@@ -1100,7 +1160,8 @@ class Translator32:
                 continue
             base = body[start:m.start() + 1]
             n = m.group(2)
-            rep = (f"(*(undefined{n} *)((char *)&{base} + {m.group(1)}))" if n in ("1", "2", "4", "8")
+            t = {"4": "float", "8": "double"}.get(n, f"undefined{n}") if m.group(3) else f"undefined{n}"
+            rep = (f"(*({t} *)((char *)&{base} + {m.group(1)}))" if n in ("1", "2", "4", "8")
                    else f"GEN_PIECE(&{base}, {m.group(1)}, {n})")
             out.append(body[i:start])
             out.append(rep)
@@ -1178,18 +1239,28 @@ class Translator32:
             lanes -= set(re.findall(r"&\(\s*([A-Za-z_]\w*)\s*\)", args))
 
         def piece(m):
-            name, off, size = m.group(1), m.group(2), m.group(3)
+            name, off, size, tag = m.group(1), m.group(2), m.group(3), m.group(4)
             if size not in ("1", "2", "4", "8"):
                 return f"GEN_PIECE(&{name}, {off}, {size})"
-            t = "float" if size == "4" and name in lanes else f"undefined{size}"
+            # (the decompiler's float tag, `_4_4f_` (patch/printc.cc): a piece it types as a float,
+            # and an untagged one its bits. The guess before the tag, every 4-byte piece of a
+            # 16-byte register a float lane, made /O2's packed doubles' halves floats: horner's
+            # coefficients converted, rhtest float 2026-10-24)
+            if tag:
+                t = {"4": "float", "8": "double"}.get(size, f"undefined{size}")
+            else:
+                t = f"undefined{size}"
             return f"(*({t} *)((char *)&{name} + {off}))"
-        body = re.sub(r"\b([A-Za-z_]\w*(?:\[[^\]\[]*\])?)\._(\d+)_(\d+)_", piece, body)
+        body = re.sub(r"\b([A-Za-z_]\w*(?:\[[^\]\[]*\])?)\._(\d+)_(\d+)(f?)_", piece, body)
         # (a float lane in a bit mask, `~-(uint)(fVar15 < fVar11) & auVar2._4_4_`: Ghidra's SSE
         # compare-and-select, its float and its bits in one expression C cannot have)
+        # (the lane itself an operand of the bit operator: not one assigned bits through the
+        # decompiler's bit views, `piece = gen_bits2f(gen_fl2bits(x) ^ mask)`, rhtest float)
         for line in body.split("\n"):
             if "(*(float *)((char *)&" in line:
                 rest = re.sub(r"\(\*\(float \*\)\(\(char \*\)&[\w\[\]]+ \+ \d+\)\)", "LANE", line)
-                if "LANE" in rest and re.search(r"(?<![&|])[&|^~](?![&|=])", re.sub(r"\(\w[\w ]*\*\)&|&\w", "", rest)):
+                rest = re.sub(r"\(\w[\w ]*\*\)&|&\w", "", rest)
+                if re.search(r"LANE\s*\)*\s*(?<![&|])[&|^](?![&|=])|(?<![&|])[&|^~](?![&|=])\s*\(*\s*LANE", rest):
                     raise ValueError("an SSE lane in a bit mask")
         # (and a piece of a parenthesized expression: `(*ptd)._0_4_`)
         body = self.paren_pieces(body)
@@ -1214,6 +1285,8 @@ class Translator32:
         # an undefinedN value in a signed comparison as the signed type of its width (Ghidra32.h's
         # are unsigned: insertion_sort's `-1 < local_8` was never true at /Od, rhtest 2026-10-24)
         body = signed_tests(body, [f"{t} {n}" for t, n in sig.params])
+        # (and one beside a signed operand: the op is signed, `uStack_1c / (longlong)x`)
+        body = signed_siblings(body, [f"{t} {n}" for t, n in sig.params])
         # a label is followed by a statement, even where it ends a block
         body = re.sub(r"(?m)^(\s*[A-Za-z_]\w*\s*:)(\s*)$", r"\1 ;\2", body)
         body = re.sub(r"(?m)^(\s*[A-Za-z_]\w*\s*:)(\s*\})", r"\1 ;\2", body)
@@ -1237,22 +1310,48 @@ class Translator32:
         # a variadic function's va_list): its 4-byte slots in a local array, the fixed parameters
         # first, then what a variadic one's caller passed after them, as many words as VA_WORDS.
         # The CRT's _output_l steps that va_list 4 bytes at a time, as the reference laid it out
-        # (__snwprintf_s and the scanf family, the caller's stack, 2026-10-23)
-        if sig.variadic or re.search(r"&\s*stack0x(?!f[0-9a-f]{7}\b)[0-9a-f]{8}", body):
+        # (__snwprintf_s and the scanf family, the caller's stack, 2026-10-23).
+        # A parameter's address taken (`&param_2`) is an address in that block too: an object
+        # passed by value is several parameters to Ghidra, and the callee given &param_2 reads
+        # param_4 at +8. Every parameter is then its slot, read and written there (CrystalCore's
+        # FUN_00414960 passed its by-value string's first word to FUN_0042cbc0, which copied a
+        # garbage length from the next local, 2026-10-24)
+        param_names = [n for _t, n in sig.params]
+        param_addressed = bool(param_names) and re.search(
+            r"(?<![&\w])&\s*(?:" + "|".join(map(re.escape, param_names)) + r")\b(?!\s*(?:\[|\.|->))", body)
+        if sig.variadic or param_addressed or re.search(r"&\s*stack0x(?!f[0-9a-f]{7}\b)[0-9a-f]{8}", body):
             if sig.variadic and not params:
                 raise ValueError("variadic with no fixed parameter")
-            if any(abi_type(self.type_text(t)) != "unsigned int" for t, _n in sig.params):
-                raise ValueError("an argument block with a parameter of 8 bytes")
-            words = len(sig.params) + (VA_WORDS if sig.variadic else 0)
+            # (each parameter at its slot as the reference pushed it: a double or an 8-byte integer
+            # two words, a float one; a float10 is 12 bytes there, and its 8 here do not fill them)
+            at_slot, fixed = [], 0
+            for t, _n in sig.params:
+                if self.type_text(t).replace("*", "").strip() == "float10" and "*" not in self.type_text(t):
+                    raise ValueError("an argument block with a float10 parameter")
+                at_slot.append(fixed)
+                fixed += 2 if abi_type(self.type_text(t)) in ("double", "unsigned long long") else 1
+            words = fixed + (VA_WORDS if sig.variadic else 0)
             block = [f"  unsigned int gen_args[{max(words, 1)}];"]
-            block += [f"  gen_args[{k}] = gen_a{k};" for k in range(len(sig.params))]
+            for k, (t, _n) in enumerate(sig.params):
+                if abi_type(self.type_text(t)) == "unsigned int":
+                    block.append(f"  gen_args[{at_slot[k]}] = gen_a{k};")
+                else:
+                    block.append(f"  memcpy(&gen_args[{at_slot[k]}], &gen_a{k}, sizeof gen_a{k});")
             if sig.variadic:
                 last = len(sig.params) - 1
                 block += [f"  {{ va_list gen_va; va_start(gen_va, gen_a{last});",
-                          f"    for (int gen_i = {len(sig.params)}; gen_i < {words}; gen_i++) "
+                          f"    for (int gen_i = {fixed}; gen_i < {words}; gen_i++) "
                           f"gen_args[gen_i] = va_arg(gen_va, unsigned int);",
                           "    va_end(gen_va); }"]
-            prologue = block + prologue
+            if param_addressed:
+                # (the slots are the parameters: a pointer one a 32-bit pointer in its slot)
+                for k, (t, n) in enumerate(sig.params):
+                    tt = self.type_text(t)
+                    slot_t = f"{tt} PTR32" if "*" in tt else tt
+                    body = re.sub(rf"\b{re.escape(n)}\b", f"(*({slot_t} *)&gen_args[{at_slot[k]}])", body)
+                prologue = block
+            else:
+                prologue = block + prologue
             var_types["gen_args"] = "unsigned int[]"
 
             def slot(m):
@@ -1374,7 +1473,8 @@ class Translator32:
             raise ValueError("unbalanced braces")
         # (the lost result registers it only returns: 0 where nothing set them, why_not. Last, as
         # the passes above read the declarations as `type name;`)
-        for n in returned_only(c):
+        # (and those only a call that does not return is given, noreturn_args_only)
+        for n in returned_only(c) | self.noreturn_args_only(a, c):
             body = re.sub(r"(?m)^(\s*[A-Za-z_][\w ]*?\s+" + n + r")\s*;", r"\1 = 0;", body, count=1)
         body = frame_locals(body)
         # (a frame slot of a pointer type converted to a float, Ghidra reusing one local for both:
@@ -1988,7 +2088,8 @@ class Translator32:
         h = ["/* generated by translate32.py: every reference function's prototype */",
              "#pragma once", '#include "Ghidra32.h"']
         h += [f"{decls[a]};" for a in sorted(decls)]
-        h += [f"unsigned int gen_imp_{n}();" for n in sorted(self.imports)]
+        h += [f"{MATH[n][0]} gen_imp_{n}({', '.join(MATH[n][1])});" if n in MATH and n not in OVERRIDES
+              else f"unsigned int gen_imp_{n}();" for n in sorted(self.imports)]
         write(GEN / "translated.h", "\n".join(h) + "\n")
         write(GEN / "Ghidra32.h", HEADER.read_text(encoding="utf-8"))
         files = []
@@ -2050,6 +2151,12 @@ class Translator32:
             im.append(f"gen_real_fn gen_real_{n};")
             if n in OVERRIDES:
                 im.append(f"unsigned int gen_imp_{n}();   /* the runtime's */")
+                continue
+            if n in MATH:
+                ret, ps = MATH[n]
+                im.append(f"{ret} gen_imp_{n}(" + ", ".join(f"{p} a{k}" for k, p in enumerate(ps)) + ") { "
+                          f"return (({ret} (*)({', '.join(ps)}))gen_real_{n})("
+                          + ", ".join(f"a{k}" for k in range(len(ps))) + "); }")
                 continue
             im.append(f"unsigned int gen_imp_{n}(int a0, int a1, int a2, int a3, ...) {{ GEN_REST(a3); "
                       f"return (unsigned int)gen_real_{n}(a0, a1, a2, a3, "
