@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import struct
 import sys
 
@@ -148,7 +149,8 @@ class Runner:
 
 def shape_of(e: dict) -> set[str]:
     """The helper shapes a function's protos32.py facts allow."""
-    regs = set(e.get("regs", []))
+    # (`xmm0d`: protos32.py's name for xmm0 read as a double, __dtol3's)
+    regs = {re.sub(r"^(xmm\d)d$", r"\1", r) for r in e.get("regs", [])}
     out = set()
     if e.get("stack") == 16 and e.get("cc") in ("__stdcall", "custom"):
         out.add("stack16")

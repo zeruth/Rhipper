@@ -119,6 +119,14 @@ static __inline void gen_psllw(void *r, const void *a, const void *n) { gen_sti(
 /* (SSE4.1: MSVC's /O2 vectorizes an integer multiply loop with it, behind __isa_available) */
 #include <smmintrin.h>
 static __inline void gen_pmulld(void *r, const void *a, const void *b) { gen_sti(r, _mm_mullo_epi32(gen_ldi(a), gen_ldi(b))); }
+/* (AVX2's per-lane shift, the 128-bit form, behind __isa_available as /O2 vectorizes `w << (k & 7)`:
+   in C, each lane by its own count, 0 past 31, so the port needs no AVX2 of its own) */
+static __inline void gen_vpsllvd_avx2(void *r, const void *a, const void *n) {
+    unsigned int x[4], c[4];
+    memcpy(x, a, 16); memcpy(c, n, 16);
+    for (int k = 0; k < 4; k++) x[k] = c[k] > 31 ? 0 : x[k] << c[k];
+    memcpy(r, x, 16);
+}
 static __inline void gen_v16_or(void *r, const void *a, const void *b) { gen_sti(r, _mm_or_si128(gen_ldi(a), gen_ldi(b))); }
 static __inline void gen_v16_and(void *r, const void *a, const void *b) { gen_sti(r, _mm_and_si128(gen_ldi(a), gen_ldi(b))); }
 static __inline void gen_v16_xor(void *r, const void *a, const void *b) { gen_sti(r, _mm_xor_si128(gen_ldi(a), gen_ldi(b))); }
@@ -250,6 +258,10 @@ static __inline unsigned long long gen_d2bits(double x) { unsigned long long r; 
 static __inline unsigned long long gen_fl2bits(float x) { unsigned int r; memcpy(&r, &x, 4); return r; }
 static __inline unsigned long long gen_u2bits64(unsigned long long x) { return x; }
 #define GEN_BITS(x) _Generic((x), double: gen_d2bits, float: gen_fl2bits, default: gen_u2bits64)(x)
+/* an 8-byte value as the reference's two argument words, low first (a variadic call's double:
+   translate32.py's calls to a variadic translation) */
+#define GEN_LO32(x) ((unsigned int)(unsigned long long)GEN_BITS(x))
+#define GEN_HI32(x) ((unsigned int)((unsigned long long)GEN_BITS(x) >> 32))
 static __inline double gen_bits2d(unsigned long long u) { double d; memcpy(&d, &u, 8); return d; }
 static __inline float gen_bits2f(unsigned int u) { float f; memcpy(&f, &u, 4); return f; }
 
@@ -359,7 +371,9 @@ static __inline unsigned long long gen_piece_set(void *p, int off, int n, unsign
 }
 #include <intrin.h>
 #define rdtsc() __rdtsc()
-#define POPCOUNT(x) ((int)__popcnt64((uint64_t)(x)))
+/* (of the value at its own size: `POPCOUNT((short)x)` counts 16 bits, not the sign extension's 64,
+   rhtest misc-O2's __popcnt16 2026-10-24) */
+#define POPCOUNT(x) ((int)__popcnt64((uint64_t)(x) & (sizeof(x) >= 8 ? ~0ull : (1ull << (8 * sizeof(x))) - 1)))
 #define GEN_ISNAN(x) ((x) != (x))
 #define ABS(x) ((x) < 0 ? -(x) : (x))
 #include <math.h>
@@ -430,6 +444,24 @@ static __inline unsigned int *gen_cpuid(int leaf) {
    runtime's) */
 unsigned int gen_teb32(void);
 #define ExceptionList (*(unsigned int *)(uintptr_t)gen_teb32())
+
+/* setjmp and longjmp (the reference's _setjmp3, longjmp): the port's own, on a native jmp_buf that
+   stands for the reference's (by its address, per thread). The reference's buffer holds its x86
+   registers and is no use to the port; a setjmp has to be the translated function's own call, its
+   frame the one a longjmp comes back to (translate32.py: GEN_SETJMP(buf) for gen_imp__setjmp3) */
+#include <setjmp.h>
+jmp_buf *gen_jmpbuf(unsigned int ref);
+#define GEN_SETJMP(b) setjmp(*gen_jmpbuf((unsigned int)(uintptr_t)(b)))
+#define GEN_LONGJMP(b, v) longjmp(*gen_jmpbuf((unsigned int)(uintptr_t)(b)), (int)(v))
+
+/* The reference's exceptions (Adapters.cpp: _CxxThrowException, RaiseException): the runtime walks
+   the fs:[0] chain the translated code links, as x86 Windows and vcruntime would, over the
+   reference's own tables (FuncInfo, the EH4 scope table), and calls its funclets, translated, on
+   their frame's ebp. A function that links a frame sets its landing after the link
+   (translate32.py eh_landing): a catch done, the dispatcher comes back there, and the function
+   returns what the reference's continuation (a function on the same ebp) returns */
+jmp_buf *gen_eh_landing(unsigned int node);
+unsigned long long gen_eh_resume(void);
 
 /* the reference's TLS (__declspec(thread) data, fs:[0x2c] on x86): this thread's array of block
    addresses, indexed by the image's TLS index, each block a copy of the image's TLS template

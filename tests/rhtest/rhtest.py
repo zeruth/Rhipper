@@ -11,9 +11,11 @@ must print the same lines and exit the same. No build may warn: the reference co
     python rhtest.py core int64            some programs
     python rhtest.py float --variant IA32  one variant
     python rhtest.py --from translate      resume from a step: ref, import, facts, ghidra,
-                                           translate, port, run
+                                           translate, port, run (--from import reimports)
     python rhtest.py --only run
-    python rhtest.py --jobs 4              more workers (serial by default)
+    python rhtest.py --jobs 4              more workers per tool (serial by default)
+    python rhtest.py --parallel 3          projects at once (1 by default; a full run, the end of
+                                           a phase's regression, runs FULL_PARALLEL at once)
 
 Per project: ref/ (the reference, its map file, expected.txt), build/ (facts, corpus, the port's
 build, actual.txt, port-stderr.txt, logs), gen/ (the translation).
@@ -68,6 +70,9 @@ STEPS = ["ref", "import", "facts", "ghidra", "translate", "port", "run", "fideli
 # workers for the tools that take them (protos32.py, translate32.py, the port's MSBuild): serial
 # unless --jobs says otherwise, so a test run leaves the machine usable (Ghidra: one shard)
 JOBS = 1
+# projects at once in a full run (every program, every variant, every step: the regression at the
+# end of a phase). Each holds a Ghidra of 2 GB at most, and 4 fit beside other work on 24 GB
+FULL_PARALLEL = 4
 WARNING = re.compile(r"\bwarning [A-Z]+\d+|CMake Warning", re.I)
 
 _envs: dict[str, dict] = {}
@@ -169,7 +174,7 @@ class Project:
         digest = hashlib.sha256(self.exe.read_bytes()).hexdigest()
         stamp = self.build / "imported.sha256"
         gpr = Path(GHIDRA_PROJECTS) / f"rhtest-{self.name}.gpr"
-        if gpr.exists() and stamp.exists() and stamp.read_text().strip() == digest:
+        if gpr.exists() and stamp.exists() and stamp.read_text().strip() == digest and not getattr(self, "fresh", False):
             print("    (the reference is unchanged since its import)")
             return True
         if not self.ghidra_sh("import", *(["--overwrite"] if gpr.exists() else []), log="import.log"):
@@ -332,33 +337,86 @@ def main() -> None:
     ap.add_argument("--from", dest="start", choices=STEPS, default="ref")
     ap.add_argument("--only", choices=STEPS)
     ap.add_argument("--jobs", type=int, default=1, help="workers for protos32, translate32 and MSBuild (default 1)")
+    ap.add_argument("--parallel", type=int, default=None,
+                    help=f"projects at once (default 1; {FULL_PARALLEL} for a full run, the end of a phase's regression)")
     args = ap.parse_args()
     global JOBS
     JOBS = args.jobs
     steps = [args.only] if args.only else STEPS[STEPS.index(args.start):]
     programs = args.programs or [p for p in PROGRAMS if (SRC / PROGRAMS[p][0][0]).exists()]
+    full = not args.programs and not args.variant and steps == STEPS
+    parallel = args.parallel or (FULL_PARALLEL if full else 1)
+    projects = [(program, variant) for program in programs for variant in PROGRAMS[program][1]
+                if not args.variant or variant in args.variant]
+
+    def one(program: str, variant: str) -> tuple[Project, str]:
+        p = Project(program, variant)
+        # (the import asked for by name is a fresh one: facts applied over a project that
+        # kept an earlier run's types hid what a new one lacks, the float returns ApplyFacts
+        # left to the decompiler, until a full run reimported, 2026-10-24)
+        p.fresh = steps[0] == "import"
+        ok, ran, stopped = True, set(), None
+        for step in steps:
+            print(f"[{p.name}] {step}")
+            ran.add(step)
+            if not getattr(p, f"step_{step}")():
+                print(f"[{p.name}] stopped at {step}")
+                ok, stopped = False, step
+                break
+        # (the fidelity report on every run that touched the project, whatever stopped it:
+        # a failing run is when it is read. Not over a translation older than its corpus)
+        if "fidelity" not in ran and p.fidelity_current(stopped):
+            print(f"[{p.name}] fidelity")
+            p.step_fidelity()
+        return p, "PASS" if ok else "FAIL"
+
     results: dict[str, Project] = {}
     status: dict[str, str] = {}
-    for program in programs:
-        for variant in PROGRAMS[program][1]:
-            if args.variant and variant not in args.variant:
-                continue
-            p = Project(program, variant)
-            ok, ran, stopped = True, set(), None
-            for step in steps:
-                print(f"[{p.name}] {step}")
-                ran.add(step)
-                if not getattr(p, f"step_{step}")():
-                    print(f"[{p.name}] stopped at {step}")
-                    ok, stopped = False, step
-                    break
-            # (the fidelity report on every run that touched the project, whatever stopped it:
-            # a failing run is when it is read. Not over a translation older than its corpus)
-            if "fidelity" not in ran and p.fidelity_current(stopped):
-                print(f"[{p.name}] fidelity")
-                p.step_fidelity()
-            results[p.name] = p
-            status[p.name] = "PASS" if ok else f"FAIL"
+    if parallel <= 1:
+        for program, variant in projects:
+            p, s = one(program, variant)
+            results[p.name], status[p.name] = p, s
+    else:
+        # (projects at once, each in a thread of its own: their work is the tools they start.
+        # A project's lines are kept and printed together when it ends, not interleaved)
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+        msvc_env("32"), msvc_env("64")          # (captured once, before the threads)
+        lock = threading.Lock()
+        real = sys.stdout
+
+        class PerThread:
+            def write(self, s):
+                buf = getattr(local, "buf", None)
+                if buf is None:
+                    with lock:
+                        real.write(s)
+                else:
+                    buf.append(s)
+
+            def flush(self):
+                real.flush()
+
+        local = threading.local()
+        sys.stdout = PerThread()
+
+        def task(pv):
+            local.buf = []
+            try:
+                return one(*pv)
+            finally:
+                text, local.buf = "".join(local.buf), None
+                with lock:
+                    real.write(text)
+                    real.flush()
+
+        print(f"{len(projects)} projects, {parallel} at once")
+        try:
+            with ThreadPoolExecutor(parallel) as pool:
+                for p, s in pool.map(task, projects):
+                    results[p.name], status[p.name] = p, s
+        finally:
+            sys.stdout = real
     print()
     reasons = Counter()
     for name, p in results.items():

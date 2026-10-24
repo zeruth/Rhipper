@@ -58,6 +58,10 @@ JCC = re.compile(r"^j(?!mp)\w+$")
 STACK_REGS = {"esp", "ebp", "rsp", "rbp"}
 # Ghidra32.h's traps, the reference's `int 3` / `int 0x29`
 TRAPS = {"gen_swi_break": "trap:3", "gen_swi_fastfail": "trap:29", "gen_ud2": "trap:ud2"}
+# the port's own setjmp and longjmp (Ghidra32.h GEN_SETJMP, GEN_LONGJMP), the reference's imports
+# (by name less its leading underscores, as Image.iat has them)
+PORT_JUMPS = {"setjmp": "imp:setjmp3", "setjmpex": "imp:setjmp3", "intrinsic_setjmp": "imp:setjmp3",
+              "intrinsic_setjmpex": "imp:setjmp3", "longjmp": "imp:longjmp"}
 FLOAT_MNEMONIC = re.compile(r"(ss|sd|ps|pd)$|^f(?!(?:nstcw|ldcw|nstsw|stsw|xch|wait|nclex))")
 
 
@@ -100,10 +104,25 @@ class Image:
             s = bytes(self.image[o:end]).decode("ascii")
         except UnicodeDecodeError:
             return None
-        return s if len(s) >= 3 and s.isprintable() else None
+        # (a line's end and a tab are text too: `"printf: %d %s %.2f\n"`, a format, rhtest crt)
+        return s if len(s) >= 3 and s.replace("\n", "").replace("\r", "").replace("\t", "").isprintable() else None
 
     def read(self, va: int, n: int) -> bytes:
         return bytes(self.image[va - self.base:va - self.base + n])
+
+
+# SIMD instructions whose immediate selects lanes, a rounding mode or a predicate
+SIMD_CONTROL = re.compile(r"v?(?:p?shuf|pshuf[lh]?w|palignr|p?blend|insertps|extractps|pinsr|pextr|round|cmp\w*p[sd]$|"
+                          r"cmp\w*s[sd]$|dpp|mpsadbw|pclmul|vperm|perm)")
+
+
+def canon_reg(name: str) -> str:
+    """A general register by its full name, whatever width an instruction names it at."""
+    m = re.fullmatch(r"(r\d+)[dwb]?", name)
+    if m:
+        return m.group(1)
+    return {"eax": "rax", "ebx": "rbx", "ecx": "rcx", "edx": "rdx", "esi": "rsi", "edi": "rdi",
+            "ebp": "rbp", "esp": "rsp"}.get(name, name)
 
 
 def norm_mnemonic(mn: str) -> str:
@@ -134,6 +153,7 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
     skipping = False
     last_cl = None
     select: dict = {}                       # register -> the mask of an `sbb r, r; and r, -k` select
+    held: dict = {}                         # register -> the address a `mov r, imm` put in it
 
     def inside(t):
         return any(lo <= t < hi for lo, hi in ranges)
@@ -192,7 +212,10 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
             # (a trap is no constant: `int 0x29` is __fastfail, which the port raises in its
             # gen_swi_* helpers; compared as a call)
             if mn == "int3" or (mn == "int" and ops):
-                f.calls.append((insn.address, f"trap:{ops[0].imm & 0xff:x}" if ops else "trap:3"))
+                # (not the port's `int3` after a call that does not return, x64 MSVC's padding
+                # there: dive's longjmp, rhtest misc 2026-10-24)
+                if not (port and mn == "int3" and at and insns[at - 1].mnemonic == "call"):
+                    f.calls.append((insn.address, f"trap:{ops[0].imm & 0xff:x}" if ops else "trap:3"))
                 continue
             if mn == "ret":
                 continue                               # (`ret 0x10`: the callee's cleanup, no constant)
@@ -212,6 +235,20 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
                 continue
             elif select and ops and ops[0].type == x86.X86_OP_REG and ops[0].reg in select and mn not in ("and", "sbb"):
                 select.pop(ops[0].reg)
+            # (an address the compiler makes from another it holds, `mov r9d, 0x4050ac; lea r8d,
+            # [r9 + 4]`: two strings side by side, fmt_va's name and format, rhtest crt-Od)
+            base_r = canon_reg(insn.reg_name(ops[1].mem.base)) if len(ops) == 2 and ops[1].type == x86.X86_OP_MEM \
+                and ops[1].mem.base else None
+            if mn == "lea" and base_r in held and not ops[1].mem.index and ops[1].mem.disp:
+                k = global_or_const((held[base_r] + ops[1].mem.disp) & 0xFFFFFFFF, mn, 0)
+                if k is not None and k != "code":
+                    f.consts[k] += 1
+            if ops and ops[0].type == x86.X86_OP_REG:
+                r0 = canon_reg(insn.reg_name(ops[0].reg))
+                if mn == "mov" and len(ops) == 2 and ops[1].type == x86.X86_OP_IMM and ops[1].imm > 0x10000:
+                    held[r0] = ops[1].imm & 0xFFFFFFFF
+                else:
+                    held.pop(r0, None)
             for op in ops:
                 if op.type == x86.X86_OP_MEM and select.get(op.mem.base) and not op.mem.index:
                     k = global_or_const((op.mem.disp + select[op.mem.base]) & 0xFFFFFFFF, mn, op.size)
@@ -272,8 +309,12 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
                     if k is not None:
                         if k != "code":
                             f.consts[k] += 1
-                    elif 0x10 <= v <= 0xFFFFFFF0 and not (mn in ("add", "sub") and ops[0].type == x86.X86_OP_REG
-                                                          and insn.reg_name(ops[0].reg) in STACK_REGS):
+                    # (not the stack's own arithmetic, `sub esp, k` or a realignment `and esp, -0x40`,
+                    # nor a SIMD op's lane control, `shufps xmm1, xmm0, 0xdd`: the machine's, no
+                    # constant of the source)
+                    elif 0x10 <= v <= 0xFFFFFFF0 and not (mn in ("add", "sub", "and") and ops[0].type == x86.X86_OP_REG
+                                                          and insn.reg_name(ops[0].reg) in STACK_REGS) \
+                            and not SIMD_CONTROL.match(mn):
                         f.consts[f"i:{v:x}"] += 1
                         if mn == "mov" and ops[0].type == x86.X86_OP_REG and insn.reg_name(ops[0].reg) in ("cl", "ecx"):
                             last_cl = f"i:{v:x}"
@@ -466,9 +507,20 @@ def main() -> None:
         out = []
         for _site, t in fn.calls:
             if isinstance(t, tuple):
-                if t[1] not in entries:
+                # (a jump to an import's thunk is a call of the import, a function Ghidra made of
+                # the thunk or not: the C++ EH handler thunks' `jmp __CxxFrameHandler3`)
+                code = ref.read(t[1], 6)
+                if t[1] not in entries and not (code[:2] == b"\xff\x25"
+                                                and int.from_bytes(code[2:6], "little") in ref.iat):
+                    continue
+                # (nor one into a piece of another function's, code the two share: an EH funclet's
+                # `jmp` to its parent's epilogue, which the decompiler follows, eh-Od)
+                root = refbin.func_containing(t[1])
+                if root is not None and root != t[1] and code[:2] != b"\xff\x25":
                     continue
                 t = t[1]
+                if t not in ref_thunk and code[:2] == b"\xff\x25":
+                    t = "imp:" + ref.iat[int.from_bytes(code[2:6], "little")]
             if isinstance(t, int):
                 # (through local `jmp rel32` thunks: translate32.py calls their targets)
                 for _ in range(4):
@@ -510,8 +562,17 @@ def main() -> None:
                 out.append(int(m.group(1), 16))
             elif name.startswith("gen_imp_"):
                 out.append("imp:" + name[len("gen_imp_"):].lstrip("_"))
+            elif name.lstrip("_") in PORT_JUMPS:
+                out.append(PORT_JUMPS[name.lstrip("_")])
             elif name in TRAPS:
                 out.append(TRAPS[name])
+            elif not name:
+                # (an import's thunk, `jmp [rip + x]`, the CRT DLL's: by its slot's name)
+                code = port.read(t, 6)
+                if code[:2] == b"\xff\x25":
+                    imp = port.iat.get(t + 6 + int.from_bytes(code[2:6], "little", signed=True), "")
+                    if imp in PORT_JUMPS:
+                        out.append(PORT_JUMPS[imp])
             # (anything else is the runtime's own: tracing, the TEB, locks, the stub logger)
         return out
 
@@ -573,7 +634,7 @@ def main() -> None:
         for one, other in ((rf, pf), (pf, rf)):
             for v, k in one.float_at.items():
                 g = f"g:{v:x}"
-                if g in other.consts and k not in other.consts:
+                if g in other.consts:
                     other.consts[k] += other.consts.pop(g)
         # (a 16-byte constant one side reads whole, `movaps xmm0, [0x404290]` for two doubles of
         # an array it fills, and the other a lane at a time: the same constant, by a lane's value)
@@ -581,6 +642,8 @@ def main() -> None:
             g = f"g:{v:x}"
             data = ref.read(v, 16)
             lanes = {F.float_text(data[i:i + 8]) for i in (0, 8)} | {F.float_text(data[i:i + 4]) for i in (0, 4, 8, 12)}
+            # (or integer lanes, `movaps xmm2, [0x4033f0]` of four multipliers the port uses one by one)
+            lanes |= {f"i:{int.from_bytes(data[i:i + 4], 'little'):x}" for i in (0, 4, 8, 12)}
             hit = next((k for k in sorted(lanes) if k in pf.consts), None)
             if g in rf.consts and g not in pf.consts and hit:
                 rf.consts[hit] += rf.consts.pop(g)

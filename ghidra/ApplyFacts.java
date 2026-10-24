@@ -121,12 +121,15 @@ public class ApplyFacts extends GhidraScript {
         File pr = new File(dir, "protos.json");
         if (pr.exists() && "x86".equals(jsonString(read(pr), "arch"))) {
             // 32-bit (protos32.py): a convention per function, or register storage of its own
-            applyProtos32(read(pr));
+            JsonObject protos = read(pr);
+            applyProtos32(protos);
+            applyEhHandlerImports();
+            if (protos.has("stack_blocks")) applyStackBlocks(protos.getAsJsonObject("stack_blocks"), true);
         } else if (pr.exists()) {
             JsonObject protos = read(pr);
             applyProtos(protos);
             applyIntParamHomes(protos.getAsJsonObject("functions"));
-            if (protos.has("stack_blocks")) applyStackBlocks(protos.getAsJsonObject("stack_blocks"));
+            if (protos.has("stack_blocks")) applyStackBlocks(protos.getAsJsonObject("stack_blocks"), false);
         }
         File cs = new File(dir, "callsites.json");
         if (cs.exists()) applyCallsites(read(cs));
@@ -186,7 +189,16 @@ public class ApplyFacts extends GhidraScript {
             // has no place for, and its body read `unaff_EDI`. A register convention found in the
             // code wins over it; a hand-set one never loses)
             boolean libraryButCustom = src == SourceType.IMPORTED && cc.equals("custom");
-            if (f.isThunk() || src == SourceType.USER_DEFINED || (src == SourceType.IMPORTED && !libraryButCustom)) {
+            // (and one whose code reads more of the stack than the library's signature has: this
+            // build's ___crtGetStringTypeA takes eight, the matched signature seven, and the eighth
+            // read was `in_stack_00000020`, a stub, 2026-10-24)
+            int libStack = 0;
+            for (ghidra.program.model.listing.Parameter p : f.getParameters())
+                if (p.isStackVariable()) libStack += (p.getLength() + 3) & ~3;
+            boolean libraryShort = src == SourceType.IMPORTED && !f.hasVarArgs()
+                    && o.get("stack").getAsInt() > libStack;
+            if (f.isThunk() || src == SourceType.USER_DEFINED
+                    || (src == SourceType.IMPORTED && !libraryButCustom && !libraryShort)) {
                 keptSig++;
                 continue;
             }
@@ -198,10 +210,14 @@ public class ApplyFacts extends GhidraScript {
                         String reg = r.getAsString();
                         // (an xmm register: a float, in its low lane, as /LTCG passes one)
                         boolean xmm = reg.startsWith("xmm"), st = reg.equals("st0");
-                        String rn = xmm ? reg.toUpperCase() + "_Da" : reg.toUpperCase();
+                        // (`xmm2d`: a double in its low 8 bytes, protos32.py's for an `sd` read)
+                        boolean dbl = xmm && reg.endsWith("d");
+                        if (dbl) reg = reg.substring(0, reg.length() - 1);
+                        String rn = xmm ? reg.toUpperCase() + (dbl ? "_Qa" : "_Da") : reg.toUpperCase();
                         // (a part of a register, `cl`, at its own size: protos32.py names an input
                         // by the width its reads take, the CRT's 64-bit shifts' count in cl)
-                        DataType pt = xmm ? ghidra.program.model.data.FloatDataType.dataType
+                        DataType pt = dbl ? ghidra.program.model.data.DoubleDataType.dataType
+                                : xmm ? ghidra.program.model.data.FloatDataType.dataType
                                 : st ? ghidra.program.model.data.Float10DataType.dataType
                                 : Undefined.getUndefinedDataType(currentProgram.getRegister(rn).getMinimumByteSize());
                         params.add(new ParameterImpl("in_" + reg, pt, new ghidra.program.model.listing.VariableStorage(
@@ -408,6 +424,31 @@ public class ApplyFacts extends GhidraScript {
     // or IAT slot -> words). An import Ghidra has no prototype for is given that many; one with a
     // signature of its own (a type library's, IMPORTED, or a hand-set one) keeps it. The /MD
     // CRT's `_crt_atexit()` lost its function so, and ucrt called garbage at exit (2026-10-24)
+    // vcruntime's x86 C++ frame handlers take the frame's FuncInfo in eax, then the four arguments
+    // every exception handler is called with. Typed so, a handler thunk's `mov eax, FuncInfo; jmp
+    // __CxxFrameHandler3` passes its FuncInfo; without, the decompiler dropped it (rhtest eh)
+    private void applyEhHandlerImports() throws Exception {
+        int set = 0;
+        DataType u4 = Undefined.getUndefinedDataType(4);
+        for (Function f : currentProgram.getFunctionManager().getExternalFunctions()) {
+            String n = f.getName().replaceFirst("^_+", "");
+            if (!n.matches("CxxFrameHandler[23]?") || f.getSignatureSource() == SourceType.USER_DEFINED) continue;
+            if (f.hasCustomVariableStorage() && f.getParameterCount() == 5) continue;
+            List<Variable> params = new ArrayList<>();
+            params.add(new ParameterImpl("funcinfo", u4, new ghidra.program.model.listing.VariableStorage(
+                    currentProgram, currentProgram.getRegister("EAX")), currentProgram));
+            for (int i = 0; i < 4; i++)
+                params.add(new ParameterImpl("param_" + (i + 1), u4,
+                        new ghidra.program.model.listing.VariableStorage(currentProgram, 4 + 4 * i, 4), currentProgram));
+            Variable ret = new ghidra.program.model.listing.ReturnParameterImpl(u4,
+                    new ghidra.program.model.listing.VariableStorage(currentProgram, currentProgram.getRegister("EAX")),
+                    currentProgram);
+            f.updateFunction("__cdecl", ret, params, FunctionUpdateType.CUSTOM_STORAGE, true, SourceType.ANALYSIS);
+            set++;
+        }
+        println("ApplyFacts: C++ frame handler imports given their FuncInfo in eax " + set);
+    }
+
     private void applyImportArgs32(JsonObject imports) throws Exception {
         int set = 0, kept = 0, missing = 0;
         DataType u4 = Undefined.getUndefinedDataType(4);
@@ -428,12 +469,20 @@ public class ApplyFacts extends GhidraScript {
             int n = e.getValue().getAsInt();
             SourceType src = f.getSignatureSource();
             if (src == SourceType.USER_DEFINED || src == SourceType.IMPORTED || f.getParameterCount() >= n) {
+                // (one an earlier run gave its arguments: its eax result too, below)
+                if (src == SourceType.ANALYSIS && f.getReturnType() instanceof ghidra.program.model.data.VoidDataType)
+                    f.setReturnType(u4, SourceType.ANALYSIS);
                 kept++;
                 continue;
             }
             List<Variable> params = new ArrayList<>();
             for (int i = 0; i < n; i++) params.add(new ParameterImpl("param_" + (i + 1), u4, currentProgram));
-            f.updateFunction("__cdecl", null, params, FunctionUpdateType.DYNAMIC_STORAGE_ALL_PARAMS, true,
+            // (and eax as its result, where it has none: void, the CRT's printf wrapper returned 0
+            // for __stdio_common_vfprintf's count, rhtest crt-O2 2026-10-24)
+            DataType rt = f.getReturnType();
+            Variable ret = rt == null || rt instanceof ghidra.program.model.data.VoidDataType
+                    ? new ghidra.program.model.listing.ReturnParameterImpl(u4, currentProgram) : null;
+            f.updateFunction("__cdecl", ret, params, FunctionUpdateType.DYNAMIC_STORAGE_ALL_PARAMS, true,
                     SourceType.ANALYSIS);
             set++;
         }
@@ -619,6 +668,22 @@ public class ApplyFacts extends GhidraScript {
     private int returnsSet = 0;
     private void setReturn32(Function f, String kind) throws Exception {
         DataType have = f.getReturnType();
+        // (a float or double in xmm0, /LTCG's own convention between functions it sees whole: its
+        // storage named, as no x86 model returns there. Left to the model, the caller read the
+        // value from before the call, rhtest calls-GL fc_dbl, 2026-10-24)
+        if (kind.equals("s4") || kind.equals("q8")) {
+            boolean q = kind.equals("q8");
+            DataType want = q ? ghidra.program.model.data.DoubleDataType.dataType
+                    : ghidra.program.model.data.FloatDataType.dataType;
+            if (want.isEquivalent(have) && f.hasCustomVariableStorage()
+                    && f.getReturn().getVariableStorage().getRegister() != null
+                    && f.getReturn().getVariableStorage().getRegister().getName().startsWith("XMM0")) return;
+            if (!f.hasCustomVariableStorage()) f.setCustomVariableStorage(true);
+            f.setReturn(want, new ghidra.program.model.listing.VariableStorage(currentProgram,
+                    currentProgram.getRegister(q ? "XMM0_Qa" : "XMM0_Da")), SourceType.ANALYSIS);
+            returnsSet++;
+            return;
+        }
         boolean haveFloat = have instanceof ghidra.program.model.data.AbstractFloatDataType;
         boolean usable = have != null && !Undefined.isUndefined(have)
                 && !(have instanceof ghidra.program.model.data.VoidDataType);
@@ -732,8 +797,11 @@ public class ApplyFacts extends GhidraScript {
     // time. Where the decompiler split one into two or more narrower locals, they become one byte
     // array of the block's size: split, a 32-byte copy out of a 4-byte `local_4e8` was dropped as
     // dead, and Ed25519's verify (FUN_1420bf4f0) compared R with a buffer never written (2026-10-20).
-    private void applyStackBlocks(JsonObject blocks) throws Exception {
-        int made = 0, functions = 0;
+    // (grow: x86's object blocks (protos32.py local_block) take in a variable that straddles them,
+    // the analysis's own guess at the object's pieces, rather than give up on it)
+    private void applyStackBlocks(JsonObject blocks, boolean grow) throws Exception {
+        int made = 0, functions = 0, skipped = 0, failed = 0;
+        String firstError = null;
         for (Map.Entry<String, JsonElement> e : blocks.entrySet()) {
             Function f = getFunctionAt(addr(e.getKey()));
             if (f == null) continue;
@@ -742,6 +810,15 @@ public class ApplyFacts extends GhidraScript {
             for (JsonElement b : e.getValue().getAsJsonArray()) {
                 int off = b.getAsJsonArray().get(0).getAsInt();
                 int size = b.getAsJsonArray().get(1).getAsInt();
+                for (boolean grew = grow; grew; ) {
+                    grew = false;
+                    for (Variable v : sf.getStackVariables()) {
+                        int vo = v.getStackOffset(), ve = vo + Math.max(1, v.getLength());
+                        if (ve <= off || vo >= off + size || vo >= 0) continue;
+                        if (vo < off) { size += off - vo; off = vo; grew = true; }
+                        if (ve > off + size) { size = ve - off; grew = true; }
+                    }
+                }
                 List<Variable> inside = new ArrayList<>();
                 boolean straddles = false;
                 for (Variable v : sf.getStackVariables()) {
@@ -754,20 +831,32 @@ public class ApplyFacts extends GhidraScript {
                 // whole; the decompiler's own split locals are not in the listing, so an empty
                 // slot is the usual case)
                 if (straddles || (inside.size() == 1 && inside.get(0).getStackOffset() == off
-                        && inside.get(0).getLength() >= size)) continue;
+                        && inside.get(0).getLength() >= size)) {
+                    if (skipped++ == 0 && firstError == null) {
+                        StringBuilder sb = new StringBuilder(f.getEntryPoint() + " [" + off + "," + size + "] has");
+                        for (Variable v : inside) sb.append(" " + v.getName() + "@" + v.getStackOffset() + ":" + v.getLength());
+                        firstError = sb.toString();
+                    }
+                    continue;
+                }
                 for (Variable v : inside) sf.clearVariable(v.getStackOffset());
                 try {
+                    // (an object's block as bytes: undefined ones are no locked type, and the
+                    // decompiler laid the frame out again without it, the stores as dead as before)
                     sf.createVariable(String.format("blk_%x", -off), off,
-                            new ArrayDataType(Undefined.getUndefinedDataType(1), size, 1), SourceType.USER_DEFINED);
+                            new ArrayDataType(grow ? ghidra.program.model.data.ByteDataType.dataType
+                                    : Undefined.getUndefinedDataType(1), size, 1), SourceType.USER_DEFINED);
                     made++;
                     touched = true;
                 } catch (Exception ex) {
                     // (a parameter's slot, or another conflict: leave it)
+                    if (failed++ == 0) firstError = f.getEntryPoint() + " " + off + ": " + ex;
                 }
             }
             if (touched) functions++;
         }
-        println("ApplyFacts: split stack blocks made arrays " + made + " in " + functions + " functions");
+        println("ApplyFacts: split stack blocks made arrays " + made + " in " + functions + " functions"
+                + " (skipped " + skipped + ", failed " + failed + (firstError != null ? ", first: " + firstError : "") + ")");
     }
 
     private void applyLua(JsonObject root) throws Exception {
@@ -2046,6 +2135,31 @@ public class ApplyFacts extends GhidraScript {
             }
         }
         println("ApplyFacts: functions sharing a name made unique by address " + renamed);
+        uniqueDataNames();
+    }
+
+    // And data: a class with two bases has two vftables, both `Item::vftable` to the RTTI
+    // analyzer, and the C names only one. Item's constructor stored the Named one for both and
+    // a call through the Valued base ran Named's slots (rhtest cpp-O2, 2026-10-24)
+    private void uniqueDataNames() throws Exception {
+        Map<String, List<ghidra.program.model.symbol.Symbol>> byName = new HashMap<>();
+        for (ghidra.program.model.symbol.Symbol s : symbols.getAllSymbols(false)) {
+            if (s.getSymbolType() != ghidra.program.model.symbol.SymbolType.LABEL || s.isExternal()
+                    || s.getSource() == SourceType.DEFAULT || !s.isPrimary()
+                    || getFunctionAt(s.getAddress()) != null) continue;
+            byName.computeIfAbsent(s.getName(true), k -> new ArrayList<>()).add(s);
+        }
+        int renamed = 0;
+        for (List<ghidra.program.model.symbol.Symbol> ss : byName.values()) {
+            if (ss.size() < 2) continue;
+            for (ghidra.program.model.symbol.Symbol s : ss) {
+                String suffix = "_" + s.getAddress().toString();
+                if (s.getName().endsWith(suffix)) continue;
+                s.setName(s.getName() + suffix, SourceType.ANALYSIS);
+                renamed++;
+            }
+        }
+        println("ApplyFacts: data labels sharing a name made unique by address " + renamed);
     }
 
     // globalptrs.json: .data globals the code dereferences after loading them whole. Typed

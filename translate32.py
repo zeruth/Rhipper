@@ -118,6 +118,7 @@ HEADER_NAMES = {"REFG", "REFP", "GP", "PTR32", "MXCSR", "ExceptionList", "GenUni
                 "__debugbreak", "_rotl", "_rotr", "_rotl64", "_rotr64", "fabs", "sqrt",
                 "floor", "ceil", "trunc", "nearbyint", "memcpy", "memset", "rdtsc", "GEN_PIECE", "GEN_ISNAN",
                 "gen_piece_set", "gen_fl2bits", "gen_d2bits", "gen_bits2f", "gen_bits2d", "GEN_TOF", "GEN_TOD", "GEN_SLOT",
+                "gen_ac", "GEN_LO32", "GEN_HI32",
                 "GEN_TOP", "GEN_FLT_TO"}
 _header_names: set[str] | None = None
 
@@ -139,9 +140,13 @@ TEB_LO, TEB_HI = 0xFFDFF000, 0xFFE00000
 # imports whose adapters the runtime writes itself (their structures differ between x86 and x64):
 # every gen_imp_<name> runtime32's sources define (a project listing them too would be a duplicate
 # symbol otherwise), and rhipper.json "import_overrides" for a project's own
-OVERRIDES = set(project.CONFIG.get("import_overrides", [])) | {
-    n for f in (Path(__file__).resolve().parent / "runtime32").glob("*.cpp")
-    for n in re.findall(r"(?m)^\s*(?:extern \"C\"\s+)?unsigned int gen_imp_(\w+)\s*\(", f.read_text(encoding="utf-8"))}
+# (each with the return type the runtime gives it: div's 8-byte structure in edx:eax as an
+# `unsigned long long`, strtod's double, rhtest crt 2026-10-24)
+OVERRIDE_RET = {
+    n: t for f in (Path(__file__).resolve().parent / "runtime32").glob("*.cpp")
+    for t, n in re.findall(r"(?m)^\s*(?:extern \"C\"\s+)?(unsigned int|unsigned long long|double|float) gen_imp_(\w+)\s*\(",
+                           f.read_text(encoding="utf-8"))}
+OVERRIDES = set(project.CONFIG.get("import_overrides", [])) | set(OVERRIDE_RET)
 IDENT = r"[A-Za-z_~][\w$@]*(?:::[A-Za-z_~][\w$@]*)*"
 # the C runtime's math imports, typed: their floats pass and return as floats (the integer adapter
 # returned fabs's double as the int in eax, rhtest float-Od dabs, 2026-10-24). Pointers are the
@@ -164,6 +169,15 @@ MATH = {
     "lround": ("long", ["double"]), "lrint": ("long", ["double"]),
     "llround": ("long long", ["double"]), "llrint": ("long long", ["double"]),
     "ilogb": ("int", ["double"]), "_finite": ("int", ["double"]), "_isnan": ("int", ["double"]),
+    # (and the bit intrinsics /Od calls in the CRT, not inline: a 64-bit one returns edx:eax, its
+    # high half lost through the untyped adapter, rhtest misc-Od's swap64)
+    "_byteswap_uint64": ("unsigned long long", ["unsigned long long"]),
+    "_byteswap_ulong": ("unsigned long", ["unsigned long"]),
+    "_byteswap_ushort": ("unsigned short", ["unsigned short"]),
+    "_rotl64": ("unsigned long long", ["unsigned long long", "int"]),
+    "_rotr64": ("unsigned long long", ["unsigned long long", "int"]),
+    "_rotl": ("unsigned int", ["unsigned int", "int"]), "_rotr": ("unsigned int", ["unsigned int", "int"]),
+    "_lrotl": ("unsigned long", ["unsigned long", "int"]), "_lrotr": ("unsigned long", ["unsigned long", "int"]),
 }
 
 
@@ -185,7 +199,10 @@ _WINPTR = re.compile(r"\b(?!PTR_)(?:LP|P)C?[A-Z]+(?:_[A-Z]+)*\b")
 
 def alias_types(text: str) -> str:
     text = _ALIAS.sub(lambda m: TYPE_ALIASES[m.group(1)], text)
-    return _WINPTR.sub(lambda m: m.group(0) if m.group(0) in KNOWN_TYPES else "GEN_LPANY", text)
+    # (not a name Ghidra32.h defines: POPCOUNT is a P and capitals too, and popcount's
+    # `POPCOUNT(x)` became a call of a pointer type, rhtest misc-O2 2026-10-24)
+    return _WINPTR.sub(lambda m: m.group(0) if m.group(0) in KNOWN_TYPES or m.group(0) in HEADER_NAMES
+                       else "GEN_LPANY", text)
 
 
 # Ghidra's names for raw memory it has no symbol for (iRam00401234, pvRam00401234): the prefix
@@ -289,10 +306,10 @@ def v16_forms(c: str) -> str:
     return sse_ops(c, arrays, v16)
 
 
-SSE_OPS = {"minps", "maxps", "divps", "rsqrtps", "rcpps", "sqrtps", "packssdw", "psllw", "pmulld"}
+SSE_OPS = {"minps", "maxps", "divps", "rsqrtps", "rcpps", "sqrtps", "packssdw", "psllw", "pmulld", "vpsllvd_avx2"}
 SSE_BITS = {"|": "or", "&": "and", "^": "xor"}
 # (the ones on integer lanes)
-SSE_INT_OPS = {"packssdw", "psllw", "pmulld"}
+SSE_INT_OPS = {"packssdw", "psllw", "pmulld", "vpsllvd_avx2"}
 
 
 def sse_ops(c: str, arrays: set[str], v16) -> str:
@@ -304,7 +321,16 @@ def sse_ops(c: str, arrays: set[str], v16) -> str:
     were stubs (2026-10-23)."""
     if not re.search(r"\b(?:" + "|".join(SSE_OPS | {"movmskps"}) + r")\(", c) and "in_XMM" not in c:
         return c
-    lines = c.split("\n")
+    # (a statement with one of them wrapped onto the next lines, as Ghidra breaks a long call: one
+    # line again, rhtest misc-O2's `vpsllvd_avx2(*(gen_v16 *)(...),\n auVar3);`)
+    ops_re = re.compile(r"\b(?:" + "|".join(SSE_OPS | {"movmskps"}) + r")\(")
+    joined: list[str] = []
+    for line in c.split("\n"):
+        if joined and ops_re.search(joined[-1]) and joined[-1].count("(") > joined[-1].count(")"):
+            joined[-1] = joined[-1].rstrip() + " " + line.strip()
+        else:
+            joined.append(line)
+    lines = joined
     temps = [0]
     out = []
 
@@ -316,7 +342,12 @@ def sse_ops(c: str, arrays: set[str], v16) -> str:
         parts = None
         for op in ("|", "^", "&"):
             ps = split_top(e, op)
-            if len(ps) == 2 and not ps[0].strip().endswith("&") and ps[1].strip():
+            # (not an `&` that takes an address: after a cast, `*(gen_v16 *)&REFG(...)`, the
+            # decompiler's `*(undefined1 (*) [16])&DAT_004033e0`, or an operator, rhtest crt-O2)
+            left = ps[0].strip() if len(ps) == 2 else ""
+            if op == "&" and (not left or re.search(r"\(\s*[A-Za-z_][\w ]*\*[\s*]*\)\s*$|[-+*/&|^~!(,]\s*$", left)):
+                continue
+            if len(ps) == 2 and not left.endswith("&") and ps[1].strip():
                 parts = (op, ps)
                 break
         if parts:
@@ -330,6 +361,12 @@ def sse_ops(c: str, arrays: set[str], v16) -> str:
             return t
         if re.fullmatch(r"0x[0-9a-f]+|\d+", e):
             return f"(&(unsigned long long[2]){{{e}, 0}})"
+        # (16 bytes read through an address, `*(undefined1 (*) [16])(&stack0xffffffe8 + i * 4)`: the
+        # address, rhtest misc-O2's vpsllvd over an alloca'd buffer)
+        m = re.fullmatch(r"\*\s*\(\s*(?:undefined1\s*\(\s*\*\s*\)\s*\[\s*16\s*\]|gen_v16\s*\*)\s*\)\s*(\(.*\))", e, re.S)
+        if m and match_paren(m.group(1), 0) == len(m.group(1)):
+            # (an address Ghidra computed as an int, `((int)&local_8 + i)`, a pointer again)
+            return f"GP{m.group(1)}" if re.match(r"\(\s*\(\s*u?int\s*\)", m.group(1)) else m.group(1)
         if v16(e) or re.fullmatch(r"_*(?:DAT|UNK)_[0-9a-f]{8}", e):
             return f"&({e})"
         return None
@@ -381,8 +418,10 @@ def sse_ops(c: str, arrays: set[str], v16) -> str:
     return "\n".join(out)
 
 
-FRAME_LOCAL = r"(?:local|[a-z]{0,3}Stack)_([0-9a-f]+)"
-FRAME_DECL = re.compile(r"(?m)^[ \t]+(?!(?:return|goto|case|else|do)\b)(?!(?:local|[a-z]{0,3}Stack)_[0-9a-f]+\b)"
+# (and ApplyFacts' object blocks, blk_N, N below the entry too: as a C local of its own, nested()'s
+# Guards were nowhere its unwind funclets look through ebp, rhtest eh 2026-10-24)
+FRAME_LOCAL = r"(?:local|[a-z]{0,3}Stack|blk)_([0-9a-f]+)"
+FRAME_DECL = re.compile(r"(?m)^[ \t]+(?!(?:return|goto|case|else|do)\b)(?!(?:local|[a-z]{0,3}Stack|blk)_[0-9a-f]+\b)"
                         r"((?:struct\s+)?[A-Za-z_]\w*(?:[ \t]+[A-Za-z_]\w*)*?(?:[ \t]*\*(?:[ \t]*PTR32)?)*)"
                         r"[ \t]*\b(" + FRAME_LOCAL + r")[ \t]*(\[[ \t]*(?:0x)?[0-9a-f]+[ \t]*\])?[ \t]*;[ \t]*\n")
 
@@ -394,22 +433,43 @@ def has_frame(body: str) -> bool:
                 re.search(r"(?m)^[ \t]+[A-Za-z_][\w \t*]*?\b" + FRAME_LOCAL + r"[ \t]*\[", body))
 
 
-def frame_locals(body: str) -> str:
+EH_LINK = re.compile(r"(?:\bExceptionList|gen_teb32\(\) \+ 0x0\)+)\s*=\s*&")
+
+
+def eh_landing(body: str, ret: str) -> str:
+    """Where the runtime's EH dispatcher comes back to a function that links an EH frame (Ghidra32.h
+    GEN_EH_LAND): after each link, a setjmp on the node's landing; a catch done, or an __except
+    filter taken, the dispatcher longjmps there and the function returns what the reference's
+    continuation (a function on this frame's ebp) returns."""
+    def land(m):
+        node = "&" + m.group(2).strip()
+        value = "(void)gen_eh_resume(); return 0;" if ret.strip() == "void" else \
+            f"return ({ret})(uintptr_t)gen_eh_resume();"
+        return (f"{m.group(0)}\n{m.group(1)}if (setjmp(*gen_eh_landing((unsigned int)(uintptr_t)({node})))) "
+                f"{{ {value} }}")
+    return re.sub(r"(?m)^([ \t]*)(?:\(\*\(\(void \* PTR32 \*\)GEN_TOP\(\(uintptr_t\)\(gen_teb32\(\) \+ 0x0\)\)\)\)|"
+                  r"ExceptionList)\s*=\s*&([^;\n]+);[ \t]*$", land, body)
+
+
+def frame_locals(body: str, reserve: int = 0, minimum: int = 0, args: list[str] | None = None) -> str:
     """The reference's frame, where its code takes a local's address or uses a local array: every
     `local_N` and `*Stack_N` a slot of one buffer at its offset in the x86 frame (N, below the
     entry esp), and every place out_stack found below them (GEN_SLOT(d), d bytes below). Ghidra
     splits an aggregate the code builds on the stack into one local per field; as separate C
     locals they lie wherever the compiler puts them, and a callee handed the first's address read
     the others from the wrong place: FUN_00415b00's config entry `&local_24`, its string pointer
-    `local_18` at +0xc of it, read as 0 (2026-10-23)."""
+    `local_18` at +0xc of it, read as 0 (2026-10-23).
+    reserve: bytes below the frame for what the function allocates on the stack at run time
+    (alloca: `&stack0xffffffe8 + iVar5`, iVar5 the negated size), as the reference's stack has
+    room below its frame."""
     slots = [int(d, 16) for d in re.findall(r"\bGEN_SLOT\(0x([0-9a-f]+)\)", body)]
-    if not slots and not has_frame(body):
+    if not slots and not has_frame(body) and not args:
         return body
     decls = list(FRAME_DECL.finditer(body))
-    if not decls and not slots:
+    if not decls and not slots and not args:
         return body
-    size = max([int(m.group(3), 16) for m in decls] + slots)
-    size = (size + 15) & ~15
+    size = max([int(m.group(3), 16) for m in decls] + slots + [minimum, 4])
+    size = ((size + 15) & ~15) + reserve
     body = re.sub(r"\bGEN_SLOT\(0x([0-9a-f]+)\)", lambda m: f"(gen_frame + 0x{size - int(m.group(1), 16):x})", body)
     repl = {}
     for m in decls:
@@ -435,7 +495,65 @@ def frame_locals(body: str) -> str:
         body = re.sub(r"&\s*(" + alt + r")(?![\w$\[])", lambda m: repl[m.group(1)], body)
     if repl:
         body = re.sub(r"(?<![\w$])(" + "|".join(map(re.escape, repl)) + r")(?![\w$])", lambda m: repl[m.group(1)], body)
+    if reserve:
+        body = frame_wrap(body)
+    if args:
+        # (the argument block above the return address: entry + 4, as the reference's)
+        words = int(re.search(r"GEN_ARGS_WORDS (\d+)", args[-1]).group(1))
+        init = "\n".join(args[:-1]).replace("GEN_ARGS_AT", f"0x{size + 4:x}")
+        return body.replace("{", "{\n  __declspec(align(16)) undefined1 gen_frame[0x%x];\n%s"
+                            % (size + 4 + 4 * words, init), 1)
     return body.replace("{", "{\n  __declspec(align(16)) undefined1 gen_frame[0x%x];" % size, 1)
+
+
+FRAME_AT = re.compile(r"\(gen_frame \+ 0x[0-9a-f]+\)")
+
+
+def frame_wrap(body: str) -> str:
+    """A place in the frame offset by a run-time amount, computed in 32 bits as the reference's
+    is: `(gen_frame + K) + E` and `((gen_frame + K))[E]`. E is often an unsigned sum with a negative
+    term (an alloca's negated size, `uVar8 * 3 + iVar5`) that wraps in 32 bits; added to a 64-bit
+    pointer it landed 4 GB on, rhtest misc-O2's stack_alloc. The port's stack is below 4 GB, as
+    every (int)&local Ghidra writes takes it to be."""
+    out, i = [], 0
+    for m in FRAME_AT.finditer(body):
+        if m.start() < i:
+            continue
+        j = m.end()
+        # `((gen_frame + K))[E]`: the token in one more pair of parentheses, then a subscript
+        if body[m.start() - 1:m.start()] == "(" and body[j:j + 2] == ")[":
+            k, depth = j + 2, 1
+            while k < len(body) and depth:
+                depth += {"[": 1, "]": -1}.get(body[k], 0)
+                k += 1
+            e = body[j + 2:k - 1]
+            out.append(body[i:m.start() - 1])
+            out.append(f"((undefined1 *)GP((uint)(uintptr_t){m.group(0)} + ({e})))[0]")
+            i = k
+            continue
+        # `(gen_frame + K) + E ...`, the sum to the end of its operand
+        rest = re.match(r"\s*\+\s*", body[j:])
+        if not rest:
+            continue
+        k, depth = j + rest.end(), 0
+        while k < len(body):
+            ch = body[k]
+            if ch in "([":
+                depth += 1
+            elif ch in ")]":
+                if depth == 0:
+                    break
+                depth -= 1
+            elif depth == 0 and (ch in ",;?:" or body.startswith(("==", "!=", "<", ">", "&&", "||"), k)
+                                 or (ch == "=" and body[k + 1:k + 2] != "=")):
+                break
+            k += 1
+        e = body[j + rest.end():k].rstrip()
+        out.append(body[i:m.start()])
+        out.append(f"((undefined1 *)GP((uint)(uintptr_t){m.group(0)} + ({e})))")
+        i = j + rest.end() + len(e)
+    out.append(body[i:])
+    return "".join(out)
 
 
 # (and al/ax, a byte or bool function's: ___scrt_initialize_onexit_tables returns `in_AL` after
@@ -508,6 +626,22 @@ def returned_only(c: str) -> set[str]:
     return ok | entry
 
 
+def filler_args(c: str) -> set[str]:
+    """The result registers the decompiler lost that are read only as whole arguments of calls:
+    what a caller pushes for a parameter the callee never reads. /LTCG folds a constant argument
+    into its callee and keeps the slot, `fc4(a, 2, c, -1)` reading ecx and one stack word but
+    popping two, and its caller pushes what ecx holds there, `extraout_ECX` after the call
+    before (rhtest calls-GL, 2026-10-24). 0 in the port."""
+    out = set()
+    for n in set(re.findall(r"\bextraout_E[ACD]X(?:_\d+)?\b", c)):
+        uses = [l for l in c.split("\n") if re.search(r"\b" + n + r"\b", l)
+                and not re.fullmatch(r"\s*(?:undefined\d?|uint|int)\s+" + n + r";\s*", l)]
+        if uses and all(len(re.findall(r"\b" + n + r"\b", l)) == len(re.findall(r"[(,]\s*" + n + r"\s*(?=[,)])", l))
+                        for l in uses):
+            out.add(n)
+    return out
+
+
 def load_corpus() -> dict[int, dict]:
     out = {}
     with open(CORPUS, encoding="utf-8") as f:
@@ -556,6 +690,32 @@ def balanced(body: str) -> bool:
             if depth < 0:
                 return False
     return depth == 0
+
+
+SETJMP_CALL = re.compile(r"\bgen_imp_(_setjmp3|_setjmp|setjmp|longjmp)\s*\(")
+
+
+def jump_calls(body: str) -> str:
+    """setjmp and longjmp the port's own (Ghidra32.h GEN_SETJMP, GEN_LONGJMP): `gen_imp__setjmp3(buf,
+    0)` a setjmp in this function, on the native jmp_buf for buf, `gen_imp_longjmp(buf, v)` a
+    longjmp to it. Through an adapter, the setjmp's frame was the adapter's, gone when longjmp came
+    (and the CRT's x86 _setjmp3 no function of the port's: rhtest misc 2026-10-24)."""
+    out, i = [], 0
+    for m in SETJMP_CALL.finditer(body):
+        if m.start() < i:
+            continue
+        open_ = m.end() - 1
+        close = match_paren(body, open_)
+        args = split_top(body[open_ + 1:close - 1])
+        if m.group(1) == "longjmp":
+            new = f"GEN_LONGJMP({args[0].strip()}, {args[1].strip() if len(args) > 1 else '1'})"
+        else:
+            new = f"GEN_SETJMP({args[0].strip()})"
+        out.append(body[i:m.start()])
+        out.append(new)
+        i = close
+    out.append(body[i:])
+    return "".join(out)
 
 
 def split_top(s: str, sep: str = ",") -> list[str]:
@@ -772,6 +932,10 @@ class Translator32:
         t0 = time.time()
         self.corpus = load_corpus()
         self.refdata, self.ref_names = load_refdata()
+        # (each function's frame allocation, protos32.py's "frame": an EH frame's is laid out whole)
+        pp = FACTS / "protos.json"
+        self.frames = {int(k, 16): v["frame"] for k, v in json.loads(pp.read_text())["functions"].items()
+                       if v.get("frame")} if pp.exists() else {}
         self.sigs: dict[int, Signature] = {}
         self.by_printed: dict[str, int] = {}
         bad = 0
@@ -807,6 +971,8 @@ class Translator32:
         tpath = ROOT / "build/types.json"
         types = json.loads(tpath.read_text(encoding="utf-8")) if tpath.exists() else {}
         self.composites = {n: v for n, v in types.get("composites", {}).items() if v["fields"]}
+        # (and every one's size, a placeholder's too: types' opaque locals)
+        self.composite_sizes = {n: v["size"] for n, v in types.get("composites", {}).items() if v.get("size")}
         self.typedefs = types.get("typedefs", {})
         print(f"corpus {len(self.corpus)} functions ({bad} without a signature), refdata {len(self.refdata)}, "
               f"imports {len(self.imports)} ({time.time() - t0:.0f}s)")
@@ -863,6 +1029,26 @@ class Translator32:
         pe.close()
         return out
 
+    def eh_funcinfos(self) -> dict[int, int]:
+        """handler -> FuncInfo for each function whose first instructions load a FuncInfo into eax
+        (`mov eax, 0x4037d8`, its magic 0x1993052x there) before jumping on to __CxxFrameHandler3."""
+        import pefile
+        pe = pefile.PE(str(project.EXE), fast_load=True)
+        base, size = pe.OPTIONAL_HEADER.ImageBase, pe.OPTIONAL_HEADER.SizeOfImage
+        out = {}
+        for a in self.corpus:
+            code = pe.get_data(a - base, 0x30)
+            for k in range(len(code) - 5):
+                if code[k] != 0xB8:
+                    continue
+                fi = int.from_bytes(code[k + 1:k + 5], "little")
+                if base <= fi < base + size - 4 and \
+                        int.from_bytes(pe.get_data(fi - base, 4), "little") & 0xFFFFFFF0 == 0x19930520:
+                    out[a] = fi
+                    break
+        pe.close()
+        return out
+
     def import_of(self, name: str) -> str | None:
         """The import a name in the body calls: its own, or the one Ghidra printed without its
         C underscore (ucrt's `_initterm_e` as `initterm_e`, `_crt_atexit` as `crt_atexit`)."""
@@ -893,7 +1079,7 @@ class Translator32:
         if a not in self.sigs:
             return "no signature"
         # (and a full xmm register as an SSE pseudo-op's destination found it: zeroed, sse_ops)
-        ok = returned_only(c) | self.noreturn_args_only(a, c) | {"in_FPUControlWord"} | \
+        ok = returned_only(c) | self.noreturn_args_only(a, c) | filler_args(c) | {"in_FPUControlWord"} | \
             set(re.findall(r"(?m)^[ \t]+undefined1\s+(in_XMM\d+)\s*\[\s*16\s*\]\s*;", c))
         m = next((m for m in LOST.finditer(c) if m.group(1) not in ok and not OUT_STACK.fullmatch(m.group(1))), None)
         if m:
@@ -1223,6 +1409,24 @@ class Translator32:
         c = re.sub(r"(?<=[\w>])[ \t]*\n[ \t]*::", "::", c)
         head, sep, body = c.partition("{")
         body = out_stack("{" + body)
+        # (a small array assigned whole from its bytes, `local_64 = (char [4])s_alpha_0040324c._0_4_;`,
+        # strcpy of a literal inlined: the bytes through a temporary of that size, C having no
+        # array assignment, rhtest crt-O2 2026-10-24)
+        def array_set(m):
+            n = int(m.group(4)) * (2 if m.group(3) in ("wchar_t", "ushort", "short", "undefined2") else 1)
+            t = {1: "unsigned char", 2: "unsigned short", 4: "unsigned int", 8: "unsigned long long"}.get(n)
+            if t is None:
+                return m.group(0)
+            return f"{m.group(1)}{{ {t} gen_ac = ({t})({m.group(5)}); memcpy(&{m.group(2)}, &gen_ac, {n}); }}"
+        body = re.sub(r"(?m)^([ \t]*)([A-Za-z_]\w*) = \(\s*(char|undefined1|byte|uchar|wchar_t|ushort|short|undefined2)"
+                      r"\s*\[(\d+)\]\s*\)\s*([^;\n]+);", array_set, body)
+        # (the entry esp itself, in a function whose frame frame_locals lays out: the frame's top,
+        # GEN_SLOT(0), each local GEN_SLOT(N) below it. Ghidra folds a sum of `p - buf` over a local
+        # buffer into `(int)&stack0x00000000 * -8`, strings()'s strchr and strrchr offsets, rhtest
+        # crt-Od 2026-10-24)
+        if has_frame(body):
+            body = re.sub(r"&\s*stack0x00000000\b", "GEN_SLOT(0x0)", body)
+            body = re.sub(r"\(\s*(u?int)\s*\)\s*GEN_SLOT\(0x0\)", r"(\1)(uintptr_t)GEN_SLOT(0x0)", body)
         # (the x87 control word an `fnstcw` stores, which Ghidra reads as an input and never writes:
         # MSVC's default, 53-bit precision and every exception masked; the conversions it is set
         # for (`| 0xc00`, truncation) are C's own here)
@@ -1300,7 +1504,12 @@ class Translator32:
         self.leftover_members(body, a)
         # (types before names: a C++ type in a cast, `(Client::UI::Foo *)`, is no symbol)
         body = self.types(body)
+        # (the function's own namespaces, innermost first: a name Ghidra prints relative to them,
+        # `vftable` in std::exception's constructor, eh-Od)
+        parts = self.corpus[a]["name"].split("::")[:-1]
+        self.cur_ns = ["::".join(parts[:k]) + "::" for k in range(len(parts), 0, -1)]
         body = self.names(body)
+        body = jump_calls(body)
         body = CC.sub("", body)
         body = re.sub(r"\(uint\)&stack0x[0-9a-f]+", "0u", body)
         body = RAM.sub(lambda m: f"REFG({RAM_TYPES.get(m.group(1), 'undefined4')}, 0x{m.group(2)})", body)
@@ -1344,7 +1553,12 @@ class Translator32:
         param_names = [n for _t, n in sig.params]
         param_addressed = bool(param_names) and re.search(
             r"(?<![&\w])&\s*(?:" + "|".join(map(re.escape, param_names)) + r")\b(?!\s*(?:\[|\.|->))", body)
-        if sig.variadic or param_addressed or re.search(r"&\s*stack0x(?!f[0-9a-f]{7}\b)[0-9a-f]{8}", body):
+        # (a function that links an EH frame: its arguments in its frame, above the return address,
+        # as the reference's are, its funclets reaching them through ebp. deep()'s Guard lives in
+        # its parameter's slot, [ebp + 8], and the unwind funclet read past the frame, rhtest eh)
+        eh = bool(EH_LINK.search(body)) and bool(sig.params)
+        eh_args: list[str] = []
+        if sig.variadic or param_addressed or eh or re.search(r"&\s*stack0x(?!f[0-9a-f]{7}\b)[0-9a-f]{8}", body):
             if sig.variadic and not params:
                 raise ValueError("variadic with no fixed parameter")
             # (each parameter at its slot as the reference pushed it: a double or an 8-byte integer
@@ -1368,7 +1582,7 @@ class Translator32:
                           f"    for (int gen_i = {fixed}; gen_i < {words}; gen_i++) "
                           f"gen_args[gen_i] = va_arg(gen_va, unsigned int);",
                           "    va_end(gen_va); }"]
-            if param_addressed:
+            if param_addressed or eh:
                 # (the slots are the parameters: a pointer one a 32-bit pointer in its slot)
                 for k, (t, n) in enumerate(sig.params):
                     tt = self.type_text(t)
@@ -1377,6 +1591,11 @@ class Translator32:
                 prologue = block
             else:
                 prologue = block + prologue
+            if eh:
+                # (the block is the frame's own, frame_locals: declared after it, filled there)
+                eh_args = [f"  unsigned int *gen_args = (unsigned int *)(gen_frame + GEN_ARGS_AT);"] + block[1:]
+                eh_args.append(f"  /* GEN_ARGS_WORDS {max(words, 1)} */")
+                prologue = []
             var_types["gen_args"] = "unsigned int[]"
 
             def slot(m):
@@ -1499,9 +1718,16 @@ class Translator32:
         # (the lost result registers it only returns: 0 where nothing set them, why_not. Last, as
         # the passes above read the declarations as `type name;`)
         # (and those only a call that does not return is given, noreturn_args_only)
-        for n in returned_only(c) | self.noreturn_args_only(a, c):
+        for n in returned_only(c) | self.noreturn_args_only(a, c) | filler_args(c):
             body = re.sub(r"(?m)^(\s*[A-Za-z_][\w ]*?\s+" + n + r")\s*;", r"\1 = 0;", body, count=1)
-        body = frame_locals(body)
+        # (a function that allocates on its stack, the alloca probe's injection: room below the
+        # frame for it, rhtest misc stack_alloc 2026-10-24)
+        alloca = "replaced with injection: alloca_probe" in self.corpus[a]["c"]
+        # (and one that links an EH frame, all of its frame: its catch funclets and continuations
+        # write through ebp into locals the body itself never touches, by_type's result and catch
+        # object at [ebp - 0x14] and [ebp - 0x18], below the 16 bytes it did, rhtest eh 2026-10-24)
+        eh = bool(EH_LINK.search(body))
+        body = frame_locals(body, 0x10000 if alloca else 0, self.frames.get(a, 0) if eh else 0, eh_args)
         # (a frame slot of a pointer type converted to a float, Ghidra reusing one local for both:
         # its bits, as GEN_TOF takes a pointer's)
         # (not one indexed: `(float)local_x[i]` converts the element)
@@ -1513,6 +1739,8 @@ class Translator32:
                       if re.search(r"(?m)^[ \t]+undefined1\s+" + m.group(2) + r"\s*\[", body) else m.group(0), body)
         # (the lost full xmm registers: zeroed 16-byte locals, sse_ops)
         body = re.sub(r"(?m)^([ \t]+undefined1\s+in_XMM\d+\s*\[\s*16\s*\])\s*;", r"\1 = {0};", body)
+        if eh:
+            body = eh_landing(body, ret)
         decl = f"{ret} F_{a:08x}({', '.join(params) or 'void'})"
         # (the shadow trace's record of the call, first: its address and first four integer
         # arguments, as shadow32.py records the reference's)
@@ -1718,7 +1946,25 @@ class Translator32:
             sig = self.sigs.get(int(m.group(1), 16))
             inner = body[open_ + 1:close - 1]
             args = split_top(inner) if inner.strip() else []
-            if sig is None or sig.variadic or len(args) != len(sig.params):
+            if sig is not None and sig.variadic:
+                # (a variadic callee reads its arguments as the reference's 4-byte words, gen_args:
+                # an 8-byte one after the fixed ones, a double or a 64-bit integer the decompiler
+                # spells `(undefined8)...` or holds in such a variable, is two of them. Passed as
+                # one, each double after a printf format lost its high half, rhtest crt 2026-10-24)
+                new_args = []
+                for k, x in enumerate(args):
+                    x = self.call_args(x, var_types)
+                    s = x.strip()
+                    wide = k >= len(sig.params) and (
+                        re.match(r"\(\s*(?:undefined8|ulonglong|longlong|double|float8|float10|int8|uint8)\s*\)", s)
+                        or var_types.get(s, "").strip() in ("double", "ulonglong", "longlong", "undefined8",
+                                                            "float10", "float8"))
+                    if wide:
+                        if re.search(r"\bF_[0-9a-f]{8}\s*\(|\bgen_imp_\w+\s*\(|\+\+|--|(?<![=!<>])=(?!=)", s):
+                            raise ValueError("an 8-byte variadic argument with a side effect")
+                        x = f"GEN_LO32({s}),GEN_HI32({s})"
+                    new_args.append(x)
+            elif sig is None or len(args) != len(sig.params):
                 new_args = [self.call_args(x, var_types) for x in args]
             else:
                 new_args = []
@@ -1894,6 +2140,19 @@ class Translator32:
         # the declarations, which Ghidra writes first and ends with a blank line: a wrapped
         # expression's last line `fStack_54 * local_40;` is no declaration of local_40
         decls, rest = split_decls(body)
+
+        # (a local of a structure the body reaches no member of: its bytes. Function ID took
+        # rhtest's Derived constructor for the C++ library's money_base, and its caller's
+        # exception object became a `scheduler_resource_allocation_error[16]`, eh-Od)
+        def opaque(m):
+            word, name, count = m.group(2), m.group(3), m.group(4)
+            if word not in self.composite_sizes or word in KNOWN_TYPES \
+                    or re.search(rf"\b{name}\b\s*(?:\[[^\]]*\]\s*)?(?:\.|->)", rest):
+                return m.group(0)
+            size = self.composite_sizes[word] * (int(count, 0) if count else 1)
+            return f"{m.group(1)}undefined1 {name}[{size}];"
+        decls = re.sub(r"(?m)^(\s+)([A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*(?:\[\s*((?:0x)?[0-9a-f]+)\s*\])?\s*;",
+                       opaque, decls)
         decls = re.sub(r"(?m)^(\s+)((?:(?:unsigned|signed)\s+)?[A-Za-z_]\w*(?:::\w+)*(?:<[^;()]*?>)?(?:\s*\*[\s*]*|\s+))([A-Za-z_]\w*\s*(?:\[[^\]]*\])?\s*;)",
                        lambda m: decl(m) if "*" in m.group(2) or self.type_word_ok(m.group(2)) else m.group(0), decls)
         return decls + rest
@@ -1985,6 +2244,9 @@ class Translator32:
                 return f"((code *)REFP(0x{a:x}))"
             if name in self.ref_names:
                 return self.global_lvalue(self.ref_names[name])
+            for ns in getattr(self, "cur_ns", ()):
+                if ns + name in self.ref_names:
+                    return self.global_lvalue(self.ref_names[ns + name])
             return name
         body = re.sub(r"(?<![\w$:.])(" + IDENT + r")(?![\w$(:])(?!\s*\()", value, body)
         return self.pointer_globals(body)
@@ -2114,7 +2376,7 @@ class Translator32:
              "#pragma once", '#include "Ghidra32.h"']
         h += [f"{decls[a]};" for a in sorted(decls)]
         h += [f"{MATH[n][0]} gen_imp_{n}({', '.join(MATH[n][1])});" if n in MATH and n not in OVERRIDES
-              else f"unsigned int gen_imp_{n}();" for n in sorted(self.imports)]
+              else f"{OVERRIDE_RET.get(n, 'unsigned int')} gen_imp_{n}();" for n in sorted(self.imports)]
         write(GEN / "translated.h", "\n".join(h) + "\n")
         write(GEN / "Ghidra32.h", HEADER.read_text(encoding="utf-8"))
         files = []
@@ -2155,6 +2417,13 @@ class Translator32:
         # (and each local thunk, to its target's)
         j += [f"  {{0x{at:x}u, (void *)F_{t:08x}}}," for at, t in sorted(self.thunks.values())]
         j += ["};", f"const unsigned int g_genJumpCount = {len(self.corpus) + len(self.thunks)};"]
+        # (the C++ EH frames' handler thunks and their FuncInfo, for the runtime's dispatcher, which
+        # cannot read the reference's code: int3 over all of it, Adapters.cpp eh::FuncInfoOf)
+        fis = self.eh_funcinfos()
+        j += ["/* each C++ frame handler thunk (`mov eax, FuncInfo; jmp __CxxFrameHandler3`), its FuncInfo; 0-ended */",
+              "const unsigned int g_genEhFuncInfo[] = {"]
+        j += [f"  0x{h:x}u, 0x{fi:x}u," for h, fi in sorted(fis.items())]
+        j += ["  0u, 0u", "};"]
         write(GEN / "jumps.c", "\n".join(j) + "\n")
         # imports: an adapter per name, its real function resolved by the runtime
         im = ['/* generated by translate32.py: the reference\'s imports. Each adapter takes the 32-bit',
@@ -2175,7 +2444,7 @@ class Translator32:
         for n, (slot, dll) in sorted(self.imports.items()):
             im.append(f"gen_real_fn gen_real_{n};")
             if n in OVERRIDES:
-                im.append(f"unsigned int gen_imp_{n}();   /* the runtime's */")
+                im.append(f"{OVERRIDE_RET.get(n, 'unsigned int')} gen_imp_{n}();   /* the runtime's */")
                 continue
             if n in MATH:
                 ret, ps = MATH[n]

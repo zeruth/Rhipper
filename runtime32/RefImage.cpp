@@ -4,8 +4,10 @@
 #include <dbghelp.h>
 
 #include <algorithm>
+#include <csetjmp>
 #include <cstdio>
 #include <cstring>
+#include <memory>
 #include <mutex>
 #include <unordered_set>
 #include <vector>
@@ -171,6 +173,21 @@ extern "C" unsigned int gen_tls_array(void) {
         array = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(slots));
     }
     return array;
+}
+
+// The native jmp_buf standing for the reference's at `ref` (Ghidra32.h GEN_SETJMP): per thread, one
+// per buffer address the program uses, as many as it has
+extern "C" jmp_buf* gen_jmpbuf(unsigned int ref) {
+    struct Slot {
+        unsigned int ref;
+        jmp_buf buf;
+    };
+    static thread_local std::vector<std::unique_ptr<Slot>> slots;
+    for (auto& s : slots)
+        if (s->ref == ref) return &s->buf;
+    slots.push_back(std::make_unique<Slot>());
+    slots.back()->ref = ref;
+    return &slots.back()->buf;
 }
 
 // The reference's x86 TEB and PEB (Ghidra32.h gen_teb32): what its code reads through fs. Per
