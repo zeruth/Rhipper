@@ -1,4 +1,4 @@
-"""Ghidra's 16-byte values in C: `undefined1 auVar3 [16]` as gen_v16 (src/gen/Ghidra.h), a union
+"""Ghidra's 16-byte values in C: `undefined1 auVar3 [16]` as gen_v16 (runtime64/Ghidra64.h), a union
 of __m128i and its bytes, which C can assign, pass and return where it cannot an array.
 
 Ghidra spells an SSE register as a 16-byte array and the instructions on it as integer operators
@@ -6,7 +6,7 @@ on it (`auVar2 = ZEXT816(0) << 0x40 | ZEXT816(x)`, `pand` as `&`) or as pseudo-f
 after the instruction (`pshufb(auVar47,_DAT_1426348d0)`). As C the first is an assignment to an
 array and an operator on one (C2106, C2296: 30 functions demoted on 2026-10-16), and the second
 called nothing. Each statement that involves a 16-byte value is parsed here, its terms typed
-(16 bytes or a scalar), and the 16-byte operations written as Ghidra.h's helpers and the
+(16 bytes or a scalar), and the 16-byte operations written as Ghidra64.h's helpers and the
 pseudo-ops as their intrinsics; a statement without one is left exactly as it was.
 
     rewrite(body) -> body        (raises V16Unsupported for what it cannot take)
@@ -293,7 +293,7 @@ PSEUDO = {
     "vpaddsb_avx": ("_mm_adds_epi8({0}, {1})", "i"),
     "vcvtps2dq_avx": ("_mm_cvtps_epi32(_mm_castsi128_ps({0}))", "i"),
     "vroundsd_avx": ("_mm_round_sd(_mm_castsi128_pd({0}), _mm_castsi128_pd({1}), {2:imm})", "d"),
-    # AVX-512VL on 128 bits: each 64-bit lane multiplied, kept low (Ghidra.h, in plain C)
+    # AVX-512VL on 128 bits: each 64-bit lane multiplied, kept low (Ghidra64.h, in plain C)
     "vpmullq_avx512vl": ("gen_mullo_epi64({0}, {1})", "i"),
     "lddqu": ("({1})", "i"),
     "psllw": ("_mm_slli_epi16({0}, {1:imm})", "i"),
@@ -342,7 +342,7 @@ PSEUDO = {
 }
 # pseudo-ops on 32 or 64 bytes (AVX2 / AVX-512 paths): no gen_v16 holds them
 WIDE_PSEUDO = re.compile(r"_avx2$|_avx512(?!vl$)|^vp\w+_avx512(?!vl$)")
-# the ones Ghidra.h has as functions over a 16-byte value (movmskps(dest, v) and friends)
+# the ones Ghidra64.h has as functions over a 16-byte value (movmskps(dest, v) and friends)
 SCALAR_PSEUDO = {"movmskps": "movmskps", "movmskpd": "movmskpd"}
 
 
@@ -492,7 +492,7 @@ class Emitter:
             # a global handed to a vector instruction whole: the 16 bytes at its address, whatever
             # Ghidra named it (`_s_VUVUVU_142634c00`, a constant it took for a string)
             return f"gen_v16_mm(*(gen_v16 *)REFP(0x{g.group(1)}))"
-        # gen_v16 has no SSE member (Ghidra.h): an unaligned load, never a member read
+        # gen_v16 has no SSE member (Ghidra64.h): an unaligned load, never a member read
         return f"gen_v16_mm(gen_v16_u({self.e(n)}))"
 
     def place(self, n: Node) -> str:

@@ -87,6 +87,10 @@ def body_facts(b: Binary):
             mn = None
             for ins in md.disasm_lite(bytes(b.image[o : o + (en - st)]), st):
                 _addr, _size, mn, ops = ins
+                # (`repz ret`, the CRT's two-byte return: a ret. Read as something else, it made
+                # __security_check_cookie noreturn, and cut off what follows its 8,878 calls)
+                if mn.endswith(" ret"):
+                    mn = "ret"
                 if X86:
                     # the 'msc' exception code, inline or as the first word of the static
                     # EXCEPTION_RECORD template the function copies (`mov esi, 0x1118af0`)

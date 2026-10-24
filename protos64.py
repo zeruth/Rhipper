@@ -355,6 +355,35 @@ class Analyzer:
                 o = self.b.off(s)
                 for insn in self.md.disasm(bytes(self.b.image[o:o + (e - s)]), s):
                     out[insn.address] = insn
+            # A jump the sweep did not land on: the anti-tamper junk is decoded as instructions
+            # too, and the opaque jump over it (`jae X; jb X`) targets the middle of one of them,
+            # so the sweep never had X. Decoded on from each such target until it meets the
+            # sweep again. Without it GetMacroIcons (0x141a1dea0) ended at its junk: none of its
+            # loop's calls were seen, the iterator its `Next` takes in rdx (0x141a1e085) was
+            # dropped, and the lookup walked a garbage iterator (2026-10-23)
+            def inside(va: int) -> bool:
+                return any(s <= va < e for s, e in pieces)
+
+            todo = [t for insn in list(out.values()) if insn.group(X.X86_GRP_JUMP)
+                    for op in insn.operands[:1] if op.type == X.X86_OP_IMM
+                    for t in (op.imm,) if t not in out and inside(t)]
+            while todo:
+                va = todo.pop()
+                while va not in out and inside(va):
+                    o = self.b.off(va)
+                    insn = next(self.md.disasm(bytes(self.b.image[o:o + 16]), va, 1), None)
+                    if insn is None:
+                        break
+                    out[va] = insn
+                    if insn.mnemonic in BRANCH_END:
+                        break
+                    if insn.group(X.X86_GRP_JUMP):
+                        op = insn.operands[0] if insn.operands else None
+                        if op is not None and op.type == X.X86_OP_IMM and op.imm not in out and inside(op.imm):
+                            todo.append(op.imm)
+                        if insn.mnemonic == "jmp":
+                            break
+                    va = insn.address + insn.size
             return out, True
         size = self.sizes.get(a, 0x400)
         end = a + max(size, 1)

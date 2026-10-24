@@ -56,12 +56,15 @@ class Unliftable(Exception):
     pass
 
 
-def lift(binary, address: int, limit: int = 48, arity=None) -> str | None:
+def lift(binary, address: int, limit: int = 48, arity=None, functions=None) -> str | None:
     """The code at `address` as a function in the decompilation's own C, or None. `arity(target)`,
     when given, is how many arguments a tail-called function reads: the stack ones are passed on
-    too (the lifted code never moves rsp, so they are where its own caller put them)."""
+    too (the lifted code never moves rsp, so they are where its own caller put them).
+    `functions(target)`, when given, says whether code starts a function, where the binary's own
+    starts (its unwind entries) miss the leaves: `jne 0x14203bc60` is a tail call to a leaf the
+    corpus has and .pdata does not, and was refused as a branch out of the code (2026-10-23)."""
     try:
-        body, _ = _lift(binary, address, limit, arity)
+        body, _ = _lift(binary, address, limit, arity, functions)
     except Unliftable:
         return None
     # the four register arguments, and the stack arguments it reads
@@ -72,9 +75,9 @@ def lift(binary, address: int, limit: int = 48, arity=None) -> str | None:
             f"{{\n{body}\n}}\n")
 
 
-def _decode(binary, address: int, limit: int) -> dict:
+def _decode(binary, address: int, limit: int, functions=None) -> dict:
     """Every instruction reachable from `address`, by address."""
-    is_start = getattr(binary, "is_func_start", None)
+    is_start = functions or getattr(binary, "is_func_start", None)
     found, todo = {}, [address]
     while todo:
         at = todo.pop()
@@ -107,8 +110,12 @@ def _decode(binary, address: int, limit: int) -> dict:
                     raise Unliftable("an indirect branch")
                 target = int(ins.op_str, 16)
                 if not _local(binary, address, target, is_start):
-                    raise Unliftable("a branch out of the code")
-                todo.append(target)
+                    # a conditional tail call (`test rcx, rcx; jne FUN_x`): to a function's start
+                    # only, which the emitter calls; anywhere else is another function's inside
+                    if is_start is None or not is_start(target):
+                        raise Unliftable("a branch out of the code")
+                else:
+                    todo.append(target)
             at = ins.address + ins.size
     return found
 
@@ -122,8 +129,8 @@ def _local(binary, start: int, target: int, is_start) -> bool:
     return start < target < start + 0x400
 
 
-def _lift(binary, address: int, limit: int, arity=None):
-    found = _decode(binary, address, limit)
+def _lift(binary, address: int, limit: int, arity=None, functions=None):
+    found = _decode(binary, address, limit, functions)
     order = sorted(found)
     targets = set()
     for ins in found.values():
@@ -157,6 +164,9 @@ def _lift(binary, address: int, limit: int, arity=None):
     # code read flags before setting any: only those care what a jump back brings
     since_label = [None]
     label_reads: set[int] = set()
+    # the registers set since the last label: on every path to here, unlike set_here, which
+    # holds what any path set (a tail call or a partial write reads the rest as inputs)
+    set_block: set[str] = set()
 
     def arrive(target: int):
         incoming.setdefault(target, []).append(state())
@@ -223,8 +233,13 @@ def _lift(binary, address: int, limit: int, arity=None):
             full, width = R64[op]
             if width < 4 and full not in written:
                 raise Unliftable("a partial write to an unset register")
+            if width < 4 and full not in set_block:
+                # (a byte or word write keeps the rest: the old value is read, an input when the
+                # path has not set it. `mov r8b, 1` before a tail call keeps the caller's upper r8)
+                reads.add(full)
             written.add(full)
             set_here.add(full)
+            set_block.add(full)
             used.add(full)
             if width == 8:
                 expr = f"(ulonglong)({value})"
@@ -301,8 +316,10 @@ def _lift(binary, address: int, limit: int, arity=None):
             set_state(next(iter(paths)) if len(paths) == 1 else (None, None))
             at_label[at] = state()
             since_label[0] = at
+            set_block.clear()
         elif not fallthrough[0]:
             set_state((None, None))
+            set_block.clear()
         fallthrough[0] = True
         here = ins.address + ins.size
         mn, ops = ins.mnemonic, [x.strip() for x in ins.op_str.split(",")] if ins.op_str else []
@@ -374,6 +391,7 @@ def _lift(binary, address: int, limit: int, arity=None):
             lines.append(f"    {reg('rax')} = (uint)p; {reg('rdx')} = (uint)(p >> 32); }}")
             written.update(("rax", "rdx"))
             set_here.update(("rax", "rdx"))
+            set_block.update(("rax", "rdx"))
             used.update(("rax", "rdx"))
         elif mn == "jmp" and ops[0].startswith("qword ptr ["):
             # a tail call through a pointer in memory (`mov rax,[rcx]; jmp [rax+8]`, the thunk
@@ -406,17 +424,37 @@ def _lift(binary, address: int, limit: int, arity=None):
                 lines.append(f"  goto L_{target:x};")
             else:
                 callees.append(target)
+                # (the registers the target reads, when that is known: all four made every
+                # thunk read four, and a caller passing the one its target takes looked short)
+                need = arity(target) if arity else None
                 args = []
-                for r in ARGS:
+                for r in ARGS[:need if need is not None and need < 4 else 4]:
                     used.add(r)
-                    reads.add(r)
+                    if r not in set_block:   # (an input unless every path here set it)
+                        reads.add(r)
                     args.append(reg(r))
                 # and the stack arguments the target reads, this function's own fifth on: a
                 # `this` adjuster in front of a seven-argument function passed four, and the
                 # translator stubbed it for the lost ones (FUN_141297730, 39 thunks, 2026-10-18)
-                need = arity(target) if arity else None
                 args += [f"a{i}" for i in range(4, need or 4)]
                 lines.append(f"  return FUN_{target:x}({', '.join(args)});")
+        elif mn.startswith("j") and int(ops[0], 16) not in found:
+            # a conditional tail call (_decode let it through only to a function's start): taken,
+            # the argument registers go on as they stand, as for a `jmp`. Refused as a branch out
+            # of the code, `if (*err) goto FUN_14147f7f0` (Battle.net's error check 0x141484590)
+            # and two `if (global) goto` thunks were stubs: the decompiler shows the jump as a call
+            # of nothing, "lost a call's arguments" (2026-10-23)
+            target = int(ops[0], 16)
+            callees.append(target)
+            need = arity(target) if arity else None
+            args = []
+            for r in ARGS[:need if need is not None and need < 4 else 4]:
+                used.add(r)
+                if r not in set_block:
+                    reads.add(r)
+                args.append(reg(r))
+            args += [f"a{i}" for i in range(4, need or 4)]
+            lines.append(f"  if {condition(mn[1:])} return FUN_{target:x}({', '.join(args)});")
         elif mn.startswith("j"):
             arrive(int(ops[0], 16))
             lines.append(f"  if {condition(mn[1:])} goto L_{int(ops[0], 16):x};")

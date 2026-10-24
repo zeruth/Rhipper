@@ -40,6 +40,8 @@ project_data() {
     cp "$ROOT/data/imports.json" "$ROOT/build/facts/"
   fi
   if [ -f "$ROOT/data/names.json" ]; then cp "$ROOT/data/names.json" "$ROOT/build/facts/names.json"; fi
+  # (and layouts for the types Ghidra has only as placeholders: ApplyFacts applyStructs)
+  if [ -f "$ROOT/data/structs.json" ]; then cp "$ROOT/data/structs.json" "$ROOT/build/facts/structs.json"; fi
 }
 
 case "$1" in
@@ -49,9 +51,12 @@ case "$1" in
           # the program opens once (a minute or more): the facts go in, then both exports read the
           # result. Written beside the old files and moved over only when complete
           rm -f "$ROOT/build/refdata.jsonl.new" "$ROOT/build/corpus.jsonl.new"
+          # (x86: the structure layouts too, translate32.py's member access)
+          types=(); [ "$ARCH" = x86 ] && types=(-postScript ExportTypes.java "$(cygpath -w "$ROOT/build/types.json")")
           "$G/support/analyzeHeadless.bat" "$PROJ" "$GPROJECT" -process "$PROG" -noanalysis \
             -scriptPath "$SCRIPTS" \
             -postScript ApplyFacts.java "$(cygpath -w "$ROOT/build/facts")" \
+            "${types[@]}" \
             -postScript ExportData.java "$(cygpath -w "$ROOT/build/refdata.jsonl.new")" \
             -postScript ExportDecompAll.java "$(cygpath -w "$ROOT/build/corpus.jsonl.new")" \
             2>&1 | tee "$ROOT/build/ghidra-last.log" | grep --line-buffered -E "ApplyFacts:|ExportD|ERROR|Exception" || true

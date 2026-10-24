@@ -2,7 +2,7 @@
 
 The hand ports cover what has been ported by hand; this covers the rest mechanically, so the port
 runs the reference's own logic where nobody has written it yet. Each translated function is the
-Ghidra output of build/corpus.jsonl rewritten to compile as C (src/gen/Ghidra.h), tagged
+Ghidra output of build/corpus.jsonl rewritten to compile as C (runtime64/Ghidra64.h), tagged
 `/* ref: FUN_<addr> */`, and run against the reference's data sections mapped at their original
 addresses (src/gen/RefImage.cpp), so its globals are its addresses.
 
@@ -76,6 +76,9 @@ def write_out(path: Path, text: str, **kw) -> None:
                 raise
             time.sleep(0.25)
 MANIFEST = GEN / "manifest.json"
+# the header the translation is written against: Rhipper's, copied into the gen directory on each
+# emit, so a project builds against the one its translation was made for (as translate32.py does)
+HEADER = Path(__file__).resolve().parent / "runtime64" / "Ghidra64.h"
 REFDATA = ROOT / "build/refdata.jsonl"
 # the project's cmake build (rhipper.json "build")
 BUILD_DIR = project.path(project.CONFIG["build"]["dir"])
@@ -96,7 +99,7 @@ PRIMITIVE = {
     "bool", "wchar_t", "HANDLE", "size_t", "unsigned", "signed", "uint5", "uint6", "uint7", "int3", "int5",
     "int6", "int7", "int1", "__time64_t", "__int64", "uintptr_t", "va_list",
 }
-# the Windows names src/gen/Ghidra.h declares, which the typed import slots bring into the corpus
+# the Windows names runtime64/Ghidra64.h declares, which the typed import slots bring into the corpus
 WINDOWS_TYPES = {
     "BOOL", "BOOLEAN", "BYTE", "WORD", "DWORD", "DWORD64", "UINT", "INT", "LONG", "ULONG", "SHORT", "USHORT",
     "CHAR", "WCHAR", "LONGLONG", "ULONGLONG", "HRESULT", "LSTATUS", "LCID", "ATOM", "SIZE_T", "ULONG_PTR",
@@ -118,10 +121,13 @@ WINDOWS_TYPES = {
     "EXECUTION_STATE",
 }
 PRIMITIVE |= WINDOWS_TYPES
-# the C library's own structs and types, which src/gen/Ghidra.h names the way Ghidra writes them
+# the C library's own structs and types, which runtime64/Ghidra64.h names the way Ghidra writes them
 PRIMITIVE |= {"tm", "FILE", "_onexit_t", "__time32_t", "__time64_t", "intptr_t", "uintptr_t", "time_t", "size_t", "mbstate_t"}
-# Ghidra.h's 16-byte value (tools/v16.py), and its 32-byte storage (an AVX2 kernel's parameters)
+# Ghidra64.h's 16-byte value (tools/v16.py), and its 32-byte storage (an AVX2 kernel's parameters)
 PRIMITIVE |= {"gen_v16", "gen_v32"}
+# the stub reasons a function's own instructions can answer, when tools/lift.py can model them
+# (Translator.lift_instead): what its decompilation lost, not what its code does
+LIFT_REASONS = ("the decompiler lost a call's arguments", "register the decompiler lost track of")
 HARD = [
     ("register the decompiler lost track of", re.compile(r"\b(in_|unaff_|extraout_)\w+")),
     ("SIMD union", re.compile(r"\._\d+_\d+_")),
@@ -131,12 +137,12 @@ HARD = [
     # `&stack0x...`, and a slot above the home area, the caller's stack arguments)
     # (`&stack0x...`, an address in the frame, is stack_frame()'s; the slot read as a value is not)
     ("the stack frame addressed directly", re.compile(r"(?<!&)\b(stack0x\w+|\w*StackX_(?:2[89a-f]|[3-9a-f][0-9a-f]|[0-9a-f]{3,}))\b")),
-    # (any thread-local is Ghidra.h's emulated block. The static guards' epoch at +0x2140 there is
+    # (any thread-local is Ghidra64.h's emulated block. The static guards' epoch at +0x2140 there is
     # the image template's INT_MIN, and nothing raises it: so `guard > epoch` always holds, and
     # every check goes to the port runtime's _Init_thread_header, which initializes the guard
     # when it is 0 and returns at once when it was. Slower than the port's own epoch, which
     # init_epoch_pointers() reaches where it knows the shape, and correct)
-    # (`swi(3)` and `swi(0x29)`, int3 and __fastfail, are Ghidra.h's; any other interrupt is not)
+    # (`swi(3)` and `swi(0x29)`, int3 and __fastfail, are Ghidra64.h's; any other interrupt is not)
     ("bad data or a trap", re.compile(r"halt_baddata|\bswi\((?!3\)|0x29\))|software_interrupt|halt_unimplemented")),
     ("struct member access", re.compile(r"->")),
     # Ghidra's own word that it lost the flow (anti-tamper bytes decoded as code, overlapping
@@ -1495,6 +1501,56 @@ def param_counts() -> dict[str, int]:
     return _PARAM_COUNTS
 
 
+_TRACE_WIDTHS: dict[int, list[int]] | None = None
+
+
+def trace_widths(a: int) -> list[int]:
+    """The shadow trace's width for each of a function's first four argument positions, as
+    shadow64.py reads the reference's: protos.json's size there, 0 where nothing reads it (`-`),
+    past its last parameter, or for a function protos.json does not know."""
+    global _TRACE_WIDTHS
+    if _TRACE_WIDTHS is None:
+        _TRACE_WIDTHS = {}
+        pf = ROOT / "build/facts/protos.json"
+        if pf.exists():
+            for k, v in json.loads(pf.read_text())["functions"].items():
+                w = [0 if kind == "-" else size for kind, size in v.get("params", ())[:4]]
+                _TRACE_WIDTHS[int(k, 16)] = (w + [0, 0, 0, 0])[:4]
+    return _TRACE_WIDTHS.get(a, [0, 0, 0, 0])
+
+
+def trace_enter(a: int, header: str) -> str:
+    """`GEN_ENTER(...)` for a translated function, from its definition's header: each of the first
+    four parameters' leading bytes (GEN_TARG), at the width trace_widths gives its position."""
+    widths = trace_widths(a)
+    # (from the function's own name: a warning comment above the header may hold parentheses)
+    at = re.search(rf"\bFUN_{a:x}\s*\(", header)
+    open_ = at.end() - 1 if at else -1
+    inner = header[open_ + 1:header.rfind(")")] if open_ >= 0 else ""
+    params, depth, cur = [], 0, ""
+    for ch in inner:
+        if ch == "," and depth == 0:
+            params.append(cur.strip())
+            cur = ""
+            continue
+        if ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth -= 1
+        cur += ch
+    if cur.strip():
+        params.append(cur.strip())
+    args = []
+    for k in range(4):
+        p = params[k] if k < len(params) else ""
+        name = re.search(r"([A-Za-z_]\w*)\s*$", p)
+        if not widths[k] or not name or p in ("void", "...") or "(" in p or "[" in p:
+            args.append("0")
+        else:
+            args.append(f"GEN_TARG({name.group(1)}, {widths[k]})")
+    return f"  GEN_ENTER(0x{a:x}ULL, {', '.join(args)});"
+
+
 ALLOCA_RETADDR = re.compile(r"^[ \t]*\*\(undefined8 \*\)\((\w+) \+ -8\) = 0x14[0-9a-f]{7};\n", re.M)
 ALLOCA_CALLEE = re.compile(r"CALLF\([^,()]+(?:\([^()]*\))?[^,()]*, (FUN_[0-9a-f]+)\)\(|\(\*\(\*\(code \*\)&(\w+)\)\)\("
                            r"|\(\*\(code \*\)&(\w+)\)\(")
@@ -2160,7 +2216,7 @@ def signed_tests(body: str, params=()) -> str:
     """An undefinedN value in a signed comparison, read as the signed type of its width.
 
     Ghidra's `undefined4` is sign-agnostic, so it prints a signed test of one without a cast:
-    `if (-1 < DAT_142d23a20)`. Ghidra.h has to give the typedef a signedness, and it is unsigned,
+    `if (-1 < DAT_142d23a20)`. Ghidra64.h has to give the typedef a signedness, and it is unsigned,
     which made each such test a constant: `-1 < (unsigned)x` is never true and `x < 0` never is
     either, so the compiler deleted what they guarded. 411 functions had one (2026-10-22): among
     them FUN_14192eec0, next to the frame end, compiled to `return 0` from 253 bytes, and the
@@ -2329,7 +2385,7 @@ def float_global_copies(body: str, params=()) -> str:
     a cast), but in C an assignment between a double and an integer converts the number: the
     loading screen's quad corners, (1.0f, 0) as a double a denormal, became 0 and the quad had no
     width (FUN_1402307f0, 2026-10-23; 1290 such copies in 767 functions). Each becomes GEN_COPY,
-    the bytes when both sides are one size (Ghidra.h)."""
+    the bytes when both sides are one size (Ghidra64.h)."""
     decl = {v: t.strip() for t, v in re.findall(rf"^\s*({INT_PLACE_TYPES}\s*\**)\s*(\w+)(?: = \{{0\}})?;", body, re.M)}
     for p in params:
         pm = re.fullmatch(rf"\s*({INT_PLACE_TYPES}\s*\**)\s*(\w+)\s*", p)
@@ -3200,7 +3256,7 @@ def wide_vectors(text: str, a: int) -> str:
     ticks (FUN_140222a60 and its siblings under FUN_1402225d0) carry an integrity hash with an
     SSE2 path and two wider ones, chosen by the CPU-feature bits at 0x142ddf858; those bits stay
     clear in the translation's image of the reference's data, so only the SSE2 path runs. The
-    wide variables become plain storage (gen_v32 / gen_v64, Ghidra.h): pieces of up to 16 bytes
+    wide variables become plain storage (gen_v32 / gen_v64, Ghidra64.h): pieces of up to 16 bytes
     are what simd_pieces() and tools/v16.py already make of any variable's, a copy of a wider
     piece or of the whole is a memcpy, and anything else on a wide value (an AVX2 pseudo-op, an
     operator on 32 bytes) is a wide path, `GenWidePath` if it is ever reached. Their registers'
@@ -3861,7 +3917,7 @@ def float_masks(text: str) -> str:
     directly or through a local holding only it (`uVar5 = DAT_14261aa30;`); the operand a float
     (`fVar3`, `param_2[1]` of a float array) or already its bits (`*(uint *)(p + 0x38)`, a
     parameter typed uint). Which of the last two an operand is, the text does not say; the
-    compiler does: GEN_FABS / GEN_FNEG and their ...BITS forms (Ghidra.h) take the bits of a
+    compiler does: GEN_FABS / GEN_FNEG and their ...BITS forms (Ghidra64.h) take the bits of a
     float and an integer as they are, by _Generic."""
     masks = {FLOAT_ABS_MASK: "ABS", FLOAT_SIGN_MASK: "NEG"}
     for m in re.finditer(rf"^\s*(\w+) = ({FLOAT_ABS_MASK}|{FLOAT_SIGN_MASK});$", text, re.M):
@@ -5029,9 +5085,38 @@ class Translator:
             self._exported_runtime = out
         return self._exported_runtime
 
+    def lift_instead(self) -> set[int]:
+        """The functions translated from their instructions (tools/lift.py) though the corpus has
+        their decompilation: the small thunks whose decompilation lost what they pass on. Each
+        sets or keeps argument registers and jumps to another function (`if (*err) goto
+        FUN_14147f7f0`, `r8b = 1; jmp FUN_1411e7a00`), and the decompiler shows the jump as a call
+        of fewer arguments, or none: the last run stubbed six such, among them Battle.net's error
+        check 0x141484590 (2026-10-23). Taken from the last run's manifest, the stubs for those
+        reasons and what it lifted already, and decided before any body, signature or arity is
+        read, so all three agree on which text a function has."""
+        got = self.__dict__.get("_lift_instead")
+        if got is not None:
+            return got
+        old = json.loads(MANIFEST.read_text(encoding="utf-8")) if MANIFEST.exists() else {}
+        candidates = {int(k, 16) for k, why in old.get("stubbed", {}).items() if why.startswith(LIFT_REASONS)}
+        candidates |= {int(k, 16) for k in old.get("lifted", [])}
+        candidates &= set(self.cor)
+        # (while deciding, every candidate counts as lifted: one thunk's tail call reads the
+        # arity of another)
+        self._lift_instead = candidates
+        keep = {a for a in candidates if self.lifted(a) is not None}
+        self._lift_instead = keep
+        # (what was read while deciding is read again with the set settled)
+        self._arity.clear()
+        self.__dict__.pop("_bodies", None)
+        self._lifted = {a: t for a, t in self._lifted.items() if a in keep}
+        if keep:
+            print(f"{len(keep)} functions translated from their instructions (lift_instead)", file=sys.stderr)
+        return keep
+
     def _body(self, a: int) -> str | None:
         e = self.cor.get(a)
-        if not e or "c" not in e:
+        if not e or "c" not in e or a in self.lift_instead():
             return self.lifted(a)
         text = e["c"].replace("\r\n", "\n")
         for patch in self.patches.get(f"{a:x}", []):
@@ -5074,7 +5159,7 @@ class Translator:
         # `Import::USER32_DLL::DefWindowProcW`): a code pointer
         for imp in set(re.findall(r"\bImport::\w+::(\w+)", text)):
             text = re.sub(rf"^([ \t]*){imp} \*(\w+);$", r"\1code *\2;", text, flags=re.M)
-        # Ghidra's NaN test, apart from the C library's NAN constant (Ghidra.h)
+        # Ghidra's NaN test, apart from the C library's NAN constant (Ghidra64.h)
         text = re.sub(r"\bNAN\s*\(", "GEN_ISNAN(", text)
         # a switch on a value Ghidra typed a pointer (`switch(param_2)`, an `int *param_2` the cases
         # compare with numbers, 2 functions, C2050): the whole operand as an integer, which an
@@ -5227,7 +5312,7 @@ class Translator:
         text = INIT_EPOCH.sub("_Init_thread_epoch", text)
         text = init_epoch_pointers(text)
         text = simd_pieces(text)
-        # 16-byte values as gen_v16, their operators and the SSE pseudo-ops as Ghidra.h's helpers
+        # 16-byte values as gen_v16, their operators and the SSE pseudo-ops as Ghidra64.h's helpers
         # and intrinsics (tools/v16.py). What it cannot take keeps Ghidra's text, and the reason
         wide = {m.group(1) for m in re.finditer(r"\b(_?(?:DAT|UNK)_([0-9a-f]{9}))\b", text)
                 if self.refdata.get(int(m.group(2), 16), (0, ""))[0] == 16}
@@ -5344,7 +5429,7 @@ class Translator:
         self._arity[b] = None     # (until known: thunks that jump to each other)
         need = None
         e = self.cor.get(b)
-        if e and "c" in e:
+        if e and "c" in e and b not in self.lift_instead():
             head, _, rest = e["c"].partition("{")
             sig = self.signature(b)
             if "..." not in head and sig is not None:
@@ -5673,7 +5758,8 @@ class Translator:
         if a not in self._lifted:
             root = self.ref.func_containing(a)
             inside = root is not None and root != a and root in self.cor
-            self._lifted[a] = None if inside or not self.ref.is_code(a) else lift.lift(self.ref, a, arity=self.arity)
+            self._lifted[a] = None if inside or not self.ref.is_code(a) else lift.lift(
+                self.ref, a, arity=self.arity, functions=lambda t: t in self.cor or self.ref.is_func_start(t))
         return self._lifted[a]
 
     def named_callee(self, name: str, own_name: str) -> int | str | None:
@@ -5768,7 +5854,8 @@ class Translator:
         # the header as decompiled (the body's corrections never touch it, and reading the
         # corrected body here would recurse through the callers' arities)
         e = self.cor.get(a)
-        text = e["c"].replace("\r\n", "\n") if e and "c" in e else self.lifted(a)
+        text = (e["c"].replace("\r\n", "\n") if e and "c" in e and a not in self.lift_instead()
+                else self.lifted(a))
         if text is None:
             return None
         head = re.sub(r"(?s)/\*.*?\*/", "", text.split("{", 1)[0]).strip()
@@ -5791,7 +5878,7 @@ class Translator:
                      "", m.group(1)).strip() or "void"
         # (a function-pointer return type is code, as for the parameters below: `fp_FUN_x *`)
         ret = re.sub(r"\b(?:_func|fp)_\w+\b", "code", ret)
-        # (16 bytes, a vector result, or a pointer to them: Ghidra.h's gen_v16, tools/v16.py)
+        # (16 bytes, a vector result, or a pointer to them: Ghidra64.h's gen_v16, tools/v16.py)
         # (Ghidra writes a vector result `undefined1  [16]`, two spaces, when it is placed by hand)
         ret = re.sub(r"^undefined1?\s+\[16\]$", "gen_v16", ret)
         ret = re.sub(r"^undefined1?\s+\(\*\)\s+\[16\]$", "gen_v16 *", ret)
@@ -5816,10 +5903,10 @@ class Translator:
         # (Ghidra's function types in a header: `_func_void_void_ptr_uchar *`, `fp_FUN_x *`)
         params = [re.sub(r"\b(?:_func|fp)_\w+\b", "code", p) for p in params]
         # (a pointer to 16 bytes, `undefined1 (*param_2) [16]`, the type the decompiler infers for
-        # a pointer SSE loads through: Ghidra.h's gen_v16, tools/v16.py; 20 functions stubbed)
+        # a pointer SSE loads through: Ghidra64.h's gen_v16, tools/v16.py; 20 functions stubbed)
         params = [re.sub(r"^undefined1? \(\*(\w+)\) \[16\]$", r"gen_v16 *\1", p.strip()) for p in params]
         # (and to 32, `undefined1 (*param_1) [32]`, what an AVX2 kernel loads a ymm through:
-        # Ghidra.h's gen_v32 storage; read as a type word it was "a type C does not know
+        # Ghidra64.h's gen_v32 storage; read as a type word it was "a type C does not know
         # ((*param_1))", FUN_142400370 and FUN_1424009d0, 2026-10-18)
         params = [re.sub(r"^undefined1? \(\*(\w+)\) \[32\]$", r"gen_v32 *\1", p) for p in params]
         # (and 16 bytes by value, a vector argument ApplyFacts placed in an xmm register)
@@ -5971,6 +6058,27 @@ class Translator:
         if not all(known(" ".join(p.split()[:-1]) + " " + ("*" * p.split()[-1].count("*"))) for p in params):
             return ret, None
         return ret, params
+
+    def data_pointed_ports(self) -> set[int]:
+        """The ported functions the image's own data points at: a base relocation outside .text
+        whose value is a corpus function the port has. Nothing calls them by name, so no plan
+        reached them and they had no jump: a Lua method table in data (the MessageFrame metatable
+        the translated CreateScriptMetaTables registers lists Frame's GetFrameLevel, 0x140995ff0)
+        landed on its int3 and returned nothing, and FrameXML read nil (2026-10-23). Adapted, not
+        translated: the port's own runs, through its adapter."""
+        import pebin
+        b = self.ref
+        size, fmt = (4, "<I") if pebin.X86 else (8, "<Q")
+        targets = set()
+        for site in b.relocs():
+            if b.text.start <= site < b.text.end:
+                continue
+            o = b.off(site)
+            if 0 <= o <= len(b.image) - size:
+                v = struct.unpack_from(fmt, b.image, o)[0]
+                if b.text.start <= v < b.text.end:
+                    targets.add(v)
+        return {a for a in targets if a in self.cor and self.port_target(a) is not None}
 
     # ---- the work set ---------------------------------------------------------------------
     def plan(self, roots: list[int]) -> dict:
@@ -6456,7 +6564,7 @@ class Translator:
             return f"16-byte values: {self.v16_failed[a]}"
         # (the code only, not what its strings say: `"in_token"` is no register)
         code = re.sub(r'"(?:\\.|[^"\\\n])*"', '""', text)
-        # (a field of a struct Ghidra.h lays out as Ghidra does: the DOS header type Ghidra
+        # (a field of a struct Ghidra64.h lays out as Ghidra does: the DOS header type Ghidra
         # gives any pointer that reaches the image base, `param_3->e_magic[0]`, 395 uses)
         known = set(re.findall(r"\b(?:_?IMAGE_DOS_HEADER)\s*\*\s*(\w+)\b", code))
         if known:
@@ -7543,7 +7651,10 @@ class Translator:
                 lines = text.splitlines()
                 brace = lines.index("{") if "{" in lines else -1
                 if brace >= 0:
+                    # (the call count, then the shadow trace's record of the call: its address and
+                    # first four arguments, as shadow64.py records the reference's)
                     lines.insert(brace + 1, f"  GEN_HIT({i});")
+                    lines.insert(brace + 2, trace_enter(a, " ".join(lines[:brace])))
                 out.extend(lines)
                 lines_of[a] = (name, start, len(out))
                 out.append("")
@@ -7577,8 +7688,9 @@ class Translator:
             ret, params = self.decl(a)
             sig = ", ".join(params) if params and "..." not in params else ""
             prototypes.append(f"#define FUN_{a:x} (({ret} (*)({sig}))0x{a:x}ULL)")
+        write_out(GEN / "Ghidra64.h", HEADER.read_text(encoding="utf-8"), encoding="utf-8", newline="\n")
         header = ["/* GENERATED by tools/translate64.py; do not edit by hand. */",
-                  "#ifndef GEN_TRANSLATED_H", "#define GEN_TRANSLATED_H", "", "#include \"gen/Ghidra.h\"", ""]
+                  "#ifndef GEN_TRANSLATED_H", "#define GEN_TRANSLATED_H", "", "#include \"Ghidra64.h\"", ""]
         # the import libraries of the DLLs the reference's imports come from (combase's exports
         # are in ole32.lib)
         header += [f"#pragma comment(lib, \"{'ole32' if d == 'COMBASE_DLL' else d.removesuffix('_DLL').lower()}.lib\")"
@@ -7619,7 +7731,7 @@ class Translator:
         header += prototypes + ["", "#endif", ""]
         write_out(GEN / "translated.h", "\n".join(header), encoding="utf-8", newline="\n")
 
-        # each translated file's call counts (GEN_HIT, Ghidra.h) and their addresses
+        # each translated file's call counts (GEN_HIT, Ghidra64.h) and their addresses
         hits = ["/* GENERATED by tools/translate64.py; do not edit by hand. */",
                 "/* every translated file's call count table (RefImage.cpp writes them out under FROST_HITS) */",
                 "typedef struct { unsigned int *m_hits; const unsigned long long *m_addrs; unsigned int m_count; } GENHITS;"]
@@ -7675,6 +7787,18 @@ class Translator:
             call = (f"(({fptr})gen_f_{a:x})({', '.join(pass_args)})" if internal
                     else f"(({fptr})&{alias})({', '.join(pass_args)})")
             proto = f"{gret} FUN_{a:x}({', '.join(params) or 'void'})"
+            # (the shadow trace records a call into the port as one into the reference function it
+            # stands for; a float arrives here promoted to double, and is recorded as the float's bits)
+            widths = trace_widths(a)
+            targs = []
+            for k in range(4):
+                if k >= len(classes) or not widths[k]:
+                    targs.append("0")
+                    continue
+                n = params[k].split()[-1]
+                targs.append({"float": f"gen_targ_f({n})", "double": f"gen_targ_d({n})"}.get(
+                    classes[k], f"GEN_TARG({n}, {widths[k]})"))
+            enter = f"    GEN_ENTER(0x{a:x}ULL, {', '.join(targs)});"
             if ctor and gret.strip() != "void":
                 inner = f"    {call};\n    return ({gret})a0;"
             elif ret == "void":
@@ -7687,10 +7811,10 @@ class Translator:
                 inner = f"    return ({gret}){call};"
             if internal:
                 adapters += [f"/* {mangled[1:]}: internal, through the pointer its file exports */",
-                             f"extern void *const gen_f_{a:x};", f"{proto} {{", inner, "}", ""]
+                             f"extern void *const gen_f_{a:x};", f"{proto} {{", enter, inner, "}", ""]
             else:
                 adapters += [f"#pragma comment(linker, \"/alternatename:{alias}={mangled}\")",
-                             f"extern char {alias};", f"{proto} {{", inner, "}", ""]
+                             f"extern char {alias};", f"{proto} {{", enter, inner, "}", ""]
         write_out(GEN / "adapters.c", "\n".join(adapters), encoding="utf-8", newline="\n")
         if void_for_value:
             print(f"ports returning void where the reference returns a value ({len(void_for_value)}; the "
@@ -7706,7 +7830,10 @@ class Translator:
             # (a planned variadic function is declared with its parameters: so is its stub)
             head = (f"{ret} FUN_{a:x}({', '.join(params)})" if a in self._plan["translate"] and params
                     and params[-1] == "..." else f"{ret} FUN_{a:x}()")
-            stubs += [f"/* {why.replace('*/', '* /')} */", f"{head} {{", f"    GenUnimplemented(0x{a:x}ULL);",
+            # (a stub records its call in the shadow trace too, its arguments unread: what the port
+            # could not do is a place the two runs part)
+            stubs += [f"/* {why.replace('*/', '* /')} */", f"{head} {{",
+                      f"    GEN_ENTER(0x{a:x}ULL, 0, 0, 0, 0);", f"    GenUnimplemented(0x{a:x}ULL);",
                       f"    return {zero_of(ret)};", "}", ""]
         write_out(GEN / "stubs.c", "\n".join(stubs), encoding="utf-8", newline="\n")
 
@@ -7803,6 +7930,9 @@ class Translator:
             "native": {f"{a:x}": (why if isinstance(why, str) else "third-party assembly (native range)")
                        for a, why in sorted(plan["native"].items())},
             "stubbed": {f"{a:x}": why for a, why in sorted(plan["stub"].items())},
+            # translated from their instructions rather than their decompilation (lift_instead):
+            # the next run starts from this list, so a lifted function stays lifted
+            "lifted": sorted(f"{a:x}" for a in self.lift_instead() if a in plan["translate"]),
             "handlers": {f"{a:x}": cname for a, cname in sorted(handlers.items()) if a in plan["translate"]},
             # left out on purpose, with why (--all): the protection, the padding Ghidra made functions
             # of, the reference's C runtime (the port runs its own), and what only that runtime reaches
@@ -8091,9 +8221,13 @@ def main() -> None:
         roots = sorted(set(roots) | set(everything))
     # (a root that is a runtime entry or a thunk to one is the port's routine, never translated)
     roots = [r for r in roots if r not in CRT_ENTRY and r not in t.crt_thunks]
-    # (and one reached through a pointer that the port has: adapted, see plan())
-    t.adapt_roots = {r for r in load_indirect_roots() if r not in forwarded and r not in handlers
-                     and t.port_target(r) is not None}
+    # (and one reached through a pointer that the port has: adapted, see plan(); with every port
+    # the image's data points at, data_pointed_ports)
+    pointed = {r for r in t.data_pointed_ports() if r not in forwarded and r not in handlers}
+    print(f"{len(pointed)} ported functions the image's data points at: adapted", file=sys.stderr, flush=True)
+    roots = sorted(set(roots) | pointed)
+    t.adapt_roots = pointed | {r for r in load_indirect_roots() if r not in forwarded and r not in handlers
+                               and t.port_target(r) is not None}
     t.start_pool(args.jobs)
     try:
         t.prepare(sorted(set(roots) | set(t.static_initializers())))

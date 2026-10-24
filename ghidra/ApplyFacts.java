@@ -106,6 +106,10 @@ public class ApplyFacts extends GhidraScript {
                 intParams.put(addr(e.getKey()), at);
             }
         }
+        // structure layouts for the types Ghidra has as placeholders (the project's data/structs.json):
+        // before the prototypes, which name them
+        File st = new File(dir, "structs.json");
+        if (st.exists()) applyStructs(read(st));
         File pr = new File(dir, "protos.json");
         if (pr.exists() && "x86".equals(jsonString(read(pr), "arch"))) {
             // 32-bit (protos32.py): a convention per function, or register storage of its own
@@ -147,8 +151,19 @@ public class ApplyFacts extends GhidraScript {
     // someone set by hand or that came with a library match (USER_DEFINED, IMPORTED) is kept, and
     // so are thunks, whose signature is their target's.
     private void applyProtos32(JsonObject root) throws Exception {
-        int set = 0, keptSig = 0, missing = 0, failed = 0, custom = 0;
+        // (the code Ghidra's analysis never reached, made functions first: their prototypes come
+        // on protos32.py's next run, over the extents `ghidra.sh functions` then exports)
+        applyLeaves(root);
+        cleanFunctions32();
+        int set = 0, keptSig = 0, missing = 0, failed = 0, custom = 0, keeps = 0;
         DataType u4 = Undefined.getUndefinedDataType(4);
+        // the keep conventions the functions need (protos32.py "keep"), each made once
+        java.util.Set<String> keepNames = new java.util.TreeSet<>();
+        for (Map.Entry<String, JsonElement> e : root.getAsJsonObject("functions").entrySet()) {
+            JsonObject o = e.getValue().getAsJsonObject();
+            if (o.has("keep")) keepNames.add(keepName32(o.get("cc").getAsString(), o.getAsJsonArray("keep")));
+        }
+        if (!keepNames.isEmpty()) addKeepConventions32(keepNames);
         for (Map.Entry<String, JsonElement> e : root.getAsJsonObject("functions").entrySet()) {
             Function f = getFunctionAt(addr(e.getKey()));
             if (f == null) {
@@ -156,20 +171,30 @@ public class ApplyFacts extends GhidraScript {
                 continue;
             }
             SourceType src = f.getSignatureSource();
-            if (f.isThunk() || src == SourceType.USER_DEFINED || src == SourceType.IMPORTED) {
+            JsonObject o = e.getValue().getAsJsonObject();
+            String cc = o.get("cc").getAsString();
+            // (a library match's signature is the library's, not this build's register convention:
+            // the CRT's parse_cmdline takes its command line in edi, which the matched signature
+            // has no place for, and its body read `unaff_EDI`. A register convention found in the
+            // code wins over it; a hand-set one never loses)
+            boolean libraryButCustom = src == SourceType.IMPORTED && cc.equals("custom");
+            if (f.isThunk() || src == SourceType.USER_DEFINED || (src == SourceType.IMPORTED && !libraryButCustom)) {
                 keptSig++;
                 continue;
             }
-            JsonObject o = e.getValue().getAsJsonObject();
-            String cc = o.get("cc").getAsString();
             int stack = o.get("stack").getAsInt();
             List<Variable> params = new ArrayList<>();
             try {
                 if (cc.equals("custom")) {
                     for (JsonElement r : o.getAsJsonArray("regs")) {
                         String reg = r.getAsString();
-                        params.add(new ParameterImpl("in_" + reg, u4, new ghidra.program.model.listing.VariableStorage(
-                                currentProgram, currentProgram.getRegister(reg.toUpperCase())), currentProgram));
+                        // (an xmm register: a float, in its low lane, as /LTCG passes one)
+                        boolean xmm = reg.startsWith("xmm"), st = reg.equals("st0");
+                        DataType pt = xmm ? ghidra.program.model.data.FloatDataType.dataType
+                                : st ? ghidra.program.model.data.Float10DataType.dataType : u4;
+                        String rn = xmm ? reg.toUpperCase() + "_Da" : reg.toUpperCase();
+                        params.add(new ParameterImpl("in_" + reg, pt, new ghidra.program.model.listing.VariableStorage(
+                                currentProgram, currentProgram.getRegister(rn)), currentProgram));
                     }
                     for (int off = 4; off < 4 + stack; off += 4) {
                         params.add(new ParameterImpl("param_" + (params.size() + 1), u4,
@@ -187,13 +212,231 @@ public class ApplyFacts extends GhidraScript {
                     f.updateFunction(cc, null, params, FunctionUpdateType.DYNAMIC_STORAGE_ALL_PARAMS, true,
                             SourceType.ANALYSIS);
                 }
+                if (o.has("ret")) setReturn32(f, o.get("ret").getAsString());
+                if (o.has("keep") && !cc.equals("custom")) {
+                    f.setCallingConvention(keepName32(cc, o.getAsJsonArray("keep")));
+                    keeps++;
+                }
                 set++;
             } catch (Exception ex) {
                 if (failed++ < 5) printerr("ApplyFacts: prototype for " + f.getEntryPoint() + ": " + ex);
             }
         }
-        println("ApplyFacts: x86 prototypes set " + set + " (" + custom + " custom storage), kept " + keptSig
+        println("ApplyFacts: x86 prototypes set " + set + " (" + custom + " custom storage, " + returnsSet
+                + " returns typed, " + keeps + " with registers kept, " + keepNames.size() + " keep conventions), kept " + keptSig
                 + " (thunks, hand-set or library), no function " + missing + ", failed " + failed);
+    }
+
+    // structs.json: {"structs": {name: {"size": n, "fields": [[name, offset, type], ...]}}}. A type
+    // a library match named but Ghidra never laid out is an empty placeholder of one byte (the
+    // CRT's _LocaleUpdate, _Lockit: `local_14.localeinfo` then had no field, and every function
+    // using one was a stub, 2026-10-23). Each is laid out in place, where the placeholder is (or
+    // made, if none), its fields' types by name: a built-in, a type the program has, `T *`, `T[n]`.
+    private void applyStructs(JsonObject root) throws Exception {
+        ghidra.program.model.data.DataTypeManager dtm = currentProgram.getDataTypeManager();
+        int laid = 0, failed = 0;
+        JsonObject structs = root.getAsJsonObject("structs");
+        // (all named first, so a field can be of another one of them)
+        Map<String, ghidra.program.model.data.Structure> made = new HashMap<>();
+        for (String name : structs.keySet()) {
+            ghidra.program.model.data.Structure s = null;
+            List<DataType> found = new ArrayList<>();
+            dtm.findDataTypes(name, found);
+            for (DataType d : found) if (d instanceof ghidra.program.model.data.Structure ss) s = ss;
+            if (s == null) {
+                s = (ghidra.program.model.data.Structure) dtm.addDataType(
+                        new ghidra.program.model.data.StructureDataType(name, 0), null);
+            }
+            made.put(name, s);
+        }
+        for (Map.Entry<String, JsonElement> e : structs.entrySet()) {
+            JsonObject o = e.getValue().getAsJsonObject();
+            ghidra.program.model.data.Structure s = made.get(e.getKey());
+            try {
+                s.deleteAll();
+                s.growStructure(o.get("size").getAsInt());
+                for (JsonElement fe : o.getAsJsonArray("fields")) {
+                    JsonArray f = fe.getAsJsonArray();
+                    DataType t = structType(f.get(2).getAsString(), dtm, made);
+                    s.replaceAtOffset(f.get(1).getAsInt(), t, t.getLength(), f.get(0).getAsString(), null);
+                }
+                laid++;
+            } catch (Exception ex) {
+                if (failed++ < 5) printerr("ApplyFacts: struct " + e.getKey() + ": " + ex);
+            }
+        }
+        println("ApplyFacts: structures laid out " + laid + ", failed " + failed);
+    }
+
+    private DataType structType(String t, ghidra.program.model.data.DataTypeManager dtm,
+                                Map<String, ghidra.program.model.data.Structure> made) throws Exception {
+        t = t.trim();
+        java.util.regex.Matcher arr = java.util.regex.Pattern.compile("(.+)\\[(\\d+)\\]").matcher(t);
+        if (arr.matches()) {
+            DataType el = structType(arr.group(1), dtm, made);
+            return new ArrayDataType(el, Integer.parseInt(arr.group(2)), el.getLength());
+        }
+        if (t.endsWith("*")) {
+            return new ghidra.program.model.data.PointerDataType(structType(t.substring(0, t.length() - 1), dtm, made),
+                    currentProgram.getDefaultPointerSize());
+        }
+        switch (t) {
+            case "int": return ghidra.program.model.data.IntegerDataType.dataType;
+            case "uint": return ghidra.program.model.data.UnsignedIntegerDataType.dataType;
+            case "short": return ghidra.program.model.data.ShortDataType.dataType;
+            case "ushort": return ghidra.program.model.data.UnsignedShortDataType.dataType;
+            case "char": return ghidra.program.model.data.CharDataType.dataType;
+            case "byte": return ghidra.program.model.data.ByteDataType.dataType;
+            case "bool": return ghidra.program.model.data.BooleanDataType.dataType;
+            case "void": return ghidra.program.model.data.VoidDataType.dataType;
+            case "wchar_t": return ghidra.program.model.data.WideCharDataType.dataType;
+            default:
+                if (made.containsKey(t)) return made.get(t);
+                List<DataType> found = new ArrayList<>();
+                dtm.findDataTypes(t, found);
+                if (!found.isEmpty()) return found.get(0);
+                throw new IllegalArgumentException("no type " + t);
+        }
+    }
+
+    // Two of Ghidra's own mistakes on this binary. Functions at addresses that read as UTF-16 text
+    // (0x0063005f: "_\0c\0"), which its analysis took from wide strings for code pointers and which
+    // nothing calls, jumps to or points to: removed (175, junk decoded from the middle of other
+    // code). And bodies cut short after their first instruction (FUN_006c74f0 is `push ebx` alone,
+    // its code running on into bytes no function has): their body flowed again.
+    private void cleanFunctions32() throws Exception {
+        int removed = 0, regrown = 0;
+        List<Function> junk = new ArrayList<>(), shortened = new ArrayList<>();
+        for (Function f : currentProgram.getFunctionManager().getFunctions(true)) {
+            if (f.isExternal() || f.isThunk()) continue;
+            long a = f.getEntryPoint().getOffset();
+            int b0 = (int) (a & 0xff), b1 = (int) ((a >> 8) & 0xff), b2 = (int) ((a >> 16) & 0xff), b3 = (int) ((a >> 24) & 0xff);
+            boolean texty = b1 == 0 && b3 == 0 && b0 >= 0x20 && b0 < 0x7f && b2 >= 0x20 && b2 < 0x7f;
+            if (texty && getReferencesTo(f.getEntryPoint()).length == 0
+                    && f.getSignatureSource() != SourceType.USER_DEFINED && f.getSymbol().getSource() != SourceType.USER_DEFINED) {
+                junk.add(f);
+                continue;
+            }
+            Instruction last = getInstructionContaining(f.getBody().getMaxAddress());
+            if (last != null && last.getFallThrough() != null && !last.getFlowType().isCall()
+                    && getFunctionContaining(last.getFallThrough()) == null && getInstructionAt(last.getFallThrough()) != null) {
+                shortened.add(f);
+            }
+        }
+        for (Function f : junk) {
+            if (currentProgram.getFunctionManager().removeFunction(f.getEntryPoint())) removed++;
+        }
+        for (Function f : shortened) {
+            CreateFunctionCmd.fixupFunctionBody(currentProgram, f, monitor);
+            regrown++;
+        }
+        println("ApplyFacts: junk functions at text addresses removed " + removed + ", cut-short bodies regrown " + regrown);
+    }
+
+    // x86 keep conventions: a base one (__cdecl, __stdcall, __thiscall, __fastcall) with the volatile
+    // registers a function leaves as it found them unaffected (protos32.py "keep"). /LTCG lets a
+    // caller keep a value in ecx or edx across a call to one; under the base convention the
+    // decompiler takes the call to kill them and names what follows `extraout_ECX`. Each is the
+    // base's own prototype from the language's x86win.cspec, renamed, the kept registers moved from
+    // killedbycall and likelytrash into unaffected (eax too: then no output is killed by the call)
+    private static String keepName32(String cc, JsonArray regs) {
+        StringBuilder n = new StringBuilder(cc).append("_keep");
+        for (JsonElement r : regs) n.append('_').append(r.getAsString());
+        return n.toString();
+    }
+
+    private static String withoutIn(String x, String section, String reg) {
+        int a = x.indexOf("<" + section + ">");
+        int b = a < 0 ? -1 : x.indexOf("</" + section + ">", a);
+        if (b < 0) return x;
+        String inner = x.substring(a, b).replaceAll("<register name=\"" + reg + "\"/>\\s*", "");
+        return x.substring(0, a) + inner + x.substring(b);
+    }
+
+    private void addKeepConventions32(java.util.Set<String> names) throws Exception {
+        String cspec = new String(java.nio.file.Files.readAllBytes(ghidra.framework.Application
+                .getModuleDataFile("x86", "languages/x86win.cspec").getFile(false).toPath()));
+        Class<?> se = Function.class.getClassLoader().loadClass("ghidra.program.database.SpecExtension");
+        Object ext = se.getConstructor(ghidra.program.model.listing.Program.class).newInstance(currentProgram);
+        java.lang.reflect.Method add = se.getMethod("addReplaceCompilerSpecExtension", String.class,
+                ghidra.util.task.TaskMonitor.class);
+        int made = 0;
+        for (String name : names) {
+            String base = name.substring(0, name.indexOf("_keep"));
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile(
+                    "<prototype name=\"" + java.util.regex.Pattern.quote(base) + "\".*?</prototype>",
+                    java.util.regex.Pattern.DOTALL).matcher(cspec);
+            if (!m.find()) {
+                printerr("ApplyFacts: no " + base + " in x86win.cspec for " + name);
+                continue;
+            }
+            String x = m.group().replaceFirst("name=\"" + java.util.regex.Pattern.quote(base) + "\"", "name=\"" + name + "\"");
+            StringBuilder unaff = new StringBuilder();
+            for (String r : name.substring(name.indexOf("_keep") + 5).split("_")) {
+                if (r.isEmpty()) continue;
+                String reg = r.toUpperCase();
+                // (out of killedbycall and likelytrash, into unaffected: inside each section only,
+                // __thiscall's input names ECX too)
+                x = withoutIn(x, "killedbycall", reg);
+                x = withoutIn(x, "likelytrash", reg);
+                unaff.append("<register name=\"").append(reg).append("\"/>");
+                if (reg.equals("EAX")) x = x.replace("<output killedbycall=\"true\">", "<output>");
+            }
+            x = x.replaceFirst("</unaffected>", unaff + "</unaffected>");
+            x = x.replaceAll("<killedbycall>\\s*</killedbycall>", "").replaceAll("<likelytrash>\\s*</likelytrash>", "");
+            add.invoke(ext, x, monitor);
+            made++;
+        }
+        println("ApplyFacts: x86 keep conventions made " + made + " of " + names.size());
+    }
+
+    // A return its callers read (protos32.py "ret": al/ax/eax "i1"/"i2"/"i4", edx:eax "i8", st0 "f4"/"d8"):
+    // Ghidra's type where it is one of that width and kind, else one that is. Ghidra had left
+    // the allocator FUN_004067a0 void, and its callers' use of eax was lost
+    private int returnsSet = 0;
+    private void setReturn32(Function f, String kind) throws Exception {
+        DataType have = f.getReturnType();
+        boolean haveFloat = have instanceof ghidra.program.model.data.AbstractFloatDataType;
+        boolean usable = have != null && !Undefined.isUndefined(have)
+                && !(have instanceof ghidra.program.model.data.VoidDataType);
+        DataType want;
+        switch (kind) {
+            case "i8":
+                want = usable && !haveFloat && have.getLength() == 8 ? have
+                        : ghidra.program.model.data.UnsignedLongLongDataType.dataType;
+                break;
+            case "f4":
+                want = ghidra.program.model.data.FloatDataType.dataType;
+                break;
+            case "d8":
+                want = ghidra.program.model.data.DoubleDataType.dataType;
+                break;
+            case "i1":
+                want = usable && !haveFloat && have.getLength() == 1 ? have
+                        : ghidra.program.model.data.ByteDataType.dataType;
+                break;
+            case "i2":
+                want = usable && !haveFloat && have.getLength() == 2 ? have
+                        : ghidra.program.model.data.UnsignedShortDataType.dataType;
+                break;
+            default:
+                want = usable && !haveFloat && have.getLength() == 4 ? have
+                        : ghidra.program.model.data.UnsignedIntegerDataType.dataType;
+        }
+        if (want != have) {
+            if (f.hasCustomVariableStorage()) {
+                // (custom storage: the return's own too, or "Storage can't be resized: <VOID>")
+                // (an integer one only: edx:eax, and a float in st0's 10 bytes, are left as they are)
+                int n = want.getLength();
+                if (want instanceof ghidra.program.model.data.AbstractFloatDataType || n > 4) return;
+                String reg = n == 1 ? "AL" : n == 2 ? "AX" : "EAX";
+                f.setReturn(want, new ghidra.program.model.listing.VariableStorage(currentProgram,
+                        currentProgram.getRegister(reg)), SourceType.ANALYSIS);
+            } else {
+                f.setReturnType(want, SourceType.ANALYSIS);
+            }
+            returnsSet++;
+        }
     }
 
     private Address addr(String hex) {
@@ -490,13 +733,37 @@ public class ApplyFacts extends GhidraScript {
     private int noreturnSet;
 
     private void applyNoReturn(JsonObject root) throws Exception {
+        java.util.Set<Address> listed = new java.util.HashSet<>();
         for (Map.Entry<String, JsonElement> e : root.getAsJsonObject("functions").entrySet()) {
             Function f = getFunctionAt(addr(e.getKey()));
-            if (f == null || f.hasNoReturn()) continue;
+            if (f == null) continue;
+            listed.add(f.getEntryPoint());
+            if (f.hasNoReturn()) continue;
             f.setNoReturn(true);
             noreturnSet++;
         }
-        println("ApplyFacts: marked " + noreturnSet + " functions noreturn");
+        // (x86: and one marked before, by an earlier session or Ghidra's analysis, that noreturn.py
+        // no longer lists and that has a return instruction, unmarked. __security_check_cookie's
+        // `repz ret` had been missed, it was marked, and stayed so after the fix, cutting off what
+        // follows each of its 8,878 calls)
+        int cleared = 0;
+        if (currentProgram.getDefaultPointerSize() == 4) {
+            for (Function f : currentProgram.getFunctionManager().getFunctions(true)) {
+                if (!f.hasNoReturn() || listed.contains(f.getEntryPoint()) || f.isThunk()) continue;
+                boolean returns = false;
+                for (Instruction in : currentProgram.getListing().getInstructions(f.getBody(), true)) {
+                    if (in.getFlowType().isTerminal() && in.getMnemonicString().toUpperCase().contains("RET")) {
+                        returns = true;
+                        break;
+                    }
+                }
+                if (returns) {
+                    f.setNoReturn(false);
+                    cleared++;
+                }
+            }
+        }
+        println("ApplyFacts: marked " + noreturnSet + " functions noreturn (" + cleared + " that return unmarked)");
     }
 
     // varargs.json: variadic functions and their fixed parameter count (tools/varargs.py).
@@ -546,6 +813,37 @@ public class ApplyFacts extends GhidraScript {
         println("ApplyFacts: marked " + set + " functions variadic (kept " + user + " user signatures)");
     }
 
+    // The call targets and pointed-to code no function covered (protos.py, protos32.py "leaves",
+    // "pointed"), made functions
+    private void applyLeaves(JsonObject root) throws Exception {
+        if (!root.has("leaves")) return;
+        // (a leaf a pointer reaches is an entry point even inside a body Ghidra drew over it,
+        // a callback it absorbed through a jump: made there too, and the body it was taken
+        // from fixed up. A leaf only called from inside a function's body is the anti-tamper
+        // junk's call into the middle of code, and is left alone)
+        java.util.Set<Address> pointed = new java.util.HashSet<>();
+        if (root.has("pointed")) {
+            for (JsonElement l : root.getAsJsonArray("pointed")) pointed.add(addr(l.getAsString()));
+        }
+        int made = 0, split = 0;
+        for (JsonElement l : root.getAsJsonArray("leaves")) {
+            Address a = addr(l.getAsString());
+            if (getFunctionAt(a) != null || partOfAnother.contains(a)) continue;
+            Function in = getFunctionContaining(a);
+            if (in != null && !pointed.contains(a)) continue;
+            if (getInstructionAt(a) == null) disassemble(a);
+            if (new CreateFunctionCmd(a).applyTo(currentProgram, monitor)) {
+                made++;
+                if (in != null) {
+                    split++;
+                    CreateFunctionCmd.fixupFunctionBody(currentProgram, in, monitor);
+                }
+            }
+        }
+        println("ApplyFacts: leaf functions created " + made + " of " + root.getAsJsonArray("leaves").size()
+                + " (" + split + " inside another function's body, " + pointed.size() + " reached by a pointer)");
+    }
+
     // protos.json (tools/protos.py): each function's parameters as its instructions read them,
     // in place of the Decompiler Parameter ID guesses CommitPrototypes.java used to commit
     // (FUN_1414fc8b0 reads dx and r8w and was committed as `(uint)`: its body then read registers
@@ -557,33 +855,7 @@ public class ApplyFacts extends GhidraScript {
         int set = 0, same = 0, skipped = 0;
         // the call targets no function covered (leaves without .pdata, tools/protos.py): made
         // functions first, so they decompile and take their prototypes below
-        if (root.has("leaves")) {
-            // (a leaf a pointer reaches is an entry point even inside a body Ghidra drew over it,
-            // a callback it absorbed through a jump: made there too, and the body it was taken
-            // from fixed up. A leaf only called from inside a function's body is the anti-tamper
-            // junk's call into the middle of code, and is left alone)
-            java.util.Set<Address> pointed = new java.util.HashSet<>();
-            if (root.has("pointed")) {
-                for (JsonElement l : root.getAsJsonArray("pointed")) pointed.add(addr(l.getAsString()));
-            }
-            int made = 0, split = 0;
-            for (JsonElement l : root.getAsJsonArray("leaves")) {
-                Address a = addr(l.getAsString());
-                if (getFunctionAt(a) != null || partOfAnother.contains(a)) continue;
-                Function in = getFunctionContaining(a);
-                if (in != null && !pointed.contains(a)) continue;
-                if (getInstructionAt(a) == null) disassemble(a);
-                if (new CreateFunctionCmd(a).applyTo(currentProgram, monitor)) {
-                    made++;
-                    if (in != null) {
-                        split++;
-                        CreateFunctionCmd.fixupFunctionBody(currentProgram, in, monitor);
-                    }
-                }
-            }
-            println("ApplyFacts: leaf functions created " + made + " of " + root.getAsJsonArray("leaves").size()
-                    + " (" + split + " inside another function's body, " + pointed.size() + " reached by a pointer)");
-        }
+        applyLeaves(root);
         // the code after a run of the clean exe's nops: Ghidra's disassembly stopped at the end of
         // the run, leaving the rest of the function undefined bytes, and the decompiler went on
         // through them alone, taking the tail call it found there for code of its own
@@ -1321,9 +1593,18 @@ public class ApplyFacts extends GhidraScript {
                 JsonArray p = a.getAsJsonArray();
                 key.append(p.get(0).getAsString()).append(p.get(1).getAsInt());
             }
+            // the convention, where the facts give one (x86, protos32.py: __thiscall passes its
+            // first argument in ecx)
+            JsonObject ccs = root.has("cc") ? root.getAsJsonObject("cc") : null;
+            String cc = ccs != null && ccs.has(e.getKey()) ? ccs.get(e.getKey()).getAsString() : null;
+            if (cc != null) key.append("_").append(cc.replace("__", ""));
             // a direct call (to a variadic function, tools/protos.py) returns what its callee
             // does; an indirect one a register's worth
             DataType ret = Undefined.getUndefinedDataType(8);
+            // (on x86, eax whole: an undefined return is unlocked, and the decompiler sized it by
+            // the caller's first use, `test al, al` making a pointer result CONCAT31(extraout_var,
+            // uVar1) in F_00405f60's allocator calls, 2026-10-23)
+            if (currentProgram.getDefaultPointerSize() == 4) ret = ghidra.program.model.data.UnsignedIntegerDataType.dataType;
             // an indirect call's result as its caller reads it (a float through `call [rax +
             // 0x68]` was `extraout_XMM0_Da` against undefined8: 46 stubs, 2026-10-16)
             JsonObject rets = root.has("rets") ? root.getAsJsonObject("rets") : null;
@@ -1339,10 +1620,18 @@ public class ApplyFacts extends GhidraScript {
             // of the real target's result is the return, not the guard routine's void)
             if (flows != null && flows.length == 1 && (rets == null || !rets.has(e.getKey()))) {
                 Function callee = getFunctionAt(flows[0]);
-                if (callee != null) {
+                // (on x86 not an undefined one, which is unlocked: the vtable F_00405f60 loads as
+                // a constant on one path gave `call eax` a target whose return Ghidra never sized)
+                if (callee != null && !(currentProgram.getDefaultPointerSize() == 4
+                        && Undefined.isUndefined(callee.getReturnType()))) {
                     ret = callee.getReturnType();
                     key.append("_r").append(ret.getName().replaceAll("\\W", ""));
                 }
+            }
+            // (on x86 the return in the name too: a shape's data type stays in the program from
+            // session to session, and one made again under its old name kept its old return)
+            if (currentProgram.getDefaultPointerSize() == 4 && key.indexOf("_r") < 0) {
+                key.append("_r").append(ret.getName().replaceAll("\\W", ""));
             }
             FunctionDefinitionDataType sig = shapes.get(key.toString());
             if (sig == null) {
@@ -1356,6 +1645,7 @@ public class ApplyFacts extends GhidraScript {
                 }
                 sig.setArguments(defs.toArray(new ghidra.program.model.data.ParameterDefinition[0]));
                 sig.setReturnType(ret);
+                if (cc != null) sig.setCallingConvention(cc);
                 shapes.put(key.toString(), sig);
             }
             try {
