@@ -8,6 +8,8 @@
 # The fixes (each marked RHIPPER in patch/):
 #   dynamic.cc  dynamic hashes tell apart up to 64 colliding varnodes, not 8: a SIMD instruction's
 #               lanes hash alike, and "Unable to find unique hash for varnode" failed whole functions
+#   printc.cc   a value wider than the symbol at its address prints as `*(T *)&sym`, not the
+#               release's `_sym` (a mark for a reader, no C: 993 functions of WowClassic 3.4.3)
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
 RH="$(cd "$HERE/../.." && pwd)"
