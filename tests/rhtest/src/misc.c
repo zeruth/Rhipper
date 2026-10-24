@@ -16,6 +16,8 @@ __declspec(dllimport) unsigned long __stdcall TlsAlloc(void);
 __declspec(dllimport) int __stdcall TlsFree(unsigned long index);
 __declspec(dllimport) void *__stdcall TlsGetValue(unsigned long index);
 __declspec(dllimport) int __stdcall TlsSetValue(unsigned long index, void *value);
+typedef struct { unsigned int MaxCharSize; unsigned char DefaultChar[2]; unsigned char LeadByte[12]; } CpInfo;
+__declspec(dllimport) int __stdcall GetCPInfo(unsigned int codepage, CpInfo *info);
 
 /* ---- thread-local storage ---- */
 static __declspec(thread) u32 t_count = 5;
@@ -147,6 +149,39 @@ NOINLINE u64 filled(u32 s) {
     return 0;
 }
 
+/* a switch in a function with a frame pointer (_alloca keeps ebp at /O2): its cases, reached only
+ * through the jump table, read the parameters through ebp. Taken for ebp read unset, it made the
+ * function take ebp as an input, and its callers stubs (memcpy's tails, CrystalCore) */
+NOINLINE u32 framed_switch(u32 k, u32 a, u32 b) {
+    volatile u8 *p = (volatile u8 *)_alloca(16 + (k & 7));
+    p[0] = (u8)k;
+    switch (k % 7) {
+    case 0: return a + p[0];
+    case 1: return a * b;
+    case 2: return a - b;
+    case 3: return b << 3;
+    case 4: return a ^ b ^ p[0];
+    case 5: return a | b;
+    default: return b - a;
+    }
+}
+/* a Windows structure on the stack that a kernel32 call fills, as __setmbcp_nolock's CPINFO: the
+ * decompiler, knowing GetCPInfo's type, names such a local `_Stack_1c`, which the translator took
+ * for one of its unnamed pieces (CrystalCore) */
+NOINLINE u32 code_page(u32 s) {
+    CpInfo ci;
+    u32 r, k;
+    if (!GetCPInfo(1252, &ci)) return 0;
+    r = ci.MaxCharSize * 1000 + ci.DefaultChar[0] + s;
+    for (k = 0; k < 12 && ci.LeadByte[k]; k++) r = r * 7 + ci.LeadByte[k];
+    return r;
+}
+NOINLINE u32 framed_calls(u32 s) {
+    u32 r = 0, k;
+    for (k = 0; k < 7; k++) r = r * 33 + framed_switch(s + k, s * 5 + k, k * 11);
+    return r;
+}
+
 void rhtest_run(void) {
     u32 s = seed();   /* 7 */
     check("tls_static", tls_static(s));
@@ -163,4 +198,6 @@ void rhtest_run(void) {
     check("stack_alloc", stack_alloc(s));
     check("jumps", jumps(s));
     check64("filled", filled(s));
+    check("framed_switch", framed_calls(s));
+    check("code_page", code_page(s));
 }

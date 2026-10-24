@@ -152,6 +152,23 @@ NOINLINE u32 sort_check(u32 s, int (*cmp)(const int *, const int *)) {
     return h;
 }
 
+/* a callee that never writes its ecx input: /GL keeps the caller's pointer in ecx across the
+ * call and reads it after, which the decompiler, told every call kills ecx, lost as
+ * `extraout_ECX` (a constructor calling a method on `this`, CrystalCore's FUN_00d7be90) */
+typedef struct { u32 v[4]; u32 n; } Box;
+NOINLINE void __fastcall box_touch(Box *b, u32 k) { b->v[k & 3] += k; b->n++; }
+NOINLINE Box *__fastcall box_chain(Box *b, u32 k) {
+    b->n = k;
+    if (k & 1) box_touch(b, k);
+    box_touch(b, k * 3);
+    return b;
+}
+NOINLINE u32 boxes(u32 s) {
+    Box b = {{1, 2, 3, 4}, 0};
+    Box *p = box_chain(&b, s);
+    return p->v[0] + p->v[1] * 10 + p->v[2] * 100 + p->v[3] * 1000 + p->n * 10000;
+}
+
 void rhtest_run(void) {
     u32 s = seed();   /* 7 */
     int i = (int)s;
@@ -183,4 +200,5 @@ void rhtest_run(void) {
     check("call_va", (u32)call_va(sum_va, i));
     check("sort_desc", sort_check(s, cmp_desc));
     check("sort_mod", sort_check(s + 1, cmp_mod));
+    check("boxes", boxes(s));
 }

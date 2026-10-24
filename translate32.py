@@ -944,8 +944,10 @@ class Translator32:
         self.refdata, self.ref_names = load_refdata()
         # (each function's frame allocation, protos32.py's "frame": an EH frame's is laid out whole)
         pp = FACTS / "protos.json"
-        self.frames = {int(k, 16): v["frame"] for k, v in json.loads(pp.read_text())["functions"].items()
-                       if v.get("frame")} if pp.exists() else {}
+        protos = json.loads(pp.read_text())["functions"] if pp.exists() else {}
+        self.frames = {int(k, 16): v["frame"] for k, v in protos.items() if v.get("frame")}
+        # (and the register inputs each leaves as it found them, kept_inputs)
+        self.keeps_in = {int(k, 16): v["keeps_in"] for k, v in protos.items() if v.get("keeps_in")}
         self.sigs: dict[int, Signature] = {}
         self.by_printed: dict[str, int] = {}
         bad = 0
@@ -1083,9 +1085,74 @@ class Translator32:
                 out.add(n)
         return out
 
+    def kept_inputs(self, c: str) -> str:
+        """`extraout_ECX` (or EDX) read in the statement right after a call to a function that
+        leaves that register input as it found it (protos32's keeps_in): what the call was passed
+        there. /LTCG keeps `this` in ecx across a call to a method that never writes ecx, and the
+        decompiler, told the call kills it, lost it: FUN_00d7be90's `FUN_00d79e80(this); this =
+        extraout_ECX;`, a stub on CrystalCore's WinMain path, 2026-10-24."""
+        names = sorted(set(re.findall(r"\bextraout_E[CD]X(?:_\d+)?\b", c)))
+        if not names or not self.keeps_in:
+            return c
+        lines = c.split("\n")
+        for n in names:
+            decl = re.compile(rf"^[ \t]+([A-Za-z_][\w ]*?[\s*]*?)\s*\b{n};\s*$")
+            dl = next((i for i, l in enumerate(lines) if decl.match(l)), None)
+            uses = [i for i, l in enumerate(lines) if re.search(rf"\b{n}\b", l) and i != dl]
+            if dl is None or not uses:
+                continue
+            reg = "ecx" if "ECX" in n else "edx"
+            value = None
+            for u in uses:
+                p = u - 1
+                while p >= 0 and not lines[p].strip():
+                    p -= 1
+                call = self.kept_call(lines[p], reg) if p >= 0 else None
+                if call is None or (value is not None and call != value):
+                    value = None
+                    break
+                value = call
+            if value is None:
+                continue
+            t = decl.match(lines[dl]).group(1).strip()
+            for u in uses:
+                lines[u] = re.sub(rf"\b{n}\b", f"(({t})({value}))", lines[u])
+            lines[dl] = ""
+        return "\n".join(lines)
+
+    def kept_call(self, line: str, reg: str) -> str | None:
+        """The argument a statement's one call passes in `reg`, when the callee leaves it as it
+        found it and nothing on the line assigns what it is made of (kept_inputs)."""
+        m = re.fullmatch(r"\s*(?:[\w.\->\[\]]+\s*=\s*)?(?:\([^()]*\))?\s*([A-Za-z_]\w*)\s*\((.*)\);\s*", line)
+        if not m:
+            return None
+        a2 = self.by_printed.get(m.group(1))
+        idx = self.keeps_in.get(a2, {}).get(reg) if a2 is not None else None
+        if idx is None:
+            return None
+        args, depth, cur = [], 0, ""
+        for ch in m.group(2):
+            if ch == "," and depth == 0:
+                args.append(cur.strip())
+                cur = ""
+                continue
+            depth += ch in "([" and 1 or ch in ")]" and -1 or 0
+            cur += ch
+        args.append(cur.strip())
+        if idx >= len(args) or not args[idx]:
+            return None
+        arg = args[idx]
+        # (no call, no side effect, and nothing the statement assigns: the value it had)
+        if re.search(r"\w\s*\(|\+\+|--|[^=!<>]=[^=]", arg):
+            return None
+        lhs = re.match(r"\s*([A-Za-z_]\w*)\s*=", line)
+        if lhs and re.search(rf"\b{lhs.group(1)}\b", arg):
+            return None
+        return arg
+
     # ---- one function ---------------------------------------------------------------------------
     def why_not(self, a: int) -> str | None:
-        c = stack_vs_const(v16_forms(cpu_state(strip_comments(self.corpus[a]["c"]))))
+        c = self.kept_inputs(stack_vs_const(v16_forms(cpu_state(strip_comments(self.corpus[a]["c"])))))
         if a not in self.sigs:
             return "no signature"
         # (and a full xmm register as an SSE pseudo-op's destination found it: zeroed, sse_ops)
@@ -1412,7 +1479,7 @@ class Translator32:
     def rewrite(self, a: int) -> str:
         """The function's C, translated (raises ValueError when it cannot be)."""
         sig = self.sigs[a]
-        c = stack_vs_const(v16_forms(cpu_state(strip_comments(self.corpus[a]["c"]))))
+        c = self.kept_inputs(stack_vs_const(v16_forms(cpu_state(strip_comments(self.corpus[a]["c"])))))
         # (a long C++ name Ghidra wraps at a `::`, `IpcChannel::\n        PacketBufferTmpl<...>::\n
         # vftable`: one name again, as the data export has it. 1,090 stubs, 2026-10-23)
         c = re.sub(r"::[ \t]*\n[ \t]*", "::", c)
@@ -1716,7 +1783,11 @@ class Translator32:
         # (in the code, not in a string: "ios_base::eofbit set" is text)
         code_only = re.sub(r'"(?:[^"\\\n]|\\.)*"', '""', body)
         # (Ghidra's stack pieces, `_uStack_1c`; not a library signature's `_StackCookie`)
-        left = re.search(r"::|`|\bregister0x|\b_(?:local|param|[a-z]*Stack(?![A-Za-z])|auStack)\w*|\bin_(?!E[ACD]X\b|E[ACD]X_\d+\b|A[LX]\b|A[LX]_\d+\b|XMM\d+\b)[A-Z]", code_only)
+        # (one the function declares is a local of its own: __setmbcp_nolock's `_cpinfo _Stack_1c;`,
+        # a struct the decompiler named so, 2026-10-24)
+        left = next((m for m in re.finditer(r"::|`|\bregister0x|\b_(?:local|param|[a-z]*Stack(?![A-Za-z])|auStack)\w*|\bin_(?!E[ACD]X\b|E[ACD]X_\d+\b|A[LX]\b|A[LX]_\d+\b|XMM\d+\b)[A-Z]", code_only)
+                     if not (m.group(0).startswith("_") and re.search(
+                         rf"^[ \t]+[\w ]+?[\s*]{re.escape(m.group(0))}(?:\s*\[\w+\])?;", code_only, re.M))), None)
         if left:
             raise ValueError(f"a name C cannot take ({left.group(0)})")
         self.undeclared(body, var_types)

@@ -483,7 +483,10 @@ def analyse(root: int, ranges):
         visit(work.pop())
     # code only a switch reaches: from the dispatching jump's state, in address order
     if indirect_jumps:
-        m = ALL
+        # (ebp's bit too: from ALL alone, every switch target read ebp unset, and memcpy's tails,
+        # `mov eax, [ebp + 8]; leave`, made it take ebp. Its every caller was a stub for the
+        # unaff_EBP, FUN_00b9d7c0 on WinMain's path among them, 2026-10-24)
+        m = ALL | EBP_IN
         for jm, _e, _b2 in indirect_jumps:
             m &= jm
         seed = (m, indirect_jumps[0][1], indirect_jumps[0][2], 0)
@@ -1573,6 +1576,15 @@ def main() -> None:
             e["callee_cleans"] = bool(ret_n)
         if keep and cc in ("__cdecl", "__stdcall", "custom"):
             e["keep"] = keep                      # the volatile registers it leaves alone
+        # (and the register inputs it leaves as it found them, by their place among its register
+        # parameters: a caller that keeps `this` in ecx across the call reads `extraout_ECX` after
+        # it, which translate32 takes for what it passed. Not a keep convention: Ghidra reads a kept
+        # input as a saved one, unaff_ECX. FUN_00d7be90's call to FUN_00d79e80, a stub on WinMain's
+        # path, 2026-10-24)
+        in_regs = [(bit, n) for bit, n in REG_NAMES if reg & bit]
+        keeps_in = {n: i for i, (bit, n) in enumerate(in_regs) if bit in (ECX, EDX) and not kills[f] & bit}
+        if keeps_in:
+            e["keeps_in"] = keeps_in
         out[hexa(f)] = e
         counts[cc] = counts.get(cc, 0) + 1
 
