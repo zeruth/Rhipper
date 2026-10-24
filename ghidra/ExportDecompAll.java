@@ -129,6 +129,28 @@ public class ExportDecompAll extends GhidraScript {
         widths.computeIfAbsent(a.getOffset(), k -> new java.util.TreeSet<>()).add((Integer) mSize.invoke(v));
     }
 
+    private static java.util.Set<Long> readAddresses(String path) throws Exception {
+        java.util.Set<Long> out = new java.util.HashSet<>();
+        for (String line : java.nio.file.Files.readAllLines(java.nio.file.Paths.get(path))) {
+            if (!line.isBlank()) out.add(Long.parseLong(line.trim().replaceFirst("^0[xX]", ""), 16));
+        }
+        return out;
+    }
+
+    private static String line(String[] r) {
+        StringBuilder b = new StringBuilder();
+        b.append("{\"addr\":\"").append(r[0]).append("\",\"name\":\"").append(jsonEscape(r[1]))
+         .append("\",\"size\":").append(r[2]);
+        if (r[3] != null) {
+            b.append(",\"c\":\"").append(jsonEscape(r[3])).append("\"");
+            if (r[5] != null) b.append(",\"g\":").append(r[5]);
+            b.append("}");
+        } else {
+            b.append(",\"error\":\"").append(jsonEscape(r[4] == null ? "" : r[4])).append("\"}");
+        }
+        return b.toString();
+    }
+
     @Override
     public void run() throws Exception {
         String[] args = getScriptArgs();
@@ -137,18 +159,30 @@ public class ExportDecompAll extends GhidraScript {
             return;
         }
         long lo = 0, hi = Long.MAX_VALUE;
-        if (args.length >= 3) {
-            lo = Long.parseLong(args[1].replaceFirst("^0[xX]", ""), 16);
-            hi = Long.parseLong(args[2].replaceFirst("^0[xX]", ""), 16);
-        }
         // `@file`: only the functions at the addresses listed in it, one hex address a line (a
-        // sample to check before a whole export)
+        // sample to check before a whole export). `slow=file`: the functions listed there (a
+        // previous run's retries, ghidra/shards.py) are decompiled with the long limits from the
+        // start, beside the main pass instead of after it: the 833-case FUN_140727d90 alone takes
+        // ~600 s, and timing out at 90 s first then running it alone left one shard ten minutes
+        // behind the other (2026-10-23). Two hex numbers: the address range.
         java.util.Set<Long> only = null;
-        if (args.length == 2 && args[1].startsWith("@")) {
-            only = new java.util.HashSet<>();
-            for (String line : java.nio.file.Files.readAllLines(java.nio.file.Paths.get(args[1].substring(1)))) {
-                if (!line.isBlank()) only.add(Long.parseLong(line.trim().replaceFirst("^0[xX]", ""), 16));
+        java.util.Set<Long> slow = new java.util.HashSet<>();
+        List<Long> bounds = new ArrayList<>();
+        for (int i = 1; i < args.length; i++) {
+            if (args[i].startsWith("@")) {
+                only = readAddresses(args[i].substring(1));
+            } else if (args[i].startsWith("slow=")) {
+                java.nio.file.Path p = java.nio.file.Paths.get(args[i].substring(5));
+                if (java.nio.file.Files.exists(p)) {
+                    slow = readAddresses(p.toString());
+                }
+            } else {
+                bounds.add(Long.parseLong(args[i].replaceFirst("^0[xX]", ""), 16));
             }
+        }
+        if (bounds.size() >= 2) {
+            lo = bounds.get(0);
+            hi = bounds.get(1);
         }
 
         // a listed address Ghidra made no function of (code reached only through a table or a
@@ -172,6 +206,7 @@ public class ExportDecompAll extends GhidraScript {
         }
 
         List<Function> functions = new ArrayList<>();
+        final List<Function> slowFunctions = new ArrayList<>();
         FunctionIterator it = currentProgram.getFunctionManager().getFunctions(true);
         while (it.hasNext()) {
             Function f = it.next();
@@ -182,9 +217,10 @@ public class ExportDecompAll extends GhidraScript {
             if (a < lo || a >= hi || (only != null && !only.contains(a))) {
                 continue;
             }
-            functions.add(f);
+            (slow.contains(a) ? slowFunctions : functions).add(f);
         }
-        println("ExportDecompAll: " + functions.size() + " functions to decompile");
+        println("ExportDecompAll: " + (functions.size() + slowFunctions.size()) + " functions to decompile, "
+                + slowFunctions.size() + " of them slow (long limits from the start)");
 
         DecompilerCallback<String[]> callback = new DecompilerCallback<String[]>(currentProgram,
                 new DecompileConfigurer() {
@@ -212,6 +248,86 @@ public class ExportDecompAll extends GhidraScript {
         // what failed in the first pass gets a second, alone, with ten times the time and the
         // decompiler's limits raised: the 90 s timeout lost five functions, among them the 833-case
         // FUN_140727d90 with its 268 KB frame (2026-10-16)
+        DecompilerCallback<String[]> retry = longLimits(callback);
+        // (the slow pass's own: it runs while the main pass's failures are retried through `retry`)
+        DecompilerCallback<String[]> slowCallback = longLimits(callback);
+        final List<Function> failed = new ArrayList<>();
+
+        final int[] count = { 0 };
+        final long start = System.currentTimeMillis();
+        try (PrintWriter out = new PrintWriter(new FileWriter(args[0]))) {
+            // the slow functions on their own thread, with the long limits, while the main pass runs
+            final Exception[] slowError = { null };
+            Thread slowPass = new Thread(() -> {
+                try {
+                    ParallelDecompiler.decompileFunctions(slowCallback, currentProgram, slowFunctions.iterator(), r -> {
+                        if (r == null) {
+                            return;
+                        }
+                        synchronized (out) {
+                            out.println(line(r));
+                            count[0]++;
+                            println("ExportDecompAll: slow " + r[0] + (r[3] != null ? " decompiled" : " failed: "
+                                    + (r[4] == null ? "" : r[4].trim().split("\n")[0])) + ", "
+                                    + (System.currentTimeMillis() - start) / 1000 + "s");
+                        }
+                    }, monitor);
+                } catch (Exception e) {
+                    slowError[0] = e;
+                }
+            }, "ExportDecompAll slow pass");
+            slowPass.start();
+            ParallelDecompiler.decompileFunctions(callback, currentProgram, functions.iterator(), r -> {
+                if (r == null) {
+                    return;
+                }
+                if (r[3] == null) {
+                    synchronized (failed) {
+                        failed.add(getFunctionAt(toAddr(Long.parseUnsignedLong(r[0], 16))));
+                    }
+                    return;
+                }
+                synchronized (out) {
+                    out.println(line(r));
+                    count[0]++;
+                    if (count[0] % 1000 == 0) {
+                        long s = (System.currentTimeMillis() - start) / 1000;
+                        println("ExportDecompAll: " + count[0] + " done, " + s + "s");
+                        out.flush();
+                    }
+                }
+            }, monitor);
+            println("ExportDecompAll: " + failed.size() + " failed, decompiling them again with longer limits");
+            failed.removeIf(f -> f == null);
+            ParallelDecompiler.decompileFunctions(retry, currentProgram, failed.iterator(), r -> {
+                if (r == null) {
+                    return;
+                }
+                synchronized (out) {
+                    out.println(line(r));
+                    count[0]++;
+                    println("ExportDecompAll: again " + r[0] + (r[3] != null ? " decompiled" : " failed: "
+                            + (r[4] == null ? "" : r[4].trim().split("\n")[0])));
+                }
+            }, monitor);
+            slowPass.join();
+            if (slowError[0] != null) {
+                throw slowError[0];
+            }
+        } finally {
+            callback.dispose();
+            retry.dispose();
+            slowCallback.dispose();
+        }
+        long s = (System.currentTimeMillis() - start) / 1000;
+        println("ExportDecompAll: wrote " + count[0] + " functions to " + args[0] + " in " + s + "s");
+    }
+
+    /** What failed in the first pass gets a second, with ten times the time and the decompiler's
+     *  limits raised: the 90 s timeout lost five functions, among them the 833-case FUN_140727d90
+     *  with its 268 KB frame (2026-10-16). The functions a previous run had to retry (`slow=`)
+     *  start here. */
+    private DecompilerCallback<String[]> longLimits(DecompilerCallback<String[]> callback) {
         DecompilerCallback<String[]> retry = new DecompilerCallback<String[]>(currentProgram,
                 new DecompileConfigurer() {
                     @Override
@@ -238,69 +354,6 @@ public class ExportDecompAll extends GhidraScript {
             }
         };
         retry.setTimeout(900);
-        final List<Function> failed = new ArrayList<>();
-
-        final int[] count = { 0 };
-        final long start = System.currentTimeMillis();
-        try (PrintWriter out = new PrintWriter(new FileWriter(args[0]))) {
-            ParallelDecompiler.decompileFunctions(callback, currentProgram, functions.iterator(), r -> {
-                if (r == null) {
-                    return;
-                }
-                if (r[3] == null) {
-                    synchronized (failed) {
-                        failed.add(getFunctionAt(toAddr(Long.parseUnsignedLong(r[0], 16))));
-                    }
-                    return;
-                }
-                synchronized (out) {
-                    StringBuilder b = new StringBuilder();
-                    b.append("{\"addr\":\"").append(r[0]).append("\",\"name\":\"").append(jsonEscape(r[1]))
-                     .append("\",\"size\":").append(r[2]);
-                    if (r[3] != null) {
-                        b.append(",\"c\":\"").append(jsonEscape(r[3])).append("\"");
-                        if (r[5] != null) b.append(",\"g\":").append(r[5]);
-                        b.append("}");
-                    } else {
-                        b.append(",\"error\":\"").append(jsonEscape(r[4] == null ? "" : r[4])).append("\"}");
-                    }
-                    out.println(b);
-                    count[0]++;
-                    if (count[0] % 1000 == 0) {
-                        long s = (System.currentTimeMillis() - start) / 1000;
-                        println("ExportDecompAll: " + count[0] + " done, " + s + "s");
-                        out.flush();
-                    }
-                }
-            }, monitor);
-            println("ExportDecompAll: " + failed.size() + " failed, decompiling them again with longer limits");
-            failed.removeIf(f -> f == null);
-            ParallelDecompiler.decompileFunctions(retry, currentProgram, failed.iterator(), r -> {
-                if (r == null) {
-                    return;
-                }
-                synchronized (out) {
-                    StringBuilder b = new StringBuilder();
-                    b.append("{\"addr\":\"").append(r[0]).append("\",\"name\":\"").append(jsonEscape(r[1]))
-                     .append("\",\"size\":").append(r[2]);
-                    if (r[3] != null) {
-                        b.append(",\"c\":\"").append(jsonEscape(r[3])).append("\"");
-                        if (r[5] != null) b.append(",\"g\":").append(r[5]);
-                        b.append("}");
-                    } else {
-                        b.append(",\"error\":\"").append(jsonEscape(r[4] == null ? "" : r[4])).append("\"}");
-                    }
-                    out.println(b);
-                    count[0]++;
-                    println("ExportDecompAll: again " + r[0] + (r[3] != null ? " decompiled" : " failed: "
-                            + (r[4] == null ? "" : r[4].trim().split("\n")[0])));
-                }
-            }, monitor);
-        } finally {
-            callback.dispose();
-            retry.dispose();
-        }
-        long s = (System.currentTimeMillis() - start) / 1000;
-        println("ExportDecompAll: wrote " + count[0] + " functions to " + args[0] + " in " + s + "s");
+        return retry;
     }
 }

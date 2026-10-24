@@ -33,6 +33,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import project  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
+# the functions an export has had to retry with the long limits (one hex address a line): every
+# later export decompiles them that way from the start, beside its main pass (ExportDecompAll
+# slow=). Grown from each run's "again" lines, never shrunk: a function slow once stays slow
+SLOW = project.BUILD / "ghidra-slow.txt"
+
+
+def remember_slow(log: str) -> int:
+    """Adds a run's retried functions to SLOW; how many were new."""
+    have = set(SLOW.read_text().split()) if SLOW.exists() else set()
+    new = set(re.findall(r"ExportDecompAll: again ([0-9a-f]+) ", log)) - have
+    if new:
+        SLOW.write_text("".join(f"{a}\n" for a in sorted(have | new)))
+    return len(new)
 
 
 def cuts(k: int) -> list[tuple[int, int]]:
@@ -95,6 +108,7 @@ def main() -> None:
         env = dict(os.environ, GHIDRA_HEADLESS_MAXMEM=heap)
         cmd = [str(install / "support" / "analyzeHeadless.bat"), str(d), name, "-process", prog, "-noanalysis",
                "-readOnly", "-scriptPath", str(HERE), "-postScript", "ExportDecompAll.java", str(out),
+               f"slow={SLOW}",
                # (ExportDecompAll parses the bounds with Long.parseLong: signed, so the open end is
                # the largest signed value, still far past any image address)
                f"{lo:x}", f"{min(hi, (1 << 63) - 1):x}"]
@@ -122,10 +136,13 @@ def main() -> None:
                     dst.write(line)
                     n += 1
     # (one log for ghidra.sh's checks, as a single session leaves it)
+    logs = "".join((work / f"ghidra.{k}.log").read_text(encoding="utf-8", errors="replace") for k in range(len(procs)))
     with open(project.BUILD / "ghidra-export.log", "w", encoding="utf-8") as f:
-        for k in range(len(procs)):
-            f.write((work / f"ghidra.{k}.log").read_text(encoding="utf-8", errors="replace"))
+        f.write(logs)
         f.write(f"ExportDecompAll: wrote {n} functions to {a.out} in {time.time() - t0:.0f}s\n")
+    added = remember_slow(logs)
+    if added:
+        print(f"  {added} functions newly slow -> {SLOW}", flush=True)
     shutil.rmtree(work, ignore_errors=True)
     print(f"  {n} functions -> {a.out} ({time.time() - t0:.0f}s)", flush=True)
 
