@@ -5,8 +5,9 @@
 #   ghidra.sh apply                    apply build/facts/*.json
 #   ghidra.sh decomp <out> <addr>...   decompile functions to a file
 #   ghidra.sh script <Script.java> [args...]
-#   ghidra.sh all                      apply, then export the data and the corpus,
-#                                      in one session (pipeline.sh)
+#   ghidra.sh all                      apply, then export the data and the corpus
+#                                      (pipeline.sh); the corpus in rhipper.json
+#                                      ghidra.shards sessions at once (shards.py, default 2)
 #   ghidra.sh sample <list> <out>      apply, then decompile the listed functions
 #   ghidra.sh import [--overwrite]     import the reference binary into a new Ghidra program with
 #                                      full auto-analysis, then export its function extents
@@ -48,9 +49,11 @@ case "$1" in
   apply)  project_data
           run -postScript ApplyFacts.java "$(cygpath -w "$ROOT/build/facts")" ;;
   all)    project_data
-          # the program opens once (a minute or more): the facts go in, then both exports read the
-          # result. Written beside the old files and moved over only when complete
-          rm -f "$ROOT/build/refdata.jsonl.new" "$ROOT/build/corpus.jsonl.new"
+          # the facts go in and the data comes out in one session, which saves the program; the
+          # corpus then comes out of several read-only sessions over copies of it at once
+          # (ghidra/shards.py: one session's decompilers wait on its database, ~5 of 20 cores).
+          # Written beside the old files and moved over only when complete
+          rm -f "$ROOT/build/refdata.jsonl.new" "$ROOT/build/corpus.jsonl.new" "$ROOT/build/ghidra-export.log"
           # (x86: the structure layouts too, translate32.py's member access)
           types=(); [ "$ARCH" = x86 ] && types=(-postScript ExportTypes.java "$(cygpath -w "$ROOT/build/types.json")")
           "$G/support/analyzeHeadless.bat" "$PROJ" "$GPROJECT" -process "$PROG" -noanalysis \
@@ -58,13 +61,15 @@ case "$1" in
             -postScript ApplyFacts.java "$(cygpath -w "$ROOT/build/facts")" \
             "${types[@]}" \
             -postScript ExportData.java "$(cygpath -w "$ROOT/build/refdata.jsonl.new")" \
-            -postScript ExportDecompAll.java "$(cygpath -w "$ROOT/build/corpus.jsonl.new")" \
             2>&1 | tee "$ROOT/build/ghidra-last.log" | grep --line-buffered -E "ApplyFacts:|ExportD|ERROR|Exception" || true
-          [ -s "$ROOT/build/refdata.jsonl.new" ] && [ -s "$ROOT/build/corpus.jsonl.new" ] || { echo "export incomplete"; exit 1; }
+          grep -q "ExportData: wrote " "$ROOT/build/ghidra-last.log" && [ -s "$ROOT/build/refdata.jsonl.new" ] \
+            || { echo "the facts session did not finish (build/ghidra-last.log): the old exports are kept"; exit 1; }
+          python "$HERE/shards.py" || { echo "the corpus export did not finish (build/ghidra-shards/): the old corpus is kept"; exit 1; }
+          [ -s "$ROOT/build/corpus.jsonl.new" ] || { echo "export incomplete"; exit 1; }
           # (and each export said it finished: a session stopped mid-export left both files
           # non-empty and partial, and the partial corpus replaced the good one, 2026-10-18)
-          grep -q "ExportData: wrote " "$ROOT/build/ghidra-last.log" && grep -q "ExportDecompAll: wrote " "$ROOT/build/ghidra-last.log" \
-            || { echo "export did not finish (build/ghidra-last.log): the old corpus is kept"; exit 1; }
+          grep -q "ExportDecompAll: wrote " "$ROOT/build/ghidra-export.log" \
+            || { echo "export did not finish (build/ghidra-export.log): the old corpus is kept"; exit 1; }
           # (Windows will not replace a file another process has open: a tool reading the old
           # corpus left the new one beside it once, and the session still reported success)
           for f in refdata corpus; do

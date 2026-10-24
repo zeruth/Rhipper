@@ -8,6 +8,7 @@
 #   bash path/to/Rhipper/pipeline.sh              all three
 #   bash path/to/Rhipper/pipeline.sh --no-ghidra  facts and translate (the corpus as it is)
 #   bash path/to/Rhipper/pipeline.sh --facts      facts only
+#   bash path/to/Rhipper/pipeline.sh --from-ghidra  Ghidra and translate (the facts as they are)
 #
 # Run from inside the project (or with RHIPPER_PROJECT set): project.py finds its rhipper.json.
 # The prototypes come from protos64.py (parameters and results read off the instructions) and are
@@ -19,6 +20,7 @@ cd "$ROOT"
 start=$(date +%s)
 stamp() { echo "[$(( $(date +%s) - start ))s] $*"; }
 
+if [ "$1" != "--from-ghidra" ]; then
 stamp "facts"
 # independent of one another (and the project's own extractors, rhipper.json "facts_extra")
 pids=()
@@ -45,6 +47,7 @@ wait $p1
 # ApplyFacts gives them their keep conventions)
 python "$RH/preserved.py" 2>&1 | tail -2 | sed "s/^/  preserved: /"
 [ "$1" = "--facts" ] && { stamp "done"; exit 0; }
+fi
 
 if [ "$1" != "--no-ghidra" ]; then
   stamp "ghidra: apply + export"

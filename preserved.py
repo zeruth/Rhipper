@@ -20,10 +20,12 @@ ApplyFacts.java gives each function a calling convention with those registers un
 """
 from __future__ import annotations
 
+import os
 import struct
 import sys
 import time
 from collections import Counter
+from multiprocessing import Pool
 
 import capstone
 from capstone import x86 as X
@@ -91,15 +93,16 @@ def load_switches() -> dict[int, list[int]]:
     return {int(k, 16): [int(t, 16) for t in v] for k, v in load_facts("switches").get("jumps", {}).items()}
 
 
-def local_facts(b: Binary, starts: set[int]):
-    """Per function: (registers its own instructions write, direct callees, writes everything?)."""
+def local_facts(b: Binary, starts: set[int], only=None, switches=None, roots=None):
+    """Per function: (registers its own instructions write, direct callees, writes everything?).
+    `only`: just these of the starts (a worker's share; the rest is the same for every share)."""
     md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
     md.detail = True
     text = b.text
-    switches = load_switches()
-    roots = pieces_by_root(b)
+    switches = load_switches() if switches is None else switches
+    roots = pieces_by_root(b) if roots is None else roots
     out = {}
-    for f in sorted(starts):
+    for f in sorted(starts if only is None else only):
         writes, callees, everything = set(), set(), False
         seen, todo, n = set(), [f], 0
         while todo and not everything:
@@ -215,7 +218,8 @@ def arg_masks() -> tuple[dict[int, int], dict[int, int]]:
     return funcs, sites
 
 
-def needed(b: Binary, starts: set[int], keep: dict[int, set[str]], thunks: dict[int, int] | None = None):
+def needed(b: Binary, starts: set[int], keep: dict[int, set[str]], thunks: dict[int, int] | None = None,
+           only=None, switches=None, masks=None):
     """Of what each function keeps, what some caller holds a live value in across a call to it.
 
     The keep conventions are one per distinct set, and the program holds only so many names (see
@@ -228,9 +232,9 @@ def needed(b: Binary, starts: set[int], keep: dict[int, set[str]], thunks: dict[
     be followed counts all of its callees' kept registers as live."""
     md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
     md.detail = True
-    switches = load_switches()
+    switches = load_switches() if switches is None else switches
     mask = {f: sum(BIT[r] for r in regs) for f, regs in keep.items()}
-    callee_reads, site_reads = arg_masks()
+    callee_reads, site_reads = arg_masks() if masks is None else masks
     need: dict[int, int] = {}
     # (and per caller, per callee: the registers the callee writes that the caller still reads
     # after the call. Only those are values the caller takes from the callee's leftovers; any
@@ -239,7 +243,7 @@ def needed(b: Binary, starts: set[int], keep: dict[int, set[str]], thunks: dict[
     relied: dict[int, dict[int, int]] = {}
     followed: list[int] = []
     text = b.text
-    for f in sorted(starts):
+    for f in sorted(starts if only is None else only):
         insns: dict[int, tuple] = {}
         todo, n, open_flow = [f], 0, False
         while todo and not open_flow:
@@ -420,14 +424,50 @@ def jump_thunks(b: Binary, starts: set[int], targets) -> dict[int, int]:
     return out
 
 
+# ---- the workers: both passes are per function, so each worker takes shares of the functions.
+# What a share returns merges to the serial result exactly: the local facts and 'relied' are keyed
+# by the function decoded, 'needed' is a union over callers, and the thunks a worker resolves are a
+# cache of a pure function of the image
+_W: dict = {}
+
+
+def _init(starts, keep=None, thunks=None):
+    b = Binary()
+    _W.update(b=b, starts=starts, keep=keep, thunks=dict(thunks or {}), switches=load_switches(),
+              roots=pieces_by_root(b), masks=arg_masks() if keep is not None else None)
+
+
+def _local_share(share):
+    return local_facts(_W["b"], _W["starts"], only=share, switches=_W["switches"], roots=_W["roots"])
+
+
+def _needed_share(share):
+    return needed(_W["b"], _W["starts"], _W["keep"], _W["thunks"], only=share, switches=_W["switches"],
+                  masks=_W["masks"])
+
+
+def shares(starts, n: int) -> list[list[int]]:
+    """The functions dealt into n * 8 shares round-robin, so the large ones spread out."""
+    k = max(1, n * 8)
+    order = sorted(starts)
+    return [order[i::k] for i in range(k) if order[i::k]]
+
+
 def main() -> None:
     if "--cover" in sys.argv:
         return recover()
+    jobs = int(sys.argv[sys.argv.index("--jobs") + 1]) if "--jobs" in sys.argv else (os.cpu_count() or 1)
     t0 = time.time()
     b = Binary()
     starts = set(load_corpus())
-    local = local_facts(b, starts)
-    print(f"decoded {len(local)} functions ({time.time() - t0:.0f}s)", file=sys.stderr, flush=True)
+    if jobs > 1:
+        with Pool(jobs, _init, (starts,)) as pool:
+            local = {}
+            for part in pool.imap_unordered(_local_share, shares(starts, jobs)):
+                local.update(part)
+    else:
+        local = local_facts(b, starts)
+    print(f"decoded {len(local)} functions ({time.time() - t0:.0f}s, {jobs} jobs)", file=sys.stderr, flush=True)
     thunks = jump_thunks(b, starts, {g for _w, cs, _e in local.values() for g in cs if g not in starts})
     print(f"{len(thunks)} jump thunks resolved to their targets", file=sys.stderr, flush=True)
     local = {f: (w, frozenset(thunks.get(g, g) for g in cs), e) for f, (w, cs, e) in local.items()}
@@ -452,7 +492,18 @@ def main() -> None:
     full = {f: set(r) for f, r in keep.items()}
     for x in load_facts("protos").get("keep_xmm0", []):
         full.setdefault(int(x, 16), set()).add("XMM0")
-    need, relied, followed = needed(b, starts, full, thunks)
+    if jobs > 1:
+        need, relied, followed = {}, {}, []
+        with Pool(jobs, _init, (starts, full, thunks)) as pool:
+            for n, r, fl in pool.imap_unordered(_needed_share, shares(starts, jobs)):
+                for f, regs in n.items():
+                    need.setdefault(f, set()).update(regs)
+                relied.update(r)
+                followed += fl
+        followed.sort()
+    else:
+        need, relied, followed = needed(b, starts, full, thunks)
+    print(f"liveness over {len(followed)} functions ({time.time() - t0:.0f}s)", file=sys.stderr, flush=True)
     chosen, family = cover(need, full)
     out = write_facts("preserved", {
         "rule": "the volatile registers neither the function nor anything it calls writes ('all'); "
