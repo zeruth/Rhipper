@@ -1,0 +1,632 @@
+ cpp
+
+ Timestamp is 6adcf7eb (Sat Oct 24 14:24:43 2026)
+
+ Preferred load address is 00400000
+
+ Start         Length     Name                   Class
+ 0001:00000000 00000040H .text$di                CODE
+ 0001:00000040 00002eb0H .text$mn                CODE
+ 0001:00002ef0 000001c0H .text$x                 CODE
+ 0001:000030b0 00000020H .text$yd                CODE
+ 0002:00000000 000000d0H .idata$5                DATA
+ 0002:000000d0 00000008H .00cfg                  DATA
+ 0002:000000d8 00000004H .CRT$XCA                DATA
+ 0002:000000dc 00000004H .CRT$XCAA               DATA
+ 0002:000000e0 00000008H .CRT$XCU                DATA
+ 0002:000000e8 00000004H .CRT$XCZ                DATA
+ 0002:000000ec 00000004H .CRT$XIA                DATA
+ 0002:000000f0 00000004H .CRT$XIAA               DATA
+ 0002:000000f4 00000004H .CRT$XIAC               DATA
+ 0002:000000f8 00000004H .CRT$XIZ                DATA
+ 0002:000000fc 00000004H .CRT$XPA                DATA
+ 0002:00000100 00000004H .CRT$XPZ                DATA
+ 0002:00000104 00000004H .CRT$XTA                DATA
+ 0002:00000108 00000008H .CRT$XTZ                DATA
+ 0002:0000010c 00000000H .gfids$y                DATA
+ 0002:00000110 000002f0H .rdata                  DATA
+ 0002:00000400 00000000H .rdata$CastGuardVftablesA DATA
+ 0002:00000400 00000000H .rdata$CastGuardVftablesC DATA
+ 0002:00000400 000004dcH .rdata$r                DATA
+ 0002:000008dc 00000024H .rdata$sxdata           DATA
+ 0002:00000900 0000006cH .rdata$voltmd           DATA
+ 0002:0000096c 000002c8H .rdata$zzzdbg           DATA
+ 0002:00000c34 00000004H .rtc$IAA                DATA
+ 0002:00000c38 00000004H .rtc$IZZ                DATA
+ 0002:00000c3c 00000004H .rtc$TAA                DATA
+ 0002:00000c40 00000008H .rtc$TZZ                DATA
+ 0002:00000c48 0000024cH .xdata$x                DATA
+ 0002:00000e94 00000000H .edata                  DATA
+ 0002:00000e94 0000008cH .idata$2                DATA
+ 0002:00000f20 00000014H .idata$3                DATA
+ 0002:00000f34 000000d0H .idata$4                DATA
+ 0002:00001004 0000043cH .idata$6                DATA
+ 0003:00000000 000000e8H .data                   DATA
+ 0003:000000e8 00000060H .data$r                 DATA
+ 0003:00000148 00000100H .data$rs                DATA
+ 0003:00000248 00000290H .bss                    DATA
+
+  Address         Publics by Value              Rva+Base       Lib:Object
+
+ 0000:00000000       ___AbsoluteZero            00000000     <absolute>
+ 0000:00000000       ___arm64x_extra_rfe_table  00000000     <absolute>
+ 0000:00000000       ___arm64x_extra_rfe_table_size 00000000     <absolute>
+ 0000:00000000       ___arm64x_native_entrypoint 00000000     <absolute>
+ 0000:00000000       ___arm64x_redirection_metadata 00000000     <absolute>
+ 0000:00000000       ___arm64x_redirection_metadata_count 00000000     <absolute>
+ 0000:00000000       ___dynamic_value_reloc_table 00000000     <absolute>
+ 0000:00000000       ___enclave_config          00000000     <absolute>
+ 0000:00000000       ___guard_check_icall_a64n_fptr 00000000     <absolute>
+ 0000:00000000       ___guard_eh_cont_count     00000000     <absolute>
+ 0000:00000000       ___guard_eh_cont_table     00000000     <absolute>
+ 0000:00000000       ___guard_fids_count        00000000     <absolute>
+ 0000:00000000       ___guard_fids_table        00000000     <absolute>
+ 0000:00000000       ___guard_iat_count         00000000     <absolute>
+ 0000:00000000       ___guard_iat_table         00000000     <absolute>
+ 0000:00000000       ___guard_longjmp_count     00000000     <absolute>
+ 0000:00000000       ___guard_longjmp_table     00000000     <absolute>
+ 0000:00000000       ___hybrid_auxiliary_delayload_iat 00000000     <absolute>
+ 0000:00000000       ___hybrid_auxiliary_delayload_iat_copy 00000000     <absolute>
+ 0000:00000000       ___hybrid_auxiliary_iat    00000000     <absolute>
+ 0000:00000000       ___hybrid_auxiliary_iat_copy 00000000     <absolute>
+ 0000:00000000       ___hybrid_code_map         00000000     <absolute>
+ 0000:00000000       ___hybrid_code_map_count   00000000     <absolute>
+ 0000:00000000       ___hybrid_image_info_bitfield 00000000     <absolute>
+ 0000:00000000       ___x64_code_ranges_to_entry_points 00000000     <absolute>
+ 0000:00000000       ___x64_code_ranges_to_entry_points_count 00000000     <absolute>
+ 0000:00000009       ___safe_se_handler_count   00000009     <absolute>
+ 0000:00000100       ___guard_flags             00000100     <absolute>
+ 0000:00000000       ___ImageBase               00400000     <linker-defined>
+ 0001:00000040       _rhtest_run                00401040 f   cpp.obj
+ 0001:00000130       ?event@@YAXI@Z             00401130 f   cpp.obj
+ 0001:00000150       ?counters@@YAII@Z          00401150 f   cpp.obj
+ 0001:00000230       ?measure@@YAIABVShape@@@Z  00401230 f   cpp.obj
+ 0001:00000280       ?shapes@@YAII@Z            00401280 f   cpp.obj
+ 0001:000004a0       ?bump@@YAHAAUValued@@H@Z   004014a0 f   cpp.obj
+ 0001:000004d0       ?multi@@YAII@Z             004014d0 f   cpp.obj
+ 0001:000005e0       ?via_base@@YAHPBUBase0@@@Z 004015e0 f   cpp.obj
+ 0001:00000600       ?diamond@@YAII@Z           00401600 f   cpp.obj
+ 0001:00000700       ?walk@@YA?AUV2@@U1@H@Z     00401700 f   cpp.obj
+ 0001:00000760       ?templates@@YAII@Z         00401760 f   cpp.obj
+ 0001:000008f0       ?swap_ref@@YAXAAH0@Z       004018f0 f   cpp.obj
+ 0001:00000920       ?refs@@YAII@Z              00401920 f   cpp.obj
+ 0001:000009b0       ??$clamp_t@H@@YAHHHH@Z     004019b0 f i cpp.obj
+ 0001:000009f0       ??$clamp_t@N@@YANNNN@Z     004019f0 f i cpp.obj
+ 0001:00000a50       ??0?$Ring@H$04@@QAE@XZ     00401a50 f i cpp.obj
+ 0001:00000a80       ??0?$Ring@UV2@@$02@@QAE@XZ 00401a80 f i cpp.obj
+ 0001:00000ab0       ??0Base0@@QAE@XZ           00401ab0 f i cpp.obj
+ 0001:00000ae0       ??0Counter@@QAE@H@Z        00401ae0 f i cpp.obj
+ 0001:00000b10       ??0Diamond@@QAE@XZ         00401b10 f i cpp.obj
+ 0001:00000b90       ??0Item@@QAE@PBDH@Z        00401b90 f i cpp.obj
+ 0001:00000c20       ??0Left@@QAE@XZ            00401c20 f i cpp.obj
+ 0001:00000c80       ??0Named@@QAE@XZ           00401c80 f i cpp.obj
+ 0001:00000ca0       ??0Rect@@QAE@HHH@Z         00401ca0 f i cpp.obj
+ 0001:00000d20       ??0Registry@@QAE@XZ        00401d20 f i cpp.obj
+ 0001:00000d80       ??0Right@@QAE@XZ           00401d80 f i cpp.obj
+ 0001:00000de0       ??0Shape@@QAE@H@Z          00401de0 f i cpp.obj
+ 0001:00000e10       ??0Square@@QAE@HH@Z        00401e10 f i cpp.obj
+ 0001:00000e80       ??0Tri@@QAE@HHHH@Z         00401e80 f i cpp.obj
+ 0001:00000f10       ??0Valued@@QAE@XZ          00401f10 f i cpp.obj
+ 0001:00000f40       ??1Base0@@UAE@XZ           00401f40 f i cpp.obj
+ 0001:00000f60       ??1Counter@@QAE@XZ         00401f60 f i cpp.obj
+ 0001:00000fb0       ??1Diamond@@UAE@XZ         00401fb0 f i cpp.obj
+ 0001:00000fe0       ??1Item@@UAE@XZ            00401fe0 f i cpp.obj
+ 0001:00001050       ??1Left@@UAE@XZ            00402050 f i cpp.obj
+ 0001:00001050       ??1Right@@UAE@XZ           00402050 f i cpp.obj
+ 0001:00001060       ??1Named@@UAE@XZ           00402060 f i cpp.obj
+ 0001:00001080       ??1Rect@@UAE@XZ            00402080 f i cpp.obj
+ 0001:000010e0       ??1Registry@@QAE@XZ        004020e0 f i cpp.obj
+ 0001:00001130       ??1Shape@@UAE@XZ           00402130 f i cpp.obj
+ 0001:00001180       ??1Square@@UAE@XZ          00402180 f i cpp.obj
+ 0001:000011e0       ??1Tri@@UAE@XZ             004021e0 f i cpp.obj
+ 0001:00001240       ??1Valued@@UAE@XZ          00402240 f i cpp.obj
+ 0001:00001260       ??2@YAPAXIPAX@Z            00402260 f i cpp.obj
+ 0001:00001270       ??8V2@@QBE_NABU0@@Z        00402270 f i cpp.obj
+ 0001:000012b0       ??DV2@@QBE?AU0@H@Z         004022b0 f i cpp.obj
+ 0001:000012f0       ??HV2@@QBE?AU0@ABU0@@Z     004022f0 f i cpp.obj
+ 0001:00001330       ??YV2@@QAEAAU0@ABU0@@Z     00402330 f i cpp.obj
+ 0001:00001370       ??_DDiamond@@QAEXXZ        00402370 f i cpp.obj
+ 0001:000013a0       ??_DLeft@@QAEXXZ           004023a0 f i cpp.obj
+ 0001:000013a0       ??_DRight@@QAEXXZ          004023a0 f i cpp.obj
+ 0001:000013c2       ??_EItem@@W7AEPAXI@Z       004023c2 f i cpp.obj
+ 0001:000013d0       ??_EBase0@@UAEPAXI@Z       004023d0 f i cpp.obj
+ 0001:000013d0       ??_GBase0@@UAEPAXI@Z       004023d0 f i cpp.obj
+ 0001:00001400       ??_GCounter@@QAEPAXI@Z     00402400 f i cpp.obj
+ 0001:00001430       ??_EDiamond@@UAEPAXI@Z     00402430 f i cpp.obj
+ 0001:00001430       ??_GDiamond@@UAEPAXI@Z     00402430 f i cpp.obj
+ 0001:00001470       ??_EItem@@UAEPAXI@Z        00402470 f i cpp.obj
+ 0001:00001470       ??_GItem@@UAEPAXI@Z        00402470 f i cpp.obj
+ 0001:000014a0       ??_ELeft@@UAEPAXI@Z        004024a0 f i cpp.obj
+ 0001:000014a0       ??_ERight@@UAEPAXI@Z       004024a0 f i cpp.obj
+ 0001:000014a0       ??_GLeft@@UAEPAXI@Z        004024a0 f i cpp.obj
+ 0001:000014a0       ??_GRight@@UAEPAXI@Z       004024a0 f i cpp.obj
+ 0001:000014e0       ??_ENamed@@UAEPAXI@Z       004024e0 f i cpp.obj
+ 0001:000014e0       ??_GNamed@@UAEPAXI@Z       004024e0 f i cpp.obj
+ 0001:00001510       ??_ERect@@UAEPAXI@Z        00402510 f i cpp.obj
+ 0001:00001510       ??_GRect@@UAEPAXI@Z        00402510 f i cpp.obj
+ 0001:00001540       ??_EShape@@UAEPAXI@Z       00402540 f i cpp.obj
+ 0001:00001540       ??_GShape@@UAEPAXI@Z       00402540 f i cpp.obj
+ 0001:00001570       ??_ESquare@@UAEPAXI@Z      00402570 f i cpp.obj
+ 0001:00001570       ??_GSquare@@UAEPAXI@Z      00402570 f i cpp.obj
+ 0001:000015a0       ??_ETri@@UAEPAXI@Z         004025a0 f i cpp.obj
+ 0001:000015a0       ??_GTri@@UAEPAXI@Z         004025a0 f i cpp.obj
+ 0001:000015d0       ??_EValued@@UAEPAXI@Z      004025d0 f i cpp.obj
+ 0001:000015d0       ??_GValued@@UAEPAXI@Z      004025d0 f i cpp.obj
+ 0001:00001600       ?add@Counter@@QAEXH@Z      00402600 f i cpp.obj
+ 0001:00001640       ?area@Rect@@UBEHXZ         00402640 f i cpp.obj
+ 0001:00001660       ?area@Tri@@UBEHXZ          00402660 f i cpp.obj
+ 0001:00001680       ?get@Item@@UBEHXZ          00402680 f i cpp.obj
+ 0001:000016a0       ?id@Shape@@QBEHXZ          004026a0 f i cpp.obj
+ 0001:000016c0       ?kind@Rect@@UBEHXZ         004026c0 f i cpp.obj
+ 0001:000016d0       ?kind@Shape@@UBEHXZ        004026d0 f i cpp.obj
+ 0001:000016e0       ?kind@Square@@UBEHXZ       004026e0 f i cpp.obj
+ 0001:000016f0       ?name_hash@Item@@UBEIXZ    004026f0 f i cpp.obj
+ 0001:00001740       ?perimeter@Rect@@UBEHXZ    00402740 f i cpp.obj
+ 0001:00001760       ?perimeter@Tri@@UBEHXZ     00402760 f i cpp.obj
+ 0001:00001780       ?push@?$Ring@H$04@@QAEXH@Z 00402780 f i cpp.obj
+ 0001:000017e0       ?push@?$Ring@UV2@@$02@@QAEXUV2@@@Z 004027e0 f i cpp.obj
+ 0001:00001850       ?set@Item@@UAEXH@Z         00402850 f i cpp.obj
+ 0001:00001870       ?size@?$Ring@H$04@@QBEHXZ  00402870 f i cpp.obj
+ 0001:00001890       ?sum@?$Ring@H$04@@QBEHXZ   00402890 f i cpp.obj
+ 0001:000018f0       ?sum@?$Ring@UV2@@$02@@QBE?AUV2@@XZ 004028f0 f i cpp.obj
+ 0001:00001970       ?sum@Registry@@QBEHXZ      00402970 f i cpp.obj
+ 0001:000019c0       ?total@Counter@@SAHXZ      004029c0 f i cpp.obj
+ 0001:000019d0       ?value@Counter@@QBEHXZ     004029d0 f i cpp.obj
+ 0001:000019f0       ?who@Base0@@UBEHXZ         004029f0 f i cpp.obj
+ 0001:00001a10       ?who@Diamond@@UBEHXZ       00402a10 f i cpp.obj
+ 0001:00001a50       ?who@Left@@UBEHXZ          00402a50 f i cpp.obj
+ 0001:00001a80       _seed                      00402a80 f   rhtest_main.obj
+ 0001:00001a90       _check                     00402a90 f   rhtest_main.obj
+ 0001:00001b00       _check64                   00402b00 f   rhtest_main.obj
+ 0001:00001de0       _main                      00402de0 f   rhtest_main.obj
+ 0001:00001e20       ??2@YAPAXI@Z               00402e20 f   MSVCRT:new_scalar.obj
+ 0001:00001e70       ??3@YAXPAXI@Z              00402e70 f   MSVCRT:delete_scalar_size.obj
+ 0001:00001ed0       ___scrt_acquire_startup_lock 00402ed0 f   MSVCRT:utility.obj
+ 0001:00001f10       ___scrt_initialize_crt     00402f10 f   MSVCRT:utility.obj
+ 0001:00001f50       ___scrt_initialize_onexit_tables 00402f50 f   MSVCRT:utility.obj
+ 0001:00002000       ___scrt_is_nonwritable_in_current_image 00403000 f   MSVCRT:utility.obj
+ 0001:000020e0       ___scrt_release_startup_lock 004030e0 f   MSVCRT:utility.obj
+ 0001:00002100       ___scrt_uninitialize_crt   00403100 f   MSVCRT:utility.obj
+ 0001:00002130       _atexit                    00403130 f   MSVCRT:utility.obj
+ 0001:00002180       @__security_check_cookie@4 00403180 f   MSVCRT:secchk.obj
+ 0001:00002190       __dtol3                    00403190 f   MSVCRT:ftol3.obj
+ 0001:00002240       ??_Etype_info@@UAEPAXI@Z   00403240 f i MSVCRT:std_type_info_static.obj
+ 0001:00002240       ??_Gtype_info@@UAEPAXI@Z   00403240 f i MSVCRT:std_type_info_static.obj
+ 0001:00002270       ___report_gsfailure        00403270 f   MSVCRT:gs_report.obj
+ 0001:00002280       ___report_rangecheckfailure 00403280 f   MSVCRT:gs_report.obj
+ 0001:00002290       __aullshr                  00403290 f   MSVCRT:ullshr.obj
+ 0001:00002580       _mainCRTStartup            00403580 f   MSVCRT:exe_main.obj
+ 0001:00002590       ??0bad_alloc@std@@QAE@ABV01@@Z 00403590 f i MSVCRT:throw_bad_alloc.obj
+ 0001:000025d0       ??0bad_alloc@std@@QAE@XZ   004035d0 f i MSVCRT:throw_bad_alloc.obj
+ 0001:000025f0       ??0bad_array_new_length@std@@QAE@ABV01@@Z 004035f0 f i MSVCRT:throw_bad_alloc.obj
+ 0001:00002630       ??0bad_array_new_length@std@@QAE@XZ 00403630 f i MSVCRT:throw_bad_alloc.obj
+ 0001:00002650       ??0exception@std@@QAE@ABV01@@Z 00403650 f i MSVCRT:throw_bad_alloc.obj
+ 0001:00002680       ??1bad_alloc@std@@UAE@XZ   00403680 f i MSVCRT:throw_bad_alloc.obj
+ 0001:00002680       ??1bad_array_new_length@std@@UAE@XZ 00403680 f i MSVCRT:throw_bad_alloc.obj
+ 0001:000026a0       ??_Ebad_alloc@std@@UAEPAXI@Z 004036a0 f i MSVCRT:throw_bad_alloc.obj
+ 0001:000026a0       ??_Ebad_array_new_length@std@@UAEPAXI@Z 004036a0 f i MSVCRT:throw_bad_alloc.obj
+ 0001:000026a0       ??_Eexception@std@@UAEPAXI@Z 004036a0 f i MSVCRT:throw_bad_alloc.obj
+ 0001:000026a0       ??_Gbad_alloc@std@@UAEPAXI@Z 004036a0 f i MSVCRT:throw_bad_alloc.obj
+ 0001:000026a0       ??_Gbad_array_new_length@std@@UAEPAXI@Z 004036a0 f i MSVCRT:throw_bad_alloc.obj
+ 0001:000026a0       ??_Gexception@std@@UAEPAXI@Z 004036a0 f i MSVCRT:throw_bad_alloc.obj
+ 0001:000026d0       ?__scrt_throw_std_bad_alloc@@YAXXZ 004036d0 f   MSVCRT:throw_bad_alloc.obj
+ 0001:000026f0       ?__scrt_throw_std_bad_array_new_length@@YAXXZ 004036f0 f   MSVCRT:throw_bad_alloc.obj
+ 0001:00002710       ?what@exception@std@@UBEPBDXZ 00403710 f i MSVCRT:throw_bad_alloc.obj
+ 0001:00002720       ??3@YAXPAX@Z               00403720 f   MSVCRT:delete_scalar.obj
+ 0001:00002730       ___isa_available_init      00403730 f   MSVCRT:cpu_disp.obj
+ 0001:00002a60       __get_startup_argv_mode    00403a60 f   MSVCRT:argv_mode.obj
+ 0001:00002a70       ___scrt_is_ucrt_dll_in_use 00403a70 f   MSVCRT:ucrt_detection.obj
+ 0001:00002a80       ___scrt_fastfail           00403a80 f   MSVCRT:utility_desktop.obj
+ 0001:00002a90       ___scrt_initialize_mta     00403a90 f   MSVCRT:utility_desktop.obj
+ 0001:00002aa0       ___scrt_exe_initialize_mta 00403aa0 f   MSVCRT:utility_desktop.obj
+ 0001:00002aa0       ___scrt_initialize_winrt   00403aa0 f   MSVCRT:utility_desktop.obj
+ 0001:00002aa0       ___scrt_stub_for_initialize_mta 00403aa0 f   MSVCRT:utility_desktop.obj
+ 0001:00002aa0       __get_startup_commit_mode  00403aa0 f   MSVCRT:commit_mode.obj
+ 0001:00002aa0       __get_startup_new_mode     00403aa0 f   MSVCRT:new_mode.obj
+ 0001:00002aa0       __get_startup_thread_locale_mode 00403aa0 f   MSVCRT:thread_locale.obj
+ 0001:00002aa0       __matherr                  00403aa0 f   MSVCRT:matherr.obj
+ 0001:00002ab0       ___scrt_is_managed_app     00403ab0 f   MSVCRT:utility_desktop.obj
+ 0001:00002b00       ___scrt_set_unhandled_exception_filter 00403b00 f   MSVCRT:utility_desktop.obj
+ 0001:00002b10       ___scrt_unhandled_exception_filter@4 00403b10 f   MSVCRT:utility_desktop.obj
+ 0001:00002b70       __except_handler4          00403b70 f   MSVCRT:chandler4gs.obj
+ 0001:00002ba0       @_guard_check_icall_nop@4  00403ba0 f i MSVCRT:guard_support.obj
+ 0001:00002ba0       __initialize_denormal_control 00403ba0 f i MSVCRT:denormal_control.obj
+ 0001:00002ba0       __initialize_invalid_parameter_handler 00403ba0 f i MSVCRT:invalid_parameter_handler.obj
+ 0001:00002bb0       ___security_init_cookie    00403bb0 f   MSVCRT:gs_support.obj
+ 0001:00002c60       __get_startup_file_mode    00403c60 f   MSVCRT:file_mode.obj
+ 0001:00002c70       ?__scrt_initialize_type_info@@YAXXZ 00403c70 f   MSVCRT:tncleanup.obj
+ 0001:00002c80       ___acrt_initialize         00403c80 f   MSVCRT:ucrt_stubs.obj
+ 0001:00002c80       ___acrt_uninitialize       00403c80 f   MSVCRT:ucrt_stubs.obj
+ 0001:00002c80       ___scrt_stub_for_acrt_initialize 00403c80 f   MSVCRT:ucrt_stubs.obj
+ 0001:00002c80       ___scrt_stub_for_acrt_uninitialize 00403c80 f   MSVCRT:ucrt_stubs.obj
+ 0001:00002c80       ___vcrt_initialize         00403c80 f   MSVCRT:ucrt_stubs.obj
+ 0001:00002c80       ___vcrt_uninitialize       00403c80 f   MSVCRT:ucrt_stubs.obj
+ 0001:00002c80       __should_initialize_environment 00403c80 f   MSVCRT:env_mode.obj
+ 0001:00002c90       __initialize_default_precision 00403c90 f   MSVCRT:default_precision.obj
+ 0001:00002cc0       ___local_stdio_printf_options 00403cc0 f i MSVCRT:default_local_stdio_options.obj
+ 0001:00002cd0       ___local_stdio_scanf_options 00403cd0 f i MSVCRT:default_local_stdio_options.obj
+ 0001:00002ce0       ___scrt_initialize_default_local_stdio_options 00403ce0 f   MSVCRT:default_local_stdio_options.obj
+ 0001:00002d00       ___scrt_is_user_matherr_present 00403d00 f   MSVCRT:matherr_detection.obj
+ 0001:00002d10       ___scrt_get_dyn_tls_init_callback 00403d10 f   MSVCRT:dyn_tls_init.obj
+ 0001:00002d20       ___scrt_get_dyn_tls_dtor_callback 00403d20 f   MSVCRT:dyn_tls_dtor.obj
+ 0001:00002d30       __RTC_Initialize           00403d30 f   MSVCRT:initsect.obj
+ 0001:00002d60       __RTC_Terminate            00403d60 f   MSVCRT:initsect.obj
+ 0001:00002d8e       __purecall                 00403d8e f   vcruntime:VCRUNTIME140.dll
+ 0001:00002d94       ___CxxFrameHandler3        00403d94 f   vcruntime:VCRUNTIME140.dll
+ 0001:00002d9a       ___std_exception_copy      00403d9a f   vcruntime:VCRUNTIME140.dll
+ 0001:00002da0       ___std_exception_destroy   00403da0 f   vcruntime:VCRUNTIME140.dll
+ 0001:00002da6       __CxxThrowException@8      00403da6 f   vcruntime:VCRUNTIME140.dll
+ 0001:00002dac       ___current_exception       00403dac f   vcruntime:VCRUNTIME140.dll
+ 0001:00002db2       ___current_exception_context 00403db2 f   vcruntime:VCRUNTIME140.dll
+ 0001:00002db8       __except_handler4_common   00403db8 f   vcruntime:VCRUNTIME140.dll
+ 0001:00002dbe       __callnewh                 00403dbe f   ucrt:api-ms-win-crt-heap-l1-1-0.dll
+ 0001:00002dc4       _malloc                    00403dc4 f   ucrt:api-ms-win-crt-heap-l1-1-0.dll
+ 0001:00002dca       __configure_narrow_argv    00403dca f   ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0001:00002dd0       __initialize_narrow_environment 00403dd0 f   ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0001:00002dd6       __initialize_onexit_table  00403dd6 f   ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0001:00002ddc       __register_onexit_function 00403ddc f   ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0001:00002de2       __crt_atexit               00403de2 f   ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0001:00002de8       __cexit                    00403de8 f   ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0001:00002dee       __seh_filter_exe           00403dee f   ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0001:00002df4       __set_app_type             00403df4 f   ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0001:00002dfa       ___setusermatherr          00403dfa f   ucrt:api-ms-win-crt-math-l1-1-0.dll
+ 0001:00002e00       __get_initial_narrow_environment 00403e00 f   ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0001:00002e06       __initterm                 00403e06 f   ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0001:00002e0c       __initterm_e               00403e0c f   ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0001:00002e12       _exit                      00403e12 f   ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0001:00002e18       __exit                     00403e18 f   ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0001:00002e1e       __set_fmode                00403e1e f   ucrt:api-ms-win-crt-stdio-l1-1-0.dll
+ 0001:00002e24       ___p___argc                00403e24 f   ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0001:00002e2a       ___p___argv                00403e2a f   ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0001:00002e30       __c_exit                   00403e30 f   ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0001:00002e36       __register_thread_local_exe_atexit_callback 00403e36 f   ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0001:00002e3c       __configthreadlocale       00403e3c f   ucrt:api-ms-win-crt-locale-l1-1-0.dll
+ 0001:00002e42       __set_new_mode             00403e42 f   ucrt:api-ms-win-crt-heap-l1-1-0.dll
+ 0001:00002e48       ___p__commode              00403e48 f   ucrt:api-ms-win-crt-stdio-l1-1-0.dll
+ 0001:00002e4e       _free                      00403e4e f   ucrt:api-ms-win-crt-heap-l1-1-0.dll
+ 0001:00002e54       _terminate                 00403e54 f   ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0001:00002e5a       __controlfp_s              00403e5a f   ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0001:00002e60       __filter_x86_sse2_floating_point_exception 00403e60 f   MSVCRT:x86_exception_filter.obj
+ 0001:00002e60       __filter_x86_sse2_floating_point_exception_default 00403e60 f   MSVCRT:x86_exception_filter.obj
+ 0002:00000000       __imp__GetStdHandle@4      00405000     kernel32:KERNEL32.dll
+ 0002:00000004       __imp__WriteFile@20        00405004     kernel32:KERNEL32.dll
+ 0002:00000008       __imp__GetSystemTimeAsFileTime@4 00405008     kernel32:KERNEL32.dll
+ 0002:0000000c       __imp__GetCurrentThreadId@0 0040500c     kernel32:KERNEL32.dll
+ 0002:00000010       __imp__GetCurrentProcessId@0 00405010     kernel32:KERNEL32.dll
+ 0002:00000014       __imp__QueryPerformanceCounter@4 00405014     kernel32:KERNEL32.dll
+ 0002:00000018       __imp__GetModuleHandleW@4  00405018     kernel32:KERNEL32.dll
+ 0002:0000001c       __imp__SetUnhandledExceptionFilter@4 0040501c     kernel32:KERNEL32.dll
+ 0002:00000020       __imp__IsProcessorFeaturePresent@4 00405020     kernel32:KERNEL32.dll
+ 0002:00000024       __imp__InitializeSListHead@4 00405024     kernel32:KERNEL32.dll
+ 0002:00000028       \177KERNEL32_NULL_THUNK_DATA 00405028     kernel32:KERNEL32.dll
+ 0002:0000002c       __imp___CxxThrowException@8 0040502c     vcruntime:VCRUNTIME140.dll
+ 0002:00000030       __imp____current_exception 00405030     vcruntime:VCRUNTIME140.dll
+ 0002:00000034       __imp____current_exception_context 00405034     vcruntime:VCRUNTIME140.dll
+ 0002:00000038       __imp____std_exception_copy 00405038     vcruntime:VCRUNTIME140.dll
+ 0002:0000003c       __imp____CxxFrameHandler3  0040503c     vcruntime:VCRUNTIME140.dll
+ 0002:00000040       __imp___purecall           00405040     vcruntime:VCRUNTIME140.dll
+ 0002:00000044       __imp___except_handler4_common 00405044     vcruntime:VCRUNTIME140.dll
+ 0002:00000048       __imp____std_exception_destroy 00405048     vcruntime:VCRUNTIME140.dll
+ 0002:0000004c       \177VCRUNTIME140_NULL_THUNK_DATA 0040504c     vcruntime:VCRUNTIME140.dll
+ 0002:00000050       __imp__malloc              00405050     ucrt:api-ms-win-crt-heap-l1-1-0.dll
+ 0002:00000054       __imp__free                00405054     ucrt:api-ms-win-crt-heap-l1-1-0.dll
+ 0002:00000058       __imp___set_new_mode       00405058     ucrt:api-ms-win-crt-heap-l1-1-0.dll
+ 0002:0000005c       __imp___callnewh           0040505c     ucrt:api-ms-win-crt-heap-l1-1-0.dll
+ 0002:00000060       \177api-ms-win-crt-heap-l1-1-0_NULL_THUNK_DATA 00405060     ucrt:api-ms-win-crt-heap-l1-1-0.dll
+ 0002:00000064       __imp___configthreadlocale 00405064     ucrt:api-ms-win-crt-locale-l1-1-0.dll
+ 0002:00000068       \177api-ms-win-crt-locale-l1-1-0_NULL_THUNK_DATA 00405068     ucrt:api-ms-win-crt-locale-l1-1-0.dll
+ 0002:0000006c       __imp____setusermatherr    0040506c     ucrt:api-ms-win-crt-math-l1-1-0.dll
+ 0002:00000070       \177api-ms-win-crt-math-l1-1-0_NULL_THUNK_DATA 00405070     ucrt:api-ms-win-crt-math-l1-1-0.dll
+ 0002:00000074       __imp___exit               00405074     ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0002:00000078       __imp___initialize_onexit_table 00405078     ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0002:0000007c       __imp____p___argc          0040507c     ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0002:00000080       __imp____p___argv          00405080     ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0002:00000084       __imp___seh_filter_exe     00405084     ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0002:00000088       __imp___register_onexit_function 00405088     ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0002:0000008c       __imp___initterm           0040508c     ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0002:00000090       __imp___initialize_narrow_environment 00405090     ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0002:00000094       __imp___cexit              00405094     ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0002:00000098       __imp__terminate           00405098     ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0002:0000009c       __imp___controlfp_s        0040509c     ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0002:000000a0       __imp___initterm_e         004050a0     ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0002:000000a4       __imp___configure_narrow_argv 004050a4     ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0002:000000a8       __imp___set_app_type       004050a8     ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0002:000000ac       __imp___register_thread_local_exe_atexit_callback 004050ac     ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0002:000000b0       __imp___c_exit             004050b0     ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0002:000000b4       __imp___crt_atexit         004050b4     ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0002:000000b8       __imp__exit                004050b8     ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0002:000000bc       __imp___get_initial_narrow_environment 004050bc     ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0002:000000c0       \177api-ms-win-crt-runtime-l1-1-0_NULL_THUNK_DATA 004050c0     ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0002:000000c4       __imp___set_fmode          004050c4     ucrt:api-ms-win-crt-stdio-l1-1-0.dll
+ 0002:000000c8       __imp____p__commode        004050c8     ucrt:api-ms-win-crt-stdio-l1-1-0.dll
+ 0002:000000cc       \177api-ms-win-crt-stdio-l1-1-0_NULL_THUNK_DATA 004050cc     ucrt:api-ms-win-crt-stdio-l1-1-0.dll
+ 0002:000000d0       ___guard_check_icall_fptr  004050d0     MSVCRT:guard_support.obj
+ 0002:000000d4       ___castguard_check_failure_os_handled_fptr 004050d4     MSVCRT:guard_support.obj
+ 0002:000000d8       ___xc_a                    004050d8     MSVCRT:initializers.obj
+ 0002:000000e8       ___xc_z                    004050e8     MSVCRT:initializers.obj
+ 0002:000000ec       ___xi_a                    004050ec     MSVCRT:initializers.obj
+ 0002:000000f8       ___xi_z                    004050f8     MSVCRT:initializers.obj
+ 0002:000000fc       ___xp_a                    004050fc     MSVCRT:initializers.obj
+ 0002:00000100       ___xp_z                    00405100     MSVCRT:initializers.obj
+ 0002:00000104       ___xt_a                    00405104     MSVCRT:initializers.obj
+ 0002:00000108       ___xt_z                    00405108     MSVCRT:initializers.obj
+ 0002:00000164       ??_7Shape@@6B@             00405164     cpp.obj
+ 0002:00000178       ??_7Rect@@6B@              00405178     cpp.obj
+ 0002:0000018c       ??_7Square@@6B@            0040518c     cpp.obj
+ 0002:000001a0       ??_7Tri@@6B@               004051a0     cpp.obj
+ 0002:000001b4       ??_7Named@@6B@             004051b4     cpp.obj
+ 0002:000001c0       ??_7Valued@@6B@            004051c0     cpp.obj
+ 0002:000001d0       ??_7Item@@6BNamed@@@       004051d0     cpp.obj
+ 0002:000001dc       ??_7Item@@6BValued@@@      004051dc     cpp.obj
+ 0002:000001ec       ??_7Base0@@6B@             004051ec     cpp.obj
+ 0002:000001f8       ??_7Left@@6B@              004051f8     cpp.obj
+ 0002:00000200       ??_8Left@@7B@              00405200     cpp.obj
+ 0002:0000020c       ??_7Right@@6B@             0040520c     cpp.obj
+ 0002:00000214       ??_8Right@@7B@             00405214     cpp.obj
+ 0002:00000220       ??_7Diamond@@6B@           00405220     cpp.obj
+ 0002:00000228       ??_8Diamond@@7BLeft@@@     00405228     cpp.obj
+ 0002:00000230       ??_8Diamond@@7BRight@@@    00405230     cpp.obj
+ 0002:00000238       __real@3ff8000000000000    00405238     cpp.obj
+ 0002:00000240       __real@4022000000000000    00405240     cpp.obj
+ 0002:00000248       __real@4024000000000000    00405248     cpp.obj
+ 0002:00000250       __xmm@41f00000000000000000000000000000 00405250     cpp.obj
+ 0002:00000294       ??_7type_info@@6B@         00405294     MSVCRT:std_type_info_static.obj
+ 0002:0000029c       ??_7exception@std@@6B@     0040529c     MSVCRT:throw_bad_alloc.obj
+ 0002:000002a4       ??_C@_0BC@EOODALEL@Unknown?5exception@ 004052a4     MSVCRT:throw_bad_alloc.obj
+ 0002:000002bc       ??_7bad_alloc@std@@6B@     004052bc     MSVCRT:throw_bad_alloc.obj
+ 0002:000002c4       ??_C@_0P@GHFPNOJB@bad?5allocation@ 004052c4     MSVCRT:throw_bad_alloc.obj
+ 0002:000002d8       ??_7bad_array_new_length@std@@6B@ 004052d8     MSVCRT:throw_bad_alloc.obj
+ 0002:000002e0       ??_C@_0BF@KINCDENJ@bad?5array?5new?5length@ 004052e0     MSVCRT:throw_bad_alloc.obj
+ 0002:000002f8       __load_config_used         004052f8     MSVCRT:loadcfg.obj
+ 0002:00000400       ??_R4Shape@@6B@            00405400     cpp.obj
+ 0002:00000414       ??_R3Shape@@8              00405414     cpp.obj
+ 0002:00000424       ??_R2Shape@@8              00405424     cpp.obj
+ 0002:0000042c       ??_R1A@?0A@EA@Shape@@8     0040542c     cpp.obj
+ 0002:00000448       ??_R4Rect@@6B@             00405448     cpp.obj
+ 0002:0000045c       ??_R3Rect@@8               0040545c     cpp.obj
+ 0002:0000046c       ??_R2Rect@@8               0040546c     cpp.obj
+ 0002:00000478       ??_R1A@?0A@EA@Rect@@8      00405478     cpp.obj
+ 0002:00000494       ??_R4Square@@6B@           00405494     cpp.obj
+ 0002:000004a8       ??_R3Square@@8             004054a8     cpp.obj
+ 0002:000004b8       ??_R2Square@@8             004054b8     cpp.obj
+ 0002:000004c8       ??_R1A@?0A@EA@Square@@8    004054c8     cpp.obj
+ 0002:000004e4       ??_R4Tri@@6B@              004054e4     cpp.obj
+ 0002:000004f8       ??_R3Tri@@8                004054f8     cpp.obj
+ 0002:00000508       ??_R2Tri@@8                00405508     cpp.obj
+ 0002:00000514       ??_R1A@?0A@EA@Tri@@8       00405514     cpp.obj
+ 0002:00000530       ??_R4Named@@6B@            00405530     cpp.obj
+ 0002:00000544       ??_R3Named@@8              00405544     cpp.obj
+ 0002:00000554       ??_R2Named@@8              00405554     cpp.obj
+ 0002:0000055c       ??_R1A@?0A@EA@Named@@8     0040555c     cpp.obj
+ 0002:00000578       ??_R4Valued@@6B@           00405578     cpp.obj
+ 0002:0000058c       ??_R3Valued@@8             0040558c     cpp.obj
+ 0002:0000059c       ??_R2Valued@@8             0040559c     cpp.obj
+ 0002:000005a4       ??_R1A@?0A@EA@Valued@@8    004055a4     cpp.obj
+ 0002:000005c0       ??_R4Item@@6BNamed@@@      004055c0     cpp.obj
+ 0002:000005d4       ??_R3Item@@8               004055d4     cpp.obj
+ 0002:000005e4       ??_R2Item@@8               004055e4     cpp.obj
+ 0002:000005f4       ??_R1A@?0A@EA@Item@@8      004055f4     cpp.obj
+ 0002:00000610       ??_R17?0A@EA@Valued@@8     00405610     cpp.obj
+ 0002:0000062c       ??_R4Item@@6BValued@@@     0040562c     cpp.obj
+ 0002:00000640       ??_R4Base0@@6B@            00405640     cpp.obj
+ 0002:00000654       ??_R3Base0@@8              00405654     cpp.obj
+ 0002:00000664       ??_R2Base0@@8              00405664     cpp.obj
+ 0002:0000066c       ??_R1A@?0A@EA@Base0@@8     0040566c     cpp.obj
+ 0002:00000688       ??_R4Left@@6B@             00405688     cpp.obj
+ 0002:0000069c       ??_R3Left@@8               0040569c     cpp.obj
+ 0002:000006ac       ??_R2Left@@8               004056ac     cpp.obj
+ 0002:000006b8       ??_R1A@?0A@EA@Left@@8      004056b8     cpp.obj
+ 0002:000006d4       ??_R1A@A@3FA@Base0@@8      004056d4     cpp.obj
+ 0002:000006f0       ??_R4Right@@6B@            004056f0     cpp.obj
+ 0002:00000704       ??_R3Right@@8              00405704     cpp.obj
+ 0002:00000714       ??_R2Right@@8              00405714     cpp.obj
+ 0002:00000720       ??_R1A@?0A@EA@Right@@8     00405720     cpp.obj
+ 0002:0000073c       ??_R4Diamond@@6B@          0040573c     cpp.obj
+ 0002:00000750       ??_R3Diamond@@8            00405750     cpp.obj
+ 0002:00000760       ??_R2Diamond@@8            00405760     cpp.obj
+ 0002:00000778       ??_R1A@?0A@EA@Diamond@@8   00405778     cpp.obj
+ 0002:00000794       ??_R17?0A@EA@Right@@8      00405794     cpp.obj
+ 0002:000007b0       ??_R4type_info@@6B@        004057b0     MSVCRT:std_type_info_static.obj
+ 0002:000007c4       ??_R3type_info@@8          004057c4     MSVCRT:std_type_info_static.obj
+ 0002:000007d4       ??_R2type_info@@8          004057d4     MSVCRT:std_type_info_static.obj
+ 0002:000007dc       ??_R1A@?0A@EA@type_info@@8 004057dc     MSVCRT:std_type_info_static.obj
+ 0002:000007f8       ??_R4exception@std@@6B@    004057f8     MSVCRT:throw_bad_alloc.obj
+ 0002:0000080c       ??_R3exception@std@@8      0040580c     MSVCRT:throw_bad_alloc.obj
+ 0002:0000081c       ??_R2exception@std@@8      0040581c     MSVCRT:throw_bad_alloc.obj
+ 0002:00000824       ??_R1A@?0A@EA@exception@std@@8 00405824     MSVCRT:throw_bad_alloc.obj
+ 0002:00000840       ??_R4bad_array_new_length@std@@6B@ 00405840     MSVCRT:throw_bad_alloc.obj
+ 0002:00000854       ??_R3bad_array_new_length@std@@8 00405854     MSVCRT:throw_bad_alloc.obj
+ 0002:00000864       ??_R2bad_array_new_length@std@@8 00405864     MSVCRT:throw_bad_alloc.obj
+ 0002:00000874       ??_R1A@?0A@EA@bad_array_new_length@std@@8 00405874     MSVCRT:throw_bad_alloc.obj
+ 0002:00000890       ??_R1A@?0A@EA@bad_alloc@std@@8 00405890     MSVCRT:throw_bad_alloc.obj
+ 0002:000008ac       ??_R3bad_alloc@std@@8      004058ac     MSVCRT:throw_bad_alloc.obj
+ 0002:000008bc       ??_R2bad_alloc@std@@8      004058bc     MSVCRT:throw_bad_alloc.obj
+ 0002:000008c8       ??_R4bad_alloc@std@@6B@    004058c8     MSVCRT:throw_bad_alloc.obj
+ 0002:000008dc       ___safe_se_handler_table   004058dc     <linker-defined>
+ 0002:00000900       ___volatile_metadata       00405900     <linker-defined>
+ 0002:00000c34       ___rtc_iaa                 00405c34     MSVCRT:initsect.obj
+ 0002:00000c38       ___rtc_izz                 00405c38     MSVCRT:initsect.obj
+ 0002:00000c3c       ___rtc_taa                 00405c3c     MSVCRT:initsect.obj
+ 0002:00000c40       ___rtc_tzz                 00405c40     MSVCRT:initsect.obj
+ 0002:00000e04       __TI2?AVbad_alloc@std@@    00405e04     MSVCRT:throw_bad_alloc.obj
+ 0002:00000e14       __CTA2?AVbad_alloc@std@@   00405e14     MSVCRT:throw_bad_alloc.obj
+ 0002:00000e20       __CT??_R0?AVbad_alloc@std@@@8??0bad_alloc@std@@QAE@ABV01@@Z12 00405e20     MSVCRT:throw_bad_alloc.obj
+ 0002:00000e3c       __CT??_R0?AVexception@std@@@8??0exception@std@@QAE@ABV01@@Z12 00405e3c     MSVCRT:throw_bad_alloc.obj
+ 0002:00000e58       __TI3?AVbad_array_new_length@std@@ 00405e58     MSVCRT:throw_bad_alloc.obj
+ 0002:00000e68       __CTA3?AVbad_array_new_length@std@@ 00405e68     MSVCRT:throw_bad_alloc.obj
+ 0002:00000e78       __CT??_R0?AVbad_array_new_length@std@@@8??0bad_array_new_length@std@@QAE@ABV01@@Z12 00405e78     MSVCRT:throw_bad_alloc.obj
+ 0002:00000e94       __IMPORT_DESCRIPTOR_KERNEL32 00405e94     kernel32:KERNEL32.dll
+ 0002:00000ea8       __IMPORT_DESCRIPTOR_VCRUNTIME140 00405ea8     vcruntime:VCRUNTIME140.dll
+ 0002:00000ebc       __IMPORT_DESCRIPTOR_api-ms-win-crt-heap-l1-1-0 00405ebc     ucrt:api-ms-win-crt-heap-l1-1-0.dll
+ 0002:00000ed0       __IMPORT_DESCRIPTOR_api-ms-win-crt-runtime-l1-1-0 00405ed0     ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0002:00000ee4       __IMPORT_DESCRIPTOR_api-ms-win-crt-math-l1-1-0 00405ee4     ucrt:api-ms-win-crt-math-l1-1-0.dll
+ 0002:00000ef8       __IMPORT_DESCRIPTOR_api-ms-win-crt-stdio-l1-1-0 00405ef8     ucrt:api-ms-win-crt-stdio-l1-1-0.dll
+ 0002:00000f0c       __IMPORT_DESCRIPTOR_api-ms-win-crt-locale-l1-1-0 00405f0c     ucrt:api-ms-win-crt-locale-l1-1-0.dll
+ 0002:00000f20       __NULL_IMPORT_DESCRIPTOR   00405f20     kernel32:KERNEL32.dll
+ 0003:00000048       ___scrt_native_dllmain_reason 00407048     MSVCRT:utility.obj
+ 0003:00000080       ___security_cookie         00407080     MSVCRT:gs_cookie.obj
+ 0003:000000c0       ___security_cookie_complement 004070c0     MSVCRT:gs_cookie.obj
+ 0003:000000c4       __fltused                  004070c4     MSVCRT:fltused.obj
+ 0003:000000d0       ___isa_enabled             004070d0     MSVCRT:cpu_disp.obj
+ 0003:000000d8       ___isa_inverted            004070d8     MSVCRT:cpu_disp.obj
+ 0003:000000e0       ___scrt_default_matherr    004070e0     MSVCRT:matherr.obj
+ 0003:000000e4       ___scrt_ucrt_dll_is_in_use 004070e4     MSVCRT:ucrt_stubs.obj
+ 0003:000000e8       ??_R0?AVbad_alloc@std@@@8  004070e8     MSVCRT:throw_bad_alloc.obj
+ 0003:00000104       ??_R0?AVexception@std@@@8  00407104     MSVCRT:throw_bad_alloc.obj
+ 0003:00000120       ??_R0?AVbad_array_new_length@std@@@8 00407120     MSVCRT:throw_bad_alloc.obj
+ 0003:00000148       ??_R0?AVShape@@@8          00407148     cpp.obj
+ 0003:0000015c       ??_R0?AVRect@@@8           0040715c     cpp.obj
+ 0003:00000170       ??_R0?AVSquare@@@8         00407170     cpp.obj
+ 0003:00000188       ??_R0?AVTri@@@8            00407188     cpp.obj
+ 0003:0000019c       ??_R0?AUNamed@@@8          0040719c     cpp.obj
+ 0003:000001b0       ??_R0?AUValued@@@8         004071b0     cpp.obj
+ 0003:000001c8       ??_R0?AVItem@@@8           004071c8     cpp.obj
+ 0003:000001dc       ??_R0?AUBase0@@@8          004071dc     cpp.obj
+ 0003:000001f0       ??_R0?AULeft@@@8           004071f0     cpp.obj
+ 0003:00000204       ??_R0?AURight@@@8          00407204     cpp.obj
+ 0003:00000218       ??_R0?AUDiamond@@@8        00407218     cpp.obj
+ 0003:00000230       ??_R0?AVtype_info@@@8      00407230     MSVCRT:std_type_info_static.obj
+ 0003:00000248       ?total_@Counter@@0HA       00407248     cpp.obj
+ 0003:00000484       ___scrt_current_native_startup_state 00407484     MSVCRT:utility.obj
+ 0003:00000488       ___scrt_native_startup_lock 00407488     MSVCRT:utility.obj
+ 0003:000004a8       ___isa_available           004074a8     MSVCRT:cpu_disp.obj
+ 0003:000004ac       ___favor                   004074ac     MSVCRT:cpu_disp.obj
+ 0003:000004b0       ___avx10_version           004074b0     MSVCRT:cpu_disp.obj
+ 0003:000004b4       ___scrt_debugger_hook_flag 004074b4     MSVCRT:utility_desktop.obj
+ 0003:000004b8       ?__type_info_root_node@@3U__type_info_node@@A 004074b8     MSVCRT:tncleanup.obj
+ 0003:000004c0       ?_OptionsStorage@?1??__local_stdio_printf_options@@9@4_KA 004074c0     MSVCRT:default_local_stdio_options.obj
+ 0003:000004c8       ?_OptionsStorage@?1??__local_stdio_scanf_options@@9@4_KA 004074c8     MSVCRT:default_local_stdio_options.obj
+ 0003:000004d0       ___dyn_tls_dtor_callback   004074d0     <common>
+ 0003:000004d4       ___dyn_tls_init_callback   004074d4     <common>
+
+ entry point at        0001:00002580
+
+ Static symbols
+
+ 0001:00000000       ??__Eg_counter@@YAXXZ      00401000 f   cpp.obj
+ 0001:00000020       ??__Eg_registry@@YAXXZ     00401020 f   cpp.obj
+ 0001:00001b90       _flush                     00402b90 f   rhtest_main.obj
+ 0001:00001bd0       _put                       00402bd0 f   rhtest_main.obj
+ 0001:00001c20       _put_u                     00402c20 f   rhtest_main.obj
+ 0001:00001cb0       _put_i                     00402cb0 f   rhtest_main.obj
+ 0001:00001cf0       _put_x                     00402cf0 f   rhtest_main.obj
+ 0001:00001d90       _fold                      00402d90 f   rhtest_main.obj
+ 0001:00001e80       ?find_pe_section@@YAPAU_IMAGE_SECTION_HEADER@@QAEI@Z 00402e80 f   MSVCRT:utility.obj
+ 0001:00002190       $$000000                   00403190     MSVCRT:ftol3.obj
+ 0001:000021ae       _dtol3_default             004031ae     MSVCRT:ftol3.obj
+ 0001:000021d8       _dtol3_getbits             004031d8     MSVCRT:ftol3.obj
+ 0001:00002201       _dtol3_trunc               00403201     MSVCRT:ftol3.obj
+ 0001:00002208       _dtol3_lshift              00403208     MSVCRT:ftol3.obj
+ 0001:0000220e       _dtol3_notsafe             0040320e     MSVCRT:ftol3.obj
+ 0001:00002227       _dtol3_large               00403227     MSVCRT:ftol3.obj
+ 0001:0000222f       _dtol3_NaN                 0040322f     MSVCRT:ftol3.obj
+ 0001:00002237       _dtol3_retmin              00403237     MSVCRT:ftol3.obj
+ 0001:00002290       $$000000                   00403290     MSVCRT:ullshr.obj
+ 0001:000022a0       MORE32                     004032a0     MSVCRT:ullshr.obj
+ 0001:000022aa       RETZERO                    004032aa     MSVCRT:ullshr.obj
+ 0001:000022b0       ?pre_c_initialization@@YAHXZ 004032b0 f   MSVCRT:exe_main.obj
+ 0001:00002360       ?post_pgo_initialization@@YAHXZ 00403360 f   MSVCRT:exe_main.obj
+ 0001:00002370       ?pre_cpp_initialization@@YAXXZ 00403370 f   MSVCRT:exe_main.obj
+ 0001:00002390       ?__scrt_common_main_seh@@YAHXZ 00403390 f   MSVCRT:exe_main.obj
+ 0001:00002ef0       __unwindfunclet$?counters@@YAII@Z$0 00403ef0 f   cpp.obj
+ 0001:00002ef8       __unwindfunclet$?counters@@YAII@Z$1 00403ef8 f   cpp.obj
+ 0001:00002f05       __ehhandler$?counters@@YAII@Z 00403f05 f   cpp.obj
+ 0001:00002f22       __unwindfunclet$?shapes@@YAII@Z$0 00403f22 f   cpp.obj
+ 0001:00002f31       __unwindfunclet$?shapes@@YAII@Z$1 00403f31 f   cpp.obj
+ 0001:00002f40       __unwindfunclet$?shapes@@YAII@Z$2 00403f40 f   cpp.obj
+ 0001:00002f4f       __unwindfunclet$?shapes@@YAII@Z$3 00403f4f f   cpp.obj
+ 0001:00002f63       __ehhandler$?shapes@@YAII@Z 00403f63 f   cpp.obj
+ 0001:00002f8a       __unwindfunclet$?multi@@YAII@Z$0 00403f8a f   cpp.obj
+ 0001:00002f9e       __ehhandler$?multi@@YAII@Z 00403f9e f   cpp.obj
+ 0001:00002fbb       __unwindfunclet$?diamond@@YAII@Z$0 00403fbb f   cpp.obj
+ 0001:00002fc8       __ehhandler$?diamond@@YAII@Z 00403fc8 f   cpp.obj
+ 0001:00002ff0       __unwindfunclet$??0Item@@QAE@PBDH@Z$0 00403ff0 f   cpp.obj
+ 0001:00002ff8       __unwindfunclet$??0Item@@QAE@PBDH@Z$1 00403ff8 f   cpp.obj
+ 0001:00003008       __ehhandler$??0Item@@QAE@PBDH@Z 00404008 f   cpp.obj
+ 0001:00003030       __unwindfunclet$??0Rect@@QAE@HHH@Z$0 00404030 f   cpp.obj
+ 0001:00003030       __unwindfunclet$??0Tri@@QAE@HHHH@Z$0 00404030 f   cpp.obj
+ 0001:0000303d       __ehhandler$??0Rect@@QAE@HHH@Z 0040403d f   cpp.obj
+ 0001:0000303d       __ehhandler$??0Tri@@QAE@HHHH@Z 0040403d f   cpp.obj
+ 0001:00003060       __unwindfunclet$??0Square@@QAE@HH@Z$0 00404060 f   cpp.obj
+ 0001:0000306d       __ehhandler$??0Square@@QAE@HH@Z 0040406d f   cpp.obj
+ 0001:00003090       __ehhandler$??1Counter@@QAE@XZ 00404090 f   cpp.obj
+ 0001:00003090       __ehhandler$??1Item@@UAE@XZ 00404090 f   cpp.obj
+ 0001:00003090       __ehhandler$??1Rect@@UAE@XZ 00404090 f   cpp.obj
+ 0001:00003090       __ehhandler$??1Registry@@QAE@XZ 00404090 f   cpp.obj
+ 0001:00003090       __ehhandler$??1Shape@@UAE@XZ 00404090 f   cpp.obj
+ 0001:00003090       __ehhandler$??1Square@@UAE@XZ 00404090 f   cpp.obj
+ 0001:00003090       __ehhandler$??1Tri@@UAE@XZ 00404090 f   cpp.obj
+ 0001:000030b0       ??__Fg_counter@@YAXXZ      004040b0 f   cpp.obj
+ 0001:000030c0       ??__Fg_registry@@YAXXZ     004040c0 f   cpp.obj
+ 0002:000000dc       ?pre_cpp_initializer@@3P6AXXZA 004050dc     MSVCRT:exe_main.obj
+ 0002:000000e0       ?g_registry$initializer$@@3P6AXXZA 004050e0     cpp.obj
+ 0002:000000e4       ?g_counter$initializer$@@3P6AXXZA 004050e4     cpp.obj
+ 0002:000000f0       ?pre_c_initializer@@3P6AHXZA 004050f0     MSVCRT:exe_main.obj
+ 0002:000000f4       ?post_pgo_initializer@@3P6AHXZA 004050f4     MSVCRT:exe_main.obj
+ 0002:00000110       $SG10124                   00405110     cpp.obj
+ 0002:00000118       $SG10520                   00405118     cpp.obj
+ 0002:00000120       $SG10521                   00405120     cpp.obj
+ 0002:0000012c       $SG10522                   0040512c     cpp.obj
+ 0002:00000134       $SG10523                   00405134     cpp.obj
+ 0002:0000013c       $SG10524                   0040513c     cpp.obj
+ 0002:00000144       $SG10525                   00405144     cpp.obj
+ 0002:00000150       $SG10526                   00405150     cpp.obj
+ 0002:00000158       $SG10527                   00405158     cpp.obj
+ 0002:00000260       _bias_low                  00405260     MSVCRT:ftol3.obj
+ 0002:00000270       _bias_high                 00405270     MSVCRT:ftol3.obj
+ 0002:00000280       _DP2to32                   00405280     MSVCRT:ftol3.obj
+ 0002:00000288       _NaN                       00405288     MSVCRT:ftol3.obj
+ 0002:0000028c       _onept5                    0040528c     MSVCRT:ftol3.obj
+ 0002:00000c48       __ehfuncinfo$??1Counter@@QAE@XZ 00405c48     cpp.obj
+ 0002:00000c48       __ehfuncinfo$??1Item@@UAE@XZ 00405c48     cpp.obj
+ 0002:00000c48       __ehfuncinfo$??1Rect@@UAE@XZ 00405c48     cpp.obj
+ 0002:00000c48       __ehfuncinfo$??1Registry@@QAE@XZ 00405c48     cpp.obj
+ 0002:00000c48       __ehfuncinfo$??1Shape@@UAE@XZ 00405c48     cpp.obj
+ 0002:00000c48       __ehfuncinfo$??1Square@@UAE@XZ 00405c48     cpp.obj
+ 0002:00000c48       __ehfuncinfo$??1Tri@@UAE@XZ 00405c48     cpp.obj
+ 0002:00000c6c       __unwindtable$?diamond@@YAII@Z 00405c6c     cpp.obj
+ 0002:00000c74       __unwindtable$?multi@@YAII@Z 00405c74     cpp.obj
+ 0002:00000c7c       __unwindtable$?counters@@YAII@Z 00405c7c     cpp.obj
+ 0002:00000c8c       __unwindtable$?shapes@@YAII@Z 00405c8c     cpp.obj
+ 0002:00000cac       __ehfuncinfo$?diamond@@YAII@Z 00405cac     cpp.obj
+ 0002:00000cd0       __ehfuncinfo$?multi@@YAII@Z 00405cd0     cpp.obj
+ 0002:00000cf4       __ehfuncinfo$?shapes@@YAII@Z 00405cf4     cpp.obj
+ 0002:00000d18       __ehfuncinfo$?counters@@YAII@Z 00405d18     cpp.obj
+ 0002:00000d3c       __unwindtable$??0Rect@@QAE@HHH@Z 00405d3c     cpp.obj
+ 0002:00000d3c       __unwindtable$??0Tri@@QAE@HHHH@Z 00405d3c     cpp.obj
+ 0002:00000d44       __ehfuncinfo$??0Rect@@QAE@HHH@Z 00405d44     cpp.obj
+ 0002:00000d44       __ehfuncinfo$??0Tri@@QAE@HHHH@Z 00405d44     cpp.obj
+ 0002:00000d68       __unwindtable$??0Square@@QAE@HH@Z 00405d68     cpp.obj
+ 0002:00000d70       __ehfuncinfo$??0Square@@QAE@HH@Z 00405d70     cpp.obj
+ 0002:00000d94       __unwindtable$??0Item@@QAE@PBDH@Z 00405d94     cpp.obj
+ 0002:00000da4       __ehfuncinfo$??0Item@@QAE@PBDH@Z 00405da4     cpp.obj
+ 0002:00000dc8       __sehtable$___scrt_is_nonwritable_in_current_image 00405dc8     MSVCRT:utility.obj
+ 0002:00000de8       __sehtable$?__scrt_common_main_seh@@YAHXZ 00405de8     MSVCRT:exe_main.obj
+ 0002:00001020       .idata$6                   00406020     kernel32:KERNEL32.dll
+ 0002:000010e6       .idata$6                   004060e6     vcruntime:VCRUNTIME140.dll
+ 0002:000012d8       .idata$6                   004062d8     ucrt:api-ms-win-crt-heap-l1-1-0.dll
+ 0002:000012f8       .idata$6                   004062f8     ucrt:api-ms-win-crt-runtime-l1-1-0.dll
+ 0002:0000131a       .idata$6                   0040631a     ucrt:api-ms-win-crt-math-l1-1-0.dll
+ 0002:0000133a       .idata$6                   0040633a     ucrt:api-ms-win-crt-stdio-l1-1-0.dll
+ 0002:0000135a       .idata$6                   0040635a     ucrt:api-ms-win-crt-locale-l1-1-0.dll
+ 0003:00000000       _g_seed                    00407000     rhtest_main.obj
+ 0003:00000004       _g_sum                     00407004     rhtest_main.obj
+ 0003:00000008       $SG33948                   00407008     rhtest_main.obj
+ 0003:0000000c       $SG33958                   0040700c     rhtest_main.obj
+ 0003:00000020       $SG33970                   00407020     rhtest_main.obj
+ 0003:00000024       $SG33971                   00407024     rhtest_main.obj
+ 0003:00000028       $SG33972                   00407028     rhtest_main.obj
+ 0003:0000002c       $SG33980                   0040702c     rhtest_main.obj
+ 0003:00000030       $SG33981                   00407030     rhtest_main.obj
+ 0003:00000034       $SG33982                   00407034     rhtest_main.obj
+ 0003:00000038       $SG33987                   00407038     rhtest_main.obj
+ 0003:00000044       $SG33988                   00407044     rhtest_main.obj
+ 0003:0000024c       ?g_registry@@3URegistry@@A 0040724c     cpp.obj
+ 0003:00000270       ?g_counter@@3VCounter@@A   00407270     cpp.obj
+ 0003:00000278       ?g_events@@3IA             00407278     cpp.obj
+ 0003:00000280       _g_out                     00407280     rhtest_main.obj
+ 0003:00000480       _g_outLen                  00407480     rhtest_main.obj
+ 0003:0000048c       ?is_initialized_as_dll@@3_NA 0040748c     MSVCRT:utility.obj
+ 0003:0000048d       ?module_local_atexit_table_initialized@@3_NA 0040748d     MSVCRT:utility.obj
+ 0003:00000490       ?module_local_atexit_table@@3U_onexit_table_t@@A 00407490     MSVCRT:utility.obj
+ 0003:0000049c       ?module_local_at_quick_exit_table@@3U_onexit_table_t@@A 0040749c     MSVCRT:utility.obj

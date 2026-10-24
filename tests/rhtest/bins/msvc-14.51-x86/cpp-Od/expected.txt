@@ -1,0 +1,10 @@
+statics = 892 (0x0000037c)
+counters = 287767 (0x00046417)
+shapes = 1464479746 (0x574a3002)
+multi = 622430887 (0x25198aa7)
+diamond = 50507 (0x0000c54b)
+templates = -1073777517 (0xbfff7493)
+refs = 2338 (0x00000922)
+events = -983311210 (0xc563dc96)
+checksum = 0xcf6ae177
+exit = 119

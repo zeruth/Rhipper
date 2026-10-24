@@ -5,6 +5,8 @@
 #   bash ghidra/decompiler/install.sh            build and install
 #   bash ghidra/decompiler/install.sh --restore  put the release's decompiler back
 #
+# The install is this machine's Ghidra, or RHIPPER_GHIDRA's.
+#
 # The fixes (each marked RHIPPER in patch/):
 #   dynamic.cc  dynamic hashes tell apart up to 64 colliding varnodes, not 8: a SIMD instruction's
 #               lanes hash alike, and "Unable to find unique hash for varnode" failed whole functions
@@ -34,7 +36,9 @@
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
 RH="$(cd "$HERE/../.." && pwd)"
-G=$(ls -d /c/Users/tyler/tools/ghidra_* | head -1)
+# (the Ghidra install: RHIPPER_GHIDRA, as CI sets it, or this machine's)
+G="${RHIPPER_GHIDRA:-$(ls -d /c/Users/tyler/tools/ghidra_* | head -1)}"
+G="$(cygpath -u "$G")"
 OS="$G/Ghidra/Features/Decompiler/os/win_x86_64"
 if [ "$1" = "--restore" ]; then
   [ -f "$OS/decompile.exe.orig" ] && mv -f "$OS/decompile.exe.orig" "$OS/decompile.exe"

@@ -687,6 +687,10 @@ def result_reads(insns, state, nxt):
             # unknown, Ghidra took the value from before the call, rhtest calls-GL 2026-10-24)
             defines = mn in SCALAR_DEFS and ops and ops[0].type == X.X86_OP_REG and ops[0].reg == X.X86_REG_XMM0 \
                 and not (len(ops) > 1 and ops[1].type == X.X86_OP_REG and ops[1].reg == X.X86_REG_XMM0)
+            # (`xorps xmm0, xmm0` zeroes it, no read: after free, FUN_00406ad0, it made free an xmm0
+            # one, and through its wrappers 1,900 functions, 2026-10-24)
+            defines = defines or (mn in ("xorps", "xorpd", "pxor", "subps", "subpd", "psubd", "psubq", "pcmpeqd")
+                                  and len(ops) == 2 and all(o.type == X.X86_OP_REG and o.reg == X.X86_REG_XMM0 for o in ops))
             if not xmm0_w and kind is None and X.X86_REG_XMM0 in r and not defines:
                 kind = "q8" if re.search(r"sd$|pd$|^cvtsd2|^cvttsd2", mn) else "s4"
                 break
@@ -1344,7 +1348,13 @@ def main() -> None:
     ret_of: dict[int, str] = {}
     why: dict[int, str] = {}
     need = {"i1": EAX, "i2": EAX, "i4": EAX, "i8": EDX, "f4": 64, "d8": 64, "s4": 128, "q8": 128}
-    def give(t, k, src):
+    # (a result's register family: an integer in eax, an x87 one in st0, an SSE one in xmm0. A rank
+    # orders kinds within one; across them it is no evidence. A wrapper whose returns reach both an
+    # SSE math helper and an integer callee made the callee xmm0 too, and through every pass the
+    # allocators: 7,136 xmm0 returns in ffxiv.exe, a VS2010 build, _aligned_malloc's among them,
+    # 2026-10-24)
+    family = {"i1": "i", "i2": "i", "i4": "i", "i8": "i", "f4": "x87", "d8": "x87", "s4": "sse", "q8": "sse"}
+    def give(t, k, src, down=False):
         v = local.get(t)
         if v is None:
             return False
@@ -1356,6 +1366,14 @@ def main() -> None:
                 k = "i4"
             else:
                 return False
+        if t in ret_of and family[k] != family[ret_of[t]]:
+            # (another family: what its own code returns wins over what a caller passes on of it,
+            # and a callee's type given down never replaces one it has)
+            if down or not why[t].startswith("returned by"):
+                return False
+            ret_of[t] = k
+            why[t] = src
+            return True
         if t not in ret_of or rank[k] > rank[ret_of[t]]:
             ret_of[t] = k
             why[t] = src
@@ -1382,7 +1400,7 @@ def main() -> None:
         for f, v in local.items():
             for t in v.get("passes", ()):
                 if f in ret_of:
-                    changed |= give(t, ret_of[f], f"returned by {hexa(f)}")
+                    changed |= give(t, ret_of[f], f"returned by {hexa(f)}", down=True)
                 # (and the other way: a function that returns a callee's result returns one. The
                 # system allocator's Alloc, FUN_00404d60, returns _aligned_malloc's, and is called
                 # only through its vtable, where no caller's read reaches it: void, the memory

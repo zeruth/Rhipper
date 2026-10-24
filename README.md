@@ -1,5 +1,8 @@
 # Rhipper
 
+[![msvc-14.51-x86](https://github.com/zeruth/Rhipper/actions/workflows/msvc-14.51-x86.yml/badge.svg)](https://github.com/zeruth/Rhipper/actions/workflows/msvc-14.51-x86.yml)
+· [test results and fidelity reports](https://zeruth.github.io/Rhipper/)
+
 Ghidra-to-C recompilation tooling for Windows PE binaries (x86-64 and 32-bit x86). Facts are
 read off the binary in Python, applied to a Ghidra program in one session, the whole program is
 decompiled to a corpus, and the corpus is translated to C that builds and runs.
@@ -32,6 +35,11 @@ placeholders, `imports.json`). Binary-specific extractors stay in the project an
 `rhipper.json` (`plugins`, `hooks`, `facts_extra`).
 
 ## Pipeline
+
+Needs Python 3.10 or later with `requirements.txt` (capstone, pefile, unicorn, numpy), Ghidra 12.1.3
+with JDK 21, Git for Windows' bash, and Visual Studio 2022 or later.
+`bash ghidra/decompiler/install.sh` builds Ghidra's decompiler with Rhipper's fixes and installs it
+(`RHIPPER_GHIDRA` names the install).
 
 ```bash
 bash ghidra/ghidra.sh import            # once: import and analyze, export function extents
@@ -88,9 +96,16 @@ Ghidra scripts are in `ghidra/`; `ghidra.sh` runs them headless (`import`, `func
 
 ## Tests
 
-`tests/rhtest/` builds a program from source with MSVC (x86 `/MD`, `/O2` and `/Od`), runs the
-whole pipeline on it, and checks that the port prints what the reference does:
-`python tests/rhtest/rhtest.py`. The program grows by levels (its README).
+`tests/rhtest/` builds small programs from source with MSVC (x86 `/MD`: `/O2`, `/Od`, and
+`/arch:IA32` or `/GL` where they matter), runs the whole pipeline on each, and checks that each
+port prints what its reference does: `python tests/rhtest/rhtest.py`. There are eight programs:
+integers, 64-bit integers, floats, calls, the CRT, C++, TLS/intrinsics/`setjmp`, and exceptions.
+All 18 program variants pass.
+
+CI tests the references as committed under `tests/rhtest/bins/<toolset>/`, with one workflow per
+compiler and target (`msvc-14.51-x86`: MSVC 14.51, Visual Studio 2026). Each publishes its report
+to the [Pages site](https://zeruth.github.io/Rhipper/). See the
+[rhtest README](tests/rhtest/README.md) for the programs, the steps, and how to add a toolset.
 
 ## 64-bit programs
 

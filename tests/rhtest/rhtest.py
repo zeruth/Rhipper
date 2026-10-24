@@ -16,9 +16,16 @@ must print the same lines and exit the same. No build may warn: the reference co
     python rhtest.py --jobs 4              more workers per tool (serial by default)
     python rhtest.py --parallel 3          projects at once (1 by default; a full run, the end of
                                            a phase's regression, runs FULL_PARALLEL at once)
+    python rhtest.py --save-bins           also keep each reference in bins/<toolset>/ (to commit)
+    python rhtest.py --bins msvc-14.51-x86 test the committed references, not a build (CI)
 
 Per project: ref/ (the reference, its map file, expected.txt), build/ (facts, corpus, the port's
 build, actual.txt, port-stderr.txt, logs), gen/ (the translation).
+
+bins/<toolset>/<name>-<variant>/ holds a toolset's references as committed, the toolset named by the
+compiler that built them and its target (msvc-14.51-x86): a CI run tests those, so its result does
+not depend on the runner's compiler, and each toolset has a workflow of its own
+(.github/workflows/<toolset>.yml).
 
 The Ghidra install and projects folder default to this machine's; RHTEST_GHIDRA and
 RHTEST_GHIDRA_PROJECTS override them.
@@ -42,6 +49,11 @@ HERE = Path(__file__).resolve().parent
 RHIPPER = HERE.parents[1]
 SRC = HERE / "src"
 WORK = HERE / "work"
+BINS = HERE / "bins"
+# the committed references to test in place of building them (--bins), and whether a build keeps
+# its reference there (--save-bins)
+USE_BINS: str | None = None
+SAVE_BINS = False
 GIT_BASH = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Git" / "bin" / "bash.exe"
 GHIDRA = os.environ.get("RHTEST_GHIDRA", "C:/Users/tyler/tools/ghidra_*")
 GHIDRA_PROJECTS = os.environ.get("RHTEST_GHIDRA_PROJECTS", "C:/Users/tyler/tools/ghidra-projects")
@@ -88,6 +100,13 @@ def msvc_env(arch: str) -> dict:
         out = subprocess.run(f'"{bat}" >nul 2>nul && set', shell=True, capture_output=True, text=True).stdout
         _envs[arch] = dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
     return _envs[arch]
+
+
+def toolset() -> str:
+    """The compiler that builds the references and their target, as bins/ and the CI workflow name
+    it: msvc-14.51-x86 (VCToolsVersion 14.51.36231)."""
+    version = msvc_env("32").get("VCToolsVersion", "").strip().rstrip("\\")
+    return f"msvc-{'.'.join(version.split('.')[:2]) or 'unknown'}-x86"
 
 
 def run(cmd: list[str], cwd: Path, env: dict | None, log: Path, tail: int = 0) -> int:
@@ -145,7 +164,20 @@ class Project:
     def step_ref(self) -> bool:
         """The reference: x86, /MD, /W4 /WX; no PDB (Ghidra would read it; a real binary has
         none), a map file for reading a failure. /DYNAMICBASE:NO, so no relocations either (/FIXED
-        is the default then), as many older binaries ship: pebin.py finds the pointers itself."""
+        is the default then), as many older binaries ship: pebin.py finds the pointers itself.
+        With --bins, the committed reference instead (bins/<toolset>/<name>/)."""
+        files = [self.exe.name, f"{self.program}.map", "expected.txt"]
+        if USE_BINS:
+            saved = BINS / USE_BINS / self.name
+            missing = [f for f in files if not (saved / f).exists()]
+            if missing:
+                print(f"    no committed {', '.join(missing)} in {saved}")
+                return False
+            for f in files:
+                if not (self.ref / f).exists() or (self.ref / f).read_bytes() != (saved / f).read_bytes():
+                    shutil.copyfile(saved / f, self.ref / f)
+            print(f"    the committed reference, {USE_BINS}")
+            return True
         cflags, lflags = VARIANTS[self.variant]
         obj = self.build / "ref-obj"
         obj.mkdir(parents=True, exist_ok=True)
@@ -167,6 +199,12 @@ class Project:
         text = r.stdout.decode("utf-8", errors="replace").replace("\r\n", "\n")
         (self.ref / "expected.txt").write_text(text + f"exit = {r.returncode}\n", encoding="utf-8")
         print(f"    expected: {len(text.splitlines())} lines, exit {r.returncode}")
+        if SAVE_BINS:
+            saved = BINS / toolset() / self.name
+            saved.mkdir(parents=True, exist_ok=True)
+            for f in files:
+                shutil.copyfile(self.ref / f, saved / f)
+            print(f"    kept in {saved.relative_to(HERE)}")
         return True
 
     def step_import(self) -> bool:
@@ -339,9 +377,14 @@ def main() -> None:
     ap.add_argument("--jobs", type=int, default=1, help="workers for protos32, translate32 and MSBuild (default 1)")
     ap.add_argument("--parallel", type=int, default=None,
                     help=f"projects at once (default 1; {FULL_PARALLEL} for a full run, the end of a phase's regression)")
+    ap.add_argument("--bins", metavar="TOOLSET", help="test the references committed in bins/TOOLSET, not a build")
+    ap.add_argument("--save-bins", action="store_true", help="keep each reference built in bins/<toolset>/")
     args = ap.parse_args()
-    global JOBS
+    global JOBS, USE_BINS, SAVE_BINS
     JOBS = args.jobs
+    USE_BINS, SAVE_BINS = args.bins, args.save_bins
+    if USE_BINS and not (BINS / USE_BINS).is_dir():
+        ap.error(f"no {BINS / USE_BINS}")
     steps = [args.only] if args.only else STEPS[STEPS.index(args.start):]
     programs = args.programs or [p for p in PROGRAMS if (SRC / PROGRAMS[p][0][0]).exists()]
     full = not args.programs and not args.variant and steps == STEPS

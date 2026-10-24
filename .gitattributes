@@ -1,3 +1,5 @@
 * text=auto eol=lf
 *.png binary
 *.jar binary
+# (rhtest's committed references, byte for byte: their map files and expected output too)
+tests/rhtest/bins/** -text
