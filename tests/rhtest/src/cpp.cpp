@@ -280,6 +280,44 @@ NOINLINE u32 updates(u32 s) {
     return (u32)r * 100 + (u32)g_cell[1];
 }
 
+/* ---- virtual methods that return another virtual's result, called only through their vtables: no
+ * caller's read types their return. The game's allocator Alloc (`mov eax, esi; pop esi; ret`) and
+ * the slot it forwards to (`call eax; pop ebp; ret 0x10`) were void, every allocation 0 (CrystalCore) */
+struct Space {
+    virtual ~Space() {}
+    virtual u8 *raw(u32 n) = 0;
+};
+struct Arena : Space {
+    u8 buf[64];
+    u32 used;
+    Arena() : used(0) {}
+    NOINLINE u8 *raw(u32 n) override {
+        u8 *p = buf + used;
+        used += n;
+        return p;
+    }
+};
+struct Allocator {
+    Space *space;
+    explicit Allocator(Space *s) : space(s) {}
+    virtual ~Allocator() {}
+    NOINLINE virtual u8 *get(u32 n) {
+        u8 *p = space->raw(n < 4 ? 4 : n);
+        if (!p) event(16);
+        return p;
+    }
+};
+static Arena g_arena;
+static Allocator g_alloc(&g_arena);
+NOINLINE Allocator *the_allocator(u32 s) { return s ? &g_alloc : nullptr; }
+NOINLINE u32 allocs(u32 s) {
+    Allocator *a = the_allocator(s);
+    u8 *p = a->get(s), *q = a->get(2);
+    if (!p || !q) return 0;
+    p[0] = (u8)s;
+    return (u32)(q - p) * 100 + p[0] + g_arena.used;
+}
+
 void rhtest_run(void) {
     u32 s = seed();   /* 7 */
     check("statics", (u32)g_registry.sum() ^ (u32)g_counter.value());
@@ -290,5 +328,6 @@ void rhtest_run(void) {
     check("templates", templates(s));
     check("refs", refs(s));
     check("updates", updates(s));
+    check("allocs", allocs(s));
     check("events", g_events);
 }

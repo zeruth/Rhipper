@@ -18,6 +18,25 @@ __declspec(dllimport) void *__stdcall TlsGetValue(unsigned long index);
 __declspec(dllimport) int __stdcall TlsSetValue(unsigned long index, void *value);
 typedef struct { unsigned int MaxCharSize; unsigned char DefaultChar[2]; unsigned char LeadByte[12]; } CpInfo;
 __declspec(dllimport) int __stdcall GetCPInfo(unsigned int codepage, CpInfo *info);
+/* (a window class: user32, its x86 WNDCLASSEXA) */
+#pragma comment(lib, "user32.lib")
+typedef long(__stdcall *WndProc32)(void *, unsigned int, unsigned int, long);
+typedef struct {
+    unsigned int cbSize, style;
+    WndProc32 proc;
+    int cbClsExtra, cbWndExtra;
+    void *hInstance, *hIcon, *hCursor, *hbrBackground;
+    const char *menu, *name;
+    void *hIconSm;
+} WndClassExA32;
+__declspec(dllimport) unsigned short __stdcall RegisterClassExA(const WndClassExA32 *wc);
+__declspec(dllimport) void *__stdcall CreateWindowExA(unsigned long ex, const char *cls, const char *title,
+                                                      unsigned long style, int x, int y, int w, int h, void *parent,
+                                                      void *menu, void *inst, void *param);
+__declspec(dllimport) long __stdcall SendMessageA(void *hwnd, unsigned int msg, unsigned int wp, long lp);
+__declspec(dllimport) long __stdcall DefWindowProcA(void *hwnd, unsigned int msg, unsigned int wp, long lp);
+__declspec(dllimport) int __stdcall DestroyWindow(void *hwnd);
+__declspec(dllimport) void *__stdcall GetModuleHandleA(const char *name);
 
 /* ---- thread-local storage ---- */
 static __declspec(thread) u32 t_count = 5;
@@ -176,6 +195,41 @@ NOINLINE u32 code_page(u32 s) {
     for (k = 0; k < 12 && ci.LeadByte[k]; k++) r = r * 7 + ci.LeadByte[k];
     return r;
 }
+/* a window class and its procedure: x86's WNDCLASSEXA is 48 bytes of 4-byte pointers, and the
+ * procedure Windows calls is a reference address. Handed to x64's RegisterClassExA as it was, the
+ * class was never made and CrystalCore's WinMain had no window. A negative result comes back as one */
+static u32 g_msgs;
+static long __stdcall test_proc(void *hwnd, unsigned int msg, unsigned int wp, long lp) {
+    if (msg == 0x8001) {
+        g_msgs += wp;
+        return -5;
+    }
+    if (msg == 1) g_msgs += 1000;   /* WM_CREATE */
+    return DefWindowProcA(hwnd, msg, wp, lp);
+}
+NOINLINE u32 window_class(u32 s) {
+    WndClassExA32 wc = {sizeof wc, 0, test_proc, 0, 0, 0, 0, 0, 0, 0, "rhtest_class", 0};
+    void *hwnd;
+    long r;
+    wc.hInstance = GetModuleHandleA(0);
+    if (!RegisterClassExA(&wc)) return 1;
+    hwnd = CreateWindowExA(0, "rhtest_class", "rhtest", 0, 0, 0, 10, 10, 0, 0, wc.hInstance, 0);
+    if (!hwnd) return 2;
+    r = SendMessageA(hwnd, 0x8001, s, 0);
+    DestroyWindow(hwnd);
+    return g_msgs * 10 + (u32)(r + 5);
+}
+/* a byte-order mark read into a 4-byte local, written from its address plus an offset and
+ * compared whole: where a function happens to sit at the mark's value (UTF-8's EF BB BF, 0xbfbbef
+ * in CrystalCore's image), Ghidra types the local `code *`, and the write through `&mark + k` is
+ * no arithmetic on the pointer (the CRT's _tsopen_nolock was a stub for it) */
+NOINLINE u32 bom_kind(const u8 *text, u32 n) {
+    u32 mark = 0, k;
+    for (k = 0; k < 3 && k < n; k++) *((u8 *)&mark + k) = text[k];
+    if (mark == 0xbfbbef) return 8;
+    if ((mark & 0xffff) == 0xfeff) return 16;
+    return 0;
+}
 NOINLINE u32 framed_calls(u32 s) {
     u32 r = 0, k;
     for (k = 0; k < 7; k++) r = r * 33 + framed_switch(s + k, s * 5 + k, k * 11);
@@ -200,4 +254,9 @@ void rhtest_run(void) {
     check64("filled", filled(s));
     check("framed_switch", framed_calls(s));
     check("code_page", code_page(s));
+    check("window_class", window_class(s));
+    {
+        static const u8 utf8[] = {0xef, 0xbb, 0xbf, 'x'}, utf16[] = {0xff, 0xfe, 'x', 0};
+        check("bom_kind", bom_kind(utf8, 4) * 100 + bom_kind(utf16, s & 3) * 10 + bom_kind(utf8 + 3, 1));
+    }
 }

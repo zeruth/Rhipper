@@ -117,7 +117,7 @@ HEADER_NAMES = {"REFG", "REFP", "GP", "PTR32", "MXCSR", "ExceptionList", "GenUni
                 "int8_t", "__ptr32", "__uptr", "_InterlockedExchange", "NAN", "INFINITY",
                 "__debugbreak", "_rotl", "_rotr", "_rotl64", "_rotr64", "fabs", "sqrt",
                 "floor", "ceil", "trunc", "nearbyint", "memcpy", "memset", "rdtsc", "GEN_PIECE", "GEN_ISNAN",
-                "gen_piece_set", "gen_fl2bits", "gen_d2bits", "gen_bits2f", "gen_bits2d", "GEN_TOF", "GEN_TOD", "GEN_SLOT",
+                "gen_piece_set", "gen_fl2bits", "gen_d2bits", "gen_bits2f", "gen_bits2d", "GEN_TOF", "GEN_TOD", "GEN_SLOT", "GEN_LOW",
                 "gen_ac", "GEN_LO32", "GEN_HI32",
                 "GEN_TOP", "GEN_FLT_TO"}
 _header_names: set[str] | None = None
@@ -223,7 +223,7 @@ VA_WORDS = 32
 OUT_STACK = re.compile(r"(?:in_stack_|stack0x)(f[0-9a-f]{7})")
 
 
-def out_stack(body: str) -> str:
+def out_stack(body: str, alloca: bool = False) -> str:
     """An object passed by value, as MSVC passes one: the caller reserves room below its locals,
     builds the object there in place (`FUN_0042cc20(&stack0xffffeffc, ...)`, a string's
     constructor), and calls, the room now the callee's stack arguments, which Ghidra shows as
@@ -239,8 +239,16 @@ def out_stack(body: str) -> str:
     # locals the rest, 2026-10-24)
     framed = has_frame(body)
     lo, hi = offs[0], offs[-1] + 4
+    # (in a function that allocates on its stack, where the decompiler lost the size: _malloca's
+    # buffer is `&stack0xffffffe8` as it is, no `+ iVar5` below it. The reference's lies below the
+    # frame, as long as asked: the bottom of frame_locals' room for it, GEN_LOW, each place at its
+    # distance from the lowest. As a 0x18-byte gen_out, __crtGetStringTypeA_stat's wide string ran
+    # over GetStringTypeW's output pointer, CrystalCore 2026-10-24)
+    low = alloca and not re.search(r"stack0xf[0-9a-f]{7}\s*\)?\s*[+-]\s*\(?\s*[A-Za-z_]", body)
 
     def place(off: int) -> str:
+        if low:
+            return f"GEN_LOW(0x{off - lo:x})"
         return f"GEN_SLOT(0x{(1 << 32) - off:x})" if framed else f"(gen_out + 0x{off - lo:x})"
     # (their declarations go: each is a place in the buffer now, of its declared type, a pointer
     # stored as the reference stores one)
@@ -254,10 +262,10 @@ def out_stack(body: str) -> str:
             (base + " * PTR32" * stars) if stars else t
     body = re.sub(r"(?m)^\s*[A-Za-z_][\w ]*?[\s*]+in_stack_f[0-9a-f]{7}\s*;\s*\n", "", body)
     body = re.sub(r"&\s*stack0x(f[0-9a-f]{7})\b", lambda m: place(int(m.group(1), 16)), body)
-    body = re.sub(r"\(uint\)\s*(\(gen_out|GEN_SLOT)", r"(uint)(uintptr_t)\1", body)
+    body = re.sub(r"\(uint\)\s*(\(gen_out|GEN_SLOT|GEN_LOW)", r"(uint)(uintptr_t)\1", body)
     body = re.sub(r"\bin_stack_(f[0-9a-f]{7})\b",
                   lambda m: f"(*({types.get(m.group(1), 'undefined4')} *){place(int(m.group(1), 16))})", body)
-    if framed:
+    if framed or low:
         return body
     return body.replace("{", "{\n  undefined1 gen_out[0x%x];" % (hi - lo), 1)
 
@@ -434,6 +442,8 @@ def has_frame(body: str) -> bool:
 
 
 EH_LINK = re.compile(r"(?:\bExceptionList|gen_teb32\(\) \+ 0x0\)+)\s*=\s*&")
+# (the CRT's prologs that link the frame, injected: Ghidra's comment on the function)
+EH_PROLOG = re.compile(r"replaced with injection: (?:SEH_prolog|EH_prolog)")
 
 
 def eh_landing(body: str, ret: str) -> str:
@@ -463,14 +473,17 @@ def frame_locals(body: str, reserve: int = 0, minimum: int = 0, args: list[str] 
     (alloca: `&stack0xffffffe8 + iVar5`, iVar5 the negated size), as the reference's stack has
     room below its frame."""
     slots = [int(d, 16) for d in re.findall(r"\bGEN_SLOT\(0x([0-9a-f]+)\)", body)]
-    if not slots and not has_frame(body) and not args:
+    # (and out_stack's places at the bottom of the room below the frame, GEN_LOW(d): d bytes up)
+    low = "GEN_LOW(" in body
+    if not slots and not has_frame(body) and not args and not low:
         return body
     decls = list(FRAME_DECL.finditer(body))
-    if not decls and not slots and not args:
+    if not decls and not slots and not args and not low:
         return body
     size = max([int(m.group(3), 16) for m in decls] + slots + [minimum, 4])
     size = ((size + 15) & ~15) + reserve
     body = re.sub(r"\bGEN_SLOT\(0x([0-9a-f]+)\)", lambda m: f"(gen_frame + 0x{size - int(m.group(1), 16):x})", body)
+    body = re.sub(r"\bGEN_LOW\(0x([0-9a-f]+)\)", r"(gen_frame + 0x\1)", body)
     repl = {}
     for m in decls:
         t = " ".join(m.group(1).split())
@@ -1485,7 +1498,7 @@ class Translator32:
         c = re.sub(r"::[ \t]*\n[ \t]*", "::", c)
         c = re.sub(r"(?<=[\w>])[ \t]*\n[ \t]*::", "::", c)
         head, sep, body = c.partition("{")
-        body = out_stack("{" + body)
+        body = out_stack("{" + body, "replaced with injection: alloca_probe" in self.corpus[a]["c"])
         # (a small array assigned whole from its bytes, `local_64 = (char [4])s_alpha_0040324c._0_4_;`,
         # strcpy of a literal inlined: the bytes through a temporary of that size, C having no
         # array assignment, rhtest crt-O2 2026-10-24)
@@ -1633,7 +1646,10 @@ class Translator32:
         # (a function that links an EH frame: its arguments in its frame, above the return address,
         # as the reference's are, its funclets reaching them through ebp. deep()'s Guard lives in
         # its parameter's slot, [ebp + 8], and the unwind funclet read past the frame, rhtest eh)
-        eh = bool(EH_LINK.search(body)) and bool(sig.params)
+        # (or links it through the CRT's prolog, whose call fixup shows no link: __wfsopen keeps its
+        # stream in its first parameter's slot for its __finally, CrystalCore 2026-10-24)
+        eh_prolog = bool(EH_PROLOG.search(self.corpus[a]["c"]))
+        eh = (bool(EH_LINK.search(body)) or eh_prolog) and bool(sig.params)
         eh_args: list[str] = []
         if sig.variadic or param_addressed or eh or re.search(r"&\s*stack0x(?!f[0-9a-f]{7}\b)[0-9a-f]{8}", body):
             if sig.variadic and not params:
@@ -1732,7 +1748,9 @@ class Translator32:
         if re.search(r"(?:^|[^\w)\]\s])\s*\*\s*\(\*\(undefined4 \*\)\(\(char \*\)&", body, re.M):
             raise ValueError("a 4-byte piece dereferenced as a pointer")
         for n, t in var_types.items():
-            if t.strip() == "code *" and re.search(r"\b" + re.escape(n) + r"\s*[-+]\s", body):
+            # (not on its address: _tsopen_nolock's byte-order mark buffer, a `code *` to Ghidra for
+            # UTF-8's EF BB BF read as FUN_00bfbbef, written from `(int)&local_20 + iVar12`)
+            if t.strip() == "code *" and re.search(r"(?<![&\w])" + re.escape(n) + r"\s*[-+]\s", body):
                 raise ValueError("arithmetic on a code pointer")
         body = self.code_pointer_calls(body, var_types)
         body = self.called_pointers(body)
@@ -1807,7 +1825,7 @@ class Translator32:
         # (and one that links an EH frame, all of its frame: its catch funclets and continuations
         # write through ebp into locals the body itself never touches, by_type's result and catch
         # object at [ebp - 0x14] and [ebp - 0x18], below the 16 bytes it did, rhtest eh 2026-10-24)
-        eh = bool(EH_LINK.search(body))
+        eh = bool(EH_LINK.search(body)) or eh_prolog
         body = frame_locals(body, 0x10000 if alloca else 0, self.frames.get(a, 0) if eh else 0, eh_args)
         # (a frame slot of a pointer type converted to a float, Ghidra reusing one local for both:
         # its bits, as GEN_TOF takes a pointer's)

@@ -100,6 +100,14 @@ NOINLINE u64 rec_check(void) {
     return (u64)rec_sum(r, 4);
 }
 
+/* a 64-bit parameter between 32-bit ones: MSVC packs it at [esp + 8], 4-aligned. A library
+ * signature Ghidra lays out puts it at 12, aligned to 8, and every caller's arguments read a word
+ * off (the CRT's __lseeki64_nolock(fh, 0, SEEK_END) as (fh, 0x200000000, ...), CrystalCore) */
+NOINLINE i64 seek64(i32 fh, i64 offset, i32 origin) { return offset * 3 + fh * 100 + origin; }
+NOINLINE i64 seeks(u32 s) {
+    return seek64((i32)s, 0, 2) + seek64(1, -(i64)s << 33, 0) + seek64(-(i32)s, 0x123456789ll, (i32)s);
+}
+
 void rhtest_run(void) {
     u32 s = seed();   /* 7 */
     i64 big = (i64)s * 0x123456789ll;          /* 0x7f6e5d4c3f */
@@ -137,4 +145,5 @@ void rhtest_run(void) {
     check("popcount64", popcount64((u64)neg));
     check64("sum_lcg", sum_lcg(s * 5));
     check64("rec", rec_check());
+    check64("seeks", (u64)seeks(s));
 }

@@ -193,10 +193,20 @@ public class ApplyFacts extends GhidraScript {
             // build's ___crtGetStringTypeA takes eight, the matched signature seven, and the eighth
             // read was `in_stack_00000020`, a stub, 2026-10-24)
             int libStack = 0;
-            for (ghidra.program.model.listing.Parameter p : f.getParameters())
-                if (p.isStackVariable()) libStack += (p.getLength() + 3) & ~3;
+            // (or whose parameters Ghidra laid out with a gap: a longlong aligned to 8, at 12 after a
+            // 4-byte one at 4, where MSVC's x86 code packs it at 8. __lseeki64_nolock(fh, 0, 2) read
+            // as (fh, 0x200000000, <the caller's next word>), _tsopen_nolock a stub for it and
+            // fopen dead in CrystalCore, 2026-10-24)
+            boolean libraryGap = false;
+            int expect = 4;
+            for (ghidra.program.model.listing.Parameter p : f.getParameters()) {
+                if (!p.isStackVariable()) continue;
+                libStack += (p.getLength() + 3) & ~3;
+                if (p.getStackOffset() != expect) libraryGap = true;
+                expect = p.getStackOffset() + ((p.getLength() + 3) & ~3);
+            }
             boolean libraryShort = src == SourceType.IMPORTED && !f.hasVarArgs()
-                    && o.get("stack").getAsInt() > libStack;
+                    && (o.get("stack").getAsInt() > libStack || libraryGap);
             if (f.isThunk() || src == SourceType.USER_DEFINED
                     || (src == SourceType.IMPORTED && !libraryButCustom && !libraryShort)) {
                 keptSig++;

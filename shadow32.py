@@ -227,7 +227,11 @@ class Shadow:
         nreg, regs, nargs = self.argspec.get(ref_addr, (0, [], 4))
         vals = []
         for name in regs:
-            vals.append(getattr(ctx, name.capitalize()) & 0xFFFFFFFF)
+            # (a narrow one as its register, cl as ecx; one the context has no field for, st0, an
+            # xmm or ebp's frame, as 0: protos32 names those too since 2026-10-24)
+            full = {"al": "eax", "ax": "eax", "cl": "ecx", "cx": "ecx", "dl": "edx", "dx": "edx"}.get(name, name)
+            mask = {"al": 0xFF, "cl": 0xFF, "dl": 0xFF, "ax": 0xFFFF, "cx": 0xFFFF, "dx": 0xFFFF}.get(name, 0xFFFFFFFF)
+            vals.append(getattr(ctx, full.capitalize(), 0) & mask)
         # the stack parameters, above the return address (esp + 4 at entry)
         slot = ctx.Esp + 4
         while len(vals) < nargs:

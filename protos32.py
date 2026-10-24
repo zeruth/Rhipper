@@ -164,6 +164,8 @@ def analyse(root: int, ranges):
     loc_store: dict[int, int] = {}            # local offset -> widest store to it
     loc_read: set[int] = set()                # local bytes read (other than by address)
     loc_lea: set[int] = set()                 # locals whose address it takes
+    unset_pushes: set[int] = set()            # `push ebx/esi/edi` before anything set it
+    unset_saved = [0]                         # the registers pushed so
     floor = [None, None, None]                # the locals a `sub esp, n` makes: bottom, top; the
                                               # frame's allocation (its first after `mov ebp, esp`)
 
@@ -203,6 +205,12 @@ def analyse(root: int, ranges):
         # (`push ecx`): a read of nothing anyone passed. A `this` saved that way is read again
         # from the slot, not from ecx, so it shows elsewhere)
         reserve = mn == "push" and ops and ops[0].type == X.X86_OP_REG and ops[0].reg in FULL
+        # (a callee-saved one pushed before anything set it: a save, or an argument the next call
+        # takes, decided below, push_args)
+        if reserve and ops[0].reg in (X.X86_REG_EBX, X.X86_REG_ESI, X.X86_REG_EDI) \
+                and not mask & REG_BITS[ops[0].reg]:
+            unset_pushes.add(a)
+            unset_saved[0] |= REG_BITS[ops[0].reg]
         # (a scalar SSE write keeps the register's upper lanes, so it reads it too, to the decoder:
         # `movss xmm1, [m]`, `cvtsi2ss xmm1, eax`. It defines lane 0, the float a parameter is:
         # no read of an input. Read so, 126 functions had in_XMM1_Da)
@@ -295,7 +303,11 @@ def analyse(root: int, ranges):
         # part and then reads the whole, its upper part an input, is not what compilers emit)
         # (a no-op defines nothing either: the CRT's parse_cmdline opens with `mov edi, edi` and
         # takes its argument count's address in edi, which that wrote over in this analysis)
-        for r in writes if not nop else ():
+        # (nor a pop that restores a callee-saved register the function saved unset: the caller's
+        # value again. _tsopen_nolock saves edi, pops it, then pushes it as /GL's zero argument)
+        restore = mn == "pop" and ops and ops[0].type == X.X86_OP_REG and ops[0].reg in (
+            X.X86_REG_EBX, X.X86_REG_ESI, X.X86_REG_EDI) and REG_BITS[ops[0].reg] & unset_saved[0]
+        for r in writes if not nop and not restore else ():
             if r in REG_BITS:
                 mask |= REG_BITS[r]
         # esp / ebp
@@ -532,6 +544,80 @@ def analyse(root: int, ranges):
             writes_ret |= 64
         if X.X86_REG_XMM0 in w:
             writes_ret |= 128                     # (xmm0: an /LTCG SSE result)
+    # (a callee-saved register pushed unset as one of the next call's arguments: the caller's
+    # value, an input. /GL's CRT passes 0 in edi: _sopen_helper's `xor edi, edi` reaches
+    # _tsopen_nolock, which pushes it for __lseeki64_nolock's offset and __invoke_watson's
+    # arguments; as a save, its unaff_EDI made it a stub on fopen's path, CrystalCore 2026-10-24)
+    # (not the prologue's run of saves: one reached back over register pushes from the entry, its
+    # frame's `push ebp; mov ebp, esp` or `sub esp, n`, a save even before a call's arguments)
+    def prologue(a):
+        p = prv.get(a)
+        while p is not None and p in insns and insns[p].mnemonic == "push" and insns[p].operands \
+                and insns[p].operands[0].type == X.X86_OP_REG:
+            p = prv.get(p)
+        if p is None or p not in insns or p < root:
+            return True
+        pi = insns[p]
+        po = pi.operands
+        return (pi.mnemonic == "mov" and len(po) == 2 and po[0].type == po[1].type == X.X86_OP_REG
+                and (po[0].reg == po[1].reg or (po[0].reg == X.X86_REG_EBP and po[1].reg == X.X86_REG_ESP))) \
+            or (pi.mnemonic == "sub" and po and po[0].type == X.X86_OP_REG and po[0].reg == X.X86_REG_ESP)
+    for a in sorted(unset_pushes):
+        if prologue(a):
+            continue
+        after, p = 0, nxt.get(a)
+        for _ in range(10):
+            if p is None or p not in insns:
+                break
+            pi = insns[p]
+            if pi.mnemonic == "push":
+                after += 4
+            elif pi.mnemonic == "call":
+                t = _target(pi)
+                takes = _cleanup.get(t) if t is not None else None
+                nx = insns.get(nxt.get(p)) if nxt.get(p) is not None else None
+                if not takes and nx is not None and nx.mnemonic == "add" and len(nx.operands) == 2 \
+                        and nx.operands[0].type == X.X86_OP_REG and nx.operands[0].reg == X.X86_REG_ESP \
+                        and nx.operands[1].type == X.X86_OP_IMM:
+                    takes = nx.operands[1].imm
+                elif not takes and t is not None:
+                    takes = _cdecl_args.get(t)
+                if takes and takes > after:
+                    bit = REG_BITS[insns[a].operands[0].reg]
+                    inputs |= bit
+                    in_width[bit] = 4
+                break
+            elif pi.mnemonic not in ("mov", "lea", "movzx", "movsx") or pi.mnemonic.startswith("j"):
+                break
+            p = nxt.get(p)
+    # (eax set by the function itself just before a ret, past only its frame's teardown: its
+    # result. FUN_004066a0, the system allocator's Alloc, ends `mov eax, esi; pop esi; pop ebp;
+    # ret 0xc`, its virtual Alloc's result; called only through its vtable, no caller's read typed
+    # it, void, and every allocation through it came back 0: FUN_00405f60 skipped the managed
+    # allocator's setup, and WinMain gave up, CrystalCore 2026-10-24)
+    sets_eax = False
+    for a in state:
+        if insns[a].mnemonic != "ret" or sets_eax:
+            continue
+        p = prv.get(a)
+        for _ in range(8):
+            if p is None or p not in insns or p not in state or p + insns[p].size not in insns:
+                break
+            pi = insns[p]
+            po = pi.operands
+            if pi.mnemonic in ("pop", "leave") or (pi.mnemonic in ("mov", "lea", "add") and po
+                                                   and po[0].type == X.X86_OP_REG and po[0].reg == X.X86_REG_ESP):
+                p = prv.get(p)
+                continue
+            if pi.mnemonic not in ("call", "jmp") and not pi.mnemonic.startswith("j") \
+                    and any(x in EAX_REGS for x in regs_access(pi)[1]):
+                sets_eax = True
+            # (and a call through a pointer just before it: what that returns, passed on. The
+            # allocator's FUN_00404d40, `call eax; pop ebp; ret 0x10`, the next in that chain. A
+            # result given to a void one is ignored by its callers; one lost is 0)
+            elif pi.mnemonic == "call" and _target(pi) is None and import_slot(insns, prv, p) is None:
+                sets_eax = True
+            break
     labels = {_target(i) for i in insns.values() if i.mnemonic.startswith("j") or i.mnemonic.startswith("loop")}
     inputs |= pushed_inputs(insns, prv, nxt, state, labels)
     icalls = {a: icall_shape(insns, prv, nxt, state, a, labels, bool(inputs & ECX)) for a in state
@@ -622,7 +708,8 @@ def analyse(root: int, ranges):
             # (an indirect call's x87 result, for its call-site signature: `(float)extraout_ST0`
             # after a virtual getter of a float, 305 stubs, 2026-10-23)
             "icall_rets": {t[1]: k for t, k in results.items() if isinstance(t, tuple) and k in ("f4", "d8")},
-            "passes": passes, "writes_ret": writes_ret, "vol_writes": vol_writes, "opaque": opaque}
+            "passes": passes, "writes_ret": writes_ret, "vol_writes": vol_writes, "opaque": opaque,
+            "sets_eax": sets_eax}
 
 
 EAX_REGS = {X.X86_REG_EAX, X.X86_REG_AX, X.X86_REG_AL, X.X86_REG_AH}
@@ -1412,6 +1499,11 @@ def main() -> None:
     # caller of its own, returned void and 0, and RaiseException went unhandled, rhtest eh)
     for g in eh_funclets(b, local):
         give(g, "i4", "an EH funclet's result")
+    # (and one that sets eax itself just before its ret, read by no caller it can see: a virtual
+    # one's result, analyse's sets_eax)
+    for f, v in local.items():
+        if v.get("sets_eax") and f not in ret_of:
+            give(f, "i4", "sets eax before its ret")
     changed = True
     while changed:
         changed = False

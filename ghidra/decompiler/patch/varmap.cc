@@ -716,9 +716,43 @@ void AliasChecker::gatherInternal(void) const
 /// RHIPPER: the lowest stack offset a call to setjmp in \b fd captures (its stack pointer at the
 /// call; 0, the whole space, while that is unknown, and for a function that links an EH frame),
 /// or \b false where it makes none
+/// RHIPPER: whether \b fd links its EH frame through the CRT's prolog, `push imm; push imm; call
+/// __SEH_prolog4` (or __EH_prolog3 and their kin): their call fixups only set ebp and esp, so no
+/// store to fs:[0] shows it. __wfsopen keeps its stream in its first parameter's slot for its
+/// __finally, and unaliased that store went as dead: the funclet unlocked garbage (CrystalCore,
+/// 2026-10-24)
+static bool rhEhProlog(const Funcdata *fd)
+
+{
+  Architecture *glb = fd->getArch();
+  if (glb->loader == (LoadImage *)0 || glb->symboltab == (Database *)0) return false;
+  const Address &entry(fd->getAddress());
+  if (entry.getSpace()->getAddrSize() != 4) return false;
+  uint1 b[16];
+  try {
+    glb->loader->loadFill(b,sizeof b,entry);
+  } catch(...) {
+    return false;
+  }
+  int4 i = 0;
+  for(int4 k=0;k<2;++k) {
+    if (b[i] == 0x6a) i += 2;
+    else if (b[i] == 0x68) i += 5;
+    else return false;
+  }
+  if (b[i] != 0xe8) return false;
+  int4 rel = (int4)((uint4)b[i+1] | ((uint4)b[i+2] << 8) | ((uint4)b[i+3] << 16) | ((uint4)b[i+4] << 24));
+  uintb target = (entry.getOffset() + i + 5 + (intb)rel) & 0xffffffff;
+  Funcdata *callee = glb->symboltab->getGlobalScope()->queryFunction(Address(entry.getSpace(),target));
+  if (callee == (Funcdata *)0) return false;
+  const string &nm(callee->getName());
+  return nm.find("SEH_prolog") != string::npos || nm.find("EH_prolog") != string::npos;
+}
+
 bool rhSetjmpBound(const Funcdata *fd,AddrSpace *space,uintb &bound)
 
 {
+  if (rhEhProlog(fd)) { bound = 0; return true; }
   // (and a function that links an x86 EH frame, its node's address into fs:[0], ExceptionList at
   // 0xffdff000 to Ghidra: its funclets reach all of its frame through ebp, parameters' slots too.
   // Unaliased, deep()'s Guard, kept in its parameter's slot, went unstored, and the unwind

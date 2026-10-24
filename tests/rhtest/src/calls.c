@@ -163,6 +163,23 @@ NOINLINE Box *__fastcall box_chain(Box *b, u32 k) {
     box_touch(b, k * 3);
     return b;
 }
+/* a callee-saved register as an input: /GL may hand a static callee the caller's zero in edi,
+ * which it pushes, unset, as the arguments of its own calls (the CRT's _tsopen_nolock and its
+ * __lseeki64_nolock(fh, 0, 2), CrystalCore). The push is no save: read so, the value was lost */
+NOINLINE u32 __cdecl seek3(u32 fh, u32 lo, u32 hi, u32 origin) { return fh * 1000 + lo + hi * 10 + origin * 100; }
+static NOINLINE u32 opener(u32 *fh, u32 mode, u32 zero) {
+    u32 r = 0;
+    if (mode & 1) r += seek3(*fh, zero, zero, 2);
+    if (mode & 2) r += seek3(*fh, zero, zero, zero);
+    *fh += r;
+    return r;
+}
+NOINLINE u32 open_helper(u32 s) {
+    u32 zero = 0, fh = s, r;
+    r = opener(&fh, s & 3, zero);
+    r += opener(&fh, (s + 1) & 3, zero);
+    return r ^ fh;
+}
 NOINLINE u32 boxes(u32 s) {
     Box b = {{1, 2, 3, 4}, 0};
     Box *p = box_chain(&b, s);
@@ -201,4 +218,5 @@ void rhtest_run(void) {
     check("sort_desc", sort_check(s, cmp_desc));
     check("sort_mod", sort_check(s + 1, cmp_mod));
     check("boxes", boxes(s));
+    check("open_helper", open_helper(s));
 }

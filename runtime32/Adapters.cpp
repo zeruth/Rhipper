@@ -688,6 +688,115 @@ unsigned int gen_imp_MessageBoxA(uint32_t hwnd, uint32_t text, uint32_t caption,
     return MessageBoxA(At<HWND__>(hwnd), At<char>(text), At<char>(caption), type);
 }
 
+// ---- window classes: x86's WNDCLASS(EX), 4-byte pointers and handles -----------------------
+// Passed as they are, x64's RegisterClassExA read the 48-byte x86 structure as its 80-byte one
+// and failed; CreateWindowExA then found no class, and CrystalCore's WinMain returned 0 before
+// its window (2026-10-24). The class gets a window procedure of the runtime's, which calls the
+// reference's (its jump reaches the translation, which takes its 4 arguments as 32-bit values)
+// and widens its 32-bit result as the signed LRESULT it is.
+extern "C++" {
+namespace {
+#pragma pack(push, 4)
+struct WndClassEx32 {
+    uint32_t cbSize, style, lpfnWndProc;
+    int32_t cbClsExtra, cbWndExtra;
+    uint32_t hInstance, hIcon, hCursor, hbrBackground, lpszMenuName, lpszClassName, hIconSm;
+};
+static_assert(sizeof(WndClassEx32) == 48, "WNDCLASSEX, x86");
+struct WndClass32 {
+    uint32_t style, lpfnWndProc;
+    int32_t cbClsExtra, cbWndExtra;
+    uint32_t hInstance, hIcon, hCursor, hbrBackground, lpszMenuName, lpszClassName;
+};
+static_assert(sizeof(WndClass32) == 40, "WNDCLASS, x86");
+#pragma pack(pop)
+
+SRWLOCK g_classLock = SRWLOCK_INIT;
+std::vector<std::pair<ATOM, uint32_t>> g_classProcs;   // a class's atom, its reference procedure
+
+uint32_t ClassProc(ATOM atom) {
+    AcquireSRWLockShared(&g_classLock);
+    uint32_t fn = 0;
+    for (auto& [a, p] : g_classProcs) {
+        if (a == atom) fn = p;
+    }
+    ReleaseSRWLockShared(&g_classLock);
+    return fn;
+}
+
+LRESULT CALLBACK GenWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    uint32_t fn = ClassProc(static_cast<ATOM>(GetClassWord(hwnd, GCW_ATOM)));
+    if (!fn) return IsWindowUnicode(hwnd) ? DefWindowProcW(hwnd, msg, wp, lp) : DefWindowProcA(hwnd, msg, wp, lp);
+    using Proc = unsigned int (*)(uint32_t, uint32_t, uint32_t, uint32_t);
+    unsigned int r = reinterpret_cast<Proc>(static_cast<uintptr_t>(fn))(
+        Low(hwnd), msg, static_cast<uint32_t>(wp), static_cast<uint32_t>(lp));
+    return static_cast<LRESULT>(static_cast<int32_t>(r));
+}
+
+// a name or a resource number (below 0x10000, MAKEINTRESOURCE)
+template <typename C>
+const C* NameOrId(uint32_t p) {
+    return p < 0x10000 ? reinterpret_cast<const C*>(static_cast<uintptr_t>(p)) : At<const C>(p);
+}
+
+template <typename C, typename W>
+void ClassFrom32(W& wc, uint32_t style, int32_t clsExtra, int32_t wndExtra, uint32_t inst, uint32_t icon,
+                 uint32_t cursor, uint32_t brush, uint32_t menu, uint32_t name) {
+    wc.style = style;
+    wc.lpfnWndProc = GenWndProc;
+    wc.cbClsExtra = clsExtra;
+    wc.cbWndExtra = wndExtra;
+    wc.hInstance = reinterpret_cast<HINSTANCE>(static_cast<uintptr_t>(inst));
+    wc.hIcon = reinterpret_cast<HICON>(static_cast<intptr_t>(static_cast<int32_t>(icon)));
+    wc.hCursor = reinterpret_cast<HCURSOR>(static_cast<intptr_t>(static_cast<int32_t>(cursor)));
+    // (a brush is a handle, or a system colour + 1)
+    wc.hbrBackground = reinterpret_cast<HBRUSH>(static_cast<intptr_t>(static_cast<int32_t>(brush)));
+    wc.lpszMenuName = NameOrId<C>(menu);
+    wc.lpszClassName = NameOrId<C>(name);
+}
+
+unsigned int Registered(ATOM atom, uint32_t proc) {
+    if (atom) {
+        AcquireSRWLockExclusive(&g_classLock);
+        g_classProcs.emplace_back(atom, proc);
+        ReleaseSRWLockExclusive(&g_classLock);
+    }
+    return atom;
+}
+}  // namespace
+}  // extern "C++"
+
+unsigned int gen_imp_RegisterClassExA(uint32_t p) {
+    auto c = At<WndClassEx32>(p);
+    WNDCLASSEXA wc{sizeof wc};
+    ClassFrom32<char>(wc, c->style, c->cbClsExtra, c->cbWndExtra, c->hInstance, c->hIcon, c->hCursor,
+                      c->hbrBackground, c->lpszMenuName, c->lpszClassName);
+    wc.hIconSm = reinterpret_cast<HICON>(static_cast<intptr_t>(static_cast<int32_t>(c->hIconSm)));
+    return Registered(RegisterClassExA(&wc), c->lpfnWndProc);
+}
+unsigned int gen_imp_RegisterClassExW(uint32_t p) {
+    auto c = At<WndClassEx32>(p);
+    WNDCLASSEXW wc{sizeof wc};
+    ClassFrom32<wchar_t>(wc, c->style, c->cbClsExtra, c->cbWndExtra, c->hInstance, c->hIcon, c->hCursor,
+                         c->hbrBackground, c->lpszMenuName, c->lpszClassName);
+    wc.hIconSm = reinterpret_cast<HICON>(static_cast<intptr_t>(static_cast<int32_t>(c->hIconSm)));
+    return Registered(RegisterClassExW(&wc), c->lpfnWndProc);
+}
+unsigned int gen_imp_RegisterClassA(uint32_t p) {
+    auto c = At<WndClass32>(p);
+    WNDCLASSA wc{};
+    ClassFrom32<char>(wc, c->style, c->cbClsExtra, c->cbWndExtra, c->hInstance, c->hIcon, c->hCursor,
+                      c->hbrBackground, c->lpszMenuName, c->lpszClassName);
+    return Registered(RegisterClassA(&wc), c->lpfnWndProc);
+}
+unsigned int gen_imp_RegisterClassW(uint32_t p) {
+    auto c = At<WndClass32>(p);
+    WNDCLASSW wc{};
+    ClassFrom32<wchar_t>(wc, c->style, c->cbClsExtra, c->cbWndExtra, c->hInstance, c->hIcon, c->hCursor,
+                         c->hbrBackground, c->lpszMenuName, c->lpszClassName);
+    return Registered(RegisterClassW(&wc), c->lpfnWndProc);
+}
+
 // ---- pointer encoding: the reference keeps encoded pointers in 4 bytes ----------------------
 // x64's EncodePointer scrambles all 64 bits, and the 4 the reference kept decoded to garbage that
 // the C runtime then called (0xcc0a2740, 2026-10-23). The encoding only has to round-trip: none.
