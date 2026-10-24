@@ -136,6 +136,17 @@ NOINLINE u32 jumps(u32 s) {
     return (u32)r * 1000 + tries * 10 + g_depth;
 }
 
+/* an 8-byte value a callee fills, returned whole in edx:eax: QueryPerformanceCounter's
+ * LARGE_INTEGER. Taken for an object's fields, it was a byte array and the function's return a
+ * `byte [8]`, no C (CrystalCore) */
+NOINLINE void fill64(u64 *p, u32 s) { *p = ((u64)(s * 3) << 32) | (s ^ 0x55u); }
+NOINLINE u64 filled(u32 s) {
+    u64 v;
+    fill64(&v, s);
+    if (s & 1) return v;
+    return 0;
+}
+
 void rhtest_run(void) {
     u32 s = seed();   /* 7 */
     check("tls_static", tls_static(s));
@@ -151,4 +162,5 @@ void rhtest_run(void) {
     check("bitfields", bitfields(s));
     check("stack_alloc", stack_alloc(s));
     check("jumps", jumps(s));
+    check64("filled", filled(s));
 }

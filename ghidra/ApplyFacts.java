@@ -811,8 +811,30 @@ public class ApplyFacts extends GhidraScript {
     // (grow: x86's object blocks (protos32.py local_block) take in a variable that straddles them,
     // the analysis's own guess at the object's pieces, rather than give up on it)
     private void applyStackBlocks(JsonObject blocks, boolean grow) throws Exception {
-        int made = 0, functions = 0, skipped = 0, failed = 0;
+        int made = 0, functions = 0, skipped = 0, failed = 0, cleared = 0;
         String firstError = null;
+        // (a block an earlier round made that the facts no longer give: gone. The project keeps
+        // them, and a too-wide rule's `byte [8]` stayed a LARGE_INTEGER's return, 2026-10-24)
+        for (Function f : currentProgram.getFunctionManager().getFunctions(true)) {
+            ghidra.program.model.listing.StackFrame sf = f.getStackFrame();
+            JsonElement want = blocks.get(String.format("0x%x", f.getEntryPoint().getOffset()));
+            for (Variable v : sf.getStackVariables()) {
+                if (!v.getName().startsWith("blk_")) continue;
+                boolean kept = false;
+                if (want != null) {
+                    for (JsonElement b : want.getAsJsonArray()) {
+                        int off = b.getAsJsonArray().get(0).getAsInt();
+                        int size = b.getAsJsonArray().get(1).getAsInt();
+                        kept |= v.getStackOffset() <= off && v.getStackOffset() + v.getLength() >= off + size;
+                    }
+                }
+                if (!kept) {
+                    sf.clearVariable(v.getStackOffset());
+                    cleared++;
+                }
+            }
+        }
+        if (cleared > 0) println("ApplyFacts: stack blocks the facts no longer give cleared " + cleared);
         for (Map.Entry<String, JsonElement> e : blocks.entrySet()) {
             Function f = getFunctionAt(addr(e.getKey()));
             if (f == null) continue;

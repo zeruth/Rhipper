@@ -258,6 +258,28 @@ NOINLINE u32 refs(u32 s) {
     return r ^ (u32)(a * 100 + b);
 }
 
+/* ---- an object its constructor fills, read here only past its first field and never stored here:
+ * the CRT's _LocaleUpdate, whose flag and owner ___crtGetStringTypeA reads after the constructor.
+ * Made locals of their own, the constructor's 16 bytes overran a 4-byte one (CrystalCore) ---- */
+struct Update {
+    int *info;
+    int mode;
+    int *owner;
+    bool own;
+    explicit Update(int *p);
+};
+NOINLINE Update::Update(int *p) : info(p), mode(*p * 2), owner(p + 1), own(*p > 3) { event(15); }
+NOINLINE int update_use(const Update *u, int k) { return *u->info * 3 + u->mode + k; }
+static int g_cell[2];
+NOINLINE u32 updates(u32 s) {
+    g_cell[0] = (int)s;
+    g_cell[1] = 0x1f;
+    Update u(g_cell);
+    int r = update_use(&u, (int)s);
+    if (u.own) *u.owner &= ~2;
+    return (u32)r * 100 + (u32)g_cell[1];
+}
+
 void rhtest_run(void) {
     u32 s = seed();   /* 7 */
     check("statics", (u32)g_registry.sum() ^ (u32)g_counter.value());
@@ -267,5 +289,6 @@ void rhtest_run(void) {
     check("diamond", diamond(s));
     check("templates", templates(s));
     check("refs", refs(s));
+    check("updates", updates(s));
     check("events", g_events);
 }

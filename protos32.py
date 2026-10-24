@@ -583,6 +583,21 @@ def analyse(root: int, ranges):
         if unread and t < floor[1]:
             top = min([o for o in loc_lea if o > t] + [floor[1]])
             block = [min(unread), top - min(unread)]
+    # (and an object a callee fills at the lowest local whose address it takes, read past its first
+    # slot and never stored here: its fields. ___crtGetStringTypeA's _LocaleUpdate, built by its
+    # constructor through `lea ecx, [ebp - 0x10]`, read at ebp-8 and ebp-4: the decompiler made
+    # those locals of their own, the constructor's 16 bytes went into a 4-byte buffer and smashed
+    # the frame, CrystalCore's first CRT call 2026-10-24. One array from the address up to the
+    # last such byte. Past its first 8 bytes only: a value up to 8 the decompiler takes whole, and
+    # a LARGE_INTEGER QueryPerformanceCounter fills, returned in edx:eax, made the function's
+    # return a `byte [8]`, no C)
+    if block is None and loc_lea and floor[0] is not None:
+        t = min(loc_lea)
+        top = min([o for o in loc_lea if o > t] + [floor[1]])
+        stored = {x for o, w in loc_store.items() for x in range(o, o + w)}
+        fields = [x for x in loc_read if t + 8 <= x < top and x not in stored]
+        if fields:
+            block = [t, ((max(fields) + 1 - t) + 3) & ~3]
     tail_jumps = any(insns[a].mnemonic == "jmp" and (_target(insns[a]) is None or _target(insns[a]) not in insns)
                      for a in state)
     # (the constants it pushes or loads into eax: an EH4 frame's scope table, `push -2; push
