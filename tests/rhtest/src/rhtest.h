@@ -14,6 +14,27 @@
 
 #define NOINLINE __declspec(noinline)
 
+/* Every program builds with each toolset rhtest.py knows, the newest MSVC and Visual Studio 2010
+ * (msvc-16.00-x86, the compiler CrystalCore was built with), with what each lacks filled in
+ * here; nothing here changes what a newer compiler makes of the source. */
+#if defined(_MSC_VER) && _MSC_VER < 1700
+#ifdef __cplusplus
+/* (VS2010: `override` an extension, warned at /W4 and refused on a destructor; no noexcept) */
+#define override
+#define noexcept throw()
+#else
+/* (VS2010's C is C89: a non-constant aggregate initializer, and a bitfield of a type other than
+ * int, are extensions it warns of) */
+#pragma warning(disable: 4204 4214)
+#endif
+#endif
+/* storage aligned for a type (VS2010 has no alignas: 8, enough for every rhtest type) */
+#if defined(_MSC_VER) && _MSC_VER < 1900
+#define RH_ALIGNAS(T) __declspec(align(8))
+#else
+#define RH_ALIGNAS(T) alignas(T)
+#endif
+
 typedef unsigned char u8;
 typedef unsigned short u16;
 typedef unsigned int u32;

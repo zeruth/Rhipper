@@ -22,12 +22,13 @@ import re
 import struct
 import sys
 
-from unicorn import UC_ARCH_X86, UC_MODE_32, Uc, UcError
+from unicorn import UC_ARCH_X86, UC_HOOK_MEM_WRITE, UC_MODE_32, Uc, UcError
 from unicorn.x86_const import (
-    UC_X86_REG_EAX, UC_X86_REG_EBX, UC_X86_REG_ECX, UC_X86_REG_EDX, UC_X86_REG_ESP, UC_X86_REG_XMM0,
+    UC_X86_REG_EAX, UC_X86_REG_EBX, UC_X86_REG_ECX, UC_X86_REG_EDX, UC_X86_REG_ESP, UC_X86_REG_FP0,
+    UC_X86_REG_FPSW, UC_X86_REG_XMM0,
 )
 
-from pebin import FACTS, Binary, hexa, write_facts
+from pebin import FACTS, Binary, disassembler, hexa, write_facts
 
 STACK, STACK_SIZE = 0x0F000000, 0x100000
 STUB = 0x0E000000
@@ -87,7 +88,21 @@ SPECS: dict[str, tuple[str, list]] = {
     "ftol2": ("st0", [((d,), {"edx:eax": int(d)}) for d in DOUBLES]),
     # (__ftoi2, and __ftol2_sse jumping to it: an int in eax alone, `fisttp dword ptr [esp]`)
     "ftoi2": ("st0", [((d,), {"eax": int(d) & 0xFFFFFFFF}) for d in (1.5, -2.75, 123456.9, -2000000000.5)]),
+    # (and the C runtime's x87 square root, st0 to st0: a static CRT's __CIsqrt, which function ID
+    # left unnamed in VS2010's, and its callers reached its stub, rhtest msvc-16.00-x86 float.
+    # Squares, whose roots are exact whatever precision the x87 rounds to)
+    "CIsqrt": ("st0", [((d,), {"st0": f64(math.sqrt(d))}) for d in (2.25, 4.0, 1.0e10, 0.0625)]),
+    # (and the library's sqrt, a __cdecl double on the stack, its root pushed in st0: what VS2010
+    # calls at /Od, `_sqrt`, which runs on into the body __CIsqrt shares and branches on the flags
+    # its call to __load_CW left, a stub for in_ZF, rhtest msvc-16.00-x86 float-Od)
+    # (and roots that are not exact, correctly rounded only by the instruction: rhtest's own Newton
+    # iteration, `newton`, matched the squares)
+    "sqrt": ("stackd", [((d,), {"st0": f64(math.sqrt(d))}) for d in (2.25, 4.0, 1.0e10, 0.0625, 2.0, 3.0, 0.1)]),
 }
+# the instruction a helper's result comes from, which it has to run: the square roots' fsqrt. A
+# program's own Newton iteration (rhtest float's `newton`) matches every value at the x87's
+# precision, and was taken for the CRT's sqrt
+NEEDS = {"CIsqrt": b"\xd9\xfa", "sqrt": b"\xd9\xfa"}
 
 
 class Runner:
@@ -101,10 +116,21 @@ class Runner:
         uc.mem_map(STUB, 0x1000)
         uc.mem_write(RETURN, b"\xf4")
         self.image = bytes(b.image)
+        # (the image's pages a run wrote, put back before the next: rewriting the whole image
+        # each run was most of the time, ~0.6 ms a run over ~50k runs on a 13 MB image)
+        self.dirty: set[int] = set()
+
+        def wrote(_uc, _access, addr, size, _value, _data):
+            self.dirty.update(range(addr >> 12, ((addr + size - 1) >> 12) + 1))
+        uc.hook_add(UC_HOOK_MEM_WRITE, wrote, begin=b.base, end=b.base + size - 1)
 
     def run(self, entry: int, shape: str, inputs: tuple) -> dict | None:
         uc = self.uc
-        uc.mem_write(self.b.base, self.image)          # (a clean image each time: globals)
+        # (a clean image each time: globals)
+        for page in sorted(self.dirty):
+            at = (page << 12) - self.b.base
+            uc.mem_write(page << 12, self.image[at:at + 0x1000].ljust(0x1000, b"\0"))
+        self.dirty.clear()
         esp = STACK + STACK_SIZE - 0x100
         for r in (UC_X86_REG_EAX, UC_X86_REG_EBX, UC_X86_REG_ECX, UC_X86_REG_EDX):
             uc.reg_write(r, 0)
@@ -125,26 +151,80 @@ class Runner:
             uc.reg_write(UC_X86_REG_EDX, v >> 32)
         elif shape == "xmm0":
             uc.reg_write(UC_X86_REG_XMM0, f64(inputs[0]))
-        elif shape == "st0":
-            # (a stub loads st0 and calls: fld qword [DATA]; call entry; hlt)
-            uc.mem_write(DATA, struct.pack("<d", inputs[0]))
-            code = b"\xdd\x05" + struct.pack("<I", DATA)
+        elif shape == "stackd":
+            # (the double pushed as a __cdecl argument, under the return address; st0 empty, as
+            # fninit leaves it: a stub `fninit; call entry; hlt` with the double where it reads it)
+            for word in reversed(struct.unpack("<II", struct.pack("<d", inputs[0]))):
+                esp -= 4
+                uc.mem_write(esp, struct.pack("<I", word))
+            code = b"\xdb\xe3"
             call_at = STUB + len(code)
             code += b"\xe8" + struct.pack("<i", entry - (call_at + 5)) + b"\xf4"
             uc.mem_write(STUB, code)
             start = STUB
-        if shape != "st0":
+        elif shape == "st0":
+            # (a stub loads st0 and calls: fninit; fld qword [DATA]; call entry; hlt. fninit masks the
+            # exceptions, as Windows starts a thread; a result left in st0 is read off the register)
+            uc.mem_write(DATA, struct.pack("<d", inputs[0]))
+            code = b"\xdb\xe3" + b"\xdd\x05" + struct.pack("<I", DATA)
+            call_at = STUB + len(code)
+            code += b"\xe8" + struct.pack("<i", entry - (call_at + 5)) + b"\xf4"
+            uc.mem_write(STUB, code)
+            start = STUB
+        stub = shape in ("st0", "stackd")
+        if not stub:
             esp -= 4
             uc.mem_write(esp, struct.pack("<I", RETURN))
         uc.reg_write(UC_X86_REG_ESP, esp)
         try:
-            uc.emu_start(start, RETURN if shape != "st0" else STUB + len(code) - 1, count=20000)
+            uc.emu_start(start, RETURN if not stub else STUB + len(code) - 1, count=20000)
         except UcError:
             return None
         eax, edx = uc.reg_read(UC_X86_REG_EAX), uc.reg_read(UC_X86_REG_EDX)
         ebx, ecx = uc.reg_read(UC_X86_REG_EBX), uc.reg_read(UC_X86_REG_ECX)
         return {"eax": eax, "edx:eax": (edx << 32) | eax, "ebx:ecx": (ebx << 32) | ecx,
-                "xmm0": uc.reg_read(UC_X86_REG_XMM0) & M64}
+                "xmm0": uc.reg_read(UC_X86_REG_XMM0) & M64,
+                "st0": self.st0() if stub else None}
+
+    def runs(self, entry: int, shape: str, inputs: tuple, insn: bytes) -> bool:
+        """Whether a run executes the instruction (its bytes)."""
+        from unicorn import UC_HOOK_CODE
+        saw = []
+
+        def hook(uc, addr, size, _):
+            if not saw and size == len(insn) and bytes(uc.mem_read(addr, size)) == insn:
+                saw.append(addr)
+        h = self.uc.hook_add(UC_HOOK_CODE, hook)
+        # (the code already translated runs as it was, without the hook: dropped first)
+        self.uc.ctl_flush_tb()
+        try:
+            self.run(entry, shape, inputs)
+        finally:
+            self.uc.hook_del(h)
+            self.uc.ctl_flush_tb()
+        return bool(saw)
+
+    def st0(self) -> int | None:
+        """st0 as a double's bits: the physical register the status word's TOP names (Unicorn's
+        UC_X86_REG_ST0 gives the mantissa alone)."""
+        top = (self.uc.reg_read(UC_X86_REG_FPSW) >> 11) & 7
+        return st0_double(self.uc.reg_read(UC_X86_REG_FP0 + top))
+
+
+def st0_double(reg) -> int | None:
+    """An x87 register's 80-bit value, Unicorn's (mantissa, sign and exponent), as a double's bits.
+    (Read off the register: an `fst` after a helper that popped st0 faulted, masked, and Unicorn's
+    stores after that one wrote nothing, every later candidate's result 0)"""
+    # (a tuple in some Unicorn versions, the 80 bits as one integer in others)
+    mantissa, se = reg if isinstance(reg, tuple) else (reg & M64, reg >> 64)
+    exp = se & 0x7FFF
+    if exp == 0 and mantissa == 0:
+        v = 0.0
+    elif exp == 0x7FFF:
+        v = math.nan if mantissa & ((1 << 63) - 1) else math.inf
+    else:
+        v = math.ldexp(mantissa, exp - 16383 - 63)
+    return f64(-v if se & 0x8000 else v)
 
 
 def shape_of(e: dict) -> set[str]:
@@ -154,6 +234,9 @@ def shape_of(e: dict) -> set[str]:
     out = set()
     if e.get("stack") == 16 and e.get("cc") in ("__stdcall", "custom"):
         out.add("stack16")
+    # (a __cdecl one taking a double: 8 bytes, or 4 where it reads the slot by its address)
+    if e.get("cc") == "__cdecl" and e.get("stack") in (4, 8) and not e.get("regs"):
+        out.add("stackd")
     if e.get("stack", 0) == 0:
         if {"eax", "edx"} <= regs and ("cl" in regs or "ecx" in regs):
             out.add("shift")
@@ -191,9 +274,26 @@ def main() -> None:
                 if got is None or any(got[reg] != (v & M64) for reg, v in want.items()):
                     ok = False
                     break
+            if ok and name in NEEDS and not runner.runs(a, shape, cases[0][0], NEEDS[name]):
+                ok = False
             if ok:
                 found[hexa(a)] = name
                 break
+    # (the helper, not a function wrapping it: one that calls another found is the program's
+    # own, `dsqrt(x) { return sqrt(x); }` in rhtest float, and stays translated code)
+    md = disassembler()
+    ranges = {int(f["entry"], 16): f["ranges"] for f in json.loads((FACTS / "functions.json").read_text())["functions"]}
+    found_at = {int(k, 16) for k in found}
+    for k in list(found):
+        a = int(k, 16)
+        calls = set()
+        for lo, hi in ranges.get(a, ()):
+            lo, hi = int(lo, 16), int(hi, 16)
+            for ins in md.disasm(bytes(b.image[b.off(lo):b.off(lo) + (hi - lo)]), lo):
+                if ins.mnemonic == "call" and ins.op_str.startswith("0x"):
+                    calls.add(int(ins.op_str, 16))
+        if calls & (found_at - {a}):
+            del found[k]
     path = write_facts("helpers32", {"rule": "helpers32.py: run under Unicorn in each helper's convention, "
                                               "every case matching", "helpers": found})
     print(f"{len(found)} helpers: {found} -> {path}", file=sys.stderr)

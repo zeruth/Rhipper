@@ -1,9 +1,5 @@
-# rhtest on the references MSVC 14.51 (Visual Studio 2026) built for x86, as committed in
-# tests/rhtest/bins/msvc-14.51-x86: the whole pipeline on each, the port built and run against it,
-# and the fidelity report published to GitHub Pages (gh-pages, under msvc-14.51-x86/).
-#
-# One workflow per toolset: another compiler or target is a copy of this one with its own name and
-# bins directory (`python tests/rhtest/rhtest.py --save-bins` on a machine with that toolset).
+# rhtest on the references MSVC 14.51 (Visual Studio 2026) built for x86, /MD
+# (tests/rhtest/bins/msvc-14.51-x86): rhtest.yml's steps, under this toolset's own name and badge.
 name: msvc-14.51-x86
 
 on:
@@ -19,96 +15,8 @@ concurrency:
 permissions:
   contents: write
 
-env:
-  TOOLSET: msvc-14.51-x86
-  GHIDRA_TAG: Ghidra_12.1.3_build
-  GHIDRA_DIR: ghidra_12.1.3_PUBLIC
-
 jobs:
   rhtest:
-    # (Windows Server 2025 with Visual Studio 2026: the port is built for x64 by the runner's MSVC)
-    runs-on: windows-2025
-    timeout-minutes: 180
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.14"
-
-      - name: Python packages
-        run: python -m pip install -r requirements.txt
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "21"
-
-      - name: Ghidra (cached)
-        id: ghidra-cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ runner.temp }}/${{ env.GHIDRA_DIR }}
-          key: ghidra-${{ env.GHIDRA_TAG }}
-
-      - name: Download Ghidra
-        if: steps.ghidra-cache.outputs.cache-hit != 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release download "$GHIDRA_TAG" -R NationalSecurityAgency/ghidra -p "*.zip" -D "$RUNNER_TEMP"
-          unzip -q "$RUNNER_TEMP"/ghidra_*.zip -d "$RUNNER_TEMP"
-          rm "$RUNNER_TEMP"/ghidra_*.zip
-
-      - name: Rhipper's decompiler
-        run: |
-          echo "RHIPPER_GHIDRA=$(cygpath -m "$RUNNER_TEMP/$GHIDRA_DIR")" >> "$GITHUB_ENV"
-          RHIPPER_GHIDRA="$RUNNER_TEMP/$GHIDRA_DIR" bash ghidra/decompiler/install.sh
-
-      - name: rhtest
-        run: |
-          mkdir -p "$RUNNER_TEMP/ghidra-projects"
-          export RHTEST_GHIDRA="$RHIPPER_GHIDRA"
-          export RHTEST_GHIDRA_PROJECTS="$(cygpath -m "$RUNNER_TEMP/ghidra-projects")"
-          python -u tests/rhtest/rhtest.py --bins "$TOOLSET" --parallel 4
-
-      - name: Logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: rhtest-${{ env.TOOLSET }}
-          path: |
-            tests/rhtest/fidelity.html
-            tests/rhtest/work/*/build/*.log
-            tests/rhtest/work/*/build/*.txt
-            tests/rhtest/work/*/build/fidelity.html
-            tests/rhtest/work/*/gen/
-          if-no-files-found: ignore
-
-      - name: Publish to Pages
-        if: always() && hashFiles('tests/rhtest/fidelity.html') != ''
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          site="$RUNNER_TEMP/site"
-          if git ls-remote --exit-code --heads origin gh-pages > /dev/null; then
-            git clone --depth 1 --branch gh-pages "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" "$site"
-          else
-            git init -b gh-pages "$site"
-            git -C "$site" remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
-          fi
-          python tests/rhtest/pages.py "$site" "$TOOLSET"
-          cd "$site"
-          git add -A
-          git commit -q -m "rhtest $TOOLSET: ${GITHUB_SHA::7}" || exit 0
-          for i in 1 2 3; do
-            git push origin gh-pages && exit 0
-            # (another toolset's workflow published in between: on top of it, with the index remade)
-            git pull --rebase -X theirs origin gh-pages || true
-            python "$GITHUB_WORKSPACE/tests/rhtest/pages.py" "$site" "$TOOLSET"
-            git add -A && git commit -q --amend --no-edit || true
-          done
-          exit 1
+    uses: ./.github/workflows/rhtest.yml
+    with:
+      toolset: msvc-14.51-x86

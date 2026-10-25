@@ -19,6 +19,12 @@
 #include "multiprecision.hh"
 
 namespace ghidra {
+// RHIPPER: whether a local slot lies where a stack pointer the function lets escape reaches
+// (heritage.cc, AliasChecker)
+bool rhLocalAliasedVarnode(const Funcdata *fd,Varnode *vn);
+}
+
+namespace ghidra {
 
 /// \class RuleEarlyRemoval
 /// \brief Get rid of unused PcodeOp objects where we can guarantee the output is unused
@@ -4349,6 +4355,21 @@ int4 RuleStoreVarnode::applyOp(PcodeOp *op,Funcdata &data)
   Address addr(baseoff,offoff);
   data.newVarnodeOut(size, addr,op);
   op->getOut()->setStackStore();	// Mark as originally coming from CPUI_STORE
+  // RHIPPER: a store into a local slot a stack pointer the function lets escape reaches is read
+  // through that pointer: address forced, and a direct write so deadcode keeps the force (it
+  // clears one on a value no legal input reaches). Made a stack write after the stack was
+  // heritaged, nothing read it yet and deadcode took it at once: core's bucket_of at /Od lost the
+  // lo, hi and v its pointer picks between (rhtest msvc-16.00-x86). Not a register's save, though
+  // (an unaffected input stored: `push esi` above a buffer the function lends out): kept, the
+  // save became a read of unaff_ESI and crt's fmt functions at /O2 were stubbed
+  // (an input no parameter can be, by ActionDirectWrite's test: the unaffected mark comes later)
+  Varnode *stored = op->getIn(2);
+  bool save = stored->isInput() && !stored->isPersist() && !stored->isSpacebase()
+      && !data.getFuncProto().possibleInputParam(stored->getAddr(),stored->getSize());
+  if (!save && rhLocalAliasedVarnode(&data,op->getOut())) {
+    op->getOut()->setDirectWrite();
+    op->getOut()->setAddrForce();
+  }
   data.opRemoveInput(op,1);
   data.opRemoveInput(op,0);
   data.opSetOpcode(op, CPUI_COPY );

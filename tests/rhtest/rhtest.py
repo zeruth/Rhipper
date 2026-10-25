@@ -16,19 +16,22 @@ must print the same lines and exit the same. No build may warn: the reference co
     python rhtest.py --jobs 4              more workers per tool (serial by default)
     python rhtest.py --parallel 3          projects at once (1 by default; a full run, the end of
                                            a phase's regression, runs FULL_PARALLEL at once)
+    python rhtest.py --toolset msvc-16.00-x86   the references built by another compiler (TOOLSETS)
     python rhtest.py --save-bins           also keep each reference in bins/<toolset>/ (to commit)
-    python rhtest.py --bins msvc-14.51-x86 test the committed references, not a build (CI)
+    python rhtest.py --bins msvc-14.51-x86 test a toolset's committed references, not a build (CI)
 
 Per project: ref/ (the reference, its map file, expected.txt), build/ (facts, corpus, the port's
 build, actual.txt, port-stderr.txt, logs), gen/ (the translation).
 
-bins/<toolset>/<name>-<variant>/ holds a toolset's references as committed, the toolset named by the
-compiler that built them and its target (msvc-14.51-x86): a CI run tests those, so its result does
-not depend on the runner's compiler, and each toolset has a workflow of its own
-(.github/workflows/<toolset>.yml).
+A toolset is the compiler that builds the references and their target (TOOLSETS): msvc-14.51-x86,
+the newest MSVC, and msvc-16.00-x86, Visual Studio 2010 SP1 as CrystalCore was built. Each has its
+projects (work/ for the first, work/<toolset>/ for the others), its Ghidra projects, its report, and
+its references as committed, bins/<toolset>/<name>-<variant>/: CI tests those, so its result does
+not depend on the runner's compiler. The port is built by the newest MSVC whatever the toolset.
 
 The Ghidra install and projects folder default to this machine's; RHTEST_GHIDRA and
-RHTEST_GHIDRA_PROJECTS override them.
+RHTEST_GHIDRA_PROJECTS override them, and RHTEST_VS2010 the Visual Studio 2010 SP1 tools
+(README.md: the compiler update and the Windows SDK 7.1, extracted).
 """
 from __future__ import annotations
 
@@ -66,7 +69,23 @@ VARIANTS = {
     "IA32": (["/O2", "/arch:IA32"], []),
     # whole-program optimization: the compiler's own register conventions between functions
     "GL": (["/O2", "/GL"], ["/LTCG"]),
+    # SSE2 floats where a toolset's default is x87 (VS2010: no /arch:IA32, x87 unless asked)
+    "SSE2": (["/O2", "/arch:SSE2"], []),
 }
+# the toolsets: how each builds a reference. vs: which Visual Studio's tools ("latest", vswhere's,
+# or "2010", RHTEST_VS2010's); cl: the compiler version it must be; crt and subsystem: the runtime
+# and Windows it targets; variants: a program's variant it builds as another (or not at all, None)
+TOOLSETS = {
+    "msvc-14.51-x86": {"vs": "latest", "cl": "19.51.", "crt": "/MD", "subsystem": "CONSOLE", "variants": {}},
+    # (CrystalCore's: VS2010 SP1, cl 16.00.40219, the C runtime linked in, for Windows XP. Its
+    # floats are x87 by default, so the program built /arch:IA32 elsewhere is the SSE2 one here)
+    "msvc-16.00-x86": {"vs": "2010", "cl": "16.00.40219", "crt": "/MT", "subsystem": "CONSOLE,5.01",
+                       "variants": {"IA32": "SSE2"}},
+}
+DEFAULT_TOOLSET = "msvc-14.51-x86"
+# the toolset this run builds and tests (--toolset, --bins)
+TOOLSET = DEFAULT_TOOLSET
+VS2010 = Path(os.environ.get("RHTEST_VS2010", "C:/Users/tyler/tools/vs2010"))
 # program -> (its sources besides rhtest_main.c, its variants)
 PROGRAMS = {
     "core": (["core.c"], ["O2", "Od"]),
@@ -102,11 +121,49 @@ def msvc_env(arch: str) -> dict:
     return _envs[arch]
 
 
-def toolset() -> str:
-    """The compiler that builds the references and their target, as bins/ and the CI workflow name
-    it: msvc-14.51-x86 (VCToolsVersion 14.51.36231)."""
-    version = msvc_env("32").get("VCToolsVersion", "").strip().rstrip("\\")
-    return f"msvc-{'.'.join(version.split('.')[:2]) or 'unknown'}-x86"
+def ref_env() -> dict:
+    """The environment the toolset's compiler builds a reference in: vcvars32's for the newest,
+    and for VS2010 its extracted tools and the Windows SDK 7.1 (with toolsets/<toolset>/include,
+    what its install lacks), checked once to be the compiler the toolset names."""
+    if "ref" in _envs:
+        return _envs["ref"]
+    ts = TOOLSETS[TOOLSET]
+    if ts["vs"] == "latest":
+        env = dict(msvc_env("32"))
+    else:
+        vs = VS2010 / "sp1" / "Program Files" / "Microsoft Visual Studio 10.0"
+        sdk = VS2010 / "sdk" / "Program Files" / "Microsoft SDKs" / "Windows" / "v7.1"
+        env = {k: v for k, v in os.environ.items() if k.upper() not in ("PATH", "INCLUDE", "LIB", "LIBPATH")}
+        env["PATH"] = os.pathsep.join([str(vs / "VC" / "bin"), str(vs / "Common7" / "IDE"), os.environ.get("PATH", "")])
+        env["INCLUDE"] = os.pathsep.join([str(vs / "VC" / "include"), str(sdk / "Include"),
+                                          str(HERE / "toolsets" / TOOLSET / "include")])
+        env["LIB"] = os.pathsep.join([str(vs / "VC" / "lib"), str(sdk / "Lib")])
+    cl = shutil.which("cl", path=env.get("PATH") or env.get("Path"))
+    banner = subprocess.run([cl], capture_output=True, text=True, env=env).stderr if cl else ""
+    if f"Version {ts['cl']}" not in banner:
+        sys.exit(f"rhtest: {TOOLSET} needs cl {ts['cl']}, found {banner.splitlines()[0] if banner else 'no cl'}"
+                 + (f" (RHTEST_VS2010: {VS2010})" if ts["vs"] == "2010" else ""))
+    _envs["ref"] = env
+    return env
+
+
+def work_dir(toolset: str) -> Path:
+    """A toolset's projects: work/ for the default one (as before there were others), work/<toolset>/."""
+    return WORK if toolset == DEFAULT_TOOLSET else WORK / toolset
+
+
+def report_path(toolset: str) -> Path:
+    return HERE / "fidelity.html" if toolset == DEFAULT_TOOLSET else work_dir(toolset) / "fidelity.html"
+
+
+def ghidra_prefix(toolset: str) -> str:
+    return "rhtest-" if toolset == DEFAULT_TOOLSET else f"rhtest-{toolset}-"
+
+
+def variants_of(program: str) -> list[str]:
+    """A program's variants as the toolset builds them."""
+    swap = TOOLSETS[TOOLSET]["variants"]
+    return [swap.get(v, v) for v in PROGRAMS[program][1] if swap.get(v, v)]
 
 
 def run(cmd: list[str], cwd: Path, env: dict | None, log: Path, tail: int = 0) -> int:
@@ -130,21 +187,24 @@ class Project:
     def __init__(self, program: str, variant: str):
         self.program, self.variant = program, variant
         self.name = f"{program}-{variant}"
-        self.root = WORK / self.name
+        self.root = work_dir(TOOLSET) / self.name
         self.ref = self.root / "ref"
         self.exe = self.ref / f"{program}.exe"
         self.build = self.root / "build"
         self.build.mkdir(parents=True, exist_ok=True)
         self.ref.mkdir(parents=True, exist_ok=True)
+        self.gproject = f"{ghidra_prefix(TOOLSET)}{self.name}"
         self.config = {
-            "name": f"rhtest-{self.name}",
+            "name": self.gproject,
             "exe": f"ref/{program}.exe",
             "arch": "x86",
+            # (declared: the toolset built it, whatever toolchain.py reads)
+            "toolchain": TOOLSET,
             "image_base": "0x400000",
             "sources": [],
             "gen": "gen",
             "run": {"exe": "build/port/bin/Release/rhtest-port.exe", "cwd": "ref"},
-            "ghidra": {"install": GHIDRA, "projects": GHIDRA_PROJECTS, "project": f"rhtest-{self.name}",
+            "ghidra": {"install": GHIDRA, "projects": GHIDRA_PROJECTS, "project": self.gproject,
                        "program": f"{program}.exe", "maxmem": "2G", "shards": 1},
         }
         path = self.root / "rhipper.json"
@@ -162,13 +222,15 @@ class Project:
 
     # ---- steps ----------------------------------------------------------------------------------
     def step_ref(self) -> bool:
-        """The reference: x86, /MD, /W4 /WX; no PDB (Ghidra would read it; a real binary has
-        none), a map file for reading a failure. /DYNAMICBASE:NO, so no relocations either (/FIXED
-        is the default then), as many older binaries ship: pebin.py finds the pointers itself.
-        With --bins, the committed reference instead (bins/<toolset>/<name>/)."""
+        """The reference: x86, the toolset's runtime (/MD, or VS2010's /MT) and Windows, /W4 /WX;
+        no PDB (Ghidra would read it; a real binary has none), a map file for reading a failure.
+        /DYNAMICBASE:NO, so no relocations either (/FIXED is the default then), as many older
+        binaries ship: pebin.py finds the pointers itself. With --bins, the committed reference
+        instead (bins/<toolset>/<name>/)."""
         files = [self.exe.name, f"{self.program}.map", "expected.txt"]
+        ts = TOOLSETS[TOOLSET]
         if USE_BINS:
-            saved = BINS / USE_BINS / self.name
+            saved = BINS / TOOLSET / self.name
             missing = [f for f in files if not (saved / f).exists()]
             if missing:
                 print(f"    no committed {', '.join(missing)} in {saved}")
@@ -176,18 +238,18 @@ class Project:
             for f in files:
                 if not (self.ref / f).exists() or (self.ref / f).read_bytes() != (saved / f).read_bytes():
                     shutil.copyfile(saved / f, self.ref / f)
-            print(f"    the committed reference, {USE_BINS}")
+            print(f"    the committed reference, {TOOLSET}")
             return True
         cflags, lflags = VARIANTS[self.variant]
         obj = self.build / "ref-obj"
         obj.mkdir(parents=True, exist_ok=True)
         srcs = [str(SRC / s) for s in PROGRAMS[self.program][0]] + [str(SRC / "rhtest_main.c")]
         cpp = any(s.endswith(".cpp") for s in srcs)
-        env = msvc_env("32")
+        env = ref_env()
         cl = shutil.which("cl", path=env.get("PATH") or env.get("Path"))
-        cmd = [cl, "/nologo", "/MD", "/W4", "/WX", *cflags, *(["/EHsc"] if cpp else []),
+        cmd = [cl, "/nologo", ts["crt"], "/W4", "/WX", *cflags, *(["/EHsc"] if cpp else []),
                f"/Fo{obj}\\", f"/Fe{self.exe}", *srcs,
-               "/link", "/WX", "/DYNAMICBASE:NO", "/INCREMENTAL:NO", "/SUBSYSTEM:CONSOLE",
+               "/link", "/WX", "/DYNAMICBASE:NO", "/INCREMENTAL:NO", f"/SUBSYSTEM:{ts['subsystem']}",
                f"/MAP:{self.ref / (self.program + '.map')}", *lflags, "kernel32.lib"]
         log = self.build / "ref-build.log"
         if run(cmd, self.root, env, log) != 0:
@@ -200,7 +262,7 @@ class Project:
         (self.ref / "expected.txt").write_text(text + f"exit = {r.returncode}\n", encoding="utf-8")
         print(f"    expected: {len(text.splitlines())} lines, exit {r.returncode}")
         if SAVE_BINS:
-            saved = BINS / toolset() / self.name
+            saved = BINS / TOOLSET / self.name
             saved.mkdir(parents=True, exist_ok=True)
             for f in files:
                 shutil.copyfile(self.ref / f, saved / f)
@@ -211,7 +273,7 @@ class Project:
         """Ghidra's import and analysis, again whenever the reference changed since the last."""
         digest = hashlib.sha256(self.exe.read_bytes()).hexdigest()
         stamp = self.build / "imported.sha256"
-        gpr = Path(GHIDRA_PROJECTS) / f"rhtest-{self.name}.gpr"
+        gpr = Path(GHIDRA_PROJECTS) / f"{self.gproject}.gpr"
         if gpr.exists() and stamp.exists() and stamp.read_text().strip() == digest and not getattr(self, "fresh", False):
             print("    (the reference is unchanged since its import)")
             return True
@@ -226,7 +288,14 @@ class Project:
     def step_facts(self) -> bool:
         """noreturn.py and protos32.py; while protos32.py finds code no function covers (what only
         a pointer reaches: the CRT's initializer tables), ApplyFacts makes it functions and their
-        extents are exported again, so the next round prototypes them."""
+        extents are exported again, so the next round prototypes them. First toolchain.py, whose
+        reading of the reference has to agree with the toolset that built it."""
+        log = self.build / "toolchain.log"
+        if run([sys.executable, str(RHIPPER / "toolchain.py")], self.root, self.env, log) != 0:
+            return False
+        for line in log.read_text(encoding="utf-8", errors="replace").splitlines():
+            if "declares" in line or "no rhtest toolset" in line:
+                print(f"    {line}")
         for _ in range(4):
             for tool, extra in (("noreturn.py", []), ("protos32.py", ["--jobs", str(JOBS)]), ("helpers32.py", [])):
                 if run([sys.executable, str(RHIPPER / tool), *extra], self.root, self.env,
@@ -237,8 +306,7 @@ class Project:
             if not m or m.group(1) == "0":
                 return True
             print(f"    {m.group(1)} code no function covers: ghidra.sh apply, functions")
-            if not self.ghidra_sh("apply", log="ghidra-apply.log", tail=0) or \
-                    not self.ghidra_sh("functions", log="ghidra-functions.log", tail=0):
+            if not self.ghidra_sh("apply-functions", log="ghidra-apply.log", tail=0):
                 return False
         print("    (still uncovered code after 4 rounds)")
         return True
@@ -377,20 +445,33 @@ def main() -> None:
     ap.add_argument("--jobs", type=int, default=1, help="workers for protos32, translate32 and MSBuild (default 1)")
     ap.add_argument("--parallel", type=int, default=None,
                     help=f"projects at once (default 1; {FULL_PARALLEL} for a full run, the end of a phase's regression)")
-    ap.add_argument("--bins", metavar="TOOLSET", help="test the references committed in bins/TOOLSET, not a build")
+    ap.add_argument("--toolset", choices=list(TOOLSETS), help=f"the compiler the references are built with "
+                    f"(default {DEFAULT_TOOLSET})")
+    ap.add_argument("--bins", metavar="TOOLSET", choices=list(TOOLSETS),
+                    help="test the toolset's references committed in bins/TOOLSET, not a build")
     ap.add_argument("--save-bins", action="store_true", help="keep each reference built in bins/<toolset>/")
     args = ap.parse_args()
-    global JOBS, USE_BINS, SAVE_BINS
+    global JOBS, USE_BINS, SAVE_BINS, TOOLSET, REPORT
     JOBS = args.jobs
     USE_BINS, SAVE_BINS = args.bins, args.save_bins
+    if args.bins and args.toolset and args.bins != args.toolset:
+        ap.error("--bins and --toolset name different toolsets")
+    TOOLSET = args.bins or args.toolset or DEFAULT_TOOLSET
+    REPORT = report_path(TOOLSET)
     if USE_BINS and not (BINS / USE_BINS).is_dir():
         ap.error(f"no {BINS / USE_BINS}")
+    if USE_BINS and SAVE_BINS:
+        ap.error("--save-bins keeps references built, --bins tests committed ones")
     steps = [args.only] if args.only else STEPS[STEPS.index(args.start):]
     programs = args.programs or [p for p in PROGRAMS if (SRC / PROGRAMS[p][0][0]).exists()]
     full = not args.programs and not args.variant and steps == STEPS
     parallel = args.parallel or (FULL_PARALLEL if full else 1)
-    projects = [(program, variant) for program in programs for variant in PROGRAMS[program][1]
+    projects = [(program, variant) for program in programs for variant in variants_of(program)
                 if not args.variant or variant in args.variant]
+    if not projects:
+        ap.error(f"no such variant in {TOOLSET}")
+    if TOOLSET != DEFAULT_TOOLSET:
+        print(f"toolset {TOOLSET}: {work_dir(TOOLSET).relative_to(HERE)}")
 
     def one(program: str, variant: str) -> tuple[Project, str]:
         p = Project(program, variant)
@@ -424,7 +505,10 @@ def main() -> None:
         # A project's lines are kept and printed together when it ends, not interleaved)
         import threading
         from concurrent.futures import ThreadPoolExecutor
-        msvc_env("32"), msvc_env("64")          # (captured once, before the threads)
+        # (captured once, before the threads; the reference's compiler only where it builds them)
+        msvc_env("64")
+        if "ref" in steps and not USE_BINS:
+            ref_env()
         lock = threading.Lock()
         real = sys.stdout
 
@@ -486,7 +570,12 @@ def write_report(results: dict, status: dict, ran_port: bool) -> None:
     (`python rhtest.py`, at the end of a phase) remakes them all."""
     import datetime
     import html
-    path = WORK / "summary.json"
+    work = work_dir(TOOLSET)
+    # (the projects' reports, as the report links them: work/<name>/... beside this file, or
+    # <name>/... beside work/<toolset>/fidelity.html)
+    rel = work.relative_to(REPORT.parent).as_posix()
+    rel = "" if rel == "." else rel + "/"
+    path = work / "summary.json"
     summary = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     for name, p in results.items():
@@ -511,10 +600,10 @@ def write_report(results: dict, status: dict, ran_port: bool) -> None:
     for name in sorted(summary, key=order):
         e = summary[name]
         f = e.get("fidelity")
-        report = WORK / name / "build" / "fidelity.html"
-        data = WORK / name / "build" / "fidelity.json"
+        report = work / name / "build" / "fidelity.html"
+        data = work / name / "build" / "fidelity.json"
         scored_at = datetime.datetime.fromtimestamp(data.stat().st_mtime).strftime("%Y-%m-%d %H:%M") if data.exists() else "-"
-        link = f'<a href="work/{name}/build/fidelity.html">{html.escape(name)}</a>' if report.exists() else html.escape(name)
+        link = f'<a href="{rel}{name}/build/fidelity.html">{html.escape(name)}</a>' if report.exists() else html.escape(name)
         cls = "pass" if e["status"] == "PASS" else "fail" if e["status"].startswith("FAIL") else "muted"
         if f:
             totals.update(functions=f["functions"], translated=f["translated"], perfect=f["perfect"], stubs=f["stubs"])
@@ -545,7 +634,7 @@ def write_report(results: dict, status: dict, ran_port: bool) -> None:
         sections.append(f'<details id="{name}"{" open" if body else ""}><summary>{html.escape(name)} '
                         f'<span class="muted">({len(items)} below 1.0, full report: {link})</span></summary>{inner}</details>')
     page = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>rhtest fidelity</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>rhtest {TOOLSET}</title>
 <style>
 :root {{ --bg:#fbfbfa; --fg:#1d1d1b; --muted:#6b6b66; --line:#e4e3df; --pass:#2f9e5b; --fail:#d0503c; --link:#3f51d8;
   --s2:#7aa83a; --s1:#d49a2a; --s0:#d0503c; }}
@@ -562,7 +651,7 @@ td:first-child {{ font-family:ui-monospace,monospace; }}
 .s2 {{ color:var(--s2); }} .s1 {{ color:var(--s1); }} .s0 {{ color:var(--s0); font-weight:600; }}
 details {{ border:1px solid var(--line); border-radius:8px; padding:8px 12px; margin:8px 0; }}
 summary {{ cursor:pointer; font-weight:600; }} a {{ color:var(--link); }}
-</style></head><body><main><h1>rhtest fidelity</h1>
+</style></head><body><main><h1>rhtest fidelity: {TOOLSET}</h1>
 <div class="sub">{len(summary)} projects, {totals['functions']} functions: {totals['perfect']} of {totals['translated']}
 translated at 1.0, {totals['stubs']} stubs. Written {now}; a project shows the scores of its last run (scored column).</div>
 <div class="wrap"><table>
@@ -575,7 +664,7 @@ translated at 1.0, {totals['stubs']} stubs. Written {now}; a project shows the s
 </main></body></html>
 """
     REPORT.write_text(page, encoding="utf-8")
-    old = WORK / "index.html"
+    old = work / "index.html"
     if old.exists():
         old.unlink()
 

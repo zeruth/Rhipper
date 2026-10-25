@@ -25,7 +25,11 @@
 #   opcodes.cc  a float < or <= is not negated by flipping (`!(a < b)` is not `b <= a` for a NaN)
 #   subflow.cc  a float operation is narrowed only when every input fits (a double operand kept
 #               `f * d` from becoming `f * (float)d`), and an x87 value never below a double:
-#               MSVC's x87 runs at 53 bits, so a float's arithmetic there is a double's
+#               MSVC's x87 runs at 53 bits, so a float's arithmetic there is a double's; nor
+#               an op fed by another wide op, a chain rounded once (VS2010's /arch:SSE2 floats)
+#   heritage.cc a LOAD whose pointer may reach both locals and parameters (its range wraps) is
+#               guarded over the whole stack, not from the locals up only: a parameter's slot
+#               reused for a std::min/max operand kept its store
 #   cast.cc     a float into an untyped place (copy, store, argument) gets a cast: its bits
 #   typeop.cc/.hh  a float into a PIECE or SUBPIECE (CONCAT44(f,g), SUB84(d,0)) gets an integer
 #               cast: its bits, as the reader's CONCAT and SUB take integers

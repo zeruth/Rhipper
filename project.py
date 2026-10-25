@@ -9,6 +9,9 @@ the working directory. Paths in it are relative to the file's directory.
       "name": "FrostLite",
       "exe": "client/_classic_/WowClassic-clean.exe",       the reference binary (required)
       "arch": "x86_64",                                      or "x86"
+      "toolchain": null,                                     the compiler that built it, msvc-16.00-x86:
+                                                             toolchain.py reads it off the binary;
+                                                             set it where the binary hides it
       "image_base": "0x140000000",
       "sources": ["src", "vendor"],                          the hand-written sources
       "gen": "src/gen",                                      where the translation is written
@@ -43,6 +46,7 @@ HERE = Path(__file__).resolve().parent          # Rhipper itself
 
 DEFAULTS = {
     "arch": "x86_64",
+    "toolchain": None,
     "image_base": "0x140000000",
     "sources": ["src", "vendor"],
     "gen": "src/gen",

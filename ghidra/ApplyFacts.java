@@ -370,6 +370,10 @@ public class ApplyFacts extends GhidraScript {
         bodies.put("ftoul2_legacy", ftoul);
         // (the CRT's square roots, imported: x87's in st0, SSE2's in xmm0)
         bodies.put("CIsqrt", "ST0 = sqrt(ST0);" + pop0);
+        // (and the library's sqrt, a __cdecl double on the stack, its root pushed: VS2010's _sqrt at
+        // /Od, found by helpers32.py; the caller pops the argument)
+        String push87 = " ST7 = ST6; ST6 = ST5; ST5 = ST4; ST4 = ST3; ST3 = ST2; ST2 = ST1; ST1 = ST0;";
+        bodies.put("sqrt", "p:4 = ESP + 4; d:8 = *:8 p; r:8 = sqrt(d);" + push87 + " ST0 = float2float(r);" + pop0);
         bodies.put("libm_sse2_sqrt_precise", "XMM0_Qa = sqrt(XMM0_Qa);" + pop0);
         Class<?> se = Function.class.getClassLoader().loadClass("ghidra.program.database.SpecExtension");
         Object ext = se.getConstructor(ghidra.program.model.listing.Program.class).newInstance(currentProgram);
@@ -732,7 +736,18 @@ public class ApplyFacts extends GhidraScript {
                 want = usable && !haveFloat && have.getLength() == 4 ? have
                         : ghidra.program.model.data.UnsignedIntegerDataType.dataType;
         }
-        if (want != have) {
+        // (custom storage: the type right is not enough, its storage must be the register too. One
+        // void before has none, and an int with none returns nothing: VS2010's _cftoe2_l, its eax
+        // result `extraout_EAX` in _cftog_l, a stub on printf's %g, rhtest msvc-16.00-x86 crt)
+        boolean storageOff = false;
+        if (want == have && f.hasCustomVariableStorage() && !(want instanceof ghidra.program.model.data.AbstractFloatDataType)) {
+            ghidra.program.model.lang.Register r = f.getReturn().getVariableStorage().getRegister();
+            int n = want.getLength();
+            String rn = n > 4 ? "EAX" : n == 1 ? "AL" : n == 2 ? "AX" : "EAX";
+            storageOff = n > 4 ? f.getReturn().getVariableStorage().getVarnodeCount() != 2
+                    : r == null || !r.getName().equals(rn);
+        }
+        if (want != have || storageOff) {
             if (f.hasCustomVariableStorage()) {
                 // (custom storage: the return's own too, or "Storage can't be resized: <VOID>")
                 // (an integer one only: a float in st0's 10 bytes is left as it is, the port's

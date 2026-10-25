@@ -67,6 +67,8 @@ target_link_options(decompile PRIVATE /DEBUG)
 sources_of(CONSOLE_SRCS ${CORE} ${DECCORE} ${SLEIGH} ${CONSOLE_EXTRA})
 add_executable(decomp_dbg ${CONSOLE_SRCS})
 target_include_directories(decomp_dbg PRIVATE "${PATCH}" "${SRC}" "${ZLIB}")
+# (CPUI_DEBUG brings the action tracing too: `trace address <addr>` before `decompile` shows each
+# rule that changes the ops at an address)
 target_compile_definitions(decomp_dbg PRIVATE ${DEFS} CPUI_DEBUG)
 target_compile_options(decomp_dbg PRIVATE ${OPTS})
 target_link_options(decomp_dbg PRIVATE /DEBUG)

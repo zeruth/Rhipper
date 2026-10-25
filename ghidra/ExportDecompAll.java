@@ -55,7 +55,13 @@ public class ExportDecompAll extends GhidraScript {
      *  around a 4-byte lane (C4319 in four functions, C4293 in FUN_1401b94f0, 2026-10-18). */
     // (by reflection: the script's bundle cannot load ghidra.program.model.pcode, and a direct
     // reference failed every function with NoClassDefFoundError: HighFunction, 2026-10-19)
-    private static volatile java.lang.reflect.Method mHigh, mOps, mOut, mIns, mAddr, mSize;
+    private static volatile java.lang.reflect.Method mHigh, mOps, mOut, mIns, mAddr, mSize, mVnHigh, mHighType;
+    // (and as `"gt"`, the types the decompiler gave them there: {"415008":["int"], ...}. A global
+    // whose data is an undefinedN takes the type its uses ask for, and the C names it without one:
+    // _ld12cvt's `if (DAT_00415008 < iVar14)`, signed, read as unsigned through the data's
+    // undefined4 and parsed every double as 0.0, rhtest msvc-16.00-x86 crt)
+    private final ThreadLocal<java.util.TreeMap<Long, java.util.TreeSet<String>>> types =
+            ThreadLocal.withInitial(java.util.TreeMap::new);
 
     private static java.lang.reflect.Method method(Object o, String name) throws Exception {
         java.lang.reflect.Method m = o.getClass().getMethod(name);
@@ -72,6 +78,7 @@ public class ExportDecompAll extends GhidraScript {
             }
             if (mOps == null) mOps = method(hf, "getPcodeOps");
             java.util.TreeMap<Long, java.util.TreeSet<Integer>> widths = new java.util.TreeMap<>();
+            types.get().clear();
             java.util.Iterator<?> ops = (java.util.Iterator<?>) mOps.invoke(hf);
             while (ops.hasNext()) {
                 Object op = ops.next();
@@ -87,7 +94,23 @@ public class ExportDecompAll extends GhidraScript {
                     note(widths, v);
                 }
             }
-            return render(widths);
+            String g = render(widths);
+            if (g == null || types.get().isEmpty()) {
+                return g;
+            }
+            StringBuilder b = new StringBuilder(g).append(",\"gt\":{");
+            int n = 0;
+            for (java.util.Map.Entry<Long, java.util.TreeSet<String>> e : types.get().entrySet()) {
+                if (n++ > 0) b.append(',');
+                b.append('"').append(Long.toHexString(e.getKey())).append("\":[");
+                int k = 0;
+                for (String t : e.getValue()) {
+                    if (k++ > 0) b.append(',');
+                    b.append('"').append(jsonEscape(t)).append('"');
+                }
+                b.append(']');
+            }
+            return b.append('}').toString();
         } catch (Throwable e) {
             return null;
         }
@@ -127,6 +150,16 @@ public class ExportDecompAll extends GhidraScript {
             return;
         }
         widths.computeIfAbsent(a.getOffset(), k -> new java.util.TreeSet<>()).add((Integer) mSize.invoke(v));
+        if (mVnHigh == null) mVnHigh = method(v, "getHigh");
+        Object high = mVnHigh.invoke(v);
+        if (high != null) {
+            if (mHighType == null) mHighType = method(high, "getDataType");
+            Object dt = mHighType.invoke(high);
+            if (dt instanceof ghidra.program.model.data.DataType) {
+                types.get().computeIfAbsent(a.getOffset(), k -> new java.util.TreeSet<>())
+                     .add(((ghidra.program.model.data.DataType) dt).getDisplayName());
+            }
+        }
     }
 
     private static java.util.Set<Long> readAddresses(String path) throws Exception {

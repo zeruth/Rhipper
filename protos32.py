@@ -35,6 +35,7 @@ that is no switch may read more than it shows: `open`.
 from __future__ import annotations
 
 import argparse
+import bisect
 import json
 import re
 import sys
@@ -44,7 +45,8 @@ from multiprocessing import Pool
 import capstone
 from capstone import x86_const as X
 
-from pebin import FACTS, Binary, disassembler, hexa, regs_access, write_facts
+from pebin import FACTS, Binary, disassembler, hexa, write_facts
+from pebin import regs_access as _regs_access
 
 EAX, ECX, EDX, EBX, ESI, EDI = 1, 2, 4, 8, 16, 32
 # (and the xmm registers, which /LTCG passes floats in to the functions it calls internally:
@@ -91,6 +93,8 @@ END = {"ret", "retf", "int3", "ud2", "hlt", "iretd"}
 FRAME_HELPERS = ("SEH_prolog", "EH_prolog")
 DVRM_HELPERS = ("alldvrm", "aulldvrm")
 ALLOCA = ("alloca_probe", "chkstk")
+# the stack words a function that forwards through an indirect tail jump takes and hands on
+FORWARD_WORDS = 8
 
 _b: Binary | None = None
 _names: dict[int, str] = {}
@@ -107,6 +111,43 @@ def _init(names, cleanup, noreturn, imp_cleanup, cdecl_args=None):
     _cdecl_args = cdecl_args or {}
 
 
+class Insn:
+    """A capstone instruction with what the analysis reads of it computed once: capstone decodes
+    the mnemonic, rebuilds the operand list and asks the C side for the registers on every access,
+    and the passes read each instruction's many times over (most of protos32's time, 2026-10-25).
+    Anything else is the instruction's own."""
+    __slots__ = ("_i", "mnemonic", "address", "size", "_ops", "_ra")
+
+    def __init__(self, i):
+        self._i = i
+        self.mnemonic = i.mnemonic
+        self.address = i.address
+        self.size = i.size
+        self._ops = None
+        self._ra = None
+
+    @property
+    def operands(self):
+        if self._ops is None:
+            self._ops = self._i.operands
+        return self._ops
+
+    def regs_access(self):
+        return self._i.regs_access()
+
+    def __getattr__(self, name):
+        return getattr(self._i, name)
+
+
+def regs_access(ins) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    """pebin.regs_access, once per decoded instruction (read-only: every caller only tests it)."""
+    r = ins._ra
+    if r is None:
+        reads, writes = _regs_access(ins)
+        r = ins._ra = (tuple(reads), tuple(writes))
+    return r
+
+
 def decode(b: Binary, root: int, ranges, md):
     """{address: capstone insn} over a function's ranges."""
     out = {}
@@ -119,7 +160,7 @@ def decode(b: Binary, root: int, ranges, md):
                 # nowhere, was noreturn, and 8,878 callers lost what follows the check)
                 ins = next(md.disasm(bytes(b.image[b.off(ins.address) + 1:b.off(ins.address) + ins.size]),
                                      ins.address), ins)
-            out[ins.address] = ins
+            out[ins.address] = Insn(ins)
     return out
 
 
@@ -165,7 +206,9 @@ def analyse(root: int, ranges):
     loc_read: set[int] = set()                # local bytes read (other than by address)
     loc_lea: set[int] = set()                 # locals whose address it takes
     unset_pushes: set[int] = set()            # `push ebx/esi/edi` before anything set it
+    tail_ijmps: list[tuple[int, bool]] = []   # indirect tail jumps, and whether ecx was set there
     unset_saved = [0]                         # the registers pushed so
+    unset_slots: set[tuple[int, int]] = set()  # and the slots they were pushed to (register, esp)
     floor = [None, None, None]                # the locals a `sub esp, n` makes: bottom, top; the
                                               # frame's allocation (its first after `mov ebp, esp`)
 
@@ -211,6 +254,8 @@ def analyse(root: int, ranges):
                 and not mask & REG_BITS[ops[0].reg]:
             unset_pushes.add(a)
             unset_saved[0] |= REG_BITS[ops[0].reg]
+            if esp is not None:
+                unset_slots.add((ops[0].reg, esp - 4))
         # (a scalar SSE write keeps the register's upper lanes, so it reads it too, to the decoder:
         # `movss xmm1, [m]`, `cvtsi2ss xmm1, eax`. It defines lane 0, the float a parameter is:
         # no read of an input. Read so, 126 functions had in_XMM1_Da)
@@ -282,6 +327,25 @@ def analyse(root: int, ranges):
                 if mn == "lea":
                     addr_taken = True
                     lea_offs.add(off)
+                    # (and where the pointer is first read: VS2010's va_start takes the last fixed
+                    # parameter's own address and reads past it, `lea edx, [esp + 8]; ...; mov edi,
+                    # [edx + 4]`, sum_va's first variadic word; the newer compilers take the slot
+                    # past it, `lea esi, [esp + 0x10]`, rhtest msvc-16.00-x86 calls-O2)
+                    r = ops[0].reg if ops and ops[0].type == X.X86_OP_REG else None
+                    q = nxt.get(a)
+                    for _ in range(8):
+                        if r is None or q is None or q not in insns:
+                            break
+                        qi = insns[q]
+                        mem = next((o for o in qi.operands if o.type == X.X86_OP_MEM and o.mem.base == r
+                                    and not o.mem.index), None)
+                        if mem is not None and qi.mnemonic != "lea":
+                            if mem.mem.disp > 0:
+                                lea_offs.add(off + mem.mem.disp)
+                            break
+                        if r in regs_access(qi)[1] or qi.mnemonic in ("call", "ret") or qi.mnemonic.startswith("j"):
+                            break
+                        q = nxt.get(q)
                 # (a parameter read as a float, by its width: a double is two slots, and as two
                 # 4-byte integers the decompiler read it as `*(double *)&param_3`, 8 bytes of a
                 # 4-byte parameter, rhtest float 2026-10-24)
@@ -305,8 +369,12 @@ def analyse(root: int, ranges):
         # takes its argument count's address in edi, which that wrote over in this analysis)
         # (nor a pop that restores a callee-saved register the function saved unset: the caller's
         # value again. _tsopen_nolock saves edi, pops it, then pushes it as /GL's zero argument)
+        # (from the save's own slot: VS2010's `push 0x16; pop edi` loads a constant, and taken for
+        # a restore, edi stayed unset and _cftog_l took it as an input, rhtest msvc-16.00-x86 crt.
+        # Where the offset is not known, by the register alone)
         restore = mn == "pop" and ops and ops[0].type == X.X86_OP_REG and ops[0].reg in (
-            X.X86_REG_EBX, X.X86_REG_ESI, X.X86_REG_EDI) and REG_BITS[ops[0].reg] & unset_saved[0]
+            X.X86_REG_EBX, X.X86_REG_ESI, X.X86_REG_EDI) and REG_BITS[ops[0].reg] & unset_saved[0] \
+            and (esp is None or (ops[0].reg, esp) in unset_slots)
         for r in writes if not nop and not restore else ():
             if r in REG_BITS:
                 mask |= REG_BITS[r]
@@ -447,6 +515,14 @@ def analyse(root: int, ranges):
                         and after.operands[0].type == X.X86_OP_REG and after.operands[0].reg == X.X86_REG_ESP \
                         and after.operands[1].type == X.X86_OP_IMM:
                     pushed = max(0, pushed - after.operands[1].imm)
+                elif t is not None and after is not None and after.mnemonic == "call" and after.operands \
+                        and after.operands[0].type == X.X86_OP_REG and after.operands[0].reg == X.X86_REG_EAX:
+                    # (a __cdecl call's arguments, never cleaned, taken by the call through the
+                    # pointer it returns: VS2010's FLS_GETVALUE, `push [__flsindex]; call
+                    # ___set_flsgetvalue; call eax`, FlsGetValue's index. Subtracted, FlsGetValue
+                    # got no argument, read the host runtime's slot 3 for the CRT's thread data,
+                    # and the host's freed it at exit, rhtest msvc-16.00-x86 2026-10-24)
+                    pass
                 elif t is not None and t in _cdecl_args:
                     pushed = max(0, pushed - _cdecl_args[t])
                 else:
@@ -477,6 +553,10 @@ def analyse(root: int, ranges):
                 indirect_jumps.append((mask, esp, ebp))   # a switch: its targets are found below
             else:
                 open_ = True
+                # (a tail jump through a pointer with the frame gone: a call that returns, its
+                # arguments the caller's, forwards below. Not an import's thunk)
+                if esp == 0 and import_slot(insns, prv, a) is None:
+                    tail_ijmps.append((a, bool(mask & ECX)))
         elif mn.startswith("j") or mn.startswith("loop"):
             t = _target(ins)
             if t is not None and t in insns:
@@ -507,7 +587,7 @@ def analyse(root: int, ranges):
                 merge(a, seed)
                 while work:
                     visit(work.pop())
-    results, passes, handoffs = result_reads(insns, state, nxt)
+    results, passes, handoffs, passes_via = result_reads(insns, state, nxt)
     # (which result registers the function writes itself, anywhere: a read after a call to one
     # that writes neither is of a value the caller kept across it, /LTCG knowing the callee)
     writes_ret = 0
@@ -519,7 +599,12 @@ def analyse(root: int, ranges):
             continue
         if ins.mnemonic == "call" and _target(ins) is None:
             opaque = True
-        elif ins.mnemonic == "jmp" and _target(ins) is None:
+        # (not a switch's `jmp [eax*4 + table]`, whose cases are this function's own and followed
+        # as such: VS2010 kept level2's loop counters in ecx and edx across its switch functions,
+        # which write eax alone, and as opaque ones they lost them, rhtest msvc-16.00-x86)
+        elif ins.mnemonic == "jmp" and _target(ins) is None and not (
+                ins.operands and ins.operands[0].type == X.X86_OP_MEM and ins.operands[0].mem.index
+                and ins.operands[0].mem.scale == 4):
             opaque = True
         if ins.mnemonic in ("push", "call", "jmp"):
             continue
@@ -562,8 +647,30 @@ def analyse(root: int, ranges):
         return (pi.mnemonic == "mov" and len(po) == 2 and po[0].type == po[1].type == X.X86_OP_REG
                 and (po[0].reg == po[1].reg or (po[0].reg == X.X86_REG_EBP and po[1].reg == X.X86_REG_ESP))) \
             or (pi.mnemonic == "sub" and po and po[0].type == X.X86_OP_REG and po[0].reg == X.X86_REG_ESP)
+    # (a save is restored: a `pop` of the same register from the same slot. VS2010 places its
+    # saves late, `...; push esi; push edi; push 0x16; ...; call __fltout2` in _cftog_l and `push
+    # ebx` in a branch, popped before its ret: taken for arguments, ebx, esi and edi became inputs
+    # of the whole printf engine, rhtest msvc-16.00-x86 crt. An argument's slot goes with the
+    # call's cleanup instead)
+    pops = [(insns[q].operands[0].reg, state[q][1]) for q in state
+            if insns[q].mnemonic == "pop" and insns[q].operands and insns[q].operands[0].type == X.X86_OP_REG]
+    restored = {(r, o) for r, o in pops if o is not None}
+    # (and where paths with different pushes join, the pop's offset is not known: a pop of the
+    # register there is taken for the save's, _cftog_l's `pop edi` after one path's `pop ebx`)
+    restored_any = {r for r, o in pops if o is None}
+
+    # (where esp is not known at the push either, after the frame's `and esp, -64`, the pop's offset
+    # is not known: fmt_floats' `push esi` at /O2, after the alignment, counted for an eighth
+    # double's word of its sprintf and read as unaff_ESI, rhtest msvc-16.00-x86 crt)
+    def saved(p):
+        if state.get(p) is None:
+            return False
+        reg = insns[p].operands[0].reg
+        if state[p][1] is None:
+            return reg in restored_any
+        return (reg, state[p][1] - 4) in restored or reg in restored_any
     for a in sorted(unset_pushes):
-        if prologue(a):
+        if prologue(a) or saved(a):
             continue
         after, p = 0, nxt.get(a)
         for _ in range(10):
@@ -622,6 +729,97 @@ def analyse(root: int, ranges):
     inputs |= pushed_inputs(insns, prv, nxt, state, labels)
     icalls = {a: icall_shape(insns, prv, nxt, state, a, labels, bool(inputs & ECX)) for a in state
               if insns[a].mnemonic == "call" and _target(insns[a]) is None and import_slot(insns, prv, a) is None}
+    # (and a call through a register holding an import, its words as the import pops them: VS2010's
+    # _output_l loads DecodePointer into esi far ahead, across branches, and the decompiler, not
+    # seeing it there, gave `call esi` a guess, and every argument of the _cfltcvt call after it
+    # moved a slot, rhtest msvc-16.00-x86 crt)
+    for a in state:
+        ins = insns[a]
+        if ins.mnemonic == "call" and ins.operands and ins.operands[0].type == X.X86_OP_REG:
+            slot = import_slot(insns, prv, a)
+            if slot is not None and _imp_cleanup.get(slot) is not None:
+                icalls[a] = ("__stdcall", _imp_cleanup[slot] // 4)
+    # (whether it runs x87 code at all, and the calls it makes with its own result in st0 still to
+    # return: one followed only by its teardown and ret, no x87 instruction or other call between,
+    # `fld result; ...; call __security_check_cookie; leave; ret`. Such a callee keeps st0, main())
+    x87_use = any(insns[q].mnemonic.startswith("f") for q in state)
+    st0_live: list[int] = []
+    for a in state:
+        ins = insns[a]
+        t = _target(ins)
+        if ins.mnemonic != "call" or t is None:
+            continue
+        q = nxt.get(a)
+        for _ in range(8):
+            if q is None or q not in insns:
+                break
+            qm = insns[q].mnemonic
+            if qm == "ret":
+                st0_live.append(t)
+                break
+            if qm.startswith("f") or qm in ("call", "jmp") or qm.startswith("j"):
+                break
+            q = nxt.get(q)
+    # (each direct call's own pushes, back to the call before it with no jump target between: a
+    # variadic callee's arguments at that call, main()'s call-site signatures. /GL folds the
+    # cleanup into a later one, and the decompiler, which counts a variadic call's arguments by its
+    # `add esp`, gave sum_via(5, i, ...) its 5 alone, rhtest msvc-16.00-x86 calls-GL)
+    call_pushes: dict[int, tuple[int, int]] = {}
+    for a in state:
+        ins = insns[a]
+        t = _target(ins)
+        if ins.mnemonic != "call" or t is None:
+            continue
+        n, p = 0, a
+        while True:
+            if p in labels and p != a:
+                break
+            p = prv.get(p)
+            if p is None or p not in insns:
+                break
+            pi = insns[p]
+            pm, po = pi.mnemonic, pi.operands
+            # (not the prologue's save of a callee-saved register, call_va's `push edi` before
+            # sum_va's arguments, nor one popped again later: the same tests as for its inputs)
+            if pm == "push" and p in unset_pushes and (prologue(p) or saved(p)):
+                continue
+            if pm == "push":
+                n += 4
+            # (room made for a double, `sub esp, 8; fstp qword ptr [esp]`: mixed_va's)
+            elif pm == "sub" and len(po) == 2 and po[0].type == X.X86_OP_REG and po[0].reg == X.X86_REG_ESP \
+                    and po[1].type == X.X86_OP_IMM:
+                n += po[1].imm
+            elif pm in ("call", "jmp", "ret") or pm.startswith("j") or any(
+                    o.type == X.X86_OP_REG and o.reg == X.X86_REG_ESP for o in po):
+                break
+        # (no more than its own cleanup, where it has one: sscanf's `add esp, 0x1c` after scan's
+        # seven, the save of esi before them no eighth)
+        k = later_cleanup(insns, nxt, a)
+        if k:
+            n = min(n, k)
+        call_pushes[a] = (t, n)
+    # (a callee taking more stack words than were pushed for it reads the caller's own slots above
+    # them; where one is a push of a callee-saved register still as it came in, that push hands the
+    # caller's input on: /GL's sort_check takes cmp in esi and pushes it early, among unrelated
+    # work, then only v right before isort(v, cmp). Taken for a save, sort_check read unaff_ESI,
+    # rhtest msvc-16.00-x86 calls-GL. Not a save, popped again: a callee that takes more words than
+    # were pushed for it reaches those too)
+    push_slot = {}
+    for p in unset_pushes:
+        if p in state and state[p][1] is not None and not saved(p):
+            push_slot[state[p][1] - 4] = REG_BITS[insns[p].operands[0].reg]
+    for a, (t, _n) in call_pushes.items():
+        esp_at = state[a][1]
+        takes = _cdecl_args.get(t) or _cleanup.get(t)
+        if not push_slot or esp_at is None or not takes:
+            continue
+        # (every word it takes: /GL interleaves the pushes with other work, so which were pushed
+        # "for it" is not a count back from the call)
+        for off in range(0, takes, 4):
+            bit = push_slot.get(esp_at + off)
+            if bit:
+                inputs |= bit
+                in_width[bit] = 4
     # (and a virtual call made as a tail jump, `mov ecx, esi; pop esi; jmp [eax + 4]`, through a
     # slot of an object's table (not a switch's, which indexes): `this` as for a call, and the stack
     # what the jumper's own `ret N` would pop, the callee popping it in its place. Without one, bump's
@@ -700,7 +898,8 @@ def analyse(root: int, ranges):
                           and insns[a].operands[1].type == X.X86_OP_IMM)})
     return {"local_block": block, "passed": passed, "tail_jumps": tail_jumps, "eh_imms": eh_imms,
             "frame": -floor[0] if floor[0] is not None and floor[0] < 0 else None,"inputs": inputs, "in_width": in_width, "stack_hi": stack_hi, "slots": slots,
-            "addr_taken": addr_taken, "calls": calls, "variadic": variadic,
+            "addr_taken": addr_taken, "calls": calls, "variadic": variadic, "call_pushes": call_pushes,
+            "x87_use": x87_use, "st0_live": st0_live,
             "open": open_, "lost": lost, "ret": ret_bytes(insns), "visited": len(state), "insns": len(insns),
             "icalls": {a: s for a, s in icalls.items() if s is not None},
             "results": {t: k for t, k in results.items() if not isinstance(t, tuple)},
@@ -708,8 +907,8 @@ def analyse(root: int, ranges):
             # (an indirect call's x87 result, for its call-site signature: `(float)extraout_ST0`
             # after a virtual getter of a float, 305 stubs, 2026-10-23)
             "icall_rets": {t[1]: k for t, k in results.items() if isinstance(t, tuple) and k in ("f4", "d8")},
-            "passes": passes, "writes_ret": writes_ret, "vol_writes": vol_writes, "opaque": opaque,
-            "sets_eax": sets_eax}
+            "passes": passes, "passes_via": passes_via, "writes_ret": writes_ret, "vol_writes": vol_writes, "opaque": opaque,
+            "sets_eax": sets_eax, "tail_ijmps": [(j, c or bool(inputs & ECX)) for j, c in tail_ijmps]}
 
 
 EAX_REGS = {X.X86_REG_EAX, X.X86_REG_AX, X.X86_REG_AL, X.X86_REG_AH}
@@ -730,10 +929,20 @@ def result_reads(insns, state, nxt):
     # inputs read them, `call lcg64; mov ecx, esi; call __aullshr`, the shift of lcg64's edx:eax.
     # Credited once the inputs are known, main())
     handoffs: list[tuple[int, int, bool, bool]] = []
+    # (callee -> the direct calls between it and a ret that leaves its eax: its result returned if
+    # they leave eax and edx alone, decided in main())
+    passes_via: list[tuple[int, list[int]]] = []
     for a, ins in insns.items():
         t = _target(ins)
         if a not in state:
             continue
+        # (running off the end into the next function is a tail jump to it: VS2010's _sqrt goes on
+        # into __sqrt_default, whose st0 is its result)
+        fall = a + ins.size
+        if fall not in insns and ins.mnemonic not in ("ret", "jmp", "int3", "hlt", "ud2") \
+                and not (ins.mnemonic == "call" and t in _noreturn) and _b is not None and _b.is_func_start(fall) \
+                and fall not in passes:
+            passes.append(fall)
         if t is None:
             # (an indirect call's: by its address, for its call-site signature)
             if ins.mnemonic != "call":
@@ -780,6 +989,13 @@ def result_reads(insns, state, nxt):
                     width = pi.operands[0].size if pi.operands and pi.operands[0].type == X.X86_OP_MEM else 8
                     kind = kind or ("f4" if width == 4 else "d8")
                 break
+            # (an unconditional jump within the function goes on there: `call ctor; jmp join` with
+            # `join: mov [g], eax`, the other path's `xor eax, eax`. Stopped at the jump, the
+            # constructor FUN_004f5b30 returned nothing, its object 0, and FUN_004f5b80 wrote
+            # through it, CrystalCore 2026-10-24)
+            if mn == "jmp" and _target(pi) is not None and _target(pi) in insns:
+                p = end = _target(pi)
+                continue
             if mn in ("call", "jmp") or mn.startswith("j") or mn.startswith("loop"):
                 t2 = _target(pi)
                 if mn == "call" and t2 is not None and not isinstance(t, tuple) and not (eax_w and edx_w):
@@ -826,19 +1042,70 @@ def result_reads(insns, state, nxt):
             if eax_w and edx_w:
                 break
             p = nxt[p]
+        # (or a read of eax past the branches the straight line stops at, nothing writing it on the
+        # way: VS2010 kept bump()'s result in eax across two loops of x87 code and added it at the
+        # end. Void, after_call lost it, rhtest msvc-16.00-x86 float-O2 2026-10-24)
+        if kind is None and not eax_w and not isinstance(t, tuple):
+            kind = eax_read_ahead(insns, state, nxt, a + ins.size)
         if kind is not None:
             old = reads.get(t)
             reads[t] = kind if old is None or RET_RANK[kind] > RET_RANK[old] else old
         if t not in passes and eax_reaches_ret(insns, state, nxt, a + ins.size):
             passes.append(t)
-    return reads, passes, handoffs
+        # (or across direct calls that may leave eax: the /GS check's, `call rec_sum; mov ecx,
+        # [esp + 0x68]; xor ecx, esp; call __security_check_cookie; ret`. Not seen as returned,
+        # rec_sum went untyped, and then i4 by its own `mov eax, ebx` before its ret, the high
+        # word of rec_check's sum lost, rhtest int64-O2 2026-10-24)
+        elif t not in passes and not isinstance(t, tuple):
+            via: set[int] = set()
+            if eax_reaches_ret(insns, state, nxt, a + ins.size, through=via) and via:
+                passes_via.append((t, sorted(via)))
+    return reads, passes, handoffs, passes_via
 
 
-def eax_reaches_ret(insns, state, nxt, start, limit=64):
+def eax_read_ahead(insns, state, nxt, start, limit=256) -> str | None:
+    """The width of the first read of eax on some path from start before anything writes it (a
+    call ends a path: it writes eax; a ret is result_reads' pass-through, not a read here), as a
+    result kind, across branches and loops; None when no path reads it."""
+    seen, work, width = set(), [start], 0
+    while work and len(seen) < limit:
+        p = work.pop()
+        if p is None or p in seen or p not in insns or p not in state:
+            continue
+        seen.add(p)
+        pi = insns[p]
+        mn = pi.mnemonic
+        if mn in ("ret", "call", "int3", "hlt"):
+            continue
+        ops = pi.operands
+        zero = len(ops) == 2 and ops[0].type == ops[1].type == X.X86_OP_REG and ops[0].reg == ops[1].reg \
+            and mn in ("xor", "sub", "sbb")
+        r, w = regs_access(pi)
+        if not zero:
+            for x in r:
+                if x in EAX_REGS:
+                    width = max(width, 4 if x == X.X86_REG_EAX else 2 if x == X.X86_REG_AX else 1)
+        if width or any(x in EAX_REGS for x in w):
+            if width:
+                break
+            continue
+        if mn.startswith("j") or mn.startswith("loop"):
+            t = _target(pi)
+            if t is None:
+                continue
+            work.append(t)
+            if mn == "jmp":
+                continue
+        work.append(nxt.get(p))
+    return f"i{width}" if width else None
+
+
+def eax_reaches_ret(insns, state, nxt, start, limit=64, through=None):
     """Whether a path from start reaches a ret with eax unwritten, across branches: operator new's
     `call malloc; test eax, eax; jne done; ...; done: ret` returns malloc's, where the straight line
     stops at the jne and every `new` came back 0, rhtest cpp-O2 2026-10-24. A call ends a path (it
-    writes eax), as does a jump that cannot be followed."""
+    writes eax), as does a jump that cannot be followed; with `through`, a direct call does not,
+    and its target is added there."""
     seen, work = set(), [start]
     while work and len(seen) < limit:
         p = work.pop()
@@ -849,6 +1116,10 @@ def eax_reaches_ret(insns, state, nxt, start, limit=64):
         mn = pi.mnemonic
         if mn == "ret":
             return True
+        if mn == "call" and through is not None and _target(pi) is not None:
+            through.add(_target(pi))
+            work.append(nxt.get(p))
+            continue
         if mn == "call" or any(x in EAX_REGS for x in regs_access(pi)[1]):
             continue
         if mn.startswith("j") or mn.startswith("loop"):
@@ -1014,6 +1285,55 @@ def virtual_call(insns, prv, a) -> bool:
     return loaded(vt, at, True) is not None
 
 
+def reused_slots(insns, prv, nxt, a, n):
+    """The bytes of argument slots a call reuses above the n it was pushed: a __cdecl call's
+    argument left on the stack (its cleanup deferred) and stored into again, `push esi; call
+    FUN_00d9b8e0; mov eax, esp; mov [eax], 3; ...; push eax; call edx`, the virtual call's second
+    argument. Counted as consumed by the first call, the 3 went unpassed, FUN_00db68c0 read
+    garbage for its flags, and Havok's thread memory was never set up (CrystalCore, 2026-10-24)."""
+    # (back to the previous call, then forward with esp's offset from there)
+    p, start = prv.get(a), None
+    for _ in range(ICALL_WINDOW):
+        if p is None or p not in insns:
+            break
+        if insns[p].mnemonic in ("call", "jmp", "ret"):
+            start = p
+            break
+        p = prv.get(p)
+    if start is None:
+        return 0
+    cur, alias, stores = 0, {}, set()
+    p = nxt.get(start)
+    while p is not None and p != a and p in insns:
+        ins = insns[p]
+        ops = ins.operands
+        mn = ins.mnemonic
+        if mn == "push":
+            cur -= 4
+        elif mn == "pop":
+            cur += 4
+        elif mn == "mov" and len(ops) == 2 and ops[0].type == X.X86_OP_REG and ops[1].type == X.X86_OP_REG \
+                and ops[1].reg == X.X86_REG_ESP:
+            alias[ops[0].reg] = cur
+        elif mn == "mov" and len(ops) == 2 and ops[0].type == X.X86_OP_MEM and not ops[0].mem.index \
+                and (ops[0].mem.base == X.X86_REG_ESP or ops[0].mem.base in alias) and ops[0].size == 4:
+            base = cur if ops[0].mem.base == X.X86_REG_ESP else alias[ops[0].mem.base]
+            stores.add(base + ops[0].mem.disp)
+        elif mn.startswith("j") or mn in ("call", "ret") or \
+                (ops and ops[0].type == X.X86_OP_REG and ops[0].reg == X.X86_REG_ESP):
+            return 0
+        else:
+            for r in regs_access(ins)[1]:
+                alias.pop(r, None)
+        p = nxt.get(p)
+    if p != a:
+        return 0
+    extra = 0
+    while cur + n + extra in stores:
+        extra += 4
+    return extra
+
+
 def icall_shape(insns, prv, nxt, state, a, labels, own_this):
     """An indirect call's convention and stack arguments, as its caller sets it up: (cc, n).
     Ghidra's decompiler gives such a call the arguments it sees pushed and nothing in ecx, so a
@@ -1026,12 +1346,9 @@ def icall_shape(insns, prv, nxt, state, a, labels, own_this):
     popped, a register saved while it holds its entry value not among them). Counted back only to
     the previous call, `push _freefls; push [FlsAlloc]; call DecodePointer; call eax` gave
     FlsAlloc no argument and DecodePointer two, and _mtinit failed (R6016, 2026-10-23)."""
-    after = insns.get(nxt[a]) if nxt[a] is not None else None
-    k = None
-    if after is not None and after.mnemonic == "add" and len(after.operands) == 2 \
-            and after.operands[0].type == X.X86_OP_REG and after.operands[0].reg == X.X86_REG_ESP \
-            and after.operands[1].type == X.X86_OP_IMM:
-        k = after.operands[1].imm
+    # (the caller's cleanup, right after or a few instructions on: /LTCG's fold, `call edi; inc
+    # esi; add esp, 8`, a __cdecl call of two, taken for one, rhtest msvc-16.00-x86 calls-GL)
+    k = later_cleanup(insns, nxt, a)
     # ecx: written in the scan back to the previous call, and not pushed after its write
     ecx_set, ecx_pushed = False, False
     p = prv[a]
@@ -1072,6 +1389,7 @@ def icall_shape(insns, prv, nxt, state, a, labels, own_this):
     if raw and folded_cleanup(insns, nxt, a, raw):
         return ("__cdecl", raw // 4)
     n = max(0, raw - next_call_deficit(insns, prv, nxt, a))
+    n += reused_slots(insns, prv, nxt, a, n)
     # (and edx beside ecx, written since the last call and read by nothing before this one, the
     # call's own operand included: __fastcall's second register argument. `mov edx, 3; mov ecx,
     # x; call [ebp + 8]` passed only x, and call_fc's callback took 3 from nowhere, rhtest calls)
@@ -1205,11 +1523,11 @@ def next_call_deficit(insns, prv, nxt, a) -> int:
             if t is None:
                 slot = import_slot(insns, prv, p)
                 take = _imp_cleanup.get(slot) if slot is not None else None
-            nx = insns.get(nxt[p]) if nxt[p] is not None else None
-            if not take and nx is not None and nx.mnemonic == "add" and len(nx.operands) == 2 \
-                    and nx.operands[0].type == X.X86_OP_REG and nx.operands[0].reg == X.X86_REG_ESP \
-                    and nx.operands[1].type == X.X86_OP_IMM:
-                take = nx.operands[1].imm
+            # (its cleanup right after or a few instructions on: VS2010's _output_l, `push [_cfltcvt_
+            # tab]; call esi; call eax; mov edi, [ebp - 0x210]; add esp, 0x1c`. Seen only right
+            # after, DecodePointer took _cfltcvt's seven arguments too, rhtest msvc-16.00-x86 crt)
+            if not take:
+                take = later_cleanup(insns, nxt, p)
             if not take and t is not None:
                 take = _cdecl_args.get(t)
             return max(0, (take or 0) - after)
@@ -1369,11 +1687,37 @@ def main() -> None:
     # 1. each function's own `ret N`, then through tail jumps (thunks) to a fixpoint
     b = Binary()
     md = disassembler()
+    # (a jump into the middle of another function shares its code: that function's range is this
+    # one's too, from where it lands. VS2010's strcpy is `push edi; mov edi, [esp + 8]; jmp` into
+    # strcat's copy loop, which reads its source at [esp + 0xc]: with its 7 bytes alone, strcpy
+    # took one parameter and its source was in_stack_00000008, rhtest msvc-16.00-x86 crt. Only
+    # code the walk reaches from the entry is read, so the rest of the range adds nothing)
+    starts = set(ranges)
+    owner = sorted((lo, hi, e) for e, rs in ranges.items() for lo, hi in rs)
+    lows = [o[0] for o in owner]
     cleanup: dict[int, int] = {}
     tail_of: dict[int, int] = {}
-    for root, rs in ranges.items():
-        insns = {a: i for lo, hi in rs for a, i in ((x[0], x) for x in md.disasm_lite(
-            bytes(b.image[b.off(lo):b.off(lo) + (hi - lo)]), lo))}
+    # (one pass: a root's ranges, extended so, are disassembled once for both its extension and its
+    # `ret N` below; the extension reads only the original ranges, `owner`)
+    for root, rs in list(ranges.items()):
+        extra = []
+        decoded = []
+        for lo, hi in rs:
+            got = list(md.disasm_lite(bytes(b.image[b.off(lo):b.off(lo) + (hi - lo)]), lo))
+            decoded.append(got)
+            for _a, _s, mn, ops in got:
+                if not mn.startswith("j") or not ops.startswith("0x"):
+                    continue
+                t = int(ops, 16)
+                if t in starts or any(l <= t < h for l, h in rs):
+                    continue
+                k = bisect.bisect_right(lows, t) - 1
+                if k >= 0 and owner[k][0] <= t < owner[k][1] and (owner[k][0], owner[k][1]) not in extra:
+                    extra.append((owner[k][0], owner[k][1]))
+        if extra:
+            ranges[root] = rs = rs + extra
+            decoded += [list(md.disasm_lite(bytes(b.image[b.off(lo):b.off(lo) + (hi - lo)]), lo)) for lo, hi in extra]
+        insns = {x[0]: x for got in decoded for x in got}
         ns = []
         for a, (_addr, _size, mn, ops) in insns.items():
             if mn == "ret" or mn.endswith(" ret"):         # (and `repz ret`)
@@ -1390,6 +1734,15 @@ def main() -> None:
                     ns.append(imp_cleanup[int(mm.group(1), 16)])
         if ns:
             cleanup[root] = max(ns)
+        # (and one that runs off its end into the next function, a tail jump without the jump:
+        # VS2010's _sqrt, `lea edx, [esp + 4]; call __load_CW` and on into __sqrt_default, which
+        # __CIsqrt calls. No ret of its own, it was no_ret, and dsqrt's code after it went)
+        elif insns:
+            last = max(insns)
+            _a, size, mn, _ops = insns[last]
+            if mn not in ("ret", "jmp", "int3", "hlt", "ud2") and not mn.endswith(" ret") \
+                    and b.is_func_start(last + size) and last + size not in insns:
+                tail_of[root] = last + size
     for _ in range(8):
         for f, t in tail_of.items():
             if f not in cleanup and t in cleanup:
@@ -1404,7 +1757,9 @@ def main() -> None:
 
     # 2. local pass, in parallel
     with Pool(args.jobs, initializer=_init, initargs=(names, cleanup, noreturn, imp_cleanup, cdecl_args)) as pool:
-        local = dict(pool.imap_unordered(_job, list(ranges.items()), chunksize=64))
+        # (by address, whatever order the workers finish in: the passes below are order-sensitive,
+        # and two runs over the same facts typed different returns, 2026-10-25)
+        local = dict(sorted(pool.imap_unordered(_job, list(ranges.items()), chunksize=64)))
     errors = sum(1 for v in local.values() if "error" in v)
 
     # the code no function covers, for ApplyFacts to make functions (prototyped on the next run,
@@ -1447,6 +1802,23 @@ def main() -> None:
                     stack_hi[f] = stack_hi[t]
                     changed = True
 
+    # (a callee's result returned across direct calls that leave eax and edx as they found them,
+    # and so does everything they call: the /GS check, result_reads' passes_via)
+    def leaves_result(c, seen=()):
+        v = local.get(c)
+        if v is None or c in seen or len(seen) > 8:
+            return False
+        if v.get("writes_ret", 0) & (EAX | EDX) or v.get("opaque"):
+            return False
+        # (what it calls or jumps on to, too: the check's `jne` to the fast-fail stub, `mov ecx,
+        # 2; int 0x29`, which no noreturn fact names)
+        callees = {t for t, _u, _k in v.get("calls", ()) if not isinstance(t, tuple)} | set(v.get("passes", ()))
+        return all(t in noreturn or leaves_result(t, (*seen, c)) for t in callees)
+    for v in local.values():
+        for t, via in v.get("passes_via", ()):
+            if t not in v["passes"] and all(leaves_result(c) for c in via):
+                v["passes"].append(t)
+
     # 3b. returns: a function returns what its callers read of it, and what a function that
     # returns its result (a wrapper, a tail jump) is read for
     rank = RET_RANK
@@ -1459,6 +1831,7 @@ def main() -> None:
     # allocators: 7,136 xmm0 returns in ffxiv.exe, a VS2010 build, _aligned_malloc's among them,
     # 2026-10-24)
     family = {"i1": "i", "i2": "i", "i4": "i", "i8": "i", "f4": "x87", "d8": "x87", "s4": "sse", "q8": "sse"}
+    x87_firm: set[int] = set()
     def give(t, k, src, down=False):
         v = local.get(t)
         if v is None:
@@ -1466,7 +1839,12 @@ def main() -> None:
         # (only a result the callee makes: it writes the register, or returns a callee's. memcpy,
         # free and __SEH_epilog4 leave edx alone, and callers keeping a value in it across them
         # made them edx:eax ones; one that writes eax but not edx is an eax one)
-        if not v.get("writes_ret", 0) & need[k] and not v.get("passes"):
+        # (or one that takes eax and leaves it as it came, its result its input: /GL's struct
+        # return, the buffer's address in eax and handed back there untouched, VS2010's quad_mix,
+        # whose caller read the Quad through it, rhtest msvc-16.00-x86 calls-GL)
+        eax_kept = k in ("i1", "i2", "i4") and v.get("inputs", 0) & EAX and not v.get("vol_writes", 0) & EAX \
+            and not v.get("opaque")
+        if not v.get("writes_ret", 0) & need[k] and not v.get("passes") and not eax_kept:
             if k == "i8" and v.get("writes_ret", 0) & EAX:
                 k = "i4"
             else:
@@ -1474,7 +1852,19 @@ def main() -> None:
         if t in ret_of and family[k] != family[ret_of[t]]:
             # (another family: what its own code returns wins over what a caller passes on of it,
             # and a callee's type given down never replaces one it has)
-            if down or not why[t].startswith("returned by"):
+            # (but an x87 result its callers read, through those that pass it on, over an eax one
+            # only inferred from eax left alone or set before the ret, where it loads st0 itself:
+            # VS2010's _fabs ends in a call to _ctrlfp with eax untouched, i4 by that, and
+            # dabs's st0 was lost, rhtest msvc-16.00-x86 float-Od 2026-10-24)
+            # (and kept: the family once settled so is not taken back by the eax inference, which
+            # each round of the loop below would make again, forever)
+            if t in x87_firm:
+                return False
+            inferred = re.match(r"(returns |sets eax|keeps its eax)", why[t]) is not None
+            x87_own = family[k] == "x87" and v.get("writes_ret", 0) & 64
+            if inferred and x87_own:
+                x87_firm.add(t)
+            elif down or not why[t].startswith("returned by"):
                 return False
             ret_of[t] = k
             why[t] = src
@@ -1567,7 +1957,20 @@ def main() -> None:
             if any(inputs.get(s, 0) & ECX for s in slots):
                 methods.update(slots)
 
+    # (the callees a float-returning caller calls with that result live in st0, analyse's st0_live;
+    # and whether a function, or anything it calls, runs x87 code: a call through a pointer might)
+    keeps_st0 = {t for f, v in local.items() if ret_of.get(f) in ("f4", "d8") for t in v.get("st0_live", ())}
+
+    def x87_reach(f, seen=()):
+        v = local.get(f)
+        if v is None or v.get("x87_use") or v.get("opaque") or f in seen or len(seen) > 8:
+            return True
+        return any(not isinstance(t, tuple) and t not in noreturn and x87_reach(t, (*seen, f))
+                   for t, _u, _k in v.get("calls", ()))
+
     # 4. conventions and parameters
+    # (the functions some direct call or jump reaches)
+    called_directly = {t for v in local.values() for t, _m, _k in v.get("calls", ()) if not isinstance(t, tuple)}
     passed_min: dict[int, int] = {}
     for v in local.values():
         for t, k in v.get("passed", {}).items():
@@ -1611,6 +2014,14 @@ def main() -> None:
         # address")
         if not callee_cleans or not ret_n:
             stack = min(stack, 496)
+        # (one that forwards through an indirect tail jump, `ecx = this + 0x10c; jmp [vt + 8]`,
+        # takes what its callers pass, unknown here: as many words as a forwarded call is given,
+        # FORWARD_WORDS, all of them handed on. As a call of none, FUN_004f58c0 gave the graphics
+        # allocator's Alloc garbage for its sizes, CrystalCore 2026-10-24)
+        # (only one no direct call reaches: a direct caller would pass the extra words from its
+        # own stack, `in_stack_`, and be a stub)
+        if local[f].get("tail_ijmps") and f not in called_directly:
+            stack = max(stack, 4 * FORWARD_WORDS)
         regs = [n for bit, n in REG_NAMES if reg & bit]
         # (the stack ones by what reads them: a double two slots, ApplyFacts' double)
         slot_kinds = local[f].get("slots", {})
@@ -1647,9 +2058,16 @@ def main() -> None:
             e["no_ret"] = True
         if f in ret_of:
             e["ret"] = ret_of[f]                  # what its callers read of its result
+        elif local[f].get("tail_ijmps") and f not in called_directly:
+            e["ret"] = "i4"                       # (what the forwarded call returns)
         keep = [n for bit, n in ((EAX, "eax"), (ECX, "ecx"), (EDX, "edx"))
                 if not kills[f] & bit and not (bit == EAX and f in ret_of)
                 and not (bit == EDX and ret_of.get(f) == "i8")]
+        # (and st0, for one a caller calls with its float result in st0 still to return, that runs
+        # no x87 code, nor does anything it calls: VS2010's _strtod_l returns its double past
+        # __security_check_cookie, and the decompiler, the call killing st0, read extraout_ST0)
+        if f in keeps_st0 and not x87_reach(f) and ret_of.get(f) not in ("f4", "d8"):
+            keep.append("st0")
         # (on a __cdecl or __stdcall only, and never a register it takes: a keep convention is a new
         # name, which Ghidra does not treat as __thiscall, its `this` lost, and an input register
         # kept the decompiler reads as a saved one, unaff_ECX; 10,000 stubs, 2026-10-23)
@@ -1694,10 +2112,28 @@ def main() -> None:
         "stack_blocks": {hexa(f): [v["local_block"]] for f, v in sorted(local.items()) if v.get("local_block")}})
     # each indirect call's convention and arguments: ApplyFacts' call-site signatures
     calls, ccs, rets = {}, {}, {}
+    jumps = []
     for f, v in local.items():
+        # (an indirect tail jump: a call that returns, ApplyFacts' "jumps", given the forwarder's
+        # own words, `this` first where ecx holds one)
+        # (one a direct call reaches hands on its own words, as many as its callers push: bump's
+        # `mov ecx, esi; jmp edx` to the object's virtual get, at /O2. As a call of none, `this`
+        # was lost and get read its object at the method's own address, rhtest msvc-16.00-x86 cpp)
+        for a, ecx in v.get("tail_ijmps", ()):
+            words = FORWARD_WORDS if f not in called_directly else out.get(hexa(f), {}).get("stack", 0) // 4
+            jumps.append(hexa(a))
+            calls[hexa(a)] = [["i", 4]] * (words + (1 if ecx else 0))
+            ccs[hexa(a)] = "__thiscall" if ecx else "__stdcall"
         for a, (cc, n) in v.get("icalls", {}).items():
             calls[hexa(a)] = [["i", 4]] * (n + {"__thiscall": 1, "__fastcall": 2}.get(cc, 0))
             ccs[hexa(a)] = cc
+        # (a direct call to a variadic function: the words pushed for it, where more than its
+        # fixed ones, analyse's call_pushes)
+        for a, (t, n) in v.get("call_pushes", {}).items():
+            fixed = out.get(hexa(t), {}).get("variadic")
+            if fixed is not None and n // 4 > fixed:
+                calls[hexa(a)] = [["i", 4]] * (n // 4)
+                ccs[hexa(a)] = "__cdecl"
             k = v.get("icall_rets", {}).get(a)
             if k:
                 rets[hexa(a)] = ["f", 4] if k == "f4" else ["d", 8]
@@ -1708,7 +2144,7 @@ def main() -> None:
         "rule": "x86 (protos32.py icall_shape): ecx written since the last call and not pushed -> "
                 "__thiscall, `this` first; `add esp, k` after the call -> __cdecl of k bytes; else "
                 "the callee pops the arguments pushed since the last call",
-        "arch": "x86", "calls": calls, "cc": ccs, "rets": rets})
+        "arch": "x86", "calls": calls, "cc": ccs, "rets": rets, "jumps": jumps})
     print(f"indirect calls: {shapes}", file=sys.stderr)
 
     print(f"returns read by callers: {dict((k, sum(1 for x in ret_of.values() if x == k)) for k in rank)}",

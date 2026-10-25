@@ -20,6 +20,9 @@ namespace ghidra {
 
 // RHIPPER: (below, after AliasChecker::gatherInternal)
 bool rhSetjmpBound(const Funcdata *fd,AddrSpace *space,uintb &bound);
+// RHIPPER: (heritage.cc)
+bool rhHasLocalAlias(const Funcdata *fd,AddrSpace *spc,Varnode *vn);
+bool rhSaveSlot(const Funcdata *fd,Varnode *vn);
 
 /// RHIPPER: whether a stack offset is where a call pushes its return address (no local's, though a
 /// frame setjmp or an EH link captures holds it)
@@ -515,6 +518,13 @@ bool ScopeLocal::isUnmappedUnaliased(Varnode *vn) const
   // RHIPPER: not above where a setjmp call captures the frame (AliasChecker::gatherInternal)
   uintb sj;
   if (rhSetjmpBound(fd,space,sj) && vn->getOffset() >= sj && !rhReturnSlot(fd,space,vn->getOffset())) return false;
+  // RHIPPER: nor one whose address the function takes, at or above the shallowest stack pointer it
+  // makes (AliasChecker): the slot is read through that pointer. VS2010's vscan_fn builds sscanf's
+  // FILE at `&stack0xffffffdc`, no mapped local, and hands its address to _input_l; unaliased, its
+  // _ptr and _base stores went as dead and the scan read garbage (rhtest msvc-16.00-x86 crt); and
+  // core's bucket_of lost the lo, hi and v that its pointer picks between at /Od (heritage.cc)
+  // (nor a register's save there, which holds no value of its own: heritage.cc rhSaveSlot)
+  if (rhHasLocalAlias(fd,space,vn) && !rhReturnSlot(fd,space,vn->getOffset()) && !rhSaveSlot(fd,vn)) return false;
   if (maxParamOffset < minParamOffset) return true;	// If no min/max, then we have no know stack parameters
   if (vn->getOffset() < minParamOffset || vn->getOffset() > maxParamOffset)
     return true;
@@ -1444,6 +1454,19 @@ void ScopeLocal::markUnaliased(const vector<uintb> &alias)
   int4 alias_block_level = glb->alias_block_level;
   uintb setjmpBound = 0;
   bool hasSetjmp = rhSetjmpBound(fd,space,setjmpBound);
+  // RHIPPER: the shallowest local address the function lets escape (AliasChecker's boundary,
+  // among the locals): a local at or above it, and within the reach the test below allows,
+  // stays aliased even where the scope's mapped ranges have a gap between. vscan_fn's FILE at
+  // `&stack0xffffffdc` for _input_l lay below the range the locals were mapped in, the gap turned
+  // its alias off, and its _ptr and _base stores went (rhtest msvc-16.00-x86 crt)
+  uintb localAlias = 0;
+  bool hasLocalAlias = false;
+  for(int4 k=0;k<alias.size();++k) {
+    if (alias[k] > (space->getHighest() >> 1) && (!hasLocalAlias || alias[k] < localAlias)) {
+      localAlias = alias[k];
+      hasLocalAlias = true;
+    }
+  }
   bool aliason = false;
   uintb curalias=0;
   int4 i=0;
@@ -1479,6 +1502,9 @@ void ScopeLocal::markUnaliased(const vector<uintb> &alias)
     // RHIPPER: what a setjmp call captures stays aliased (AliasChecker::gatherInternal)
     if (!aliason && hasSetjmp && entry.getAddr().getOffset() >= setjmpBound
 	&& !rhReturnSlot(fd,space,entry.getAddr().getOffset())) aliason = true;
+    uintb start = entry.getAddr().getOffset();
+    if (!aliason && hasLocalAlias && start > (space->getHighest() >> 1) && start + entry.getSize() - 1 >= localAlias
+	&& start - localAlias <= 0xffff && !rhReturnSlot(fd,space,start)) aliason = true;
     if (!aliason) symbol->getScope()->setAttribute(symbol,Varnode::nolocalalias);
     if (symbol->isTypeLocked() && alias_block_level != 0) {
       if (alias_block_level == 3)

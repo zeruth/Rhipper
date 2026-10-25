@@ -22,6 +22,8 @@ stamp() { echo "[$(( $(date +%s) - start ))s] $*"; }
 
 if [ "$1" != "--from-ghidra" ]; then
 stamp "facts"
+# (the compiler that built the reference, and whether an rhtest toolset proves the facts for it)
+python "$RH/toolchain.py" 2>&1 | sed "s/^/  /"
 # independent of one another (and the project's own extractors, rhipper.json "facts_extra")
 pids=()
 for t in pieces vtables srcrefs cregister typetags noreturn globalptrs switches; do

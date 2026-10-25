@@ -2,7 +2,7 @@
 // decompiler's member access (`ptd->_thandle`, `local_6c.dwFlags`) into reads at offsets. One JSON
 // document:
 //   {"composites": {name: {"size", "union", "fields": [[name, offset, length, type], ...]}},
-//    "typedefs": {name: base type name}}
+//    "typedefs": {name: base type name}, "enum_values": {constant: value}}
 // Names are the ones the decompiler prints; a name defined in several categories keeps the first
 // (the duplicates are listed under "duplicates").
 //
@@ -41,6 +41,8 @@ public class ExportTypes extends GhidraScript {
         Map<String, String> composites = new LinkedHashMap<>();
         Map<String, String> typedefs = new LinkedHashMap<>();
         TreeSet<String> duplicates = new TreeSet<>();
+        Map<String, Long> enumValues = new java.util.TreeMap<>();
+        TreeSet<String> clashing = new TreeSet<>();
         // (every type the program lists, and the composites they reach that it does not: a typedef's
         // base, a field's type through arrays and pointers. `locrefcount` names `localerefcount`, which
         // the program never listed, and threadlocaleinfostruct.lc_category had no layout, 2026-10-23)
@@ -75,8 +77,18 @@ public class ExportTypes extends GhidraScript {
                 if (!typedefs.containsKey(name)) {
                     typedefs.put(name, ((TypeDef) dt).getBaseDataType().getDisplayName());
                 }
+            } else if (dt instanceof ghidra.program.model.data.Enum en) {
+                // (an enum's constants, which the decompiler prints by name: the CRT's
+                // INTRNCVT_OVERFLOW in __fltin2, undeclared in C, rhtest msvc-16.00-x86 crt. A name
+                // two enums give different values is left out)
+                for (String n : en.getNames()) {
+                    long v = en.getValue(n);
+                    if (enumValues.containsKey(n) && enumValues.get(n) != v) clashing.add(n);
+                    else enumValues.put(n, v);
+                }
             }
         }
+        for (String n : clashing) enumValues.remove(n);
         try (PrintWriter w = new PrintWriter(new FileWriter(out))) {
             w.println("{\"composites\": {");
             boolean first = true;
@@ -96,9 +108,15 @@ public class ExportTypes extends GhidraScript {
                 w.printf("%s\"%s\"", first ? "" : ",", esc(d));
                 first = false;
             }
-            w.println("]}");
+            w.println("], \"enum_values\": {");
+            first = true;
+            for (Map.Entry<String, Long> e : enumValues.entrySet()) {
+                w.printf("%s\"%s\": %d%n", first ? " " : ",", esc(e.getKey()), e.getValue());
+                first = false;
+            }
+            w.println("}}");
         }
         println("ExportTypes: wrote " + composites.size() + " composites, " + typedefs.size() + " typedefs ("
-                + duplicates.size() + " names defined twice) to " + out);
+                + duplicates.size() + " names defined twice), " + enumValues.size() + " enum constants to " + out);
     }
 }

@@ -30,6 +30,7 @@ Writes <gen>/translated_NNN.c, translated.h, stubs.c, jumps.c, imports.c, manife
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import os
 import re
@@ -38,6 +39,7 @@ import sys
 import time
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
+from multiprocessing import Pool
 from pathlib import Path
 
 import project
@@ -103,7 +105,7 @@ WIDE = {"longlong", "ulonglong", "qword", "undefined8", "uint8", "int8", "uint5"
         "int6", "int7", "undefined5", "undefined6", "undefined7", "DWORD64", "DWORDLONG", "LONGLONG",
         "ULONGLONG", "__time64_t"}
 # (and their keep variants, `__thiscall_keep_edx`: ApplyFacts' x86 keep conventions)
-CC = re.compile(r"\b(__thiscall|__cdecl|__stdcall|__fastcall|__vectorcall)(?:_keep(?:_[a-z]+)+)?\b\s*")
+CC = re.compile(r"\b(__thiscall|__cdecl|__stdcall|__fastcall|__vectorcall)(?:_keep(?:_[a-z][a-z0-9]*)+)?\b\s*")
 LOST = re.compile(r"\b(in_[A-Z][A-Za-z0-9_]*|in_stack_[0-9a-f]+|unaff_[A-Za-z0-9_]+|extraout_[A-Za-z0-9_]+|in_FS_OFFSET)\b")
 # a symbol ending in its address (DAT_00401000, PTR_FUN_00401000, s_text_00401000, LAB_...)
 ADDR_SYM = re.compile(r"(?<![\w$])(_*(?:DAT|PTR|LAB|UNK|BYTE|WORD|DWORD|QWORD|s|u|ws|switchdataD|vtable)(?:_\w*?)?_([0-9a-f]{8})(?:_\d+)?)(?![\w$])")
@@ -223,7 +225,7 @@ VA_WORDS = 32
 OUT_STACK = re.compile(r"(?:in_stack_|stack0x)(f[0-9a-f]{7})")
 
 
-def out_stack(body: str, alloca: bool = False) -> str:
+def out_stack(body: str, alloca: bool = False, eh: bool = False) -> str:
     """An object passed by value, as MSVC passes one: the caller reserves room below its locals,
     builds the object there in place (`FUN_0042cc20(&stack0xffffeffc, ...)`, a string's
     constructor), and calls, the room now the callee's stack arguments, which Ghidra shows as
@@ -237,7 +239,10 @@ def out_stack(body: str, alloca: bool = False) -> str:
     # it lay wherever the compiler put it: rhtest's put_u writes its digits from `&stack0xffffffef
     # + k`, one below its char array local_10, and its 4-byte gen_out took eleven, the caller's
     # locals the rest, 2026-10-24)
-    framed = has_frame(body)
+    # (and one that links an EH frame, whose whole frame frame_locals lays out whatever it takes the
+    # address of: VS2010's fflush hands its __finally `&stack0xfffffffc`, its ebp, and as a gen_out
+    # of its own the funclet read the stream from garbage, rhtest msvc-16.00-x86 crt)
+    framed = has_frame(body) or eh
     lo, hi = offs[0], offs[-1] + 4
     # (in a function that allocates on its stack, where the decompiler lost the size: _malloca's
     # buffer is `&stack0xffffffe8` as it is, no `+ iVar5` below it. The reference's lies below the
@@ -262,6 +267,11 @@ def out_stack(body: str, alloca: bool = False) -> str:
             (base + " * PTR32" * stars) if stars else t
     body = re.sub(r"(?m)^\s*[A-Za-z_][\w ]*?[\s*]+in_stack_f[0-9a-f]{7}\s*;\s*\n", "", body)
     body = re.sub(r"&\s*stack0x(f[0-9a-f]{7})\b", lambda m: place(int(m.group(1), 16)), body)
+    # (and the place itself, a word of the frame no local covers that the decompiler names bare:
+    # strings()'s inlined strcpy at /O2 writes `stack0xffffffa0 = 0x78787878;` past its char[5],
+    # rhtest msvc-16.00-x86 crt-O2)
+    body = re.sub(r"(?<![\w&])stack0x(f[0-9a-f]{7})\b",
+                  lambda m: f"(*(undefined4 *){place(int(m.group(1), 16))})", body)
     body = re.sub(r"\(uint\)\s*(\(gen_out|GEN_SLOT|GEN_LOW)", r"(uint)(uintptr_t)\1", body)
     body = re.sub(r"\bin_stack_(f[0-9a-f]{7})\b",
                   lambda m: f"(*({types.get(m.group(1), 'undefined4')} *){place(int(m.group(1), 16))})", body)
@@ -442,6 +452,9 @@ def has_frame(body: str) -> bool:
 
 
 EH_LINK = re.compile(r"(?:\bExceptionList|gen_teb32\(\) \+ 0x0\)+)\s*=\s*&")
+# a register's part to its whole (protos32's narrow register parameters, `cl`)
+NARROW_FULL = {"al": "eax", "ax": "eax", "cl": "ecx", "cx": "ecx", "dl": "edx", "dx": "edx",
+               "bl": "ebx", "bx": "ebx", "si": "esi", "di": "edi"}
 # (the CRT's prologs that link the frame, injected: Ghidra's comment on the function)
 EH_PROLOG = re.compile(r"replaced with injection: (?:SEH_prolog|EH_prolog)")
 
@@ -589,6 +602,39 @@ def returned_local(v: str, lines: list[str]) -> bool:
             continue                                    # written
         return False
     return True
+
+
+def int_min(c: str) -> str:
+    """Ghidra's INT_MIN as a negation, `-0x80000000` (and LLONG_MIN's): signed. C reads the
+    literal as unsigned and its negation too, so `-0x80000000 >> n`, an x86 `sar` making a mask of
+    ones, shifted in zeros: the graphics allocator's free-bucket mask found no bucket (CrystalCore,
+    2026-10-24). A minus after an operand is a subtraction, left as it is."""
+    def one(m):
+        before = c[:m.start()].rstrip()
+        if before and (before[-1] in ")]" or re.search(r"\w$", before)) and not re.search(r"\breturn$", before):
+            return m.group(0)
+        return "((longlong)0x8000000000000000)" if len(m.group(1)) > 10 else "((int)0x80000000)"
+    return re.sub(r"-\s*(0x80000000|0x8000000000000000)\b(?![\w.])", one, c)
+
+
+ARRAY_ELEMENT = {"undefined": 1, "undefined1": 1, "char": 1, "byte": 1, "uchar": 1, "undefined2": 2,
+                 "undefined4": 4, "undefined8": 8}
+
+
+def array_stores(c: str) -> str:
+    """A small local array stored whole, `local_44 = (char [4])s_alpha_00410280._0_4_;`: no C
+    assigns an array, so the store of its bytes, `*(undefined4 *)local_44 = ...;`. strcpy and
+    memset inlined at /O2 build strings so, and the function was stubbed (rhtest msvc-16.00-x86
+    crt-O2 strings)."""
+    arrays = set(re.findall(r"(?m)^[ \t]+[A-Za-z_]\w*\s+([A-Za-z_]\w*)\s*\[\s*(?:0x)?[0-9a-f]+\s*\]\s*;", c))
+
+    def one(m):
+        n = ARRAY_ELEMENT.get(m.group(3), 0) * int(m.group(4), 0)
+        if m.group(2) not in arrays or n not in (1, 2, 4, 8):
+            return m.group(0)
+        return f"{m.group(1)}*(undefined{n} *){m.group(2)} = {m.group(5)};"
+    return re.sub(r"(?m)^([ \t]+)([A-Za-z_]\w*)\s*=\s*\(\s*([A-Za-z_]\w*)\s*\[\s*((?:0x)?[0-9a-f]+)\s*\]\s*\)\s*(.+);[ \t]*$",
+                  one, c)
 
 
 def stack_vs_const(c: str) -> str:
@@ -961,6 +1007,13 @@ class Translator32:
         self.frames = {int(k, 16): v["frame"] for k, v in protos.items() if v.get("frame")}
         # (and the register inputs each leaves as it found them, kept_inputs)
         self.keeps_in = {int(k, 16): v["keeps_in"] for k, v in protos.items() if v.get("keeps_in")}
+        # (and the registers each takes its parameters in, entry_registers)
+        self.param_regs = {}
+        for k, v in protos.items():
+            regs = v.get("regs") or (["ecx"] if v.get("cc") == "__thiscall" else
+                                     ["ecx", "edx"] if v.get("cc") == "__fastcall" else [])
+            if regs:
+                self.param_regs[int(k, 16)] = regs
         self.sigs: dict[int, Signature] = {}
         self.by_printed: dict[str, int] = {}
         bad = 0
@@ -999,6 +1052,8 @@ class Translator32:
         # (and every one's size, a placeholder's too: types' opaque locals)
         self.composite_sizes = {n: v["size"] for n, v in types.get("composites", {}).items() if v.get("size")}
         self.typedefs = types.get("typedefs", {})
+        # (and the enums' constants, which the decompiler prints by name: enum_constants)
+        self.enum_values = types.get("enum_values", {})
         print(f"corpus {len(self.corpus)} functions ({bad} without a signature), refdata {len(self.refdata)}, "
               f"imports {len(self.imports)} ({time.time() - t0:.0f}s)")
 
@@ -1108,19 +1163,29 @@ class Translator32:
         if not names or not self.keeps_in:
             return c
         lines = c.split("\n")
+        orig = list(lines)                        # (as written: the scan back reads them so)
         for n in names:
             decl = re.compile(rf"^[ \t]+([A-Za-z_][\w ]*?[\s*]*?)\s*\b{n};\s*$")
-            dl = next((i for i, l in enumerate(lines) if decl.match(l)), None)
-            uses = [i for i, l in enumerate(lines) if re.search(rf"\b{n}\b", l) and i != dl]
+            dl = next((i for i, l in enumerate(lines) if l is not None and decl.match(l)), None)
+            uses = [i for i, l in enumerate(lines) if l is not None and re.search(rf"\b{n}\b", l) and i != dl]
             if dl is None or not uses:
                 continue
             reg = "ecx" if "ECX" in n else "edx"
             value = None
             for u in uses:
                 p = u - 1
-                while p >= 0 and not lines[p].strip():
+                # (back over the other registers kept by the same call, read first: `param_1 =
+                # extraout_ECX; param_2 = extraout_EDX;` after box_touch(param_1, param_2), VS2010's
+                # box_chain. What they assign is noted: an argument made of it is not the same)
+                assigned = set()
+                while p >= 0 and (not orig[p].strip()
+                                  or re.fullmatch(r"\s*\w+\s*=\s*extraout_E[CD]X(?:_\d+)?;\s*", orig[p])):
+                    if orig[p].strip():
+                        assigned.add(orig[p].split("=")[0].strip())
                     p -= 1
-                call = self.kept_call(lines[p], reg) if p >= 0 else None
+                call = self.kept_call(orig[p], reg) if p >= 0 else None
+                if call is not None and any(re.search(rf"\b{re.escape(v)}\b", call) for v in assigned):
+                    call = None
                 if call is None or (value is not None and call != value):
                     value = None
                     break
@@ -1129,9 +1194,42 @@ class Translator32:
                 continue
             t = decl.match(lines[dl]).group(1).strip()
             for u in uses:
-                lines[u] = re.sub(rf"\b{n}\b", f"(({t})({value}))", lines[u])
-            lines[dl] = ""
-        return "\n".join(lines)
+                lines[u] = re.sub(rf"\b{n}\b", f"(({t})(uintptr_t)({value}))", lines[u])
+            # (the declaration gone, not blanked: an empty line ends the declarations, and those
+            # after it were undeclared, FUN_00dc0b40's iVar2, 2026-10-24)
+            lines[dl] = None
+        return "\n".join(l for l in lines if l is not None)
+
+    def entry_registers(self, a: int, c: str) -> str:
+        """A local the decompiler named for a register as the function found it, `in_ecx` (a
+        callee's parameter name it took), that the function never assigns: the parameter it takes
+        in that register. FUN_00dc0b40, a __thiscall, hands `in_ecx` (its `this`, ecx unchanged
+        across the call before) to FUN_00dc07b0 and returns it; translated as a local of its own,
+        it was garbage, and 683 functions declare one (CrystalCore, 2026-10-24). One no parameter
+        is in is a register the decompiler lost (why_not)."""
+        names = set(re.findall(r"(?m)^[ \t]+(?!return\b)[A-Za-z_][\w ]*?[ \t*]+(in_[a-z]{2,3})[ \t]*;", c))
+        if not names:
+            return c
+        sig = self.sigs.get(a)
+        regs = [NARROW_FULL.get(r, r) for r in self.param_regs.get(a, [])]
+        lines = c.split("\n")
+        for n in sorted(names):
+            if re.search(rf"(?<![\w.>])\b{n}\s*(?:[-+*/|&^]|<<|>>)?=(?!=)|&\s*{n}\b|\b{n}\s*(?:\+\+|--)|(?:\+\+|--)\s*{n}\b", c):
+                continue                          # (assigned: a local like any other)
+            reg = NARROW_FULL.get(n[3:], n[3:])
+            if sig is None or reg not in regs or regs.index(reg) >= len(sig.params):
+                continue                          # (lost: why_not says so)
+            decl = re.compile(rf"^[ \t]+([A-Za-z_][\w ]*?[\s*]*?)\s*\b{n};\s*$")
+            dl = next((i for i, l in enumerate(lines) if l is not None and decl.match(l)), None)
+            if dl is None:
+                continue
+            t = decl.match(lines[dl]).group(1).strip()
+            p = sig.params[regs.index(reg)][1]
+            # (through uintptr_t: a pointer `this` to a 4-byte integer, or the other way)
+            lines = [l if l is None or i == dl else re.sub(rf"\b{n}\b", f"(({t})(uintptr_t)({p}))", l)
+                     for i, l in enumerate(lines)]
+            lines[dl] = None
+        return "\n".join(l for l in lines if l is not None)
 
     def kept_call(self, line: str, reg: str) -> str | None:
         """The argument a statement's one call passes in `reg`, when the callee leaves it as it
@@ -1165,9 +1263,13 @@ class Translator32:
 
     # ---- one function ---------------------------------------------------------------------------
     def why_not(self, a: int) -> str | None:
-        c = self.kept_inputs(stack_vs_const(v16_forms(cpu_state(strip_comments(self.corpus[a]["c"])))))
+        c = self.entry_registers(a, self.kept_inputs(stack_vs_const(v16_forms(cpu_state(array_stores(strip_comments(self.corpus[a]["c"])))))))
         if a not in self.sigs:
             return "no signature"
+        # (a register as the function found it that no parameter is in, never assigned: lost)
+        for n in set(re.findall(r"(?m)^[ \t]+(?!return\b)[A-Za-z_][\w ]*?[ \t*]+(in_[a-z]{2,3})[ \t]*;", c)):
+            if not re.search(rf"(?<![\w.>])\b{n}\s*(?:[-+*/|&^]|<<|>>)?=(?!=)|&\s*{n}\b|\b{n}\s*(?:\+\+|--)|(?:\+\+|--)\s*{n}\b", c):
+                return f"a register the decompiler lost ({n})"
         # (and a full xmm register as an SSE pseudo-op's destination found it: zeroed, sse_ops)
         ok = returned_only(c) | self.noreturn_args_only(a, c) | filler_args(c) | {"in_FPUControlWord"} | \
             set(re.findall(r"(?m)^[ \t]+undefined1\s+(in_XMM\d+)\s*\[\s*16\s*\]\s*;", c))
@@ -1274,7 +1376,36 @@ class Translator32:
         if not self.composites or not re.search(r"->|\.[A-Za-z_]", body):
             return body
         svars = self.struct_vars(body, a)
+        # (nested ones from the inside out, a pass each: `((IMAGE_OPTIONAL_HEADER32 *)(IMAGE_NT_
+        # HEADERS32_004000d0.OptionalHeader.DataDirectory + -0xc))->Magic`, whose cast's operand is
+        # C only once the inner chain is placed. In one pass the outer one took the inner's text
+        # as it was, VS2010's ___tmainCRTStartup at /Od)
+        for _ in range(4):
+            body, nested = self.members_pass(body, svars)
+            if not nested:
+                break
+        # the composite locals as bytes of their size
+        def decl(mm):
+            n = mm.group(3)
+            if n in svars and svars[n][1] in ("val", "array"):
+                size = self.composites[svars[n][0]]["size"]
+                count = mm.group(4)
+                # (one of 1, 2, 4 or 8 bytes is an integer of that size: assigned whole from a
+                # call's result, as edx:eax returned it)
+                if not count and size in (1, 2, 4, 8):
+                    return f"{mm.group(1)}undefined{size} {n};"
+                total = f"{size} * ({count[1:-1]})" if count else str(size)
+                return f"{mm.group(1)}undefined {n}[{total}];"
+            return mm.group(0)
+        decls, rest = split_decls(body)
+        decls = re.sub(r"(?m)^(\s+)(?:struct\s+)?([A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*(\[[^\]]*\])?\s*;", decl, decls)
+        return decls + rest
+
+    def members_pass(self, body: str, svars: dict) -> tuple[str, bool]:
+        """One pass of members(): each access it can place, and whether one was left for the next
+        because it holds another placed in this pass."""
         out, i = [], 0
+        nested = False
         for m in re.finditer(r"(->|\.)\s*([A-Za-z_]\w*)", body):
             if m.start() < i:
                 continue
@@ -1283,6 +1414,9 @@ class Translator32:
                                                            # `local_14.locinfo`, a name ending in one)
             start = self.base_start(body, m.start())
             if start is None:
+                continue
+            if start < i:
+                nested = True                              # (holds one placed now: the next pass)
                 continue
             base = body[start:m.start()].strip()
             got = self.base_type(base, svars)
@@ -1348,23 +1482,7 @@ class Translator32:
             out.append(self.lvalue(addr, cur))
             i = j
         out.append(body[i:])
-        body = "".join(out)
-        # the composite locals as bytes of their size
-        def decl(mm):
-            n = mm.group(3)
-            if n in svars and svars[n][1] in ("val", "array"):
-                size = self.composites[svars[n][0]]["size"]
-                count = mm.group(4)
-                # (one of 1, 2, 4 or 8 bytes is an integer of that size: assigned whole from a
-                # call's result, as edx:eax returned it)
-                if not count and size in (1, 2, 4, 8):
-                    return f"{mm.group(1)}undefined{size} {n};"
-                total = f"{size} * ({count[1:-1]})" if count else str(size)
-                return f"{mm.group(1)}undefined {n}[{total}];"
-            return mm.group(0)
-        decls, rest = split_decls(body)
-        decls = re.sub(r"(?m)^(\s+)(?:struct\s+)?([A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*(\[[^\]]*\])?\s*;", decl, decls)
-        return decls + rest
+        return "".join(out), nested
 
     def lvalue(self, addr: str, cur: tuple) -> str:
         """The C for a member at addr: a scalar or stored pointer as the lvalue of its type, an
@@ -1376,6 +1494,10 @@ class Translator32:
             return f"(*({cur[2]} *)({addr}))"
         if cur[0] == "array":
             el = cur[1]
+            # (an array of structures steps by the structure: `DataDirectory + -0xc` is 12 of its
+            # 8-byte IMAGE_DATA_DIRECTORYs back, not 12 bytes)
+            if el[0] == "struct" and self.composites.get(el[1], {}).get("size"):
+                return f"((undefined (*)[{self.composites[el[1]]['size']}])({addr}))"
             et = el[1] if el[0] == "scalar" else el[2] if el[0] == "ptr" else "undefined"
             return f"(({et} *)({addr}))"
         if cur[0] == "ptrval":
@@ -1410,6 +1532,16 @@ class Translator32:
             s = self.struct_of(t)
             if s:
                 return f"(char *)REFP(0x{int(m.group(1), 16):x})", ("struct", s)
+        # (and one Ghidra labels by its type, as the data there is: the image's own
+        # IMAGE_NT_HEADERS32_004000e0, which VS2010's static startup reads to tell a managed app,
+        # `IMAGE_NT_HEADERS32_004000e0.Signature + e_lfanew + 8`; its ___tmainCRTStartup was a
+        # stub for it, rhtest msvc-16.00-x86 2026-10-24)
+        m = re.fullmatch(r"([A-Za-z_]\w*?)_([0-9a-f]{8})", base)
+        if m:
+            n, t = self.refdata.get(int(m.group(2), 16), (0, ""))
+            s = self.struct_of(t) if t == m.group(1) else None
+            if s:
+                return f"(char *)REFP(0x{int(m.group(2), 16):x})", ("struct", s)
         return None
 
     @staticmethod
@@ -1492,13 +1624,20 @@ class Translator32:
     def rewrite(self, a: int) -> str:
         """The function's C, translated (raises ValueError when it cannot be)."""
         sig = self.sigs[a]
-        c = self.kept_inputs(stack_vs_const(v16_forms(cpu_state(strip_comments(self.corpus[a]["c"])))))
+        self.cur_params = sig.params              # (pointer_steps: the parameters' types)
+        self.cur_gt = self.corpus[a].get("gt") or {}  # (global_lvalue: the decompiler's types of the globals)
+        c = self.entry_registers(a, self.kept_inputs(stack_vs_const(v16_forms(cpu_state(array_stores(strip_comments(self.corpus[a]["c"])))))))
         # (a long C++ name Ghidra wraps at a `::`, `IpcChannel::\n        PacketBufferTmpl<...>::\n
         # vftable`: one name again, as the data export has it. 1,090 stubs, 2026-10-23)
         c = re.sub(r"::[ \t]*\n[ \t]*", "::", c)
+        # (Ghidra's INT_MIN, `-0x80000000`: C reads 0x80000000 as unsigned, and its negation too,
+        # so `-0x80000000 >> n`, an x86 `sar` making a mask of ones, shifted in zeros. The
+        # graphics allocator's free-bucket mask found no bucket, CrystalCore 2026-10-24)
+        c = int_min(c)
         c = re.sub(r"(?<=[\w>])[ \t]*\n[ \t]*::", "::", c)
         head, sep, body = c.partition("{")
-        body = out_stack("{" + body, "replaced with injection: alloca_probe" in self.corpus[a]["c"])
+        body = out_stack("{" + body, "replaced with injection: alloca_probe" in self.corpus[a]["c"],
+                         bool(EH_PROLOG.search(self.corpus[a]["c"]) or EH_LINK.search(body)))
         # (a small array assigned whole from its bytes, `local_64 = (char [4])s_alpha_0040324c._0_4_;`,
         # strcpy of a literal inlined: the bytes through a temporary of that size, C having no
         # array assignment, rhtest crt-O2 2026-10-24)
@@ -1570,7 +1709,8 @@ class Translator32:
             else:
                 t = f"undefined{size}"
             return f"(*({t} *)((char *)&{name} + {off}))"
-        body = re.sub(r"\b([A-Za-z_]\w*(?:\[[^\]\[]*\])?)\._(\d+)_(\d+)(f?)_", piece, body)
+        # (not a field's, `local_20.x._0_4_`: members() places the field first, paren_pieces after)
+        body = re.sub(r"(?<![.\w>])(?<!\.\s)\b([A-Za-z_]\w*(?:\[[^\]\[]*\])?)\._(\d+)_(\d+)(f?)_", piece, body)
         # (a float lane in a bit mask, `~-(uint)(fVar15 < fVar11) & auVar2._4_4_`: Ghidra's SSE
         # compare-and-select, its float and its bits in one expression C cannot have)
         # (the lane itself an operand of the bit operator: not one assigned bits through the
@@ -1591,9 +1731,16 @@ class Translator32:
         # was loaded into a local first)
         # member access by the exported layouts (before the types, which forget the struct names)
         body = self.members(body, a)
+        # (and a piece of a field, `local_20.x._0_4_`, now that the field is an lvalue: VS2010's
+        # __fltin2, its _CRT_DOUBLE's halves, rhtest msvc-16.00-x86 crt)
+        body = self.paren_pieces(body)
         self.leftover_members(body, a)
         # (types before names: a C++ type in a cast, `(Client::UI::Foo *)`, is no symbol)
         body = self.types(body)
+        # (`a + -b` as `a - b`, the same for integers and pointers: a 32-bit unsigned b negated is
+        # 2^32 - b, and added to a 64-bit pointer it moved it 4 GB on, VS2010's qsort stepping back
+        # by `puVar9 + -_SizeOfElements`, rhtest msvc-16.00-x86 crt)
+        body = re.sub(r"(?<![+\-])\+\s*-\s*(?=[A-Za-z_(])", "- ", body)
         # (the function's own namespaces, innermost first: a name Ghidra prints relative to them,
         # `vftable` in std::exception's constructor, eh-Od)
         parts = self.corpus[a]["name"].split("::")[:-1]
@@ -1699,6 +1846,18 @@ class Translator32:
             body = re.sub(r"\(uint\)\s*&\s*stack0x(?!f[0-9a-f]{7}\b)([0-9a-f]{8})",
                           lambda m: f"(uint)(uintptr_t){slot(m)}", body)
             body = re.sub(r"&\s*stack0x(?!f[0-9a-f]{7}\b)([0-9a-f]{8})", slot, body)
+            # (and esp itself as it came in, where the decompiler could say the address no other
+            # way, `register0x00000010` (BADSPACEBASE *): VS2010's va_start takes the last fixed
+            # parameter's address, `lea edx, [esp + 8]`, and steps it, and past the parameter's
+            # symbol the walk is esp's. The entry esp is the return address's slot, a word below
+            # the block, rhtest msvc-16.00-x86 calls-O2 sum_va)
+            if re.search(r"\bregister0x00000010\b", body) and not eh:
+                body = re.sub(r"\(\s*BADSPACEBASE\s*\*\s*\)", "(uintptr_t)", body)
+                body = re.sub(r"\bregister0x00000010\b", "gen_esp0", body)
+                # (the cast types() made of BADSPACEBASE *, an unknown type under a pointer)
+                body = re.sub(r"\bgen_esp0\s*=\s*\(\s*undefined\s*\*\s*\)", "gen_esp0 = (uintptr_t)", body)
+                prologue.append("  uintptr_t gen_esp0 = (uintptr_t)gen_args - 4;")
+                var_types["gen_esp0"] = "uintptr_t"
             if sig.variadic:
                 params.append("...")
         for m in re.finditer(r"(?m)^\s+((?:unsigned\s+)?[A-Za-z_]\w*(?:\s*\*[\s*]*(?:PTR32\s*\*\s*)*)?)\s*([A-Za-z_]\w*)\s*(\[[^\]]*\])?\s*;",
@@ -2215,15 +2374,118 @@ class Translator32:
                     raise ValueError(f"type {w}")
         return ptr32_type(t)
 
+    def enum_constants(self, body: str) -> str:
+        """An enum constant the decompiler names, as its value: `return INTRNCVT_OVERFLOW;` in
+        VS2010's __fltin2, which C has no declaration of (rhtest msvc-16.00-x86 crt). Not a member,
+        a call, nor a name the body declares or Ghidra32.h has."""
+        if not self.enum_values:
+            return body
+        decls, rest = split_decls(body)
+        # (the names the body has otherwise: its declarations, its signature's parameters)
+        known = set(re.findall(r"\b[A-Za-z_]\w*\b", decls))
+        # (only what reads as a constant, CAPITALS with an underscore: the program's type libraries
+        # hold enums with every kind of name, and taken for constants, `uint` and `HMODULE` in
+        # declarations and fields after a `.` went, 40 functions of crt, 2026-10-24)
+
+        def rep(m):
+            n = m.group(1)
+            v = self.enum_values.get(n)
+            if v is None or n in known or n in HEADER_NAMES or n in KNOWN_TYPES:
+                return m.group(0)
+            return f"({v})"
+        rest = re.sub(r"(?<![.\w>])(?<!\.\s)(?<!->\s)\b([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)\b(?!\s*\()", rep, rest)
+        return decls + rest
+
+    def pointer_steps(self, body: str) -> str:
+        """Arithmetic on a local that points to a structure, by the structure: such a pointer is
+        bytes in the translation (an unknown type under a pointer, or a Windows pointer typedef as
+        GEN_LPANY), and `p_Var2 = p_Var2 + 1`, the next of VS2010 __FindPESection's 40-byte section
+        headers, stepped one byte: _IsNonwritableInCurrentImage never found .rdata, the CRT never
+        installed its float formatting, R6002 (rhtest msvc-16.00-x86 crt). What follows the
+        pointer to the end of its additive expression is scaled."""
+        decls, rest = split_decls(body)
+        steps = {}
+        # (the locals, and the parameters: VS2010's _lock_file(FILE *_File) indexes its lock by
+        # `(_File + -0x20a14) >> 5`, FILE-sized steps, and a byte's put stdout's lock past the table)
+        typed = [(m.group(1), m.group(2), m.group(3)) for m in re.finditer(
+            r"(?m)^\s+(?:struct\s+)?([A-Za-z_]\w*)\s*(\*?)\s*([A-Za-z_]\w*)\s*;", decls)]
+        for t, n in getattr(self, "cur_params", ()):
+            pm = re.fullmatch(r"(?:const\s+)?(?:struct\s+)?([A-Za-z_]\w*)\s*(\*?)", t.strip())
+            if pm:
+                typed.append((pm.group(1), pm.group(2), n))
+        for t, star, v in typed:
+            if star:
+                s = self.struct_of(t)
+            else:
+                info = self.tinfo(t, 4) if t in self.typedefs and t not in KNOWN_TYPES else None
+                s = info[1] if info and info[0] == "ptr" else None
+            size = self.composites.get(s, {}).get("size") if s else None
+            if size and size > 1:
+                steps[v] = size
+        if not steps:
+            return body
+
+        def scale(text: str, v: str, size: int) -> str:
+            out, i = [], 0
+            for m in re.finditer(rf"\b{re.escape(v)}\s*(\+|-)(?![=+\->])\s*|\b{re.escape(v)}\s*(\+=|-=)\s*", text):
+                if m.start() < i:
+                    continue
+                # (the rest of the additive expression: to a closing bracket, a separator or an
+                # operator binding looser than + at this depth)
+                j, depth = m.end(), 0
+                while j < len(text):
+                    ch = text[j]
+                    if ch in "([":
+                        depth += 1
+                    elif ch in ")]":
+                        if depth == 0:
+                            break
+                        depth -= 1
+                    elif depth == 0 and (ch in ",;?:" or text.startswith(("==", "!=", "<", ">", "&&", "||", "&", "|", "^"), j)
+                                         or (ch == "=" and not text.startswith("==", j))):
+                        break
+                    j += 1
+                operand = text[m.end():j].strip()
+                if not operand:
+                    continue
+                out.append(text[i:m.end()])
+                out.append(f"({operand}) * {size}")
+                if text[j - 1:j].isspace():
+                    out.append(" ")
+                i = j
+            out.append(text[i:])
+            return "".join(out)
+        # (every line but a declaration: a body with no locals has no declaration block, and
+        # split_decls gave _unlock_file's statements as its declarations, unscaled)
+        decl_line = re.compile(r"\s*(?:struct\s+)?[A-Za-z_]\w*[\s*]+[A-Za-z_]\w*\s*(?:\[[^\]]*\])?\s*;\s*")
+        lines = body.split("\n")
+        for i, line in enumerate(lines):
+            if decl_line.fullmatch(line):
+                continue
+            for v, size in steps.items():
+                if v in line:
+                    line = scale(line, v, size)
+            lines[i] = line
+        return "\n".join(lines)
+
     def types(self, body: str) -> str:
         """Casts and declarations: unknown types under a pointer as bytes, size_t 32-bit, inner
         pointer levels __ptr32."""
+        body = self.pointer_steps(body)
+        body = self.enum_constants(body)
         body = alias_types(body)
         body = re.sub(r"\b_func_\w+\b", "code", body)
 
         # (a cast to an exported typedef, `(_ptiddata)p`)
         body = re.sub(r"\(\s*([A-Za-z_]\w*)\s*\)",
                       lambda m: f"({self.typedef_c(m.group(1))})" if self.typedef_c(m.group(1)) else m.group(0), body)
+        # (and to a structure by value of an integer's size: its bytes. A class Function ID names
+        # but Ghidra has no layout for is a 1-byte placeholder, and its constructor's `this[0xc] =
+        # (_LocaleUpdate)0x0` stores a byte: VS2010's _LocaleUpdate, rhtest msvc-16.00-x86)
+        body = re.sub(r"\(\s*([A-Za-z_]\w*)\s*\)(?=\s*[\w(-])",
+                      lambda m: f"(undefined{self.composite_sizes[m.group(1)]})"
+                      if m.group(1) not in KNOWN_TYPES and self.composite_sizes.get(m.group(1)) in (1, 2, 4, 8)
+                      else m.group(0), body)
 
         def cast(m):
             return "(" + self.type_text(m.group(1)) + ")"
@@ -2373,7 +2635,15 @@ class Translator32:
         """A global the data export does not type (undefined4) that the code uses as a pointer:
         dereferenced (`*DAT_x + 8`), indexed (`DAT_x[i]`) or called (`(*DAT_x)(...)`)."""
         body = re.sub(r"\(\*REFG\(undefined4, (0x[0-9a-f]+)\)\)\s*\(", r"(*REFG(code * PTR32, \1))(", body)
-        body = re.sub(r"REFG\(undefined4, (0x[0-9a-f]+)\)(?=\s*\[)", r"REFG(int * PTR32, \1)", body)
+        # (indexed as the pointer the function compares or sets it to: `DAT_0040b390 == (char *)
+        # 0x200`, `DAT_0040b390[0x40b398] = c`, a byte. As an int *, rhtest's put() wrote 4 bytes
+        # at four times the offset, VS2010's core-O2 2026-10-24; int * where nothing says)
+        typed = {}
+        for m in re.finditer(r"REFG\(undefined4, (0x[0-9a-f]+)\)\s*(?:==|!=|=(?!=))\s*\(\s*((?:unsigned\s+)?[A-Za-z_]\w*)\s*\*\s*\)", body):
+            typed.setdefault(m.group(1), set()).add(m.group(2))
+        body = re.sub(r"REFG\(undefined4, (0x[0-9a-f]+)\)(?=\s*\[)",
+                      lambda m: f"REFG({next(iter(typed[m.group(1)]))} * PTR32, {m.group(1)})"
+                      if len(typed.get(m.group(1), ())) == 1 else f"REFG(int * PTR32, {m.group(1)})", body)
         out, i = [], 0
         for m in re.finditer(r"\*\s*REFG\(undefined4, (0x[0-9a-f]+)\)", body):
             k = m.start() - 1
@@ -2411,6 +2681,16 @@ class Translator32:
             return f"(*({et} (*)[{m.group(2)}])REFP(0x{addr:x}))"
         if t in ("pointer", "addr"):
             return f"REFG(undefined * PTR32, 0x{addr:x})"
+        # (data with no type of its own, undefinedN, an unsigned in C, takes the signed one the
+        # decompiler gave the global in this function, where it gave one: its compares, shifts and
+        # divides are signed, printed without a cast. _ld12cvt's `exponent > pFmt->min_exp`, -1023,
+        # compared unsigned and every double sscanf and strtod parsed came out 0.0, rhtest
+        # msvc-16.00-x86 crt; corpus "gt", ExportDecompAll)
+        if re.fullmatch(r"undefined[1248]?", t):
+            seen = set(getattr(self, "cur_gt", {}).get(f"{addr:x}", ()))
+            signed = {1: "char", 2: "short", 4: "int", 8: "longlong"}.get(n)
+            if signed and seen and seen <= {signed} | ({"long"} if n == 4 else set()):
+                return f"REFG({signed}, 0x{addr:x})"
         ct = self.c_data_type(t)
         if ct is None:
             return f"(*(undefined (*)[{max(n, 1)}])REFP(0x{addr:x}))"
@@ -2435,8 +2715,19 @@ class Translator32:
         return None
 
     # ---- the whole program ---------------------------------------------------------------------
-    def translate_all(self, only: set[int] | None, demoted: dict[str, str]):
+    def translate_one(self, a: int) -> tuple[int, bool, str]:
+        """(address, translated?, its C or why not)."""
+        why = self.why_not(a)
+        if why:
+            return a, False, why
+        try:
+            return a, True, self.rewrite(a)
+        except ValueError as e:
+            return a, False, str(e)
+
+    def translate_all(self, only: set[int] | None, demoted: dict[str, str], pool=None):
         translated, stubbed = {}, {}
+        todo = []
         for a in sorted(self.corpus):
             if only is not None and a not in only:
                 stubbed[a] = "not selected"
@@ -2444,15 +2735,30 @@ class Translator32:
             if f"{a:08x}" in demoted:
                 stubbed[a] = "demoted: " + demoted[f"{a:08x}"]
                 continue
-            why = self.why_not(a)
-            if why:
-                stubbed[a] = why
-                continue
-            try:
-                translated[a] = self.rewrite(a)
-            except ValueError as e:
-                stubbed[a] = str(e)
-        return translated, stubbed
+            todo.append(a)
+        # (each function on its own, from the same inputs every round: one translated in an earlier
+        # round of this run is as it was, and a later round redoes none. In worker processes when
+        # there is a pool, each with its own Translator32, _worker_init)
+        done = getattr(self, "_done", None)
+        if done is None:
+            done = self._done = {}
+        fresh = [a for a in todo if a not in done]
+        if pool is not None:
+            # (the largest first, one at a time while they are large: a function of a few thousand
+            # lines takes as long as hundreds of small ones, and handed out last it kept one worker
+            # busy long after the rest were idle. Small chunks, so the workers end together)
+            fresh.sort(key=lambda a: -len(self.corpus[a]["c"]))
+            big = [a for a in fresh if len(self.corpus[a]["c"]) >= 20000]
+            got = itertools.chain(pool.imap_unordered(_translate_one, big, chunksize=1),
+                                  pool.imap_unordered(_translate_one, fresh[len(big):], chunksize=16))
+        else:
+            got = map(self.translate_one, fresh)
+        for a, ok, text in got:
+            done[a] = (ok, text)
+        for a in todo:
+            ok, text = done[a]
+            (translated if ok else stubbed)[a] = text
+        return dict(sorted(translated.items())), dict(sorted(stubbed.items()))
 
     def stub_decl(self, a: int) -> str:
         sig = self.sigs.get(a)
@@ -2587,27 +2893,82 @@ def msvc_env() -> dict:
         vswhere = Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "Microsoft Visual Studio/Installer/vswhere.exe"
         vs = subprocess.run([str(vswhere), "-latest", "-property", "installationPath"], capture_output=True, text=True).stdout.strip()
         bat = Path(vs) / "VC/Auxiliary/Build/vcvars64.bat"
-        out = subprocess.run(f'"{bat}" >nul 2>nul && set', shell=True, capture_output=True, text=True).stdout
-        _env = dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
+        # (what vcvars sets, kept between runs while the batch file is the same one: running it
+        # takes ~4 s, as long as a small program's whole compile. Laid over this process's own
+        # environment, never a copy of another's)
+        import tempfile
+        saved = Path(tempfile.gettempdir()) / "rhipper-vcvars64.json"
+        stamp = f"{bat}|{bat.stat().st_mtime if bat.exists() else 0}"
+        try:
+            got = json.loads(saved.read_text(encoding="utf-8"))
+            delta = got["vars"] if got.get("stamp") == stamp else None
+        except (OSError, ValueError, KeyError):
+            delta = None
+        if delta is None:
+            out = subprocess.run(f'"{bat}" >nul 2>nul && set', shell=True, capture_output=True, text=True).stdout
+            full = dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
+            here = {k.upper(): v for k, v in os.environ.items()}
+            delta = {k.upper(): v for k, v in full.items() if here.get(k.upper()) != v}
+            try:
+                saved.write_text(json.dumps({"stamp": stamp, "vars": delta}), encoding="utf-8")
+            except OSError:
+                pass
+        _env = {**os.environ, **delta}
     return _env
+
+
+# each compile's errors by what it compiled (the file, the headers it includes, the compiler): a
+# file the translation wrote the same as before compiles as it did, and is not compiled again. The
+# objects are only the check's, nothing links them
+COMPILED = OBJ / "compiled.json"
+_compiled: dict[str, list] | None = None
+_used: set[str] = set()                  # (what this run compiled: all the cache keeps)
+
+
+def compiled_cache() -> dict[str, list]:
+    global _compiled
+    if _compiled is None:
+        try:
+            _compiled = json.loads(COMPILED.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            _compiled = {}
+    return _compiled
 
 
 def compile_one(path: Path) -> list[tuple[int, str]]:
     """(line, message) of every error compiling one generated file."""
+    import hashlib
     OBJ.mkdir(parents=True, exist_ok=True)
     env = msvc_env()
     # (Windows looks a program up on this process's PATH, not the one passed to it)
     import shutil
     cl = shutil.which("cl", path=env.get("PATH") or env.get("Path"))
-    r = subprocess.run([cl, "/nologo", "/c", "/O1", "/W1", "/we4013", "/TC", "/bigobj", "/std:c17",
-                        f"/Fo{OBJ / (path.stem + '.obj')}", str(path)],
-                       capture_output=True, text=True, env=msvc_env(), cwd=str(GEN))
+    cmd = [cl, "/nologo", "/c", "/O1", "/W1", "/we4013", "/TC", "/bigobj", "/std:c17",
+           f"/Fo{OBJ / (path.stem + '.obj')}", str(path)]
+    h = hashlib.sha256("\0".join(cmd + [str(os.path.getmtime(cl))]).encode())
+    for f in (path, GEN / "translated.h", GEN / "Ghidra32.h"):
+        h.update(f.read_bytes() if f.exists() else b"")
+    key = h.hexdigest()
+    cache = compiled_cache()
+    _used.add(key)
+    if key in cache:
+        return [tuple(e) for e in cache[key]]
+    r = subprocess.run(cmd, capture_output=True, text=True, env=msvc_env(), cwd=str(GEN))
     errs = []
     for line in r.stdout.splitlines():
         m = re.match(r"^(.*?)\((\d+)\)\s*: (?:fatal )?error (\w+): (.*)$", line)
         if m and Path(m.group(1)).name == path.name:
             errs.append((int(m.group(2)), f"{m.group(3)}: {m.group(4)}"))
+    # (only a compile that ran: one cl could not start, or that died, says nothing of the file)
+    if r.returncode == 0 or errs:
+        cache[key] = errs
     return errs
+
+
+def save_compiled() -> None:
+    if _compiled is not None:
+        OBJ.mkdir(parents=True, exist_ok=True)
+        COMPILED.write_text(json.dumps({k: v for k, v in _compiled.items() if k in _used}), encoding="utf-8")
 
 
 def function_at_line(path: Path) -> list[tuple[int, int]]:
@@ -2624,6 +2985,23 @@ def function_at_line(path: Path) -> list[tuple[int, int]]:
     return [(k, a) for k, a in out if a is not None]
 
 
+# the translation's worker processes: each loads the inputs once (~8 s and ~0.5 GB for CrystalCore's
+# 87k functions), so a pool is only for a program that large; a small one translates in-process
+POOL_MIN = 5000
+_worker: Translator32 | None = None
+
+
+def _worker_init() -> None:
+    global _worker
+    # (its loading report is the parent's, already printed)
+    sys.stdout = open(os.devnull, "w")
+    _worker = Translator32()
+
+
+def _translate_one(a: int) -> tuple[int, bool, str]:
+    return _worker.translate_one(a)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--no-build", action="store_true")
@@ -2637,8 +3015,18 @@ def main() -> None:
     t = Translator32()
     only = {int(x, 16) for x in args.only} if args.only else None
     demoted = json.loads(DEMOTED.read_text()) if DEMOTED.exists() and args.keep_demoted else {}
+    many = len(t.corpus) if only is None else len(only)
+    pool = Pool(args.jobs, initializer=_worker_init) if args.jobs > 1 and many >= POOL_MIN else None
+    try:
+        rounds(t, args, only, demoted, pool)
+    finally:
+        if pool is not None:
+            pool.terminate()
+
+
+def rounds(t: Translator32, args, only: set[int] | None, demoted: dict[str, str], pool) -> None:
     for rnd in range(args.rounds):
-        translated, stubbed = t.translate_all(only, demoted)
+        translated, stubbed = t.translate_all(only, demoted, pool)
         files = t.emit(translated, stubbed)
         print(f"round {rnd}: translated {len(translated)}, stubbed {len(stubbed)} in {len(files)} files")
         if args.no_build:
@@ -2672,6 +3060,7 @@ def main() -> None:
     for extra in ("stubs.c", "jumps.c", "imports.c"):
         errs = compile_one(GEN / extra)
         print(f"  {extra}: {'ok' if not errs else errs[:5]}")
+    save_compiled()
 
 
 if __name__ == "__main__":

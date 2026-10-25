@@ -12,6 +12,26 @@
 #include <string.h>
 #include "rhtest.h"
 
+#if defined(_MSC_VER) && _MSC_VER < 1900
+/* (no snprintf before VS2015, and its _snprintf leaves a truncated string unterminated and returns
+ * -1: C99's, as the newer CRT has it, built on it) */
+NOINLINE int rh_snprintf(char *buf, size_t n, const char *f, ...) {
+    va_list ap;
+    int r;
+    va_start(ap, f);
+    r = _vscprintf(f, ap);
+    va_end(ap);
+    if (n) {
+        va_start(ap, f);
+        _vsnprintf(buf, n - 1, f, ap);
+        va_end(ap);
+        buf[n - 1] = 0;
+    }
+    return r;
+}
+#define snprintf rh_snprintf
+#endif
+
 NOINLINE u32 hstr(const char *s) {
     u32 h = 2166136261u;
     while (*s) h = (h ^ (u8)*s++) * 16777619u;

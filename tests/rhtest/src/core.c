@@ -351,6 +351,33 @@ NOINLINE u32 list_check(void) {
     return h;
 }
 
+/* a clamp through pointers, std::min/max's shape: `p = v < 0x17 ? (v < 1 ? &lo : &v) : &hi`, MSVC
+ * keeping v in a parameter's slot it no longer needs. The decompiler guarded the load through p
+ * over the locals only and dropped the store into the slot (CrystalCore's graphics allocator's
+ * bucket index) */
+typedef struct { u32 links[2]; u32 size; } Chunk;
+NOINLINE u32 bucket_of(Chunk *c, u32 *mask) {
+    u32 n = c->size, lo = 0, hi = 0x17;
+    int bit = 31;
+    const u32 *p;
+    u32 v;
+    if (n < 0x80) return 0xffffffffu;
+    while (!(n >> bit)) bit--;
+    v = (u32)(bit - 7);
+    p = (int)v < 0x17 ? ((int)v < 1 ? &lo : &v) : &hi;
+    *mask |= 1u << *p;
+    return *p;
+}
+/* INT_MIN shifted right arithmetically, the mask of the buckets at or above k: Ghidra prints the
+ * constant as `-0x80000000`, which C reads as unsigned, and the shift filled zeros */
+NOINLINE u32 high_mask(u32 k, u32 bits) { return (u32)((i32)0x80000000 >> (30 - (k & 31))) & bits; }
+NOINLINE u32 buckets(u32 s) {
+    Chunk c[4] = {{{0}, 0x90}, {{0}, 0x1000 * s}, {{0}, 0x40}, {{0}, 0x7fffffff}};
+    u32 mask = 0, r = 0, k;
+    for (k = 0; k < 4; k++) r = r * 37 + bucket_of(&c[k], &mask);
+    return r ^ mask;
+}
+
 static void level2(void) {
     u32 s = seed(), k, h;
     for (h = 0, k = 0; k < 12; k++) h = h * 13 + (u32)dense(k + s - 7);
@@ -372,6 +399,8 @@ static void level2(void) {
     h += ticket() * 100;
     check("ticket", h);
     check("list", list_check());
+    check("buckets", buckets(s));
+    check("high_mask", high_mask(s, 0xdeadbeef) ^ high_mask(s + 20, 0xffffffff) << 1);
 }
 
 void rhtest_run(void) {

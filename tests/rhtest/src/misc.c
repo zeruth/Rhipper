@@ -47,14 +47,16 @@ NOINLINE void tls_bump(u32 k) {
     t_table[k & 3] ^= t_count;
 }
 NOINLINE u32 tls_static(u32 s) {
-    for (u32 k = 0; k < s; k++) tls_bump(k);
+    u32 k;
+    for (k = 0; k < s; k++) tls_bump(k);
     return t_count * 1000 + t_table[0] + t_table[1] * 3 + t_table[2] * 5 + t_table[3] * 7;
 }
 NOINLINE u32 tls_api(u32 s) {
     unsigned long slot = TlsAlloc();
+    u32 v;
     if (slot == 0xFFFFFFFFu) return 0xDEAD;
     TlsSetValue(slot, (void *)(uintptr_t)(s * 3 + 1));
-    u32 v = (u32)(uintptr_t)TlsGetValue(slot);
+    v = (u32)(uintptr_t)TlsGetValue(slot);
     TlsFree(slot);
     return v;
 }
@@ -79,10 +81,10 @@ NOINLINE u32 popcount(u32 a) { return __popcnt(a) | __popcnt16((u16)a) << 8; }
 NOINLINE u64 mulhi(u32 a, u32 b) { return __emulu(a, b); }
 NOINLINE u32 atomics(u32 s) {
     volatile long n = (long)s;
-    long r = _InterlockedIncrement(&n);
+    long r = _InterlockedIncrement(&n), old, miss;
     r += _InterlockedExchangeAdd(&n, 10);
-    long old = _InterlockedCompareExchange(&n, 100, (long)s + 11);
-    long miss = _InterlockedCompareExchange(&n, 5, 1);
+    old = _InterlockedCompareExchange(&n, 100, (long)s + 11);
+    miss = _InterlockedCompareExchange(&n, 5, 1);
     r = r * 31 + old * 7 + miss + _InterlockedExchange(&n, 3);
     return (u32)(r ^ n);
 }
@@ -111,19 +113,19 @@ NOINLINE u32 unpack(const struct Packed *p) {
 }
 NOINLINE u32 bitfields(u32 s) {
     struct Packed p;
+    u32 raw[2];
     memset(&p, 0, sizeof p);
     pack(&p, s);
     p.c += 3;
     p.b ^= 0x55;
-    u32 raw[2];
     memcpy(raw, &p, sizeof raw);
     return unpack(&p) ^ raw[0] ^ raw[1] << 3;
 }
 
 /* ---- alloca ---- */
 NOINLINE u32 fill_sum(u8 *buf, u32 n) {
-    u32 h = 0;
-    for (u32 k = 0; k < n; k++) {
+    u32 h = 0, k;
+    for (k = 0; k < n; k++) {
         buf[k] = (u8)(k * 7 + n);
         h = h * 33 + buf[k];
     }
@@ -132,10 +134,10 @@ NOINLINE u32 fill_sum(u8 *buf, u32 n) {
 NOINLINE u32 stack_alloc(u32 s) {
     u32 n = s * 37 + 5;                /* (a size known only at run time) */
     u8 *buf = (u8 *)_alloca(n);
-    u32 h = fill_sum(buf, n);
+    u32 h = fill_sum(buf, n), k;
     u32 *words = (u32 *)_alloca(s * sizeof(u32));
-    for (u32 k = 0; k < s; k++) words[k] = buf[k * 3] + k;
-    for (u32 k = 0; k < s; k++) h ^= words[k] << (k & 7);
+    for (k = 0; k < s; k++) words[k] = buf[k * 3] + k;
+    for (k = 0; k < s; k++) h ^= words[k] << (k & 7);
     return h;
 }
 
@@ -150,8 +152,9 @@ NOINLINE void dive(u32 n) {
 }
 NOINLINE u32 jumps(u32 s) {
     volatile u32 tries = 0;
+    int r;
     g_depth = 0;
-    int r = setjmp(g_jump);
+    r = setjmp(g_jump);
     tries++;
     if (tries < 3) dive(s + tries);
     return (u32)r * 1000 + tries * 10 + g_depth;

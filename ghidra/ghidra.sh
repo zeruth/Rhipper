@@ -14,6 +14,7 @@
 #                                      (build/facts/functions.json, what 32-bit projects use in
 #                                      place of .pdata)
 #   ghidra.sh functions                re-export the function extents from the program as it is
+#   ghidra.sh apply-functions          apply, then export the extents: the two above in one session
 #
 # Each run takes a minute or more to open the program: batch addresses.
 set -e
@@ -104,5 +105,9 @@ case "$1" in
             2>&1 | tee "$ROOT/build/ghidra-import.log" | grep --line-buffered -E "ExportFunctions:|ERROR|Exception|Import succeeded|already exists" || true ;;
   functions) mkdir -p "$ROOT/build/facts"
           run -postScript ExportFunctions.java "$(cygpath -w "$ROOT/build/facts/functions.json")" ;;
+  # (the program opened once for both: each session's start is most of a small program's run)
+  apply-functions) project_data
+          run -postScript ApplyFacts.java "$(cygpath -w "$ROOT/build/facts")" \
+              -postScript ExportFunctions.java "$(cygpath -w "$ROOT/build/facts/functions.json")" ;;
   *) sed -n '2,8p' "$0"; exit 1 ;;
 esac

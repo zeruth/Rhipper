@@ -586,6 +586,13 @@ unsigned int gen_imp_RaiseException(uint32_t code, uint32_t flags, uint32_t n, u
     return 0;
 }
 
+// ExitProcess: the reference's program ends, on its thread (RefRun); the runtime ends the process
+// once that thread has, with its trace flushed and the port's own runtime shut down in order. A
+// static C runtime ends so, VS2010's _doexit, where a /MD one calls the host's exit
+unsigned int gen_imp_ExitProcess(uint32_t code) {
+    ExitThread(code);
+}
+
 // ---- critical sections ----------------------------------------------------------------------
 unsigned int gen_imp_InitializeCriticalSection(uint32_t cs) {
     InitSection(cs, 0);

@@ -1,6 +1,7 @@
 # Rhipper
 
 [![msvc-14.51-x86](https://github.com/zeruth/Rhipper/actions/workflows/msvc-14.51-x86.yml/badge.svg)](https://github.com/zeruth/Rhipper/actions/workflows/msvc-14.51-x86.yml)
+[![msvc-16.00-x86](https://github.com/zeruth/Rhipper/actions/workflows/msvc-16.00-x86.yml/badge.svg)](https://github.com/zeruth/Rhipper/actions/workflows/msvc-16.00-x86.yml)
 · [test results and fidelity reports](https://zeruth.github.io/Rhipper/)
 
 Ghidra-to-C recompilation tooling for Windows PE binaries (x86-64 and 32-bit x86). Facts are
@@ -21,6 +22,7 @@ finds it from the working directory, or from `RHIPPER_PROJECT`.
   "name": "Example",
   "exe": "ref/example.exe",
   "arch": "x86",
+  "toolchain": "msvc-16.00-x86",
   "image_base": "0x400000",
   "gen": "src/gen",
   "import_overrides": ["InitializeCriticalSection", "GetStartupInfoW"],
@@ -28,6 +30,13 @@ finds it from the working directory, or from `RHIPPER_PROJECT`.
              "project": "Example", "program": "example.exe", "maxmem": "8G"}
 }
 ```
+
+`toolchain` names the compiler that built the reference, as rhtest names its toolsets. It is
+optional: `toolchain.py` reads it off the binary (the linker's version, the Rich header's
+compilers and builds, the C runtime it imports or links in, the Windows it targets) and writes
+`build/facts/toolchain.json`. Set it where the binary hides or forges those, as an obfuscated or
+repacked build may. The rules Rhipper applies don't switch on it. It says which rhtest toolset
+proves the facts for the project, and the pipeline warns when there is none.
 
 A project keeps its own data relative to its root: `build/facts/` (generated), `data/*.json`
 (committed: hand-identified `names.json`, `structs.json` layouts for types Ghidra only has as
@@ -43,6 +52,7 @@ with JDK 21, Git for Windows' bash, and Visual Studio 2022 or later.
 
 ```bash
 bash ghidra/ghidra.sh import            # once: import and analyze, export function extents
+python toolchain.py                      # the compiler that built it, and the rhtest toolset for it
 python noreturn.py                       # facts (x86: protos32.py; x64: facts.sh runs them all)
 python protos32.py --jobs 2
 python helpers32.py                      # x86: the compiler's 64-bit/float helpers, by running them
@@ -96,16 +106,21 @@ Ghidra scripts are in `ghidra/`; `ghidra.sh` runs them headless (`import`, `func
 
 ## Tests
 
-`tests/rhtest/` builds small programs from source with MSVC (x86 `/MD`: `/O2`, `/Od`, and
-`/arch:IA32` or `/GL` where they matter), runs the whole pipeline on each, and checks that each
-port prints what its reference does: `python tests/rhtest/rhtest.py`. There are eight programs:
-integers, 64-bit integers, floats, calls, the CRT, C++, TLS/intrinsics/`setjmp`, and exceptions.
-All 18 program variants pass.
+`tests/rhtest/` builds small programs from source, runs the whole pipeline on each, and checks
+that each port prints what its reference does: `python tests/rhtest/rhtest.py`. There are eight
+programs: integers, 64-bit integers, floats, calls, the CRT, C++, TLS/intrinsics/`setjmp`, and
+exceptions. Each one is built by every **toolset**, a compiler and target:
 
-CI tests the references as committed under `tests/rhtest/bins/<toolset>/`, with one workflow per
-compiler and target (`msvc-14.51-x86`: MSVC 14.51, Visual Studio 2026). Each publishes its report
-to the [Pages site](https://zeruth.github.io/Rhipper/). See the
-[rhtest README](tests/rhtest/README.md) for the programs, the steps, and how to add a toolset.
+- `msvc-14.51-x86`: MSVC 14.51 (Visual Studio 2026), `/MD`.
+- `msvc-16.00-x86`: Visual Studio 2010 SP1, `/MT`, for Windows XP. This is how CrystalCore was
+  built, so the C runtime is translated code.
+
+Each program is built at `/O2` and `/Od`, plus `/arch:IA32` (or `/arch:SSE2` for VS2010) or `/GL`
+where those matter. CI tests the references as committed under `tests/rhtest/bins/<toolset>/`.
+One workflow per toolset runs the shared `rhtest.yml`, and each publishes its report to the
+[Pages site](https://zeruth.github.io/Rhipper/). A project's `toolchain` picks the toolset that
+proves its facts. See the [rhtest README](tests/rhtest/README.md) for the programs, the steps,
+and how to add a toolset.
 
 ## 64-bit programs
 

@@ -16,9 +16,8 @@ import shutil
 import sys
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-WORK = HERE / "work"
-REPORT = HERE / "fidelity.html"
+from rhtest import report_path, work_dir
+
 REPO = "https://github.com/zeruth/Rhipper"
 
 
@@ -27,17 +26,17 @@ def publish(site: Path, toolset: str) -> None:
     if out.exists():
         shutil.rmtree(out)
     out.mkdir(parents=True)
-    page = REPORT.read_text(encoding="utf-8")
-    # (the overview links each project's report under work/; here they sit beside it)
-    page = re.sub(r'href="work/([\w.-]+)/build/fidelity\.html"', r'href="\1.html"', page)
-    page = page.replace("<h1>rhtest fidelity</h1>",
-                        f'<h1>rhtest fidelity: {html.escape(toolset)}</h1>'
-                        f'<div class="sub"><a href="../">every toolset</a> · '
-                        f'<a href="{REPO}/actions/workflows/{toolset}.yml">workflow</a></div>', 1)
+    work = work_dir(toolset)
+    page = report_path(toolset).read_text(encoding="utf-8")
+    # (the overview links each project's report under its work directory; here they sit beside it)
+    page = re.sub(r'href="(?:[\w.-]+/)*?([\w.-]+)/build/fidelity\.html"', r'href="\1.html"', page)
+    page = re.sub(r"<h1>(.*?)</h1>",
+                  lambda m: f'<h1>{m.group(1)}</h1><div class="sub"><a href="../">every toolset</a> · '
+                            f'<a href="{REPO}/actions/workflows/{toolset}.yml">workflow</a></div>', page, count=1)
     (out / "index.html").write_text(page, encoding="utf-8")
-    for report in sorted(WORK.glob("*/build/fidelity.html")):
+    for report in sorted(work.glob("*/build/fidelity.html")):
         shutil.copyfile(report, out / f"{report.parents[1].name}.html")
-    summary = WORK / "summary.json"
+    summary = work / "summary.json"
     if summary.exists():
         shutil.copyfile(summary, out / "summary.json")
 

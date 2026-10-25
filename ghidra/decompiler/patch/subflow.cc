@@ -3193,6 +3193,13 @@ bool SubfloatFlow::exceedsPrecision(PcodeOp *op)
   // `(float10)f`, `(float10)f * (float10)d` became `f * (float)d`, the double truncated (rhtest
   // float-IA32 dmix, 2026-10-24). An under-reported input (0, a binary op) is checked as its own op.
   int4 max = (val1 > val2) ? val1 : val2;
+  // RHIPPER: and an input another binary op makes at the wide precision (maxPrecision's 0) keeps
+  // it wide too: a chain computed wide and rounded once, VS2010's /arch:SSE2 float `s += v[k] *
+  // (float)(k + 1)` as a double multiply and add, is not the same as each op rounded to float.
+  // Narrowed, fsum was off by its low bit (rhtest msvc-16.00-x86 float-SSE2, 2026-10-24). One op
+  // of two floats narrows exactly: the wide format holds its result before the one rounding.
+  if (val1 == 0 || val2 == 0)
+    return true;
   return (max > precision);
 }
 

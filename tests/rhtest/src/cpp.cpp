@@ -97,16 +97,19 @@ NOINLINE u32 shapes(u32 s) {
 }
 
 /* ---- multiple inheritance: the second base's this is adjusted, its vtable thunks back ---- */
+/* (members set in constructors, not in the class: VS2010 has no C++11 member initializers) */
 struct Named {
+    Named() : tag('n') {}
     virtual ~Named() {}
     virtual u32 name_hash() const = 0;
-    char tag = 'n';
+    char tag;
 };
 struct Valued {
+    Valued() : scale(3) {}
     virtual ~Valued() {}
     virtual int get() const = 0;
     virtual void set(int v) = 0;
-    int scale = 3;
+    int scale;
 };
 class Item : public Named, public Valued {
 public:
@@ -141,19 +144,23 @@ NOINLINE u32 multi(u32 s) {
 
 /* ---- virtual inheritance: one shared base reached through a vbtable ---- */
 struct Base0 {
-    int b0 = 0;
+    Base0() : b0(0) {}
+    int b0;
     virtual int who() const { return 10 + b0; }
     virtual ~Base0() {}
 };
 struct Left : virtual Base0 {
-    int l = 1;
+    Left() : l(1) {}
+    int l;
     int who() const override { return 20 + l + b0; }
 };
 struct Right : virtual Base0 {
-    int r = 2;
+    Right() : r(2) {}
+    int r;
 };
 struct Diamond : Left, Right {
-    int d = 3;
+    Diamond() : d(3) {}
+    int d;
     int who() const override { return 30 + l + r + d + b0; }
 };
 NOINLINE int via_base(const Base0 *b) { return b->who(); }
@@ -194,8 +201,14 @@ private:
 /* ---- operator overloading, a value type passed and returned by value ---- */
 struct V2 {
     int x, y;
-    V2 operator+(const V2 &o) const { return V2{x + o.x, y + o.y}; }
-    V2 operator*(int k) const { return V2{x * k, y * k}; }
+    V2 operator+(const V2 &o) const {
+        V2 r = {x + o.x, y + o.y};
+        return r;
+    }
+    V2 operator*(int k) const {
+        V2 r = {x * k, y * k};
+        return r;
+    }
     bool operator==(const V2 &o) const { return x == o.x && y == o.y; }
     V2 &operator+=(const V2 &o) {
         x += o.x;
@@ -204,7 +217,7 @@ struct V2 {
     }
 };
 NOINLINE V2 walk(V2 p, int steps) {
-    V2 d{1, -2};
+    V2 d = {1, -2};
     for (int k = 0; k < steps; k++) p += d * (k + 1);
     return p;
 }
@@ -213,14 +226,17 @@ NOINLINE u32 templates(u32 s) {
     Ring<int, 5> ri;
     Ring<V2, 3> rv;
     for (u32 k = 0; k < s + 4; k++) {
+        V2 p = {(int)k, (int)(s - k)};
         ri.push((int)(k * k));
-        rv.push(V2{(int)k, (int)(s - k)});
+        rv.push(p);
     }
     V2 t = rv.sum();
-    V2 w = walk(V2{(int)s, 0}, (int)s);
+    V2 start = {(int)s, 0};
+    V2 w = walk(start, (int)s);
+    V2 same = {w.x, w.y};
     return (u32)(ri.sum() * 7 + ri.size()) ^ (u32)(t.x * 100 + t.y) ^ (u32)(w.x * 1000 + w.y) ^
            (u32)clamp_t<int>(-(int)s * 9, -20, 20) * 3 ^ (u32)(clamp_t<double>(s * 1.5, 0.0, 9.0) * 10) ^
-           (u32)(w == V2{w.x, w.y}) << 30;
+           (u32)(w == same) << 30;
 }
 
 /* ---- statics: built by the CRT's dynamic initializers before main, torn down at exit ---- */
@@ -250,7 +266,7 @@ NOINLINE void swap_ref(int &a, int &b) {
 NOINLINE u32 refs(u32 s) {
     int a = (int)s, b = (int)s * 3;
     swap_ref(a, b);
-    alignas(Counter) unsigned char buf[sizeof(Counter)];
+    RH_ALIGNAS(Counter) unsigned char buf[sizeof(Counter)];
     Counter *c = new (buf) Counter(a);
     c->add(b);
     u32 r = (u32)c->value();
@@ -318,6 +334,88 @@ NOINLINE u32 allocs(u32 s) {
     return (u32)(q - p) * 100 + p[0] + g_arena.used;
 }
 
+/* ---- a constructor's result read past a jump: `new T` is `p = alloc(); if (p) { call ctor; jmp
+ * join } xor eax, eax; join: mov [g], eax`. Read only up to the jump, the constructor returned
+ * nothing and the global its object went to stayed 0 (CrystalCore's graphics allocators) ---- */
+struct Gadget {
+    u32 parts[6];
+    u32 count;
+    NOINLINE explicit Gadget(u32 n) : count(n) {
+        for (u32 k = 0; k < 6; k++) parts[k] = n * k;
+    }
+};
+static Gadget *g_gadget;
+NOINLINE u32 gadgets(u32 s) {
+    g_gadget = new Gadget(s);
+    u32 r = g_gadget->count * 10 + g_gadget->parts[5];
+    delete g_gadget;
+    return r;
+}
+
+/* ---- a constructor calling two methods on `this`, ecx unchanged across the first: the
+ * decompiler shows the second's `this` and the constructor's result as `in_ecx`, ecx as found,
+ * which the port took for a local of its own (CrystalCore's hkThreadMemory constructor) ---- */
+struct Pool {
+    u32 slots[17][2];
+    u32 base, step;
+    NOINLINE void clear() {
+        for (u32 k = 0; k < 17; k++) slots[k][0] = slots[k][1] = 0;
+    }
+    NOINLINE void setup(u32 b, u32 st) {
+        base = b;
+        step = st;
+    }
+    NOINLINE Pool() {
+        clear();
+        setup(0, 8);
+    }
+};
+NOINLINE u32 pools(u32 s) {
+    Pool *p = new Pool();
+    p->slots[s % 17][1] = s;
+    u32 r = p->base * 100 + p->step * 10 + p->slots[s % 17][1];
+    delete p;
+    return r;
+}
+
+/* ---- a __cdecl call's argument slot, its cleanup deferred, stored into again as the next virtual
+ * call's: `push esi; call note; mov eax, esp; mov [eax], 3; push x; call [vt + 4]`. Counted as the
+ * first call's alone, the 3 went unpassed (CrystalCore's Havok thread memory) ---- */
+struct Sink {
+    u32 got;
+    virtual ~Sink() {}
+    NOINLINE virtual u32 take(u32 x, u32 flags) {
+        got = x * 16 + flags;
+        return got;
+    }
+};
+static Sink *g_sink;
+NOINLINE void __cdecl note(Sink *s) { g_sink = s; }
+NOINLINE u32 sinks(Sink *s, u32 x) {
+    note(s);
+    return s->take(x, 3);
+}
+
+/* ---- a virtual method that forwards to another object's through an indirect tail jump, `mov ecx,
+ * [ecx + 4]; mov eax, [ecx]; jmp [eax + 4]`, the caller's arguments handed on as they are. As a
+ * call of nothing, CrystalCore's graphics allocator got garbage for its sizes ---- */
+struct Backend {
+    virtual ~Backend() {}
+    NOINLINE virtual u32 grab(u32 size, u32 align) { return size * 1000 + align; }
+};
+struct Front {
+    Backend *back;
+    virtual ~Front() {}
+    NOINLINE virtual u32 grab(u32 size, u32 align) { return back->grab(size, align); }
+};
+NOINLINE Front *the_front(Front *f) { return f; }
+NOINLINE u32 fronts(u32 s) {
+    Backend b;
+    Front f;
+    f.back = &b;
+    return the_front(&f)->grab(s * 3, 16);
+}
+
 void rhtest_run(void) {
     u32 s = seed();   /* 7 */
     check("statics", (u32)g_registry.sum() ^ (u32)g_counter.value());
@@ -329,5 +427,12 @@ void rhtest_run(void) {
     check("refs", refs(s));
     check("updates", updates(s));
     check("allocs", allocs(s));
+    check("gadgets", gadgets(s));
+    check("pools", pools(s));
+    check("fronts", fronts(s));
+    {
+        Sink sk;
+        check("sinks", sinks(&sk, s) * 100 + (g_sink == &sk));
+    }
     check("events", g_events);
 }
