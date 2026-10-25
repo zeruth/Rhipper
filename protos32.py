@@ -2217,6 +2217,15 @@ def main() -> None:
     family = {"i1": "i", "i2": "i", "i4": "i", "i8": "i", "f4": "x87", "d8": "x87", "s4": "sse", "q8": "sse"}
     x87_firm: set[int] = set()
     unset_void: set[int] = set()
+
+    def makes_edx(t, seen=()):
+        """t writes edx, or returns a result one it calls makes (an import, a function the analysis
+        has not seen, or an opaque one may)"""
+        v = local.get(t)
+        if v is None or v.get("opaque") or v.get("writes_ret", 0) & EDX:
+            return True
+        return any(makes_edx(c, (*seen, t)) for c in v.get("passes", ()) if c != t and c not in seen)
+
     def give(t, k, src, down=False):
         v = local.get(t)
         if v is None:
@@ -2244,6 +2253,14 @@ def main() -> None:
                 k = "i4"
             else:
                 return False
+        # (an edx:eax one only where some function its result comes from writes edx: a recursive
+        # one passing only its own result on makes none. 0x414500, `push ebx; call 0x414500;
+        # ... ret 4`, never writes edx, and its callers keep a pointer there across it: as edx:eax,
+        # the pointer came back as its lost edx, 0, a VS2010 client 2026-10-25)
+        if k == "i8" and not makes_edx(t):
+            if not v.get("writes_ret", 0) & EAX and not v.get("passes"):
+                return False
+            k = "i4"
         if t in ret_of and family[k] != family[ret_of[t]]:
             # (another family: what its own code returns wins over what a caller passes on of it,
             # and a callee's type given down never replaces one it has)

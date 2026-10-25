@@ -227,6 +227,48 @@ NOINLINE u32 boxes(u32 s) {
     return p->v[0] + p->v[1] * 10 + p->v[2] * 100 + p->v[3] * 1000 + p->n * 10000;
 }
 
+/* A recursive search that never writes edx, its callers keeping a pointer there across it (as
+ * /GL lets them): the first child whose subtree has a set node, else this node's own slot. Its
+ * one result is in eax; the recursion passing only its own on made it an edx:eax one, and the
+ * caller's child pointer came back as the lost edx, 0 (a VS2010 client's 0x414500, 2026-10-25) */
+typedef struct Tree {
+    struct Tree *kids[4];
+    int *slots;
+} Tree;
+NOINLINE int *tree_find(Tree *t, int k) {
+    int i;
+    for (i = 0; i < 4; i++) {
+        if (t->kids[i]) {
+            int *r = tree_find(t->kids[i], k);
+            if (r[0] != 0) return r;
+        }
+    }
+    return t->slots + k * 2;
+}
+NOINLINE u32 tree_search(u32 s) {
+    static int slots[5][8];
+    static Tree leaf[3], root;
+    int i, j, *r;
+    u32 h = 0;
+    for (i = 0; i < 5; i++)
+        for (j = 0; j < 8; j++) slots[i][j] = 0;
+    for (i = 0; i < 3; i++) {
+        leaf[i].kids[0] = leaf[i].kids[1] = leaf[i].kids[2] = leaf[i].kids[3] = 0;
+        leaf[i].slots = slots[i];
+    }
+    root.kids[0] = &leaf[0];
+    root.kids[1] = 0;
+    root.kids[2] = &leaf[1];
+    root.kids[3] = &leaf[2];
+    root.slots = slots[3];
+    slots[1][(s & 3) * 2] = (int)s * 5;     /* leaf 1's slot: found through the second set child */
+    r = tree_find(&root, (int)(s & 3));
+    h = h * 31 + (u32)(r - &slots[0][0]) * 7 + (u32)r[0];
+    r = tree_find(&root, (int)((s + 1) & 3));
+    h = h * 31 + (u32)(r - &slots[0][0]) * 7 + (u32)r[0];
+    return h;
+}
+
 void rhtest_run(void) {
     u32 s = seed();   /* 7 */
     int i = (int)s;
@@ -262,4 +304,5 @@ void rhtest_run(void) {
     check("open_helper", open_helper(s));
     check("com_calls", com_calls(s));
     check("com_release_last", com_release_last(s));
+    check("tree_search", tree_search(s));
 }

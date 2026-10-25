@@ -354,14 +354,26 @@ public class ApplyFacts extends GhidraScript {
     // FUN_004fa4b0 read SetFilePointerEx's dwMoveMethod past what was pushed (`unaff_EBX`) and was
     // a stub; its callers elsewhere passed five words to a four-argument import (2026-10-25). Each
     // is split into its low and high words, every argument in its own slot in order: the call
-    // passes the words as pushed, and the runtime's adapter (runtime32/Adapters.cpp) joins them
+    // passes the words as pushed, and the runtime's adapter (runtime32/Adapters.cpp) joins them.
+    // And a __stdcall one's purge set to its words: custom storage keeps the aligned layout's (24
+    // for SetFilePointerEx's 20), and a caller's esp after the call was a word off, every later
+    // `[esp+k]` the next slot (rhtest misc-O2 file_seek, VS2010, 2026-10-25). Set on every run, an
+    // import split by an earlier one too
     private void splitWideImportArgs32() throws Exception {
         DataType u4 = ghidra.program.model.data.DWordDataType.dataType;
         List<String> split = new ArrayList<>();
+        int purged = 0;
         for (Function f : currentProgram.getFunctionManager().getExternalFunctions()) {
             Parameter[] ps = f.getParameters();
-            boolean wide = false;
-            for (Parameter p : ps) wide |= wideInteger(p.getDataType());
+            boolean wide = false, already = false;
+            for (Parameter p : ps) {
+                wide |= wideInteger(p.getDataType());
+                already |= f.hasCustomVariableStorage() && p.getName().endsWith("High") && p.getDataType().getLength() == 4;
+            }
+            if (already && !wide) {
+                purged += purgeWords(f);
+                continue;
+            }
             if (!wide) continue;
             List<Variable> params = new ArrayList<>();
             int off = 4;
@@ -383,9 +395,23 @@ public class ApplyFacts extends GhidraScript {
                     f.getReturn().getVariableStorage(), currentProgram);
             f.updateFunction(f.getCallingConventionName(), ret, params, FunctionUpdateType.CUSTOM_STORAGE, true,
                     SourceType.USER_DEFINED);
+            purged += purgeWords(f);
             split.add(f.getName());
         }
-        println("ApplyFacts: imports with an 8-byte argument split into two words " + split.size() + " " + split);
+        println("ApplyFacts: imports with an 8-byte argument split into two words " + split.size() + " " + split
+                + ", purges set " + purged);
+    }
+
+    // a __stdcall function's purge as its stack arguments' slots; 1 if it changed
+    private static int purgeWords(Function f) throws Exception {
+        if (!"__stdcall".equals(f.getCallingConventionName())) return 0;
+        int end = 4;
+        for (Parameter p : f.getParameters())
+            if (p.isStackVariable()) end = Math.max(end, p.getStackOffset() + Math.max(4, (p.getLength() + 3) & ~3));
+        int purge = end - 4;
+        if (f.getStackPurgeSize() == purge) return 0;
+        f.setStackPurgeSize(purge);
+        return 1;
     }
 
     // an 8-byte integer or structure (a double is the math imports' own, typed by translate32.py)
