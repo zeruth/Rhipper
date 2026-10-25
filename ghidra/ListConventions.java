@@ -3,7 +3,7 @@
 // them), so tools/preserved.py builds the keep conventions out of the names already there first
 // and adds new ones only as far as the slots left allow (2026-10-18: 33 of 49 new names did not
 // fit, the slots held by earlier sessions' names).
-//@category FrostLite
+//@category Rhipper
 
 import java.io.File;
 import java.io.FileWriter;

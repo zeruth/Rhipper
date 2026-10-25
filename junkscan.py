@@ -1,6 +1,6 @@
 """Where the clean exe still decodes as junk, by the decompiler's own markers.
 
-The -clean exe has the Aegis junk nop'd, but some regions still decode as nonsense:
+The -clean exe has the protection's junk nop'd, but some regions still decode as nonsense:
 `halt_baddata()`, "Instruction at X overlaps instruction at Y", calls to addresses
 inside other code (`func_0x...`), carry/borrow intrinsics on random registers. This
 counts those markers per function across the corpus, so the cleaner can be pointed at

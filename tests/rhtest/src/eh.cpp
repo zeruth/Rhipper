@@ -141,7 +141,7 @@ extern "C" NOINLINE u32 seh(u32 s) {
 /* a parameter reassigned in a __try and read by its __finally: MSVC keeps it in the parameter's
  * slot, which the __finally funclet reads through ebp. The frame linked by __SEH_prolog4, whose
  * call fixup shows no fs:[0] store, was not aliased, and the store went as dead (the CRT's
- * __wfsopen, its stream unlocked as garbage in CrystalCore) */
+ * __wfsopen, its stream unlocked as garbage in a VS2010 client) */
 static u32 g_fin[2];
 NOINLINE u32 finally_param(u32 *p, u32 k) {
     __try {

@@ -113,7 +113,7 @@ def main() -> None:
                # the largest signed value, still far past any image address)
                f"{lo:x}", f"{min(hi, (1 << 63) - 1):x}"]
         # (no console input: a session that fails ends in launch.bat's `pause`, which otherwise
-        # waits for a key, "Press any key to continue", CrystalCore 2026-10-25)
+        # waits for a key, "Press any key to continue", 2026-10-25)
         procs.append((k, out, log, subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, env=env,
                                                     stdin=subprocess.DEVNULL)))
         print(f"  shard {k}: 0x{lo:x}..0x{hi:x} ({heap} heap)", flush=True)

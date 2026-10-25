@@ -353,8 +353,8 @@ NOINLINE u32 list_check(void) {
 
 /* a clamp through pointers, std::min/max's shape: `p = v < 0x17 ? (v < 1 ? &lo : &v) : &hi`, MSVC
  * keeping v in a parameter's slot it no longer needs. The decompiler guarded the load through p
- * over the locals only and dropped the store into the slot (CrystalCore's graphics allocator's
- * bucket index) */
+ * over the locals only and dropped the store into the slot (a game client's graphics
+ * allocator's bucket index) */
 typedef struct { u32 links[2]; u32 size; } Chunk;
 NOINLINE u32 bucket_of(Chunk *c, u32 *mask) {
     u32 n = c->size, lo = 0, hi = 0x17;

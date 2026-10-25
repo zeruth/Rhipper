@@ -46,6 +46,15 @@ void RefTraceStart() {
     g_left = RefEnv("TRACE_MAX", max, 24) ? _wcstoui64(max, nullptr, 10) : 2000000;
     fprintf(stderr, "%s: tracing to %ls (%llu calls at most)\n", RHIPPER_NAME, path, g_left);
     gen_trace_on = 1;
+    // (the buffer written a few times a second too: a port that goes quiet, waiting, and is then
+    // killed kept its last calls in memory, and the trace ended 250 calls before a worker thread
+    // called the stub it stopped at, 2026-10-25)
+    CreateThread(nullptr, 0, [](LPVOID) -> DWORD {
+        for (;;) {
+            Sleep(250);
+            RefTraceFlush();
+        }
+    }, nullptr, 0, nullptr);
 }
 
 void RefTraceFlush() {

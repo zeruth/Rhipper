@@ -24,7 +24,7 @@ Per project: ref/ (the reference, its map file, expected.txt), build/ (facts, co
 build, actual.txt, port-stderr.txt, logs), gen/ (the translation).
 
 A toolset is the compiler that builds the references and their target (TOOLSETS): msvc-14.51-x86,
-the newest MSVC, and msvc-16.00-x86, Visual Studio 2010 SP1 as CrystalCore was built. Each has its
+the newest MSVC, and msvc-16.00-x86, Visual Studio 2010 SP1 as /MT game clients are built. Each has its
 projects (work/ for the first, work/<toolset>/ for the others), its Ghidra projects, its report, and
 its references as committed, bins/<toolset>/<name>-<variant>/: CI tests those, so its result does
 not depend on the runner's compiler. The port is built by the newest MSVC whatever the toolset.
@@ -77,7 +77,7 @@ VARIANTS = {
 # and Windows it targets; variants: a program's variant it builds as another (or not at all, None)
 TOOLSETS = {
     "msvc-14.51-x86": {"vs": "latest", "cl": "19.51.", "crt": "/MD", "subsystem": "CONSOLE", "variants": {}},
-    # (CrystalCore's: VS2010 SP1, cl 16.00.40219, the C runtime linked in, for Windows XP. Its
+    # (a /MT client's: VS2010 SP1, cl 16.00.40219, the C runtime linked in, for Windows XP. Its
     # floats are x87 by default, so the program built /arch:IA32 elsewhere is the SSE2 one here)
     "msvc-16.00-x86": {"vs": "2010", "cl": "16.00.40219", "crt": "/MT", "subsystem": "CONSOLE,5.01",
                        "variants": {"IA32": "SSE2"}},
@@ -303,7 +303,7 @@ class Project:
         # (the vtables, as a real project has them: protos32.py makes every slot of a class's vtable
         # a __thiscall, the methods that leave `this` alone too. Without them Backend::grab was a
         # __stdcall of two, and the virtual call's `this` its first argument, rhtest msvc-16.00-x86
-        # cpp-O2 fronts; CrystalCore's facts had them)
+        # cpp-O2 fronts; a real project's facts had them)
         if run([sys.executable, str(RHIPPER / "vtables.py")], self.root, self.env, self.build / "vtables.log") != 0:
             return False
         for _ in range(4):

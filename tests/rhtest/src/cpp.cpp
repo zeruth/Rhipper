@@ -276,7 +276,8 @@ NOINLINE u32 refs(u32 s) {
 
 /* ---- an object its constructor fills, read here only past its first field and never stored here:
  * the CRT's _LocaleUpdate, whose flag and owner ___crtGetStringTypeA reads after the constructor.
- * Made locals of their own, the constructor's 16 bytes overran a 4-byte one (CrystalCore) ---- */
+ * Made locals of their own, the constructor's 16 bytes overran a 4-byte one (a VS2010 client)
+ * ---- */
 struct Update {
     int *info;
     int mode;
@@ -298,7 +299,8 @@ NOINLINE u32 updates(u32 s) {
 
 /* ---- virtual methods that return another virtual's result, called only through their vtables: no
  * caller's read types their return. The game's allocator Alloc (`mov eax, esi; pop esi; ret`) and
- * the slot it forwards to (`call eax; pop ebp; ret 0x10`) were void, every allocation 0 (CrystalCore) */
+ * the slot it forwards to (`call eax; pop ebp; ret 0x10`) were void, every allocation 0 (a game
+ * client) */
 struct Space {
     virtual ~Space() {}
     virtual u8 *raw(u32 n) = 0;
@@ -336,7 +338,7 @@ NOINLINE u32 allocs(u32 s) {
 
 /* ---- a constructor's result read past a jump: `new T` is `p = alloc(); if (p) { call ctor; jmp
  * join } xor eax, eax; join: mov [g], eax`. Read only up to the jump, the constructor returned
- * nothing and the global its object went to stayed 0 (CrystalCore's graphics allocators) ---- */
+ * nothing and the global its object went to stayed 0 (a game client's graphics allocators) ---- */
 struct Gadget {
     u32 parts[6];
     u32 count;
@@ -354,7 +356,7 @@ NOINLINE u32 gadgets(u32 s) {
 
 /* ---- a constructor calling two methods on `this`, ecx unchanged across the first: the
  * decompiler shows the second's `this` and the constructor's result as `in_ecx`, ecx as found,
- * which the port took for a local of its own (CrystalCore's hkThreadMemory constructor) ---- */
+ * which the port took for a local of its own (a game client's hkThreadMemory constructor) ---- */
 struct Pool {
     u32 slots[17][2];
     u32 base, step;
@@ -380,7 +382,7 @@ NOINLINE u32 pools(u32 s) {
 
 /* ---- a __cdecl call's argument slot, its cleanup deferred, stored into again as the next virtual
  * call's: `push esi; call note; mov eax, esp; mov [eax], 3; push x; call [vt + 4]`. Counted as the
- * first call's alone, the 3 went unpassed (CrystalCore's Havok thread memory) ---- */
+ * first call's alone, the 3 went unpassed (a game client's Havok thread memory) ---- */
 struct Sink {
     u32 got;
     virtual ~Sink() {}
@@ -398,7 +400,7 @@ NOINLINE u32 sinks(Sink *s, u32 x) {
 
 /* ---- a virtual method that forwards to another object's through an indirect tail jump, `mov ecx,
  * [ecx + 4]; mov eax, [ecx]; jmp [eax + 4]`, the caller's arguments handed on as they are. As a
- * call of nothing, CrystalCore's graphics allocator got garbage for its sizes ---- */
+ * call of nothing, a game client's graphics allocator got garbage for its sizes ---- */
 struct Backend {
     virtual ~Backend() {}
     NOINLINE virtual u32 grab(u32 size, u32 align) { return size * 1000 + align; }

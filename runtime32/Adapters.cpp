@@ -336,7 +336,7 @@ uint32_t ScopeTableOf(uint32_t node) {
     return st;
 }
 
-// and an EH3 frame's, _except_handler3's (an older compiler's library, Havok's in CrystalCore,
+// and an EH3 frame's, _except_handler3's (an older compiler's library, Havok's in a client,
 // whose SetThreadName raises 0x406D1388 under one, 2026-10-25): the same node at ebp - 0x10, its
 // scope table at node + 8 as it is (no cookie, no header) and the try level at node + 0xC, -1
 // for none. Taken only where the node is no EH4 one
@@ -769,7 +769,7 @@ unsigned int gen_imp_MessageBoxA(uint32_t hwnd, uint32_t text, uint32_t caption,
 
 // ---- window classes: x86's WNDCLASS(EX), 4-byte pointers and handles -----------------------
 // Passed as they are, x64's RegisterClassExA read the 48-byte x86 structure as its 80-byte one
-// and failed; CreateWindowExA then found no class, and CrystalCore's WinMain returned 0 before
+// and failed; CreateWindowExA then found no class, and a client's WinMain returned 0 before
 // its window (2026-10-24). The class gets a window procedure of the runtime's, which calls the
 // reference's (its jump reaches the translation, which takes its 4 arguments as 32-bit values)
 // and widens its 32-bit result as the signed LRESULT it is.
@@ -913,13 +913,13 @@ unsigned int gen_imp_GetModuleHandleW(uint32_t name) {
 unsigned int gen_imp_GetModuleHandleA(uint32_t name) {
     return name ? Low(GetModuleHandleA(At<char>(name))) : gen_ref_base;
 }
-// (and its file name is the reference's: CrystalCore hashes its own executable at startup,
+// (and its file name is the reference's: a client hashes its own executable at startup,
 // GetModuleFileNameW(NULL) and a read of it in 1 KB pieces, and the port's file, another size,
 // read one piece more, 2026-10-25). As the API: the length copied, the name cut and
 // ERROR_INSUFFICIENT_BUFFER where it does not fit with its terminator
 // ---- SECURITY_ATTRIBUTES: 12 bytes on x86 (length, a 4-byte descriptor pointer, inherit), 24 on
 // x64. Handed through as it was, the CRT's _sopen gave CreateFileA its x86 one and Windows read past
-// it: ERROR_NOACCESS, and CrystalCore's first file open failed, 2026-10-25 -------------------------
+// it: ERROR_NOACCESS, and a client's first file open failed, 2026-10-25 ----------------------------
 struct SA32 {
     uint32_t length, descriptor, inherit;
 };
@@ -989,7 +989,7 @@ unsigned int gen_imp_CreatePipe(uint32_t read, uint32_t write, uint32_t sa, uint
 
 // ---- the processors: x86's SYSTEM_LOGICAL_PROCESSOR_INFORMATION is 24 bytes (a 4-byte mask), x64's
 // 32, and affinity masks are 4 bytes. Handed the x64 entries, Havok's thread pool counted one core
-// and started 1 job thread for the reference's 10, CrystalCore 2026-10-25 ----------------------------
+// and started 1 job thread for the reference's 10, a VS2010 client 2026-10-25 ------------------------
 #pragma pack(push, 4)
 struct ProcessorInfo32 {
     uint32_t mask;
@@ -1032,11 +1032,20 @@ unsigned int gen_imp_GetProcessAffinityMask(uint32_t process, uint32_t pmask, ui
     return 1;
 }
 
+// (its LARGE_INTEGER as the two words the reference pushed, ApplyFacts' splitWideImportArgs32)
+unsigned int gen_imp_SetFilePointerEx(uint32_t file, uint32_t low, uint32_t high, uint32_t out, uint32_t method) {
+    LARGE_INTEGER d;
+    d.LowPart = low;
+    d.HighPart = static_cast<LONG>(high);
+    HANDLE h = reinterpret_cast<HANDLE>(static_cast<intptr_t>(static_cast<int32_t>(file)));
+    return SetFilePointerEx(h, d, At<LARGE_INTEGER>(out), method);
+}
+
 // ---- COM objects the reference is handed: an x64 object's vtable has 8-byte slots, and the
 // reference's code calls a 4-byte slot at 4 * index. An object of the runtime's in their place: a
 // 4-byte vtable whose slots are the runtime's methods, each taking the reference's x86 arguments
 // (`this` first, as COM's __stdcall has it on the stack). The shell's IMalloc, the first on
-// CrystalCore's path (FUN_00420900's My Documents lookup, 2026-10-25) ------------------------------
+// a client's path (FUN_00420900's My Documents lookup, 2026-10-25) ---------------------------------
 struct ComObject32 {
     uint32_t vtbl;          // the reference reads its slots through this
 };

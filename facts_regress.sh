@@ -16,7 +16,7 @@ cp -r "$ROOT/build/facts/." "$OUT/"
 export RHIPPER_FACTS="$OUT"
 start=$(date +%s)
 run() { python "$@" 2>&1 | tail -1 | sed "s|^|  $(basename "$1" .py): |"; }
-for t in pieces vtables srcrefs cregister typetags noreturn globalptrs switches; do run "$RH/$t.py" & done
+for t in pieces vtables srcrefs typetags noreturn globalptrs switches; do run "$RH/$t.py" & done
 for f in $FACTS_EXTRA; do run "$f" & done
 wait
 run "$RH/retcheck.py"

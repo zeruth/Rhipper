@@ -181,7 +181,7 @@ NOINLINE u32 ints(int k) {
 }
 
 /* _malloca: its buffer checked for NULL past the 8-byte marker, an address on the stack compared
- * with a small constant (the CRT's __crtLCMapStringA_stat, stubbed in CrystalCore); and sized at
+ * with a small constant (the CRT's __crtLCMapStringA_stat, stubbed in a game client); and sized at
  * run time, which the decompiler loses: the buffer is a fixed stack address, and the port must
  * give it room below the frame (as a 0x18-byte local, __crtGetStringTypeA_stat's overran) */
 NOINLINE u32 malloca_sum(int n) {

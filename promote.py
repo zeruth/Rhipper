@@ -1,7 +1,7 @@
 """The translated functions a run reached, ranked for porting by hand.
 
-    FROST_HITS=<file> FrostLite.exe        # the run writes each translated function's call count
-    python tools/promote.py --hits <file> [--limit 40] [--file GlueMgr.cpp]
+    <hits run> MyPort.exe                  # the run writes each translated function's call count
+    python tools/promote.py --hits <file> [--limit 40] [--file Login.cpp]
 
 A function is ranked by how much of the run it carries: its call count and its size. Each row
 says where its hand port belongs: the source file of the nearest hand-ported function by address
@@ -25,7 +25,7 @@ from project import ROOT
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--hits", required=True, help="the run's FROST_HITS file")
+    ap.add_argument("--hits", required=True, help="the run's hits file (the port's call-count file)")
     ap.add_argument("--limit", type=int, default=40)
     ap.add_argument("--file", help="only functions whose suggested home contains this")
     ap.add_argument("--json", help="write the ranked list here too")

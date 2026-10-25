@@ -102,7 +102,7 @@ NOINLINE u64 rec_check(void) {
 
 /* a 64-bit parameter between 32-bit ones: MSVC packs it at [esp + 8], 4-aligned. A library
  * signature Ghidra lays out puts it at 12, aligned to 8, and every caller's arguments read a word
- * off (the CRT's __lseeki64_nolock(fh, 0, SEEK_END) as (fh, 0x200000000, ...), CrystalCore) */
+ * off (the CRT's __lseeki64_nolock(fh, 0, SEEK_END) as (fh, 0x200000000, ...), a VS2010 client) */
 NOINLINE i64 seek64(i32 fh, i64 offset, i32 origin) { return offset * 3 + fh * 100 + origin; }
 NOINLINE i64 seeks(u32 s) {
     return seek64((i32)s, 0, 2) + seek64(1, -(i64)s << 33, 0) + seek64(-(i32)s, 0x123456789ll, (i32)s);

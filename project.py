@@ -6,8 +6,8 @@ way: RHIPPER_PROJECT (the file or its directory) if set, else the first rhipper.
 the working directory. Paths in it are relative to the file's directory.
 
     {
-      "name": "FrostLite",
-      "exe": "client/_classic_/WowClassic-clean.exe",       the reference binary (required)
+      "name": "MyPort",
+      "exe": "game/Game.exe",                                the reference binary (required)
       "arch": "x86_64",                                      or "x86"
       "toolchain": null,                                     the compiler that built it, msvc-16.00-x86:
                                                              toolchain.py reads it off the binary;
@@ -16,16 +16,19 @@ the working directory. Paths in it are relative to the file's directory.
       "sources": ["src", "vendor"],                          the hand-written sources
       "gen": "src/gen",                                      where the translation is written
       "build": {"dir": "build/cmake", "config": "Release",
-                "gen_target": "gen", "target": "FrostLite"},
-      "run": {"exe": "build/cmake/bin/Release/FrostLite.exe", "cwd": "client/_classic_"},
+                "gen_target": "gen", "target": "MyPort"},
+      "run": {"exe": "build/cmake/bin/Release/MyPort.exe", "cwd": "game"},
       "ghidra": {"install": "C:/Users/me/tools/ghidra_*", "projects": "C:/Users/me/tools/ghidra-projects",
-                 "project": "FrostLite", "program": "WowClassic-clean.exe", "maxmem": "14G"},
-      "plugins": {"protection": "tools/aegis.py"},           project modules the pipeline calls into
-      "hooks": {"pre_link": ["tools/gen_script_api.py", "--emit"]},
-      "handlers": {"roots": "build/script-handlers.json", "stubs": "src/glue/ScriptAPIStubs.cpp"},
-      "facts_extra": ["tools/luabind.py"],                   project fact extractors, run with the rest
+                 "project": "MyPort", "program": "Game.exe", "maxmem": "14G"},
+      "plugins": {"protection": "tools/protection.py"},      project modules the pipeline calls into
+      "hooks": {"pre_link": ["tools/gen_api.py", "--emit"]},
+      "handlers": {"roots": "build/script-handlers.json", "stubs": "src/ScriptStubs.cpp"},
+      "facts_extra": ["tools/bindings.py"],                  project fact extractors, run with the rest
       "translate_args": ["--all", "--depth", "24", "--fix", "--jobs", "4"]    pipeline.sh's translate
     }
+
+Optional, for the tools that use them: "process" (the reference's process name, iat_dump.py),
+"source_prefixes" (checkout prefixes srcrefs.py strips), "forward_stubs" (forward_stubs.py).
 
 Everything but "exe" has the default shown. The project's own data the tools read (facts under
 build/facts, data/*.json, the exception lists in tools/) keeps its place relative to the root.

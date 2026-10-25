@@ -113,8 +113,8 @@ programs: integers, 64-bit integers, floats, calls, the CRT, C++, TLS/intrinsics
 exceptions. Each one is built by every **toolset**, a compiler and target:
 
 - `msvc-14.51-x86`: MSVC 14.51 (Visual Studio 2026), `/MD`.
-- `msvc-16.00-x86`: Visual Studio 2010 SP1, `/MT`, for Windows XP. This is how CrystalCore was
-  built, so the C runtime is translated code.
+- `msvc-16.00-x86`: Visual Studio 2010 SP1, `/MT`, for Windows XP. This is how VS2010 /MT
+  clients are built, so the C runtime is translated code.
 
 Each program is built at `/O2` and `/Od`, plus `/arch:IA32` (or `/arch:SSE2` for VS2010) or `/GL`
 where those matter. CI tests the references as committed under `tests/rhtest/bins/<toolset>/`.
@@ -134,6 +134,6 @@ and how to add a toolset.
   from there; edit it here, never in a project.
 
 The runtime that maps the reference's image and runs the translation against it (`RefImage.cpp`
-in FrostLite: the image at its own base, the jumps from its entry points, `GenFault`, the trap for
+in an x64 port: the image at its own base, the jumps from its entry points, `GenFault`, the trap for
 calls into untranslated code) stays in the project for now: it logs and allocates through the
 project's own facilities.

@@ -1,6 +1,6 @@
 """Run reference functions under emulation: an oracle for porting pure functions.
 
-Maps WowClassic-clean.exe at its preferred base in a Unicorn x86-64 emulator with a stack, a
+Maps the clean reference exe at its preferred base in a Unicorn x86-64 emulator with a stack, a
 TEB (gs), a scratch heap and stubs for the imports (the clean exe's import table is zeroed;
 data/imports.json names every slot). A function is called with the Windows x64 convention and
 runs until it returns. That is enough for self-contained code -- string formatting, hashing,

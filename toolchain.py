@@ -121,7 +121,7 @@ def main() -> None:
 def write_structs(project, name: str) -> None:
     """build/facts/structs.json: the toolchain's layouts (toolchains/<name>/structs.json, its C
     runtime's types, for every program built with it) and the project's own (data/structs.json),
-    the project's winning. Kept in CrystalCore alone, the VS2010 CRT's _LocaleUpdate and DName
+    the project's winning. Kept in one project alone, the VS2010 CRT's _LocaleUpdate and DName
     were placeholders in every rhtest msvc-16.00-x86 program, and their users stubs."""
     merged: dict = {}
     for src in (HERE / "toolchains" / name / "structs.json", project.ROOT / "data" / "structs.json"):

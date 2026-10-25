@@ -3,8 +3,8 @@
 tools/translate64.py ties a port global to the image's (translated code then reads and writes the
 port's copy) only when the declaration ends in its address tag: `uint8_t g_x;  // DAT_1430af4c8`.
 A global whose address sits in the comment above it instead is invisible to the translator, so
-translated code keeps its own copy in the image and the two drift apart: on 2026-10-13
-C_Login.IsReconnectLoginPossible read the port's g_reconnectLoginPossible while the translated
+translated code keeps its own copy in the image and the two drift apart: on 2026-10-13 a
+scripting API's reconnect check read the port's g_reconnectLoginPossible while the translated
 FUN_14148b330 cleared the image's DAT_1430af4c8.
 
 This lists namespace-scope declarations whose comment block names exactly one DAT_ address and

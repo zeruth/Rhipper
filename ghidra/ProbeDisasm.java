@@ -2,7 +2,7 @@
 // disassembling there does (the command's own status message). A look at why Ghidra left code
 // undefined, before changing ApplyFacts' disassembly steps.
 //   bash tools/ghidra/ghidra.sh script ProbeDisasm.java 0x1418f6e6d
-// @category FrostLite
+// @category Rhipper
 import ghidra.app.cmd.disassemble.DisassembleCommand;
 import ghidra.app.script.GhidraScript;
 import ghidra.program.model.address.Address;

@@ -103,7 +103,7 @@ def raxmin(a: int, b: int) -> int:
     # (beside a callee's result, CALLZ: as wide as a direct callee's, png_zalloc's `return 0` /
     # `jmp malloc` a pointer; an indirect callee's width is unknown, and there the constant still
     # says int: taken for a pointer, OpenSSL's `return 0` / `return b->method->bread(...)` handed
-    # on the virtual's int with garbage above it and the Battle.net TLS handshake broke off,
+    # on the virtual's int with garbage above it and a client's TLS handshake broke off,
     # 2026-10-21)
     if {a, b} <= {ZEROW, CALLW, CALLZ} and (ZEROW in (a, b) or CALLZ in (a, b)) and (CALLW in (a, b) or CALLZ in (a, b)):
         return CALLZ
@@ -923,9 +923,9 @@ class Analyzer:
                         fresh[FAMILY[r][0]] = 0
                 # an argument position below one the call is given is an argument as well; one
                 # still untouched since the entry on every path is this function's own parameter
-                # handed on. IBattleNet's fatal-error forwarder FUN_14147f7f0 is `lea rdx, [ctx];
+                # handed on. A login client's fatal-error forwarder FUN_14147f7f0 is `lea rdx, [ctx];
                 # call rax` with the error in rcx as it came in: read as taking nothing, its caller
-                # passed nothing, and GlueLogin's handler faulted on a null error (2026-10-20)
+                # passed nothing, and the login screen's handler faulted on a null error (2026-10-20)
                 # Only rcx: a register written for the function's own use reads as "given" too
                 # (the CRT's atexit walk FUN_140284c30 decodes pointers with a cookie in r8 before
                 # `call [guard_dispatch]`, and rdx came out a parameter), and the forwarder of a
@@ -1076,7 +1076,7 @@ class Analyzer:
                     # a constant written to eax is the same value in all of rax (the write
                     # zero-extends): no evidence of a narrow result. Taken for one, ssl's
                     # FindFilter FUN_141f19690, `xor eax, eax` on its miss path and a pointer on its
-                    # hit path, was typed returning an int, and the Battle.net connection kept a
+                    # hit path, was typed returning an int, and a client's login connection kept a
                     # filter pointer cut to 32 bits (2026-10-21)
                     frame[RAXMIN] = ZEROW
                 elif RAXW in frame:

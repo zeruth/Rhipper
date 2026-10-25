@@ -18,6 +18,7 @@ import argparse
 import re
 import sys
 
+import project
 from corpus import load_corpus, load_facts, strip_retcheck
 
 _FUN = re.compile(r"\b(?:FUN|thunk_FUN)_([0-9a-f]{9,})\s*\(")
@@ -67,7 +68,7 @@ def main() -> None:
 
     def is_lib(a: int) -> bool:
         n = cor[a]["name"]
-        return not n.startswith(("FUN_", "thunk_FUN", "Lua::", "Storm::", "CDataAllocator::")) and "::" not in n
+        return not n.startswith(("FUN_", "thunk_FUN", *project.CONFIG.get("reference_name_prefixes", ()))) and "::" not in n
 
     printed = set()
 

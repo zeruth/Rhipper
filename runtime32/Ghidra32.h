@@ -500,6 +500,13 @@ extern __declspec(thread) unsigned int gen_MXCSR;
 #define HeapCompatibilityInformation 0
 #define HeapEnableTerminationOnCorruption 1
 #define HeapOptimizeResources 3
+/* (FindFirstFileExW's, the CRT's __wstat64: undeclared, it was a stub and a client's thread
+   12 got 0 for its stat, 2026-10-25) */
+#define FindExInfoStandard 0
+#define FindExInfoBasic 1
+#define FindExSearchNameMatch 0
+#define FindExSearchLimitToDirectories 1
+#define FindExSearchLimitToDevices 2
 
 /* a function no translation covers: the runtime logs the address once */
 void GenUnimplemented(unsigned int address);

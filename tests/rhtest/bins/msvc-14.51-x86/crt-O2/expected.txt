@@ -11,7 +11,8 @@ heap = 78554544 (0x04aea5b0)
 strings = 1372312099 (0x51cbd223)
 ctypes = 1599190844 (0x5f51b73c)
 ints = -55484 (0xffff2744)
+malloca = 1536063271 (0x5b8e7727)
 printf: 7 line 3.50
 print = 20 (0x00000014)
-checksum = 0x6cc5c45c
-exit = 92
+checksum = 0x5ef101d5
+exit = 85

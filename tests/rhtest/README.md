@@ -79,7 +79,7 @@ toolset that proves its facts. A fix made for one project has to keep every tool
 | toolset | compiler | runtime, target | variants | for |
 |---|---|---|---|---|
 | `msvc-14.51-x86` | MSVC 14.51 (Visual Studio 2026), from vswhere | `/MD` (ucrt), Vista+ | O2, Od, IA32, GL | current code |
-| `msvc-16.00-x86` | Visual Studio 2010 SP1, cl 16.00.40219 | `/MT` (the CRT linked in and translated), Windows XP | O2, Od, SSE2, GL | CrystalCore |
+| `msvc-16.00-x86` | Visual Studio 2010 SP1, cl 16.00.40219 | `/MT` (the CRT linked in and translated), Windows XP | O2, Od, SSE2, GL | VS2010 /MT clients |
 
 VS2010's floats are x87 unless asked, so the program the newer toolset builds `/arch:IA32` it
 builds `/arch:SSE2`. The sources build with both: `src/rhtest.h` fills in what VS2010 lacks

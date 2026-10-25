@@ -729,8 +729,8 @@ void AliasChecker::gatherInternal(void) const
 /// RHIPPER: whether \b fd links its EH frame through the CRT's prolog, `push imm; push imm; call
 /// __SEH_prolog4` (or __EH_prolog3 and their kin): their call fixups only set ebp and esp, so no
 /// store to fs:[0] shows it. __wfsopen keeps its stream in its first parameter's slot for its
-/// __finally, and unaliased that store went as dead: the funclet unlocked garbage (CrystalCore,
-/// 2026-10-24)
+/// __finally, and unaliased that store went as dead: the funclet unlocked garbage (a VS2010
+/// client, 2026-10-24)
 static bool rhEhProlog(const Funcdata *fd)
 
 {
@@ -776,7 +776,7 @@ bool rhSetjmpBound(const Funcdata *fd,AddrSpace *space,uintb &bound)
     list<PcodeOp *>::const_iterator op = fd->beginOp(CPUI_STORE), opend = fd->endOp(CPUI_STORE);
     for(;op!=opend;++op) {
       // (the opcode's list holds its dead ops too, their inputs maybe cleared already: a null
-      // pointer here crashed the decompiler, CrystalCore's 4deb50 and 7029e0, 2026-10-25. A dead
+      // pointer here crashed the decompiler, a client's 4deb50 and 7029e0, 2026-10-25. A dead
       // one that still has its pointer counts, as before: the link was made)
       if ((*op)->numInput() < 2) continue;
       Varnode *ptr = (*op)->getIn(1);

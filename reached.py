@@ -1,6 +1,6 @@
 """What a run reached of the translated code, ranked by calls, startup apart from the rest.
 
-A run with FROST_HITS=<file> writes how often each translated function was entered. Ranking
+A hits run (the port's call-count file) writes how often each translated function was entered. Ranking
 that file by calls mixes two kinds of reach: the image's C++ static initializers (run once at
 startup through RefImage.cpp, hundreds of them each calling the same constructors) and code
 the port's frame actually calls. Only the second is worth porting next by hand, and it is

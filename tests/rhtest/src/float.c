@@ -118,7 +118,7 @@ NOINLINE u32 vec_check(void) {
 
 /* a float zeroed with `xorps xmm0, xmm0` right after an integer call: no read of an xmm0 result.
  * Taken for one after free, it made free and, through every wrapper, the allocators float ones
- * (CrystalCore, 7,136 xmm0 returns) */
+ * (a VS2010 client, 7,136 xmm0 returns) */
 static u32 g_calls;
 NOINLINE u32 bump(u32 k) { g_calls += k; return g_calls; }
 NOINLINE float after_call(u32 n, float step) {

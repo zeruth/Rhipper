@@ -8,7 +8,7 @@
 //
 // Usage (headless): -postScript RemovePieceFunctions.java <pieces.json> [remove]
 //   pieces.json: {"pieces": ["0x...", ...]}  (written by tools/pieces.py)
-//@category FrostLite
+//@category Rhipper
 import com.google.gson.JsonElement;
 import com.google.gson.JsonParser;
 import ghidra.app.cmd.function.CreateFunctionCmd;

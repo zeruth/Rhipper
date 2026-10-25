@@ -21,25 +21,24 @@ binary and is disabled at import (tools/ghidra/ImportOptions.java).
 from __future__ import annotations
 
 import bisect
+import json
 import re
 import struct
 from collections import defaultdict
 
+import project
 from pebin import X86, Binary, disassembler, hexa, write_facts
 
 MIN_SITES = 3
 MIN_RATIO = 0.95
-# and by hand, where neither signal can see it: Lua's error path ends in a longjmp (or the panic
-# handler's exit) that the structural pass reads as a return, and the compiler tail-calls
-# luaL_error from every handler (`return luaL_error(L, "Usage: ...")`), so no call site is dead.
-# Unmarked, Ghidra decompiled the code after a usage error, and the anti-tamper check placed there
-# (SendChatMessage) could not be stripped, leaving the handler stubbed as junk (2026-10-18)
-HAND = {
-    0x142424D80: "luaL_error",
-    0x1402B29F0: "lua_error",
-    0x1402B5250: "luaG_errormsg",
-    0x1402B72D0: "luaD_throw",
-}
+# and by hand, where neither signal can see it: the project's data/noreturn.json "hand", address ->
+# name. An embedded interpreter's error path that ends in a longjmp, which the structural pass reads
+# as a return, tail-called from every handler, is one: no call site is dead
+def hand_noreturn() -> dict[int, str]:
+    path = project.ROOT / "data" / "noreturn.json"
+    if not path.exists():
+        return {}
+    return {int(a, 16): n for a, n in json.loads(path.read_text(encoding="utf-8")).get("hand", {}).items()}
 
 
 # 32-bit: imports that never return, standing for themselves as a tail target (DEAD) where a
@@ -144,8 +143,8 @@ def body_facts(b: Binary):
 
 def main() -> None:
     b = Binary()
-    # (HAND names FrostLite's binary: on any other, those addresses are no function starts)
-    hand = {a: n for a, n in HAND.items() if b.is_func_start(a)}
+    # (only where they are function starts: the file is the project's, written for its binary)
+    hand = {a: n for a, n in hand_noreturn().items() if b.is_func_start(a)}
     if X86:
         import json
         from project import FACTS

@@ -13,23 +13,16 @@ import re
 from collections import Counter, defaultdict
 from pathlib import Path
 
-from project import ROOT
+from project import CONFIG, ROOT
 SRC = ROOT / "build/fidelity.json"
 MANIFEST = ROOT / "src/gen/manifest.json"
-REACHED = ROOT / "build/reached.json"   # tools/reached.py --json, from a FROST_HITS run
+REACHED = ROOT / "build/reached.json"   # tools/reached.py --json, from a hits run
 OUT = ROOT / "build/fidelity.html"
 
-# source folder -> bucket
-BUCKETS = {
-    "Rendering": ["gx", "gxu", "model2", "shadereffect", "texture", "images", "world", "daynight", "prism"],
-    "UI & Lua": ["ui", "glue", "framescript", "console"],
-    "Data & files": ["db", "cas", "casc", "tact", "fileservices", "aio"],
-    "Networking & services": ["services"],
-    "Audio": ["sound"],
-    "Platform & core": ["os", "base", "blz", "storm", "util", "threadpool", "app", "client"],
-}
-COLORS = {"Rendering": "#7c6cf2", "UI & Lua": "#2fa8d8", "Data & files": "#3cb179",
-          "Networking & services": "#e0913b", "Audio": "#d9577f", "Platform & core": "#8a94a6"}
+# source folder -> bucket, the project's (rhipper.json "report_buckets": {bucket: [folders]})
+BUCKETS = CONFIG.get("report_buckets", {})
+_PALETTE = ["#7c6cf2", "#2fa8d8", "#3cb179", "#e0913b", "#d9577f", "#8a94a6", "#c9a227", "#5b8def"]
+COLORS = {b: _PALETTE[k % len(_PALETTE)] for k, b in enumerate(BUCKETS)}
 BUCKET_OF = {d: b for b, ds in BUCKETS.items() for d in ds}
 
 
@@ -76,7 +69,7 @@ def main() -> None:
     not_translated = {a: w for a, w in manifest.get("stubbed", {}).items() if not w.startswith("anti-tamper")}
     groups = defaultdict(list)
     for r in rows:
-        groups[BUCKET_OF.get(folder(r["file"]), "Platform & core")].append(r)
+        groups[BUCKET_OF.get(folder(r["file"]), CONFIG.get("report_default_bucket", "Other"))].append(r)
     # a hand port still a stub runs the reference function's translation (or its own machine code,
     # native) instead: translated, not a stub. Only a stub with nothing behind it is one
     behind = set(translated) | set(manifest.get("native", {})) | set(manifest.get("adapted", []))
@@ -128,7 +121,7 @@ def main() -> None:
     cards = []
     for b in order:
         s = stats(groups[b])
-        color = COLORS[b]
+        color = COLORS.get(b, "#8a94a6")
         worst = "".join(f'<li><span class="score">{r["score"]:.2f}</span>{html.escape(r["name"].replace(chr(96) + "anonymous namespace" + chr(39) + "::", ""))[:60]}</li>'
                         for r in s["worst"])
         cards.append(f"""
@@ -223,7 +216,7 @@ Ghidra decompilation (src/gen). The score compares the compiled translation with
 </section>
 </div>"""
 
-    # what the last FROST_HITS run reached of the translated code: the runtime part, by calls, is
+    # what the last hits run reached of the translated code: the runtime part, by calls, is
     # the hand-port queue (tools/reached.py)
     reached_section = ""
     if REACHED.exists():
@@ -250,7 +243,7 @@ Ghidra decompilation (src/gen). The score compares the compiled translation with
     <div><dt>Initializers</dt><dd>{sum(f['initializer'] for f in funcs):,}</dd></div>
   </dl>
   </div>
-  <p class="folders">Translated code a FROST_HITS run entered, still without a hand port. The runtime part,
+  <p class="folders">Translated code a hits run entered, still without a hand port. The runtime part,
   most-called first, is the queue for porting by hand (tools/reached.py, tools/promote.py for a home file).</p>
   <ol class="reasons">{queue or '<li>none</li>'}</ol>
 </section>"""
@@ -268,7 +261,7 @@ Ghidra decompilation (src/gen). The score compares the compiled translation with
     excluded_note = " · ".join(f"{n:,} {html.escape(k)}" for k, n in excluded_kinds.most_common())
     page = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>FrostForge Fidelity</title>
+<title>Port Fidelity</title>
 <style>
 :root {{ --bg:#f6f7fb; --card:#fff; --ink:#1c2030; --muted:#6b7285; --line:#e4e7ef;
   --high:#3cb179; --mid:#9fd3b6; --partial:#f0b44c; --stub:#e5677a; --gen:#5b8def; }}
@@ -318,8 +311,8 @@ ol.reasons b {{ display:inline-block; min-width:44px; font-variant-numeric:tabul
 ol.reasons li.zero {{ color:var(--high); border-bottom:none }}
 @media (max-width:420px) {{ .grid {{ grid-template-columns:1fr }} }}
 </style></head><body><main>
-<h1>FrostForge fidelity</h1>
-<p class="sub">Hand-ported and translated functions compared against the reference 3.4.3 client · generated {datetime.date.today().isoformat()}</p>
+<h1>Port fidelity</h1>
+<p class="sub">Hand-ported and translated functions compared against the reference client · generated {datetime.date.today().isoformat()}</p>
 <div class="hero">
   <div class="stat"><b>{o['total']:,}</b><span>tagged · {100 * o['total'] / ref_game:.1f}% of {ref_game:,}</span></div>
   <div class="stat"><b>{o['mean']:.2f}</b><span>mean fidelity</span></div>

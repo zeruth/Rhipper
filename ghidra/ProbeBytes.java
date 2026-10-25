@@ -1,7 +1,7 @@
 // The program's bytes at an address against the file's original bytes, and every place in .text
 // where they differ, by kind (a check of what earlier sessions patched).
 //   bash tools/ghidra/ghidra.sh script ProbeBytes.java 0x1417357dc 0xa8
-// @category FrostLite
+// @category Rhipper
 import ghidra.app.script.GhidraScript;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.mem.Memory;

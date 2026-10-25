@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 
+import project
 from pebin import Binary, hexa, write_facts
 
 PATH = re.compile(rb"[\x20-\x7e]{0,200}?\.(?:cpp|c|h|hpp|inl|cc)\0", re.I)
@@ -22,9 +23,11 @@ def normalize(p: str) -> str:
     k = p.find("/package_cache/")
     if k >= 0:
         return "pkg/" + p[k + len("/package_cache/") :]
-    k = p.find("/work-git/wow/")
-    if k >= 0:
-        return p[k + len("/work-git/wow/") :]
+    # (the project's own checkout prefixes, rhipper.json "source_prefixes")
+    for prefix in project.CONFIG.get("source_prefixes", ()):
+        k = p.find(prefix)
+        if k >= 0:
+            return p[k + len(prefix) :]
     for marker in ("/Source/", "/source/", "/Engine/", "/Contrib/", "/contrib/", "/src/"):
         k = p.find(marker)
         if k >= 0:

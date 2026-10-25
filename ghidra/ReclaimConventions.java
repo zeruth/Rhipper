@@ -1,7 +1,7 @@
 // Frees the calling-convention name slots no function and no function definition uses (the
 // program's table holds 126 and never lets a name go, see ApplyFacts.reclaimConventionSlots).
 // Moves no function: only names nothing uses go. Prints each step and, on failure, the causes.
-//@category FrostLite
+//@category Rhipper
 
 import java.util.HashMap;
 import java.util.HashSet;

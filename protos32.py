@@ -8,7 +8,7 @@ in ecx, the rest as __stdcall) and __fastcall (ecx and edx, the rest as __stdcal
 whole-program optimization (/LTCG), the compiler also gives internal functions conventions of its
 own, arguments in any register (`test dl, dl` and `mov [eax], dx` before either is written, at
 the entry of functions the standard conventions cannot describe). Ghidra's analysis leaves 99% of
-this beta client's functions "unknown" (2026-10-23). So, per function:
+a VS2010 client's functions "unknown" (2026-10-23). So, per function:
 
 1. Its stack cleanup: the N of its `ret N` (0 for a plain ret), or its tail-jump target's.
 2. One forward pass over its control flow, the state at each instruction being which of eax, ecx,
@@ -671,7 +671,7 @@ def analyse(root: int, ranges):
     # (a callee-saved register pushed unset as one of the next call's arguments: the caller's
     # value, an input. /GL's CRT passes 0 in edi: _sopen_helper's `xor edi, edi` reaches
     # _tsopen_nolock, which pushes it for __lseeki64_nolock's offset and __invoke_watson's
-    # arguments; as a save, its unaff_EDI made it a stub on fopen's path, CrystalCore 2026-10-24)
+    # arguments; as a save, its unaff_EDI made it a stub on fopen's path, a VS2010 client 2026-10-24)
     # (not the prologue's run of saves: one reached back over register pushes from the entry, its
     # frame's `push ebp; mov ebp, esp` or `sub esp, n`, a save even before a call's arguments)
     def prologue(a):
@@ -740,9 +740,10 @@ def analyse(root: int, ranges):
     # result. FUN_004066a0, the system allocator's Alloc, ends `mov eax, esi; pop esi; pop ebp;
     # ret 0xc`, its virtual Alloc's result; called only through its vtable, no caller's read typed
     # it, void, and every allocation through it came back 0: FUN_00405f60 skipped the managed
-    # allocator's setup, and WinMain gave up, CrystalCore 2026-10-24)
+    # allocator's setup, and WinMain gave up, a VS2010 client 2026-10-24)
     # (as wide as it sets it, the widest over its rets: `mov al, 1; ret 4` is a bool, and as an i4
-    # its upper bytes were a void callee's eax, extraout_EAX, FUN_005e3700 in CrystalCore 2026-10-25)
+    # its upper bytes were a void callee's eax, extraout_EAX, FUN_005e3700 in a VS2010 client
+    # 2026-10-25)
     # (and whether every ret has its own byte or word write so: a bool on each path, whatever
     # width a caller reads it at, main())
     sets_eax = 0
@@ -770,7 +771,7 @@ def analyse(root: int, ranges):
             # (nor anything else that leaves eax, short of a branch or a call: Havok's lazy
             # singletons, `push 0x14; call eax; mov [eax + 4], 0x10014; mov [eax], vtable; ...; ret`,
             # return the allocator's object and are reached only through their init list's
-            # pointers; void, FUN_00d9bbc0 took none made, CrystalCore 0x105a400 2026-10-25)
+            # pointers; void, FUN_00d9bbc0 took none made, a VS2010 client's 0x105a400 2026-10-25)
             if pi.mnemonic != "call" and not pi.mnemonic.startswith(("j", "loop", "ret")) \
                     and not any(x in EAX_REGS for x in regs_access(pi)[1]):
                 p = prv.get(p)
@@ -944,6 +945,11 @@ def analyse(root: int, ranges):
         op = ins.operands[0]
         if op.type != X.X86_OP_MEM or not op.mem.base or op.mem.index or import_slot(insns, prv, a) is not None:
             continue
+        # (one with no ret of its own to tell its stack is a forwarder, its words the forwarded
+        # call's, tail_ijmps: as none, Front::grab's `mov ecx, [ecx + 4]; mov eax, [ecx]; jmp [eax +
+        # 4]` handed Backend::grab no size, rhtest msvc-14.51-x86 cpp-O2 fronts 2026-10-25)
+        if ret_bytes(insns) is None:
+            continue
         shape = icall_shape(insns, prv, nxt, state, a, labels, bool(inputs & ECX))
         if shape is not None:
             icalls[a] = (shape[0] if shape[0] != "__cdecl" else "__stdcall", (ret_bytes(insns) or 0) // 4)
@@ -970,7 +976,7 @@ def analyse(root: int, ranges):
     # slot and never stored here: its fields. ___crtGetStringTypeA's _LocaleUpdate, built by its
     # constructor through `lea ecx, [ebp - 0x10]`, read at ebp-8 and ebp-4: the decompiler made
     # those locals of their own, the constructor's 16 bytes went into a 4-byte buffer and smashed
-    # the frame, CrystalCore's first CRT call 2026-10-24. One array from the address up to the
+    # the frame, a VS2010 client's first CRT call 2026-10-24. One array from the address up to the
     # last such byte. Past its first 8 bytes only: a value up to 8 the decompiler takes whole, and
     # a LARGE_INTEGER QueryPerformanceCounter fills, returned in edx:eax, made the function's
     # return a `byte [8]`, no C)
@@ -1105,7 +1111,7 @@ def result_reads(insns, state, nxt):
             # (an unconditional jump within the function goes on there: `call ctor; jmp join` with
             # `join: mov [g], eax`, the other path's `xor eax, eax`. Stopped at the jump, the
             # constructor FUN_004f5b30 returned nothing, its object 0, and FUN_004f5b80 wrote
-            # through it, CrystalCore 2026-10-24)
+            # through it, a VS2010 client 2026-10-24)
             if mn == "jmp" and _target(pi) is not None and _target(pi) in insns:
                 p = end = _target(pi)
                 continue
@@ -1487,7 +1493,7 @@ def com_call(insns, prv, a) -> bool:
     `[ecx + K]` (or is `[ecx + K]` itself), and ecx from `[R]`, the first word of an object. A
     __thiscall's ecx is the object, whose vtable is loaded into another register. IMalloc's
     `mov ecx, [eax]; push edx; push eax; mov eax, [ecx + 0x14]; call eax` was a __thiscall of the
-    vtable, Release's stack `this` dropped, CrystalCore FUN_00420900 2026-10-25."""
+    vtable, Release's stack `this` dropped, a VS2010 client's FUN_00420900 2026-10-25."""
     op = insns[a].operands[0] if insns[a].operands else None
     if op is None:
         return False
@@ -1577,7 +1583,7 @@ def reused_slots(insns, prv, nxt, a, n):
     argument left on the stack (its cleanup deferred) and stored into again, `push esi; call
     FUN_00d9b8e0; mov eax, esp; mov [eax], 3; ...; push eax; call edx`, the virtual call's second
     argument. Counted as consumed by the first call, the 3 went unpassed, FUN_00db68c0 read
-    garbage for its flags, and Havok's thread memory was never set up (CrystalCore, 2026-10-24)."""
+    garbage for its flags, and Havok's thread memory was never set up (a VS2010 client, 2026-10-24)."""
     # (back to the previous call, then forward with esp's offset from there)
     p, start = prv.get(a), None
     for _ in range(ICALL_WINDOW):
@@ -1645,6 +1651,11 @@ def icall_shape(insns, prv, nxt, state, a, labels, own_this):
         ins = insns[p]
         mn = ins.mnemonic
         if mn in ("call", "jmp", "ret", "int3"):
+            break
+        # (nor back over a loop's back edge: what the loop body writes is its own. /O2's
+        # shell_malloc fills the block with ecx its counter, `inc ecx; cmp ecx, edi; jb top`, then
+        # calls IMalloc's Realloc, a __thiscall of the count, rhtest msvc-14.51-x86 misc-O2)
+        if (mn.startswith("j") or mn.startswith("loop")) and _target(ins) is not None and _target(ins) < p:
             break
         ops = ins.operands
         if mn == "push":
@@ -1780,6 +1791,18 @@ def argument_store(insns, nxt, a) -> bool:
     return False
 
 
+def frame_alloc(insns) -> int | None:
+    """The function's frame allocation, the `sub esp, K` among its first instructions, or None."""
+    for k, ins in enumerate(sorted(insns.values(), key=lambda i: i.address)):
+        if k >= 8:
+            break
+        ops = ins.operands
+        if ins.mnemonic == "sub" and len(ops) == 2 and ops[0].type == X.X86_OP_REG and ops[0].reg == X.X86_REG_ESP \
+                and ops[1].type == X.X86_OP_IMM:
+            return ops[1].imm
+    return None
+
+
 def folded_cleanup(insns, nxt, a, n) -> bool:
     """A later `add esp, K` in the straight line after the call at `a` that pops more than what is
     pushed after it: the n argument bytes of `a` among them, so `a`'s callee left them."""
@@ -1801,6 +1824,13 @@ def folded_cleanup(insns, nxt, a, n) -> bool:
             pushed -= 4
         elif mn == "add" and len(ops) == 2 and ops[0].type == X.X86_OP_REG and ops[0].reg == X.X86_REG_ESP \
                 and ops[1].type == X.X86_OP_IMM:
+            # (not the frame's release, `add esp, K; ret` of the prologue's `sub esp, K`: the calls
+            # between popped their own, which this count does not see. com_release_last's AddRef,
+            # `push edi; call eax`, a __stdcall, was a __cdecl by it, and the array read after it
+            # one word off, rhtest calls com_release_last)
+            after = insns.get(nxt.get(p)) if nxt.get(p) == end else None
+            if after is not None and after.mnemonic == "ret" and ops[1].imm == frame_alloc(insns):
+                return False
             return ops[1].imm >= pushed + n
         elif mn in ("ret", "jmp") or mn.startswith("j") or any(
                 o.type == X.X86_OP_REG and o.reg == X.X86_REG_ESP for o in ops[:1]):
@@ -1848,6 +1878,12 @@ def next_call_deficit(insns, prv, nxt, a) -> int:
         if pi.mnemonic == "push":
             after += 4
         elif pi.mnemonic == "pop":
+            # (a pop of nothing pushed since: the epilogue's restores, `pop esi; pop ebx; call
+            # __security_check_cookie`, no outer call's arguments. Counted as owed to the cookie
+            # check, they took IMalloc::Release's one word, `push eax; call edx`, a VS2010
+            # client's FUN_00420900 2026-10-25)
+            if after <= 0:
+                return 0
             after -= 4
         elif pi.mnemonic in ("ret", "jmp") or pi.mnemonic.startswith("j"):
             return 0
@@ -1875,7 +1911,7 @@ def code_pointers(b: Binary) -> set[int]:
     """The code no function covers that the image points to: a relocated pointer into .text in
     data (the CRT's __xi_a..__xi_z initializer tables, atexit destructors, vtable slots, SEH scope
     tables) or an immediate in code (`push fn`, `mov [x], fn`: a callback handed over). Ghidra's
-    analysis made none of them functions: 2,268 in the beta client, the CRT's own
+    analysis made none of them functions: 2,268 in a VS2010 client, the CRT's own
     initializers among them (`__initterm_e` called 00c47d79 into int3s, 2026-10-23). A relocated
     address used as a memory operand is data (the 32-bit jump tables between functions in .text),
     and a target of zero bytes or int3 padding is no code."""
@@ -2176,7 +2212,7 @@ def main() -> None:
     # (a result's register family: an integer in eax, an x87 one in st0, an SSE one in xmm0. A rank
     # orders kinds within one; across them it is no evidence. A wrapper whose returns reach both an
     # SSE math helper and an integer callee made the callee xmm0 too, and through every pass the
-    # allocators: 7,136 xmm0 returns in ffxiv.exe, a VS2010 build, _aligned_malloc's among them,
+    # allocators: 7,136 xmm0 returns in a VS2010 client, _aligned_malloc's among them,
     # 2026-10-24)
     family = {"i1": "i", "i2": "i", "i4": "i", "i8": "i", "f4": "x87", "d8": "x87", "s4": "sse", "q8": "sse"}
     x87_firm: set[int] = set()
@@ -2190,7 +2226,7 @@ def main() -> None:
         # `if (p == 0) return;` beside its errno store `mov [esi], eax; pop esi; ret`, an i4 by
         # __get_errno_from_oserr's, and through it every function ending in a free, rhtest
         # msvc-16.00-x86 2026-10-25. One its caller returns, `call t; pop ebp; ret`, still takes it:
-        # refused, the caller's own read of it was extraout_EAX, 392 stubs in CrystalCore)
+        # refused, the caller's own read of it was extraout_EAX, 392 stubs in a VS2010 client)
         if family.get(k) == "i" and v.get("eax_unset") and not v.get("inputs", 0) & EAX \
                 and re.match(r"(returns |sets eax|keeps its eax)", src):
             unset_void.add(t)
@@ -2320,8 +2356,8 @@ def main() -> None:
             # QueryInterface: `ret 0xc`, three words, `this` the first. Havok's memory router's
             # slots, `call TlsGetValue; mov ecx, [eax + 0x2c]; ...; jmp edx`, each overwrite ecx and
             # jump on to the thread's allocator: __cdecl, the virtual call's `this` taken for the
-            # size, CrystalCore 0x1138954 2026-10-25. Not a table of __cdecl functions, a slot with a
-            # plain `ret` that reads stack arguments: pointers to callbacks, no vtable)
+            # size, a VS2010 client's 0x1138954 2026-10-25. Not a table of __cdecl functions, a slot
+            # with a plain `ret` that reads stack arguments: pointers to callbacks, no vtable)
             first = local.get(slots[0]) if slots else None
             com = first is not None and first.get("ret") == 12
             cdecl_like = any(s in local and local[s].get("ret") == 0 and stack_hi.get(s, 0) > 4 for s in slots)
@@ -2403,7 +2439,7 @@ def main() -> None:
         # (one that forwards through an indirect tail jump, `ecx = this + 0x10c; jmp [vt + 8]`,
         # takes what its callers pass, unknown here: as many words as a forwarded call is given,
         # FORWARD_WORDS, all of them handed on. As a call of none, FUN_004f58c0 gave the graphics
-        # allocator's Alloc garbage for its sizes, CrystalCore 2026-10-24)
+        # allocator's Alloc garbage for its sizes, a VS2010 client 2026-10-24)
         # (only one no direct call reaches: a direct caller would pass the extra words from its
         # own stack, `in_stack_`, and be a stub)
         if local[f].get("tail_ijmps") and f not in called_directly:
@@ -2446,7 +2482,7 @@ def main() -> None:
             e["ret"] = ret_of[f]                  # what its callers read of its result
             # (but no wider than it makes it, al or ax set before every ret and no callee's returned:
             # a caller reading all of eax read bytes nothing set. FUN_005ef7d0's `xor al, al` and
-            # `mov al, 1`, an i4, its eax past 0xb5b440, a void one, extraout_EAX, CrystalCore)
+            # `mov al, 1`, an i4, its eax past 0xb5b440, a void one, extraout_EAX, a VS2010 client)
             n = local[f].get("narrow_ret", 0)
             if n and ret_of[f] in ("i2", "i4") and int(ret_of[f][1]) > n and not local[f].get("passes"):
                 e["ret"] = f"i{n}"
@@ -2456,7 +2492,7 @@ def main() -> None:
                 or any(t in local and t not in ret_of for t in local[f].get("passes", ())):
             # (or what it returns is a void callee's, `call 0xa92090; mov [esi + 4], edi; ...; ret`:
             # FUN_00a941f0 kept the uint an earlier round gave it through 0xa92090, its read of that
-            # one's eax extraout_EAX, CrystalCore 2026-10-25)
+            # one's eax extraout_EAX, a VS2010 client 2026-10-25)
             e["ret"] = "v"                        # (give's refusal, a path that never sets eax: void,
                                                   # whatever a round before typed)
         keep = [n for bit, n in ((EAX, "eax"), (ECX, "ecx"), (EDX, "edx"))

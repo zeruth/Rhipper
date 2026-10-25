@@ -39,7 +39,7 @@ def load(path):
 HELPERS = ("SEH_prolog", "SEH_epilog", "EH_prolog", "EH_epilog", "alloca_probe", "chkstk",
            # (and what Windows' exception dispatch runs, which the port's runtime does itself: the
            # handlers and their checks, the filter reached directly. 10 job threads named by
-           # RaiseException under _except_handler3 parted CrystalCore's runs, 2026-10-25)
+           # RaiseException under _except_handler3 parted a VS2010 client's runs, 2026-10-25)
            "except_handler", "ValidateEH3RN", "ValidateScopeTableHandler", "ValidateImageBase",
            "FindPESection", "EH4_CallFilterFunc", "EH4_TransferToHandler", "EH4_GlobalUnwind",
            "EH4_LocalUnwind", "local_unwind", "global_unwind", "CallSettingFrame")
@@ -99,7 +99,7 @@ def main():
     skip = frozenset(addr for addr, n in nm.items() if any(h in n for h in HELPERS)) | \
         {int(x, 16) for x in a.skip}
     # (and the compiler's arithmetic helpers helpers32.py identified, which the translation does
-    # inline: `__time64`'s __aulldiv parted CrystalCore's runs, 2026-10-25)
+    # inline: `__time64`'s __aulldiv parted a client's runs, 2026-10-25)
     hp = FACTS / "helpers32.json"
     if hp.exists():
         skip |= {int(a, 16) for a in json.loads(hp.read_text())["helpers"]}

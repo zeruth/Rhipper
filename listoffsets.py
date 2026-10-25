@@ -1,6 +1,6 @@
 """Port TSList globals whose link offset disagrees with the reference's.
 
-A Storm list keeps the offset of its link inside the element as its first word, and the
+A TSList keeps the offset of its link inside the element as its first word, and the
 reference's static data holds it: 0x142cfcdf0 (SE3's fading instances) starts with 0x388. A port
 list built without an offset (`TSList<T, TSGetLink<T>, 8> s_x;`) threads the element's link at
 +0, which for any element whose link is elsewhere links the wrong field: on 2026-10-13 six of

@@ -1,10 +1,10 @@
 """The `// ref:` tags in src/: are they sound, and how much is ported?
 
-A tag claims a frostlite function IS a reference function. This checks every tag against the
+A tag claims a port function IS a reference function. This checks every tag against the
 corpus (the address must be a function there, or a code address when the tag says so), finds
-duplicates (two frostlite functions claiming one reference function), and splits the tagged
-functions into ported and stubbed (FROST_UNIMPLEMENTED in the body). It is the start of the
-recomp measurement Frozen has for 3.3.5.
+duplicates (two port functions claiming one reference function), and splits the tagged
+functions into ported and stubbed (the port's unimplemented marker in the body). It is the start
+of a recomp measurement: how much of the reference is ported.
 
     python tools/tags.py            # summary + problems
     python tools/tags.py --list     # every tag
@@ -20,9 +20,11 @@ from pathlib import Path
 from corpus import load_corpus
 from pebin import Binary
 
-from project import ROOT
+from project import CONFIG, ROOT
+# the port's unimplemented marker (rhipper.json forward_stubs "marker"), its call's name
+STUB_MARKER = CONFIG.get("forward_stubs", {}).get("marker", "UNIMPLEMENTED();").removesuffix("();")
 TAG = re.compile(r"(?://|/\*|^\s*\*+)\s*ref:\s*(?:FUN_|0x)([0-9a-fA-F]{9,})")
-# the trees tags live in: frostlite's own, and the vendored code ported from the client
+# the trees tags live in: the port's own, and the vendored code ported from the client
 TAG_ROOTS = ("src", "vendor/lua-5.1.4/src")
 # a line opening a function definition (indented ones too, for in-class members)
 DEF = re.compile(r"^\s*(?!//|/\*|\*|#|return\b|if\b|while\b|for\b|else\b|do\b)[^;]*"
@@ -79,7 +81,7 @@ def scan() -> list[dict]:
                     depth += text.count("{") - text.count("}")
                     was_open = opened
                     opened = opened or "{" in text
-                    if "FROST_UNIMPLEMENTED" in text:
+                    if STUB_MARKER in text:
                         stub = True
                         note = text.split("//", 1)[1].strip() if "//" in text else ""
                         sites.append({"line": k + 1, "note": note})

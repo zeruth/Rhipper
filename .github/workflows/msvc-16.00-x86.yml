@@ -1,5 +1,5 @@
 # rhtest on the references Visual Studio 2010 SP1 (cl 16.00.40219) built for x86, /MT, for
-# Windows XP, as CrystalCore was (tests/rhtest/bins/msvc-16.00-x86): rhtest.yml's steps, under this
+# Windows XP, as VS2010 /MT clients are (tests/rhtest/bins/msvc-16.00-x86): rhtest.yml's steps, under this
 # toolset's own name and badge.
 name: msvc-16.00-x86
 

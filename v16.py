@@ -415,7 +415,7 @@ class Typer:
                                   or (n.val == "+" and self.is_array16(n.kids[1]) and a != V)):
                 # `local_18 + iVar6`: a 16-byte array local with a scalar decays to its address
                 # too, a pointer into the buffer; a 128-bit sum has 16 bytes on both sides. Read
-                # as a vector add, the MAC address loop of the Battle.net device id (FUN_141dfa7c0)
+                # as a vector add, the MAC address loop of a client's device id (FUN_141dfa7c0)
                 # took its buffer's text as the next destination and wrote through it (2026-10-20)
                 n.ty = "bytes"
                 return n.ty

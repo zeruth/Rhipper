@@ -2196,8 +2196,8 @@ void PrintC::pushMismatchSymbol(const Symbol *sym,int4 off,int4 sz,
   // RHIPPER: the access itself, in C: through a pointer to the value's own type at the
   // symbol's address, `*(T *)&sym`. The release prepends an underscore (`_sym`), a mark for a
   // reader but no C: an unlocked stack block resized from the accesses the decompiler saw kept
-  // a size smaller than a 16-byte store it later mapped there, and 445 functions of WowClassic
-  // 3.4.3 printed `_blk_2a0 = auStack_290;` with no such variable (2026-10-24)
+  // a size smaller than a 16-byte store it later mapped there, and 445 functions of an x64
+  // client printed `_blk_2a0 = auStack_290;` with no such variable (2026-10-24)
     if (vn != (const Varnode *)0 && sym->getType()->getSize() > 0) {
       Datatype *ct = vn->getHigh()->getType();
       AddrSpace *spc = glb->getDefaultDataSpace();

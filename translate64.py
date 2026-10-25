@@ -53,7 +53,7 @@ from pebin import Binary
 
 from project import ROOT, GEN
 # the project's protection layer (an anti-tamper runtime and the guards it inlines), if it has one
-aegis = project.plugin("protection")
+guard_layer = project.plugin("protection")
 
 
 def write_out(path: Path, text: str, **kw) -> None:
@@ -183,7 +183,7 @@ CRT_BY_ADDR = {0x1425bf3b0: "memmove", 0x1425bfa50: "memset",
                # cleanup and with none (the UCRT's _crt_exit_full_cleanup, _crt_exit_no_cleanup)
                0x140279378: "fseek", 0x14027258c: "exit", 0x140272544: "_exit",
                # and the rest game code calls, each read off its body (2026-10-18): translated,
-               # they ran on the reference runtime's per-thread data and locks, which FrostLite
+               # they ran on the reference runtime's per-thread data and locks, which the port
                # never sets up, through internals stubbed "called, not in the work set" (16).
                # rand: the 0x343fd/0x269ec3 step on __acrt_getptd's seed at +0x28
                0x142415c90: "rand",
@@ -524,7 +524,7 @@ SCALAR = re.compile(r"^(?:static\s+|extern\s+|thread_local\s+)*(?:const\s+)?(?:u
 # 8-byte array of its own and those stores overran it, C4789 in FUN_1412fd5c0, 2026-10-18)
 # (`blk_98` is ApplyFacts' name for a stack block it merged (protos.json stack_blocks), at -0x98 as
 # `local_98` would be. Off the frame, FUN_141f77500's URL parser state lost the fields after it that
-# its helpers read through `&blk_98`, and the Battle.net TLS login broke off, 2026-10-21)
+# its helpers read through `&blk_98`, and a client's TLS login broke off, 2026-10-21)
 STACK_DECL = re.compile(r"^(\s*)([A-Za-z_][\w ]*?)\s*(\**)\s*((?:local_|blk_|[a-z]+Stack_|[a-z]+StackX_|[a-z]+StackY_)(res)?([0-9a-f]+))"
                         r"\s*(?:\[\s*(\w+)\s*\])?\s*;[^\n]*\n", re.M)
 
@@ -1349,7 +1349,7 @@ def virtual_this(text: str) -> str:
 # (`code * *` too, as an earlier pass may space the stars: SChannel's InitializeSecurityContextW,
 # called `(**(code * *)(*(longlong *)(lVar4 + 8) + 0x30))(...)` in FUN_141f720b0, had its literal-0
 # ninth argument, phNewContext, stored in 4 of its 8 bytes; the stale upper half made it
-# 0x100000000 and the Battle.net TLS handshake faulted in sspicli, 2026-10-24)
+# 0x100000000 and a client's TLS handshake faulted in sspicli, 2026-10-24)
 INDIRECT_CALL = re.compile(r"\((?:\*\*\(code \*\s*\*\)|\*\(code \*(?:\s*\*)?\)|\*\(\*\(code \*(?:\s*\*)?\)|\*REFG\(code \*,)")
 # a top-level operator that makes an expression something other than its operands' type
 NOT_FLOAT_OP = re.compile(r"<|(?<!-)>|[!=]=|&&|\|\||\?|%|\^|(?<![&])&(?![&])|\|")
@@ -1939,7 +1939,7 @@ def fused_le_chains(text: str) -> str:
     MSVC compiles `x <= max && rest` as `comiss x, max; ja skip` followed by the rest; Ghidra
     splits the not-above into below-or-equal and prints it without brackets, `x < max || x ==
     max && rest`, which C reads as `x < max || (x == max && rest)`: whenever x is below, the rest
-    of the chain (in FrostLite's FUN_1413837b0, the load and null test of a map object group) is
+    of the chain (in an x64 client's FUN_1413837b0, the load and null test of a map object group) is
     skipped and its result used unset, a fault on every WMO in view that stopped the world frame
     (2026-10-23). The pair is one comparison: `(A <= B) && rest`, and `>` likewise."""
     out, pos = [], 0
@@ -2245,8 +2245,8 @@ def float_concat_views(body: str) -> str:
     """`(float)CONCAT31(hi, byte)`: bytes spliced into a float's storage, not a number converted.
 
     Ghidra shows a partial store into a float-typed slot, or a sign flip done on a double's upper
-    half, as a CONCAT cast to the floating type; in C the cast converts the integer. FrostLite's
-    FUN_142457380 put a vertex format id (11) in the low byte of a float slot and read back
+    half, as a CONCAT cast to the floating type; in C the cast converts the integer. An x64
+    client's FUN_142457380 put a vertex format id (11) in the low byte of a float slot and read back
     11.0f's low byte, 0, a format with no attributes, and the world draw faulted each frame
     without clearing its lists, ~100 MB a second (2026-10-23). When the CONCAT's sizes add up to
     the type's, the cast is the bits. 222 sites."""
@@ -2276,7 +2276,7 @@ def undefined_float_assigns(body: str, params=()) -> str:
     The data export types a global by the instruction that reads it, and a 4-byte one read with
     movss in one function can be `undefined4` from another's; Ghidra then prints the load into a
     float variable plainly, `fVar4 = REFG(undefined4, 0x142738530);`, and C converts the integer
-    to a number: FrostLite's FUN_1413ae9d0 (a box to map chunk indices) got 1.19e9 for the
+    to a number: an x64 client's FUN_1413ae9d0 (a box to map chunk indices) got 1.19e9 for the
     float 34133 there, and the world cull walked millions of chunks a frame (2026-10-23). The
     same for `*(undefined4 *)p` into a float and undefined8 into a double. 918 sites."""
     floats = {v: t for t, v in re.findall(r"^\s*(float|double) (\w+)(?: = \{0\})?;", body, re.M)}
@@ -2415,7 +2415,7 @@ def mistyped_float_slots(body: str) -> str:
     register: protobuf's ExtensionSet::ParseFieldWithExtensionInfo (FUN_142237430) passed a
     sub-message's length to PushLimit as 2.0f, parsed nothing into the extension, and read its
     payload as the outer message's own fields - bgs EntityId's options got
-    message_set_wire_format and the descriptor pool aborted the Battle.net login (2026-10-20).
+    message_set_wire_format and the descriptor pool aborted a client's login (2026-10-20).
     Such a slot is retyped to uint throughout the function: its address and its float uses stay
     as they were, as the 32 bits the reference has there."""
     slots = {m.group(1) for m in INT_INTO_FLOAT_SLOT.finditer(body)
@@ -2535,7 +2535,7 @@ def indirect_float_calls(body: str, params: list[str]) -> str:
         last = max((k for k, t in enumerate(arg_kinds) if t), default=-1)
         # from the fifth on an argument is a stack slot of 8 bytes, and an unprototyped call stores
         # an int's 4 only: WSASend's lpOverlapped, a literal 0, arrived as 0x7ffc00000000 and the
-        # Battle.net TLS handshake's second flight failed with WSAEFAULT (2026-10-20). CALLF's
+        # client's TLS handshake's second flight failed with WSAEFAULT (2026-10-20). CALLF's
         # arguments are widened in float_arguments; these are the calls through code pointers.
         def widened(k: int, a: str) -> str:
             if k >= 4 and not arg_kinds[k] and not a.strip().startswith("(unsigned long long)("):
@@ -3307,7 +3307,7 @@ def rax_upper_parts(text: str) -> str:
 
 def return_address_args(text: str) -> str:
     """`unaff_retaddr` handed on as a call argument: the word at [rsp] on entry, the function's
-    own return address, which the Storm containers pass down as the caller tag of an allocation
+    own return address, which a client's containers pass down as the caller tag of an allocation
     (`FUN_140325310(param_1,uVar4,s___AV__TSGrowableArray...,unaff_retaddr)`, the array resize
     FUN_1417d6790 that the static initializer FUN_1417d0a00 needs at startup; 112 functions were
     stubbed for nothing else, 2026-10-15). MSVC's `_ReturnAddress()` is that same word. Left
@@ -4405,7 +4405,7 @@ def port_globals() -> dict[int, dict]:
                 "scalar": bool(SCALAR.match(decl)) and not m.group(3),
                 # (a class static's definition names its class: `int32_t ModelSceneFrame::
                 # s_metaTable = -2;`, which the accessor has to name too, C2065 otherwise)
-                # (only a prefix the name follows directly: `static blz::string s_x` names its
+                # (only a prefix the name follows directly: `static ns::string s_x` names its
                 # type's namespace, not the global's)
                 "qual": scope_at(text, m.start()) + (re.search(r"((?:\w+::)+)$", decl).group(1)
                                                      if re.search(r"(?:\w+::)+$", decl) else "") + m.group(2),
@@ -4526,7 +4526,7 @@ def load_data_sizes_pretty() -> dict[str, int]:
     sizes = {}
     for m in re.finditer(r"^\s*data \[0x[0-9a-f]+, sizeof=(\d+)\] (.*?)\s*$", out, re.M):
         # (a function pointer, or an array of them, ends in its parameter list: `void (__cdecl *
-        # blz::g_logSinks[16])(const char*, ...)`. Read as the last word, it had no size, so the
+        # ns::g_logSinks[16])(const char*, ...)`. Read as the last word, it had no size, so the
         # translated code's lock at +0x88 past the 0x80-byte array went to other port data, C4739
         # unseen, 2026-10-17)
         fp = re.search(r"\(\s*(?:__\w+\s*)?\*+\s*(?:\w+::)*(\w+)(?:\[\d*\])*\s*\)\s*\(", m.group(2))
@@ -4591,9 +4591,9 @@ class Translator:
         # (the padding between functions Ghidra made functions of, tools/junkscan.py fragments():
         # no function, so never a root, and what reaches one is the protection's junk)
         self.fragments = {int(k, 16): v["fragment"] for k, v in junk.items() if "fragment" in v}
-        # the second anti-tamper layer (tools/aegis.py): its runtime, stubbed as protection, and
-        # the guards it inlines into game functions, stripped from their bodies
-        layer = aegis.load(self.cor) if aegis else {"protection": [], "guarded": []}
+        # the second anti-tamper layer (the project's protection plugin): its runtime, stubbed as
+        # protection, and the guards it inlines into game functions, stripped from their bodies
+        layer = guard_layer.load(self.cor) if guard_layer else {"protection": [], "guarded": []}
         self.protection = {int(a, 16) for a in layer["protection"]}
         self.protection_hex = set(layer["protection"])
         self.guarded = {int(a, 16) for a in layer["guarded"]}
@@ -4616,8 +4616,8 @@ class Translator:
         self.ref = Binary()
         # vtables (tools/vtables.py): code that stores one makes every slot callable, though
         # nothing names the slots as calls (bgs::ssl's factory 0x142880130: its Initialize
-        # 0x141f6fcf0 was never translated, the SSL module failed to start, and GlueLogin
-        # faulted on the null filter map, 2026-10-14)
+        # 0x141f6fcf0 was never translated, the SSL module failed to start, and the login
+        # screen faulted on the null filter map, 2026-10-14)
         vt = ROOT / "build/facts/vtables.json"
         self.vtables: dict[int, list[int]] = {}
         if vt.exists():
@@ -4625,7 +4625,7 @@ class Translator:
                 self.vtables[int(t["vtable"], 16)] = [int(s, 16) for s in t["slots"]]
                 # a static object whose vptr the linker filled: naming the object is naming
                 # its vtable (bgs::ssl's default filter factory 0x142d39828, whose CreateFilter
-                # 0x141f185d0 stayed untranslated and GlueLogin memset a null filter, 2026-10-14)
+                # 0x141f185d0 stayed untranslated and the login screen memset a null filter, 2026-10-14)
                 for g in t.get("held_by", ()):
                     self.vtables[int(g, 16)] = self.vtables[int(t["vtable"], 16)]
         # the image's `jmp` thunks to the CRT_ENTRY routines (`jmp _calloc_base` at 0x140282ca8,
@@ -4905,8 +4905,8 @@ class Translator:
         their decompilation: the small thunks whose decompilation lost what they pass on. Each
         sets or keeps argument registers and jumps to another function (`if (*err) goto
         FUN_14147f7f0`, `r8b = 1; jmp FUN_1411e7a00`), and the decompiler shows the jump as a call
-        of fewer arguments, or none: the last run stubbed six such, among them Battle.net's error
-        check 0x141484590 (2026-10-23). Taken from the last run's manifest, the stubs for those
+        of fewer arguments, or none: the last run stubbed six such, among them a login client's
+        error check 0x141484590 (2026-10-23). Taken from the last run's manifest, the stubs for those
         reasons and what it lifted already, and decided before any body, signature or arity is
         read, so all three agree on which text a function has."""
         got = self.__dict__.get("_lift_instead")
@@ -4991,7 +4991,7 @@ class Translator:
             i = k
         text = "".join(out) + text[i:]
         # a qualified name Ghidra wrapped after a `::` (`(*Import::KERNEL32_DLL::` and the name on the
-        # next line; `Lua::C_UIWidgetManager::` ...), as the header's are joined in signature():
+        # next line; `Lua::C_Widgets::` ...), as the header's are joined in signature():
         # read apart, `Import` was undeclared (3 functions, 2026-10-18)
         text = re.sub(r"(?<=\w)::[ \t]*\n[ \t]*(?=[\w~<])", "::", text)
         # a delay-load import slot (`(*ImgDelayDescr_IAT_142dda4d8)(p)`, OLEAUT32's SysFreeString):
@@ -5111,13 +5111,13 @@ class Translator:
                 text = text.replace(f"switch({var})", f"switch((longlong){var})")
         text = strip_retcheck(text)[0]
         # (and the return address read outside the checks just stripped, which the rule above left
-        # while they were there: Lua::C_LFGList::UpdateListing hands it to its usage error and keeps
+        # while they were there: a script API handler hands it to its usage error and keeps
         # its high half in a local, 2026-10-18)
         if "unaff_retaddr" in text and "14261a0b0" not in text and "142618df8" not in text:
             text = re.sub(r"^[ \t]*[\w ]+\*?\s*unaff_retaddr;\n", "", text, flags=re.M)
             text = re.sub(r"\bunaff_retaddr\b", "((longlong)_ReturnAddress())", text)
         if a in self.guarded:
-            text, status = aegis.strip_guards(text, self.protection_hex)
+            text, status = guard_layer.strip_guards(text, self.protection_hex)
             if status.startswith("kept"):
                 self.guard_failed[a] = status[len("kept: "):]
         text = call_results(dead_lost_stores(rdtsc_upper(decompiler_temps(wide_vectors(va_args(wide_multiply(text)), a)))))
@@ -5628,7 +5628,7 @@ class Translator:
         bare = name.removeprefix("FID_conflict_")
         # zlib's entry points are the reference's own even where the port links zlib too: a
         # z_stream is one library's state, and FID names only some of its functions. The
-        # Battle.net realm list blob was set up by the port's inflateInit_ and run through the
+        # client's realm list blob was set up by the port's inflateInit_ and run through the
         # reference's unnamed inflate (FUN_14235abd0), which looped on the other layout and hung
         # the client at the realm list (2026-10-20)
         if len(cands) == 1 and re.fullmatch(r"(?:inflate|deflate)\w*|z(?:lib)?_\w+|crc32\w*|adler32\w*|"
@@ -5805,7 +5805,7 @@ class Translator:
 
         CALLF calls unprototyped, so an argument goes by its own type: Ghidra's `*param_3` (an
         undefined8 that holds a double) would travel in a general register while the callee
-        reads xmm - garbage there (C_Timer's seconds came out out of range and the timer's result
+        reads xmm - garbage there (a script timer's seconds came out out of range and its result
         was never built, 2026-10-12). An argument with a floating point type in it is left
         alone; the rest are reinterpreted, a float's four bytes promoted to double."""
         floats = {m.group(2) for m in re.finditer(r"^\s*(float|double|float4|float8|float10)\s+\**(\w+)(?:\[[^\]]*\])?;",
@@ -6029,7 +6029,7 @@ class Translator:
         # the reference's own entry: the protection's loader calls it, not code in the corpus, so
         # it has no caller here, and the CRT startup under it (__scrt_common_main_seh, the CRT's
         # initialization, its initializer tables) was translated and called the runtime's insides
-        # (__vcrt_uninitialize, __acrt_execute_initializers: stubs, 2026-10-18). FrostLite has its
+        # (__vcrt_uninitialize, __acrt_execute_initializers: stubs, 2026-10-18). The port has its
         # own entry and runtime
         startup = {a for a in cands if re.sub(r"^FID_conflict[:_]", "", self.cor[a]["name"])
                    in ("WinMainCRTStartup", "wWinMainCRTStartup", "mainCRTStartup", "wmainCRTStartup")}
@@ -6329,7 +6329,7 @@ class Translator:
                 # a routine the port's C runtime DLLs export (`fclose`, `_wgetcwd`, `abort`): the
                 # port's, which a call by that name reaches (named_callee). Translated, the
                 # reference's ran on its own runtime's state (lowio handles, locales, the stdio
-                # streams) that FrostLite never initializes, through 104 internals stubbed
+                # streams) that the port never initializes, through 104 internals stubbed
                 # "called, not in the work set" (2026-10-18)
                 "::" not in name and bare in crt_exports()) or (
                 # vcruntime's exception handling (CatchIt<__FrameHandler3>, BuildCatchObjectInternal,
@@ -6366,7 +6366,7 @@ class Translator:
             return "did not compile: " + self.demoted[f"{a:x}"]
         if a in self.protection:
             # (the report leaves out reasons starting "anti-tamper": protection, not code to port)
-            return "anti-tamper runtime (tools/aegis.py): protection, not ported"
+            return "anti-tamper runtime (the protection plugin): protection, not ported"
         if a in self.fragments:
             return f"anti-tamper junk between two functions, no function ({self.fragments[a]})"
         text = self.body(a)
@@ -6374,7 +6374,7 @@ class Translator:
             return "not in the corpus"
         if a in self.guard_failed:
             # (a game function: listed with the defects, unlike the runtime above)
-            return f"an inlined anti-tamper guard tools/aegis.py could not strip: {self.guard_failed[a]}"
+            return f"an inlined anti-tamper guard the protection layer could not strip: {self.guard_failed[a]}"
         if a in self.v16_failed:
             return f"16-byte values: {self.v16_failed[a]}"
         # (the code only, not what its strings say: `"in_token"` is no register)
@@ -6408,7 +6408,7 @@ class Translator:
         if re.search(r"^\s*_guard_check_icall\([^;]*\);", text, re.M) and a in self.cor:
             # (an import called through its slot too: `(*Import::KERNEL32_DLL::GetCurrentProcess)()`,
             # uncounted, made FUN_140250520's 29 calls look like 28, 2026-10-16)
-            # (in a guarded function the shown calls are counted before tools/aegis.py strips the
+            # (in a guarded function the shown calls are counted before the protection plugin strips the
             # guards: their calls through decoded pointers are in the instructions too. Counted
             # after, the per-frame tick FUN_14167c520 looked like it had lost one, and was stubbed
             # with the 213 game functions only it reaches, 2026-10-17)
@@ -6470,7 +6470,7 @@ class Translator:
         by the decompiler as `thunk_FUN_<that address>`: the slot's value at export time. A
         slot in .data is written at run time, so the call goes wherever it points then. Curl's
         Curl_resolver_cleanup 0x14216f890 is `jmp [Curl_cfree]`, read as a thunk to the CRT's
-        free: Curl_close freed a block from the Storm-backed Curl_ccalloc with the CRT's heap,
+        free: Curl_close freed a block from the client-allocator-backed Curl_ccalloc with the CRT's heap,
         and the web login died of heap corruption (2026-10-20). Calls to such a stub are put
         back as the call through the slot, the way the decompiler prints those."""
         stubs: dict[int, tuple[int, int]] = {}   # stub -> (slot, initial target)
@@ -6576,7 +6576,7 @@ class Translator:
         rapidjson's writer indexes "0123456789ABCDEF" plus its escape table, which runs on through
         NULs the decompiler's literal stops at (`"0123456789ABCDEFuuuu..."[c + 0x10]`). With the
         port's copy, every character past the literal read whatever followed it: the web login's
-        JSON came out escaped letter by letter and FrostForge read no account name (2026-10-20).
+        JSON came out escaped letter by letter and the port read no account name (2026-10-20).
         It becomes the reference's copy the function itself addresses."""
         lits = re.compile(r'(?:\("((?:[^"\\]|\\.)*)" \+ (\w+)\)|"((?:[^"\\]|\\.)*)")\[([^\[\]]+)\]')
         if not lits.search(rest):
@@ -6746,7 +6746,7 @@ class Translator:
             # A function Ghidra calls void because it ends in a tail call (FUN_140d11f10 jumps
             # to GetObjectFromLua and hands its object back in rax): a call just before a return
             # leaves its result where the caller reads one, so the return carries it. Named calls
-            # too: FUN_140574f50, the string buffer's grow, ends in Storm::SMemAlloc and its
+            # too: FUN_140574f50, the string buffer's grow, ends in the client's SMemAlloc and its
             # `return 0` handed the SChannel filter a null 0xa000-byte buffer, 2026-10-14.
             # Only a call that is a statement of its own: one that continues the line above
             # (`DAT_x =\n       FUN_y(...);`) is the right side of an assignment, and turning it
@@ -6828,8 +6828,8 @@ class Translator:
             uses.add(target)
             return f"CALLF({self.decl(target)[0]}, @FUN_{target:x})("
 
-        # (outside string literals too: "Usage: C_Console.SetFontHeight(fontHeightInPixels)" came
-        # out "C_Console.CALLF(undefined4, FUN_140e24f80)(...)", 2183 literals, 2026-10-21)
+        # (outside string literals too: "Usage: Console.SetFontHeight(fontHeightInPixels)" came
+        # out "Console.CALLF(undefined4, FUN_140e24f80)(...)", 2183 literals, 2026-10-21)
         parts = re.split(r"(\"(?:[^\"\\\n]|\\.)*\"|'(?:[^'\\\n]|\\.)*')", body)
         body = "".join(p if k % 2 else CALL.sub(call, p) for k, p in enumerate(parts))
         body = crt_arity(body)
@@ -6887,7 +6887,7 @@ class Translator:
                 gtype = "longlong *"
             elif gtype in ("pointer", "pointer64") and size == 8 and addr in derefed:
                 # Ghidra's bare `pointer` is `undefined *`: `*PTR_DAT_x` is one byte through it.
-                # As an integer it demoted 98 functions, among them the blz::string clears on the
+                # As an integer it demoted 98 functions, among them the string class's clears on the
                 # Login click (FUN_14147f360: `*PTR_DAT_142d076f0 = 0` is `mov byte ptr [rax], 0`)
                 gtype = "undefined *"
             # (and a global the data export has no item for at all, whose 8 bytes above are only a
@@ -7008,7 +7008,7 @@ class Translator:
                 borrowed.setdefault(int(addr, 16), ctype.replace(" *", "*").replace("*", " *").strip())
         # or the global plus an offset into a pointer local, uncast (`puVar10 = DAT_1430af020 + 4;`):
         # in Ghidra's C the global is that pointer and the offset counts elements. As an integer
-        # the Battle.net game-account list was walked 4 bytes in, not 4 qwords, the account's
+        # a client's game-account list was walked 4 bytes in, not 4 qwords, the account's
         # name was never found, and the login stopped after GetGameAccountState (2026-10-20)
         for m in re.finditer(r"(?<![\w*.>\]])(\w+) = _?DAT_([0-9a-f]{9}) [+-] ", body):
             ctype = local_types.get(m.group(1))
@@ -7017,12 +7017,12 @@ class Translator:
         # or one the decompiler casts a pointer into or compares with one: the bgs log sink
         # registry (FUN_141effc10) is `DAT_143264a00 = (undefined8 *)FUN_1402545c0(...)` and
         # `DAT_143264a00 == (undefined8 *)0x0`; demoted, it left the registry null and
-        # BattleNetInitialize faulted on it (98 of 220 such demotions show a cast like this)
+        # the login client's initializer faulted on it (98 of 220 such demotions show a cast like this)
         for m in re.finditer(r"\b_?DAT_([0-9a-f]{9})\s*(?:==|!=|=)\s*\(((?:\w+ )*\w+ ?\*+)\)", body):
             borrowed.setdefault(int(m.group(1), 16), re.sub(r"\s*(\*+)$", r" \1", m.group(2)).strip())
 
         # a constant Ghidra wrote as the address of a "global" outside the image
-        # (`&DAT_8000000000000020`, a blz::vector's inline capacity flag) is that constant
+        # (`&DAT_8000000000000020`, a vector class's inline capacity flag) is that constant
         def outside(m):
             v = int(m.group(1), 16)
             return m.group(0) if IMAGE_LO <= v < IMAGE_HI else f"((undefined1 *){v:#x}ULL)"
@@ -7103,7 +7103,7 @@ class Translator:
         # the same at a port global it is tied to (a function pointer the port holds)
         body = re.sub(r"\(\*\(\*\(undefined\d? \*\)(\(\(char \*\)&gen_g_[0-9a-f]{9} \+ 0x[0-9a-f]+\))\)\)\s*\(",
                       r"(*(*(code **)\1))(", body)
-        # a local Ghidra typed as an 8-byte integer and called through: the slot of a blz::function
+        # a local Ghidra typed as an 8-byte integer and called through: the slot of a function object
         # whose stack layout it merged with other data (FUN_1416a0db0: `(*local_180)(...)` with
         # `undefined8 local_180`, C2100 in 22 functions). The call is a code pointer; the other
         # uses keep the integer type
@@ -7448,7 +7448,7 @@ class Translator:
                    "#include \"gen/translated.h\"", "#pragma warning(disable: 4013 4024 4028 4047 4090 4133 4142 4189 4245 "
                    "4244 4267 4305 4306 4310 4312 4389 4554 4702 4100 4101 4102 4146 "
                    "4018 4057 4113 4152 4204 4459 4456 4457 4127 4805 4800 4996)",
-                   # a call count per function (written out under FROST_HITS): which translated
+                   # a call count per function (written out on a hits run): which translated
                    # code a run reaches, and how often, for choosing what to port by hand
                    f"#define GEN_HITS gen_hits_{k}", f"unsigned int gen_hits_{k}[{len(funcs)}];", ""]
             for i, a in enumerate(funcs):
@@ -7548,7 +7548,7 @@ class Translator:
 
         # each translated file's call counts (GEN_HIT, Ghidra64.h) and their addresses
         hits = ["/* GENERATED by tools/translate64.py; do not edit by hand. */",
-                "/* every translated file's call count table (RefImage.cpp writes them out under FROST_HITS) */",
+                "/* every translated file's call count table (the port writes them out on a hits run) */",
                 "typedef struct { unsigned int *m_hits; const unsigned long long *m_addrs; unsigned int m_count; } GENHITS;"]
         for name, funcs in sorted(by_file.items()):
             k = name[len("translated_"):-2]

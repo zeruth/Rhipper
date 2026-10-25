@@ -1,4 +1,4 @@
-// Pre-analysis options for importing WowClassic-clean.exe.
+// Pre-analysis options for importing an x64 client's clean exe.
 //
 // "Non-Returning Functions - Discovered" is off: on this binary it spent 30+ minutes in
 // ClearFlowAndRepairCmd re-disassembling after every call it decided does not return,
@@ -7,7 +7,7 @@
 // (assert / fatal handlers) are marked afterwards from the source-path anchors.
 //
 // Usage (headless): -preScript ImportOptions.java
-//@category FrostLite
+//@category Rhipper
 import ghidra.app.script.GhidraScript;
 import java.util.Map;
 

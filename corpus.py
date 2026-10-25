@@ -1,6 +1,6 @@
-"""The 3.4.3 decompilation corpus: every function decompiled once, read many times.
+"""The reference's decompilation corpus: every function decompiled once, read many times.
 
-Same idea as the 3.3.5 tools/recomp/corpus.py: a headless Ghidra run costs a minute or
+A headless Ghidra run costs a minute or
 more, so the whole program is exported once (ghidra/ExportDecompAll.java, parallel) to
 build/corpus.jsonl, and every later read is a file lookup. Names come from the Ghidra
 project, which ApplyFacts has already filled (imports, Lua and C_ APIs, data/names.json),

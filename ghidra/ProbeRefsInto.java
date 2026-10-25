@@ -1,7 +1,7 @@
 // The references into [lo, hi] from outside it, with what makes each (a look at why a dead region
 // is still reached).
 //   bash tools/ghidra/ghidra.sh script ProbeRefsInto.java 0x1424dbf47 0x1424dc3b6
-// @category FrostLite
+// @category Rhipper
 import ghidra.app.script.GhidraScript;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressIterator;

@@ -2,8 +2,8 @@
 
 Nothing points at an RTTI type descriptor, but code loads its *name string*
 (descriptor + 16) and passes it as a type tag, mostly to the allocator:
-    FUN_142430eb0(&heap, 0, ".?AUAnimEventData@CGUnit_C@@", ...)
-3.5k class names at ~14.6k sites. For each site this records the class, the function
+    FUN_142430eb0(&heap, 0, ".?AUEventData@Unit@@", ...)
+One x64 client had 3.5k class names at ~14.6k sites. For each site this records the class, the function
 containing it, and the first call after the load (the consumer of the tag: allocator,
 container constructor, ...). A function that allocates exactly one class is usually
 that class's factory or a method of its owner.
@@ -26,7 +26,7 @@ _undname.restype = ctypes.c_uint32
 
 
 def demangle(raw: str) -> str:
-    """'.?AUAnimEventData@CGUnit_C@@' -> 'CGUnit_C::AnimEventData' (via the vftable symbol)."""
+    """'.?AUEventData@Unit@@' -> 'Unit::EventData' (via the vftable symbol)."""
     if not raw.startswith((".?AV", ".?AU")):
         return raw
     buf = ctypes.create_string_buffer(2048)
@@ -84,9 +84,6 @@ def main() -> None:
     print("top tag consumers (allocators and friends):")
     for c, n in consumers.most_common(6):
         print(f"  {hexa(c)}  {n}")
-    for k in ("CGUnit_C::AnimEventData", "WOWGUID", "CGPlayer_C", "CGUnit_C"):
-        if k in by_class:
-            print(f"  {k}: {len(by_class[k])} functions")
 
 
 if __name__ == "__main__":

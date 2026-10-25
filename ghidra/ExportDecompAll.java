@@ -1,4 +1,4 @@
-// FrostLite copy of tools/recomp/ghidra/ExportDecompAll.java (3.3.5): 64-bit addresses, names
+// Rhipper's copy of tools/recomp/ghidra/ExportDecompAll.java: 64-bit addresses, names
 // with their namespace. Drives tools/corpus.py --export.
 // Decompiles every function in the program (or an address range) in parallel and streams the C
 // output to a JSON-lines file, one object per function: {"addr","name","size","c"} or
@@ -284,7 +284,7 @@ public class ExportDecompAll extends GhidraScript {
             public String[] process(DecompileResults res, TaskMonitor mon) {
                 Function f = res.getFunction();
                 String addr = String.format("%x", f.getEntryPoint().getOffset());
-                String name = f.getName(true);  // with namespace: Lua::C_Container::GetBagName
+                String name = f.getName(true);  // with namespace: Lua::Inventory::GetItemName
                 String size = Long.toString(f.getBody().getNumAddresses());
                 if (res.decompileCompleted()) {
                     return new String[] { addr, name, size, res.getDecompiledFunction().getC(), null,

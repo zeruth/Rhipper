@@ -119,7 +119,7 @@ typedef long long (*FARPROC)();
 typedef void *LPVOID, *PVOID;
 /* the LPC* names without their const: Ghidra types a local after the API parameter it ends up in,
    and the code may well have written through it first. SChannel's loader (FUN_141f74e30) builds
-   the DLL path in a blz::wstring's buffer, terminates it (`mov word ptr [rdi + rax], r14w`,
+   the DLL path in a wide-string class's buffer, terminates it (`mov word ptr [rdi + rax], r14w`,
    0x141f7525f) and hands it to LoadLibraryW: as const that store was C2166 and the loader was
    stubbed (2026-10-16). Nothing translated is checked against the SDK's declarations. */
 typedef void *LPCVOID;
@@ -271,7 +271,7 @@ static __inline double gen_q2d(long long q) { double d; memcpy(&d, &q, 8); retur
 #define GEN_FABS(x) gen_bits2f(GEN_FABSBITS(x))
 #define GEN_FNEG(x) gen_bits2f(GEN_FNEGBITS(x))
 /* a translated function's call count, in its own file's table (GEN_HITS is that file's
-   gen_hits_NNN, listed in hits.c; written out by RefImage.cpp under FROST_HITS). Per file, so a
+   gen_hits_NNN, listed in hits.c; written out by RefImage.cpp when asked). Per file, so a
    function moving in or out of one file renumbers no other */
 #define GEN_HIT(i) (GEN_HITS[i]++)
 /* The shadow trace (shadow64.py): every translated function, adapter and stub records its entry
@@ -308,7 +308,7 @@ static __inline double GEN_AS_FLOAT(unsigned long long bits) {
 /* an argument for a floating point parameter, by the argument's own C type: a float or double
    goes by value, anything else (an integer Ghidra spelled for a register that holds one) by its
    bits. The translator could not always see the type in the text (`((float *)(gen_frame +
-   0x40))[0]` went through `(unsigned long long)` and arrived as 14 -> 2e-44: C_Console's font
+   0x40))[0]` went through `(unsigned long long)` and arrived as 14 -> 2e-44: a console's font
    height was 0 and the console's EditBox refused it, 2026-10-21); C's _Generic can */
 static __inline double gen_farg_f(float x) { return (double)x; }
 static __inline double gen_farg_d(double x) { return (double)(float)x; }

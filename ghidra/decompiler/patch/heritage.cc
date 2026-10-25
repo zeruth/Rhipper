@@ -811,7 +811,7 @@ void LoadGuard::finalizeRange(const ValueSetRead &valueSet)
       // space. Kept from the minimum up only, a parameter's slot the pointer may also reach lost
       // its guard: MSVC's std::min/max over `local_c` and a parameter's slot reused for the
       // other operand, `mov [ebp + 8], eax; lea ecx, [ebp + 8]`, and the store went as dead, a
-      // pointer read for a bucket index (CrystalCore's graphics allocator, FUN_004f5620,
+      // pointer read for a bucket index (a client's graphics allocator, FUN_004f5620,
       // 2026-10-24)
       minimumOffset = 0;
       maximumOffset = spc->getHighest();

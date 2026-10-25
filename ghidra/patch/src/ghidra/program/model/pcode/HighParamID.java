@@ -240,7 +240,7 @@ public class HighParamID extends PcodeSyntaxTree {
 				if (!(dataType == null || dataType instanceof VoidDataType)) {
 					VariableStorage storage = buildStorage(vn);
 					func.setReturn(dataType, storage, SourceType.ANALYSIS);
-					// FrostLite patch: under dynamic storage setReturn ignores the storage and
+					// Rhipper patch: under dynamic storage setReturn ignores the storage and
 					// re-derives it from the data type, and an undefined type always lands in
 					// the integer register. A float return measured in XMM0 was committed in RAX,
 					// and every caller then read an untracked extraout_XMM0. When the storage did
@@ -255,7 +255,7 @@ public class HighParamID extends PcodeSyntaxTree {
 						}
 						if (!func.getReturn().getVariableStorage().equals(storage)) {
 							func.setReturn(dataType, storage, SourceType.ANALYSIS);
-							Msg.warn(this, "FrostLite: return storage " + storage + " of " +
+							Msg.warn(this, "Rhipper: return storage " + storage + " of " +
 								func.getName() + " not representable, committed " +
 								func.getReturn().getVariableStorage());
 						}

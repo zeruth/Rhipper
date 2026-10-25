@@ -54,7 +54,7 @@ int Launch() {
 // The environment WoW64 gives a 32-bit program: PROCESSOR_ARCHITECTURE x86 with the machine's own
 // in PROCESSOR_ARCHITEW6432, and the 32-bit program folders as ProgramFiles and CommonProgramFiles.
 // The CRT's _setenvp walks every string, and run natively the reference saw one more than the port
-// and two longer: shadow_diff parted the runs there (CrystalCore 2026-10-25). Set by the program's
+// and two longer: shadow_diff parted the runs there (a client, 2026-10-25). Set by the program's
 // own process: a 64-bit one's start puts the launcher's back to the machine's.
 void Wow64Environment() {
     wchar_t arch[64] = {};

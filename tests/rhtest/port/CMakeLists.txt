@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.24)
 project(rhtest_port C CXX)
 
 # The port of one rhtest project (-DRHTEST_VARIANT=<work/name-variant>): its translation (gen/,
-# written by translate32.py) and Rhipper's 32-bit runtime, as CrystalCore builds its own.
+# written by translate32.py) and Rhipper's 32-bit runtime, as a real project builds its own.
 if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
   message(FATAL_ERROR "the port builds as x64 (-A x64)")
 endif()
@@ -19,8 +19,8 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 file(GLOB GEN_SOURCES CONFIGURE_DEPENDS ${RHTEST_VARIANT}/gen/*.c)
 add_library(gen OBJECT ${GEN_SOURCES})
 target_include_directories(gen PRIVATE ${RHTEST_VARIANT}/gen)
-# (the memory model's conversions, as in CrystalCore's CMakeLists.txt; an undeclared call is an error.
-# -DRHTEST_MEASURE=ON: the translation built as written as can be, /O1 /Ob0, for fidelity32.py: /O2
+# (the memory model's conversions, as in a real project's CMakeLists.txt; an undeclared call is an
+# error. -DRHTEST_MEASURE=ON: the translation built as written as can be, /O1 /Ob0, for fidelity32.py: /O2
 # unrolls and inlines what the translation says, /Od spells each index out in instructions (no
 # `[reg+4]` for `p[1]`), and fidelity measures the translation)
 if(RHTEST_MEASURE)
@@ -37,6 +37,8 @@ add_executable(rhtest-port
   ${RUNTIME32}/RefImage.cpp
   ${RUNTIME32}/Adapters.cpp
   ${RUNTIME32}/Trace.cpp
+  ${RUNTIME32}/Com32.cpp
+  ${RUNTIME32}/Com32Gen.cpp
   $<TARGET_OBJECTS:gen>)
 target_compile_options(rhtest-port PRIVATE /W3 /Zi)
 target_link_libraries(rhtest-port PRIVATE dbghelp)

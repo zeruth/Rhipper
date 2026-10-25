@@ -2,7 +2,7 @@
 // or data, with its length), and the functions at and around it with their body ranges. A look at
 // what Ghidra's listing holds where a body is cut.
 //   bash ghidra/ghidra.sh script ProbeListing.java 0x9f9fa2
-// @category FrostLite
+// @category Rhipper
 import ghidra.app.script.GhidraScript;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressRange;

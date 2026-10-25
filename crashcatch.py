@@ -1,9 +1,9 @@
-"""Launches FrostLite under a minimal debugger and reports the first real exception: its code,
-address and registers, and the FrostLite return addresses found on the faulting thread's stack,
+"""Launches the port under a minimal debugger and reports the first real exception: its code,
+address and registers, and the port's return addresses found on the faulting thread's stack,
 symbolized through the PDB (a scan, not an unwind: false positives are possible, the order is
 the stack's).
 
-    python tools/crashcatch.py [--exe build/cmake/bin/Release/FrostLite.exe] [--cwd client/_classic_]
+    python tools/crashcatch.py [--exe build/cmake/bin/Release/MyPort.exe] [--cwd <the game folder>]
                                [--timeout 120]
 """
 import argparse
@@ -239,7 +239,7 @@ def symbol_rva(exe, name):
 
 
 def dump_hits(process, exe, base, path):
-    """What FROST_HITS would have written (RefImage.cpp's HitDumpThread), read out of the stopped
+    """What a hits run would have written (the port's hit dump thread), read out of the stopped
     process: a run that dies within the dump thread's first five seconds still leaves its counts.
     "address count" a line, most first."""
     tables, count = symbol_rva(exe, "gen_hit_tables"), symbol_rva(exe, "gen_hit_table_count")

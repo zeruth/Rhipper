@@ -1,7 +1,7 @@
 // The flows Ghidra records from each given instruction (a computed jump's cases, as its own
 // table recovery or an override left them).
 //   bash tools/ghidra/ghidra.sh script ProbeFlows.java 0x14173554a
-// @category FrostLite
+// @category Rhipper
 import ghidra.app.script.GhidraScript;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Instruction;

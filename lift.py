@@ -96,7 +96,7 @@ def _decode(binary, address: int, limit: int, functions=None) -> dict:
                 break
             if mn == "jmp":
                 if re.fullmatch(r"qword ptr \[(?!rip)[^\]]+\]", ins.op_str):
-                    break   # a tail call through memory: a vcall thunk, blz::function's invoker
+                    break   # a tail call through memory: a vcall thunk, a std::function-like invoker
                 if re.fullmatch(REG64, ins.op_str):
                     break   # and through a register the code loaded (see the emitter)
                 if not re.fullmatch(r"0x[0-9a-f]+", ins.op_str):
@@ -395,7 +395,7 @@ def _lift(binary, address: int, limit: int, arity=None, functions=None):
             used.update(("rax", "rdx"))
         elif mn == "jmp" and ops[0].startswith("qword ptr ["):
             # a tail call through a pointer in memory (`mov rax,[rcx]; jmp [rax+8]`, the thunk
-            # a member-function pointer to a virtual is: GlueLogin hands the Battle.net client
+            # a member-function pointer to a virtual is: a login screen hands its login client
             # its listener's slots this way), the argument registers passed on as they stand
             where = address_of(ops[0][len("qword ptr ["):-1])
             args = []
@@ -441,7 +441,7 @@ def _lift(binary, address: int, limit: int, arity=None, functions=None):
         elif mn.startswith("j") and int(ops[0], 16) not in found:
             # a conditional tail call (_decode let it through only to a function's start): taken,
             # the argument registers go on as they stand, as for a `jmp`. Refused as a branch out
-            # of the code, `if (*err) goto FUN_14147f7f0` (Battle.net's error check 0x141484590)
+            # of the code, `if (*err) goto FUN_14147f7f0` (a login client's error check 0x141484590)
             # and two `if (global) goto` thunks were stubs: the decompiler shows the jump as a call
             # of nothing, "lost a call's arguments" (2026-10-23)
             target = int(ops[0], 16)

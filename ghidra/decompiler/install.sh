@@ -11,7 +11,7 @@
 #   dynamic.cc  dynamic hashes tell apart up to 64 colliding varnodes, not 8: a SIMD instruction's
 #               lanes hash alike, and "Unable to find unique hash for varnode" failed whole functions
 #   printc.cc   a value wider than the symbol at its address prints as `*(T *)&sym`, not the
-#               release's `_sym` (a mark for a reader, no C: 993 functions of WowClassic 3.4.3);
+#               release's `_sym` (a mark for a reader, no C: 993 functions of an x64 client);
 #               a signed CONCAT/SUB used in place prints its type, `(longlong)CONCAT44(a,b)`; a
 #               CAST or SUBPIECE between a float and an integer prints as the reader's bit views
 #               (gen_fl2bits, gen_bits2f, ...), not a C conversion; a float-typed piece is `_4_4f_`

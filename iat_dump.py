@@ -23,6 +23,7 @@ import subprocess
 
 import pefile
 
+import project
 from pebin import Binary, hexa, write_facts
 
 k32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -48,9 +49,11 @@ psapi.GetModuleInformation.argtypes = [wt.HANDLE, ctypes.c_void_p, ctypes.POINTE
 
 def find_pid() -> int:
     out = subprocess.run(["tasklist", "/fo", "csv", "/nh"], capture_output=True, text=True).stdout
-    pids = [int(m.group(2)) for m in re.finditer(r'"(WowClassic[^"]*\.exe)","(\d+)"', out)]
+    # (the reference's process, by the project's "process" name or its binary's)
+    name = project.CONFIG.get("process") or project.EXE.stem
+    pids = [int(m.group(2)) for m in re.finditer(r'"(' + re.escape(name) + r'[^"]*\.exe)","(\d+)"', out)]
     if len(pids) != 1:
-        raise SystemExit(f"expected one WowClassic process, found {len(pids)}; pass --pid")
+        raise SystemExit(f"expected one {name} process, found {len(pids)}; pass --pid")
     return pids[0]
 
 

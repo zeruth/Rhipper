@@ -1,5 +1,5 @@
 """A 32-bit reference's decompilation translated to C for an x64 port: translate.py's counterpart
-for rhipper.json "arch": "x86" (first CrystalCore, FFXIV's ARR beta client).
+for rhipper.json "arch": "x86" (first a VS2010 /MT game client).
 
 The port's memory model (runtime32/Ghidra32.h says it at length): the port is linked
 /LARGEADDRESSAWARE:NO, so Windows keeps all of its memory below 2 GB (2026-10-23: its stack,
@@ -184,6 +184,23 @@ MATH = {
     "_rotl": ("unsigned int", ["unsigned int", "int"]), "_rotr": ("unsigned int", ["unsigned int", "int"]),
     "_lrotl": ("unsigned long", ["unsigned long", "int"]), "_lrotr": ("unsigned long", ["unsigned long", "int"]),
 }
+WIDE_INTS = ("unsigned long long", "long long")
+
+
+def math_params(n: str) -> tuple[list[str], list[str]]:
+    """An import's adapter parameters and the real function's arguments made of them: an 8-byte
+    integer is two words, low then high, as ApplyFacts' splitWideImportArgs32 has every import's
+    (`_byteswap_uint64(param_1,param_2)`, too many arguments for the adapter, rhtest
+    msvc-14.51-x86 misc-Od swap64 2026-10-25)."""
+    params, args = [], []
+    for k, p in enumerate(MATH[n][1]):
+        if p in WIDE_INTS:
+            params += [f"unsigned int a{k}lo", f"unsigned int a{k}hi"]
+            args.append(f"({p})(((unsigned long long)a{k}hi << 32) | a{k}lo)")
+        else:
+            params.append(f"{p} a{k}")
+            args.append(f"a{k}")
+    return params, args
 
 
 # the C runtime's and Winsock's type names Ghidra uses, at the reference's widths (intptr_t and
@@ -257,7 +274,7 @@ def out_stack(body: str, alloca: bool = False, eh: bool = False) -> str:
     # buffer is `&stack0xffffffe8` as it is, no `+ iVar5` below it. The reference's lies below the
     # frame, as long as asked: the bottom of frame_locals' room for it, GEN_LOW, each place at its
     # distance from the lowest. As a 0x18-byte gen_out, __crtGetStringTypeA_stat's wide string ran
-    # over GetStringTypeW's output pointer, CrystalCore 2026-10-24)
+    # over GetStringTypeW's output pointer, a VS2010 client 2026-10-24)
     low = alloca and not re.search(r"stack0xf[0-9a-f]{7}\s*\)?\s*[+-]\s*\(?\s*[A-Za-z_]", body)
 
     def place(off: int) -> str:
@@ -312,7 +329,7 @@ def v16_forms(c: str) -> str:
     c = re.sub(r"(?m)^([ \t]*)([^=;\n{}]+?)\s*=\s*\(\s*undefined1\s*\[\s*16\s*\]\s*\)\s*([^;\n]+);[ \t]*$",
                r"\1GEN_V16_SET(\2, \3);", c)
     # (the first bytes of one, `*(undefined1 (*) [12])*(undefined1 (*) [16])(pfVar25 + 8)`: those
-    # bytes where it is, C's inner `*` being the whole array, FUN_00d5c7e0 in CrystalCore 2026-10-25)
+    # bytes where it is, C's inner `*` being the whole array, FUN_00d5c7e0 in a VS2010 client 2026-10-25)
     c = re.sub(r"\*\s*\(\s*(gen_v\d+)\s*\*\s*\)\s*\*\s*\(\s*gen_v\d+\s*\*\s*\)", r"*(\1 *)", c)
     # (and one copied whole, `auVar1 = *(gen_v16 *)p;`, `*p = auVar1;`: 16 bytes)
     arrays = set(re.findall(r"(?m)^[ \t]+undefined1\s+([A-Za-z_]\w*)\s*\[\s*(?:" + V_SIZES + r")\s*\]\s*;", c))
@@ -451,7 +468,7 @@ def sse_ops(c: str, arrays: set[str], v16) -> str:
 # (and ApplyFacts' object blocks, blk_N, N below the entry too: as a C local of its own, nested()'s
 # Guards were nowhere its unwind funclets look through ebp, rhtest eh 2026-10-24). Not a variable's
 # name as the type: a wrapped expression's last line, `fVar34 * local_90;`, is no declaration
-# (FUN_00d657d0 in CrystalCore 2026-10-25)
+# (FUN_00d657d0 in a VS2010 client 2026-10-25)
 FRAME_LOCAL = r"(?:local|[a-z]{0,3}Stack|blk)_([0-9a-f]+)"
 FRAME_DECL = re.compile(r"(?m)^[ \t]+(?!(?:return|goto|case|else|do)\b)(?!(?:local|[a-z]{0,3}Stack|blk)_[0-9a-f]+\b)"
                         r"(?![a-z]{1,4}Var\d+\b)(?!(?:param|in|unaff|extraout)_\w+\b)"
@@ -613,8 +630,8 @@ def returned_local(v: str, lines: list[str]) -> bool:
         if re.fullmatch(r"return\s+(?:\(\w+\)\s*)?" + re.escape(v) + r"\s*;", s):
             continue
         # (or as the high half of one, `return CONCAT44(uVar4,uVar2);`: edx beside an int result,
-        # the CRT's __vsnprintf_helper typed ulonglong, whose callers read eax, CrystalCore
-        # 2026-10-25)
+        # the CRT's __vsnprintf_helper typed ulonglong, whose callers read eax, a VS2010
+        # client 2026-10-25)
         if re.fullmatch(r"return\s+CONCAT44\(\s*" + re.escape(v) + r"\s*,[^;]*\)\s*;", s) \
                 and len(re.findall(r"\b" + re.escape(v) + r"\b", s)) == 1:
             continue
@@ -628,7 +645,7 @@ def returned_local(v: str, lines: list[str]) -> bool:
 def int_min(c: str) -> str:
     """Ghidra's INT_MIN as a negation, `-0x80000000` (and LLONG_MIN's): signed. C reads the
     literal as unsigned and its negation too, so `-0x80000000 >> n`, an x86 `sar` making a mask of
-    ones, shifted in zeros: the graphics allocator's free-bucket mask found no bucket (CrystalCore,
+    ones, shifted in zeros: the graphics allocator's free-bucket mask found no bucket (a VS2010 client,
     2026-10-24). A minus after an operand is a subtraction, left as it is."""
     def one(m):
         before = c[:m.start()].rstrip()
@@ -716,6 +733,19 @@ def returned_only(c: str) -> set[str]:
     return ok | entry
 
 
+def declared_only(c: str) -> set[str]:
+    """The lost names the decompiler declares and never uses: a parameter's other half as the
+    caller's stack (`undefined2 in_stack_00000006;` beside __towlower_l's wint_t `_C`, which it
+    reads as `*(uint *)&_C`: a stub a VS2010 client called, 2026-10-25). A local of its own in the
+    port, unread."""
+    out = set()
+    for n in set(m.group(1) for m in LOST.finditer(c)):
+        uses = [l for l in c.split("\n") if re.search(r"\b" + re.escape(n) + r"\b", l)]
+        if all(re.fullmatch(r"\s*[A-Za-z_][\w ]*?[\s*]*\b" + re.escape(n) + r"\s*(?:\[[^\]]*\])?;\s*", l) for l in uses):
+            out.add(n)
+    return out
+
+
 def filler_args(c: str) -> set[str]:
     """The result registers the decompiler lost that are read only as whole arguments of calls:
     what a caller pushes for a parameter the callee never reads. /LTCG folds a constant argument
@@ -725,7 +755,21 @@ def filler_args(c: str) -> set[str]:
     # (or through a local it is copied to, `piVar2 = extraout_ECX;`, that is only ever assigned or
     # passed whole so: /GL's opener pushes ecx, whatever seek3 left there, for the lo seek3 ignores,
     # rhtest msvc-14.51-x86 calls-GL 2026-10-25)
+    # (or stored where the next statement stores again without reading it: x87's `push ecx; fstp
+    # [esp]` reserves a float argument's slot with whatever ecx holds, `local_d4 = extraout_ECX;
+    # local_d4 = fVar12;` (a VS2010 client's FUN_004152c0, a stub, 2026-10-25))
     lines = c.split("\n")
+    body = [l for l in lines if l.strip()]
+
+    def dead_store(l):
+        m = re.fullmatch(r"\s*([A-Za-z_]\w*)\s*=\s*(?:\([^()]*\)\s*)?[A-Za-z_]\w*\s*;\s*", l)
+        if not m:
+            return False
+        k = next((i for i, x in enumerate(body) if x is l), None)
+        if k is None or k + 1 >= len(body):
+            return False
+        nxt = re.fullmatch(r"\s*" + re.escape(m.group(1)) + r"\s*=(?!=)([^;]*);\s*", body[k + 1])
+        return bool(nxt) and not re.search(r"\b" + re.escape(m.group(1)) + r"\b", nxt.group(1))
 
     def filler(n, seen):
         uses = [l for l in lines if re.search(r"\b" + re.escape(n) + r"\b", l)
@@ -735,6 +779,8 @@ def filler_args(c: str) -> set[str]:
         for l in uses:
             if re.fullmatch(r"\s*" + re.escape(n) + r"\s*=(?!=)[^;]*;\s*", l) and n not in seen[:1]:
                 continue                                  # (a local's own assignment)
+            if n == seen[0] and dead_store(l):
+                continue
             m = re.fullmatch(r"\s*([A-Za-z_]\w*)\s*=\s*" + re.escape(n) + r"\s*;\s*", l)
             if m and m.group(1) not in seen:
                 if not filler(m.group(1), seen + [m.group(1)]):
@@ -941,7 +987,7 @@ FLOATISH = re.compile(r"\b\d+\.\d*(?:[eE][-+]?\d+)?f?\b|\(float(?:10)?\)|\(doubl
 def match_paren(s: str, i: int) -> int:
     """The index just past the parenthesis group that opens at s[i]. (Not counting those in a
     string or character literal: `F_00d9fe80(buf,"Block (")`, the undecorator's strings in
-    CrystalCore, 2026-10-25.)"""
+    a VS2010 client, 2026-10-25.)"""
     depth = 0
     j = i
     while j < len(s):
@@ -1231,7 +1277,7 @@ class Translator32:
         not return (Ghidra marks it `WARNING: Subroutine does not return`): what they hold cannot
         reach anything after it. __security_check_cookie hands ___report_gsfailure the unaff_
         registers it found; a stub of it returned 0 for every function the cookie guards, the
-        result it passes through in eax (CrystalCore, 2026-10-24). They are 0 in the port."""
+        result it passes through in eax (a VS2010 client, 2026-10-24). They are 0 in the port."""
         calls = re.findall(r"/\*\s*WARNING: Subroutine does not return\s*\*/\s*\n\s*([^;{}]*;)", self.corpus[a]["c"])
         if not calls:
             return set()
@@ -1245,7 +1291,7 @@ class Translator32:
             # (or used besides as a local the function assigns before anything reads it: the
             # register it found is only what the call that does not return is handed, on a path
             # that set nothing. VS2010's __tzset_nolock, `unaff_EDI = (int *)0xffffffff;` first,
-            # `__invoke_watson(unaff_EDI,0,0,0,0,0)` on an early error, CrystalCore 2026-10-25)
+            # `__invoke_watson(unaff_EDI,0,0,0,0,0)` on an early error, a VS2010 client 2026-10-25)
             body = split_decls(c.partition("{")[2])[1]
             first = re.search(r"\b" + re.escape(n) + r"\b.*", body)
             if first and re.match(re.escape(n) + r"\s*=(?!=)", first.group(0)):
@@ -1257,7 +1303,7 @@ class Translator32:
         leaves that register input as it found it (protos32's keeps_in): what the call was passed
         there. /LTCG keeps `this` in ecx across a call to a method that never writes ecx, and the
         decompiler, told the call kills it, lost it: FUN_00d7be90's `FUN_00d79e80(this); this =
-        extraout_ECX;`, a stub on CrystalCore's WinMain path, 2026-10-24."""
+        extraout_ECX;`, a stub on a VS2010 client's WinMain path, 2026-10-24."""
         names = sorted(set(re.findall(r"\bextraout_E[CD]X(?:_\d+)?\b", c)))
         if not names or not self.keeps_in:
             return c
@@ -1304,7 +1350,7 @@ class Translator32:
         callee's parameter name it took), that the function never assigns: the parameter it takes
         in that register. FUN_00dc0b40, a __thiscall, hands `in_ecx` (its `this`, ecx unchanged
         across the call before) to FUN_00dc07b0 and returns it; translated as a local of its own,
-        it was garbage, and 683 functions declare one (CrystalCore, 2026-10-24). One no parameter
+        it was garbage, and 683 functions declare one (a VS2010 client, 2026-10-24). One no parameter
         is in is a register the decompiler lost (why_not)."""
         names = set(re.findall(r"(?m)^[ \t]+(?!return\b)[A-Za-z_][\w ]*?[ \t*]+(in_[a-z]{2,3})[ \t]*;", c))
         if not names:
@@ -1370,7 +1416,7 @@ class Translator32:
             if not re.search(rf"(?<![\w.>])\b{n}\s*(?:[-+*/|&^]|<<|>>)?=(?!=)|&\s*{n}\b|\b{n}\s*(?:\+\+|--)|(?:\+\+|--)\s*{n}\b", c):
                 return f"a register the decompiler lost ({n})"
         # (and a full xmm register as an SSE pseudo-op's destination found it: zeroed, sse_ops)
-        ok = returned_only(c) | self.noreturn_args_only(a, c) | filler_args(c) | {"in_FPUControlWord"} | \
+        ok = returned_only(c) | self.noreturn_args_only(a, c) | filler_args(c) | declared_only(c) | {"in_FPUControlWord"} | \
             set(re.findall(r"(?m)^[ \t]+undefined1\s+(in_XMM\d+)\s*\[\s*16\s*\]\s*;", c))
         m = next((m for m in LOST.finditer(c) if m.group(1) not in ok and not OUT_STACK.fullmatch(m.group(1))), None)
         if m:
@@ -1410,7 +1456,7 @@ class Translator32:
 
             def assign(mm, name=name, n=n, t=t):
                 # (another one copied in, `auVar6 = local_cc;`: its bytes, not its address,
-                # FUN_006835d0 in CrystalCore)
+                # FUN_006835d0 in a VS2010 client)
                 v = mm.group(2).strip()
                 v = f"(*({ints[small[v]]} *){v})" if v in small else v
                 return f"{mm.group(1)}{{ {t} gen_ac = ({t})({v}); memcpy({name}, &gen_ac, {n}); }}"
@@ -1490,7 +1536,10 @@ class Translator32:
                              split_decls(body)[0]):
             s = self.struct_of(m.group(1))
             if s and m.group(1) not in STRUCT_TYPES:
-                out[m.group(3)] = (s, "ptr" if m.group(2) else "array" if m.group(4) else "val")
+                # (an array of pointers to one, `IMalloc *local_28 [2]`: each element a pointer, not
+                # the structure, SHGetMalloc's out slot, rhtest msvc-14.51-x86 misc-O2 shell_malloc)
+                out[m.group(3)] = (s, "ptrarray" if m.group(2) and m.group(4) else
+                                   "ptr" if m.group(2) else "array" if m.group(4) else "val")
         for t, n in self.sigs[a].params:
             base = t.replace("*", "").strip()
             s = self.struct_of(base)
@@ -1654,6 +1703,8 @@ class Translator32:
                 return f"(char *)({base})", ("ptrval", s)
             return f"(char *)&({base})", ("struct", s)
         m = re.fullmatch(r"([A-Za-z_]\w*)\s*\[(.*)\]", base, re.S)
+        if m and m.group(1) in svars and svars[m.group(1)][1] == "ptrarray":
+            return f"(char *)({m.group(1)}[{m.group(2)}])", ("ptrval", svars[m.group(1)][0])
         if m and m.group(1) in svars:
             s, kind = svars[m.group(1)]
             size = self.composites[s]["size"]
@@ -1792,11 +1843,11 @@ class Translator32:
         c = re.sub(r"::[ \t]*\n[ \t]*", "::", c)
         # (Ghidra's INT_MIN, `-0x80000000`: C reads 0x80000000 as unsigned, and its negation too,
         # so `-0x80000000 >> n`, an x86 `sar` making a mask of ones, shifted in zeros. The
-        # graphics allocator's free-bucket mask found no bucket, CrystalCore 2026-10-24)
+        # graphics allocator's free-bucket mask found no bucket, a VS2010 client 2026-10-24)
         c = int_min(c)
         c = re.sub(r"(?<=[\w>])[ \t]*\n[ \t]*::", "::", c)
         # (a label named as the function that starts there, `FUN_00410044:` and `goto FUN_00410044;`
-        # inside FUN_0041002d: a label still, not that function's address, CrystalCore 2026-10-25)
+        # inside FUN_0041002d: a label still, not that function's address, a VS2010 client 2026-10-25)
         for lab in set(re.findall(r"(?m)^\s*(FUN_[0-9a-f]{8})\s*:(?!:)", c)):
             c = re.sub(rf"(?m)^(\s*){lab}(\s*:)(?!:)", rf"\1LAB_{lab[4:]}_f\2", c)
             c = re.sub(rf"\bgoto\s+{lab}\s*;", f"goto LAB_{lab[4:]}_f;", c)
@@ -1816,7 +1867,7 @@ class Translator32:
                       r"\s*\[(\d+)\]\s*\)\s*([^;\n]+);", array_set, body)
         # (and from a value with no array cast, `local_8 = SUB42(uVar2,0);` of an `undefined1
         # local_8 [2]`, or read whole, `(ushort)local_8`: Ghidra's word store into a byte array,
-        # FUN_005b2c00 in CrystalCore 2026-10-25)
+        # FUN_005b2c00 in a VS2010 client 2026-10-25)
         body = self.small_arrays(body)
         # (the entry esp itself, in a function whose frame frame_locals lays out: the frame's top,
         # GEN_SLOT(0), each local GEN_SLOT(N) below it. Ghidra folds a sum of `p - buf` over a local
@@ -1830,7 +1881,7 @@ class Translator32:
         # for (`| 0xc00`, truncation) are C's own here)
         body = re.sub(r"(?m)^\s*[A-Za-z_]\w*\s+in_FPUControlWord\s*;\s*\n", "", body)
         # (and its restore after the conversion, `in_FPUControlWord = uStack_43a;`: nothing to
-        # put back, FUN_00c19500 in CrystalCore 2026-10-25)
+        # put back, FUN_00c19500 in a VS2010 client 2026-10-25)
         body = re.sub(r"(?m)^[ \t]*in_FPUControlWord\s*=[^;\n]*;[ \t]*\n", "", body)
         body = re.sub(r"\bin_FPUControlWord\b", "((undefined2)0x27f)", body)
         if "ROUND(" in body and self.truncates(a):
@@ -1971,7 +2022,7 @@ class Translator32:
         # (__snwprintf_s and the scanf family, the caller's stack, 2026-10-23).
         # A parameter's address taken (`&param_2`) is an address in that block too: an object
         # passed by value is several parameters to Ghidra, and the callee given &param_2 reads
-        # param_4 at +8. Every parameter is then its slot, read and written there (CrystalCore's
+        # param_4 at +8. Every parameter is then its slot, read and written there (a VS2010 client's
         # FUN_00414960 passed its by-value string's first word to FUN_0042cbc0, which copied a
         # garbage length from the next local, 2026-10-24)
         param_names = [n for _t, n in sig.params]
@@ -1981,7 +2032,7 @@ class Translator32:
         # as the reference's are, its funclets reaching them through ebp. deep()'s Guard lives in
         # its parameter's slot, [ebp + 8], and the unwind funclet read past the frame, rhtest eh)
         # (or links it through the CRT's prolog, whose call fixup shows no link: __wfsopen keeps its
-        # stream in its first parameter's slot for its __finally, CrystalCore 2026-10-24)
+        # stream in its first parameter's slot for its __finally, a VS2010 client 2026-10-24)
         eh_prolog = bool(EH_PROLOG.search(self.corpus[a]["c"]))
         eh = (bool(EH_LINK.search(body)) or eh_prolog) and bool(sig.params)
         eh_args: list[str] = []
@@ -2017,7 +2068,7 @@ class Translator32:
                     if re.fullmatch(r"code\s*\*", tt.strip()):
                         # (a function pointer: 4 bytes as gen_code32, as frame_locals stores one, a
                         # call through it converted; as a `(code *)` cast it could not be assigned,
-                        # FUN_00db9550's `param_1 = (code *)(...)` in CrystalCore 2026-10-25)
+                        # FUN_00db9550's `param_1 = (code *)(...)` in a VS2010 client 2026-10-25)
                         slot_t = "gen_code32"
                         body = re.sub(rf"\(\s*\*\s*{re.escape(n)}\s*\)(?=\s*\()", f"((code *){n})", body)
                     body = re.sub(rf"\b{re.escape(n)}\b", f"(*({slot_t} *)&gen_args[{at_slot[k]}])", body)
@@ -2063,7 +2114,7 @@ class Translator32:
         body = self.typed_casts(body, var_types)
         body = self.call_args(body, var_types)
         # (a code label's address indexed, `(&LAB_00436475)[param_2]`: its bytes, a jump table's
-        # index bytes kept in code, FUN_004387b0 in CrystalCore 2026-10-25)
+        # index bytes kept in code, FUN_004387b0 in a VS2010 client 2026-10-25)
         body = re.sub(r"\(\s*REFP\((0x[0-9a-fA-F]+)\)\s*\)\s*\[", r"((undefined *)REFP(\1))[", body)
         # (an 8-byte structure cast to an integer: its 64 bits)
         struct8_locals =[n for n, t in var_types.items() if t.strip() in STRUCT8]
@@ -2755,7 +2806,7 @@ class Translator32:
     def names(self, body: str) -> str:
         """Functions, imports and data symbols as what the port has for them."""
         # names with templates, backquoted scopes or spaces first (`ComBase<IDropTarget,...>::
-        # vftable`, `` `long___stdcall_FFXIVException(undefined *)'::__l2::Callback::vftable``):
+        # vftable`, `` `long___stdcall_AppException(undefined *)'::__l2::Callback::vftable``):
         # each ends at a call's `(` or a scope's last part, and is found by scanning back
         body = self.odd_names(body)
 
@@ -3006,7 +3057,7 @@ class Translator32:
         h = ["/* generated by translate32.py: every reference function's prototype */",
              "#pragma once", '#include "Ghidra32.h"']
         h += [f"{decls[a]};" for a in sorted(decls)]
-        h += [f"{MATH[n][0]} gen_imp_{n}({', '.join(MATH[n][1])});" if n in MATH and n not in OVERRIDES
+        h += [f"{MATH[n][0]} gen_imp_{n}({', '.join(math_params(n)[0])});" if n in MATH and n not in OVERRIDES
               else f"{OVERRIDE_RET.get(n, 'unsigned int')} gen_imp_{n}();" for n in sorted(self.imports)]
         write(GEN / "translated.h", "\n".join(h) + "\n")
         write(GEN / "Ghidra32.h", HEADER.read_text(encoding="utf-8"))
@@ -3098,9 +3149,9 @@ class Translator32:
                 continue
             if n in MATH:
                 ret, ps = MATH[n]
-                im.append(f"{ret} gen_imp_{n}(" + ", ".join(f"{p} a{k}" for k, p in enumerate(ps)) + ") { "
-                          f"return (({ret} (*)({', '.join(ps)}))gen_real_{n})("
-                          + ", ".join(f"a{k}" for k in range(len(ps))) + "); }")
+                params, args = math_params(n)
+                im.append(f"{ret} gen_imp_{n}(" + ", ".join(params) + ") { "
+                          f"return (({ret} (*)({', '.join(ps)}))gen_real_{n})(" + ", ".join(args) + "); }")
                 continue
             im.append(f"unsigned int gen_imp_{n}(int a0, int a1, int a2, int a3, ...) {{ GEN_REST(a3); "
                       f"return (unsigned int)gen_real_{n}(a0, a1, a2, a3, "
@@ -3230,7 +3281,7 @@ def function_at_line(path: Path) -> list[tuple[int, int]]:
     return [(k, a) for k, a in out if a is not None]
 
 
-# the translation's worker processes: each loads the inputs once (~8 s and ~0.5 GB for CrystalCore's
+# the translation's worker processes: each loads the inputs once (~8 s and ~0.5 GB for a VS2010 client's
 # 87k functions), so a pool is only for a program that large; a small one translates in-process
 POOL_MIN = 5000
 _worker: Translator32 | None = None

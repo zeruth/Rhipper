@@ -1,12 +1,12 @@
 """Fidelity of the `// ref:` ports, binary against binary, and where the stubs are.
 
-Every tagged frostlite function is compared with the reference function it claims to be, using
-the compiled port (FrostLite.exe + FrostLite.pdb) and the reference (WowClassic-clean.exe).
+Every tagged port function is compared with the reference function it claims to be, using
+the compiled port (the build target's .exe and .pdb) and the reference binary.
 Four signals, each scored against what the reference has, then blended:
 
   calls   the direct calls, in order, as a weighted longest common subsequence. A port callee
           counts as the reference function its own tag names. Compiler noise is taken out first:
-          library calls (CRT, std, Blizzard's FID-named runtime) are dropped on both sides; the
+          library calls (CRT, std, the vendor's FID-named runtime) are dropped on both sides; the
           port's inlined tagged functions are put back where the PDB says they were inlined;
           untagged port helpers are flattened into their caller, because the reference usually
           inlined the code a port split out; and a reference callee that is a tiny leaf (it
@@ -53,12 +53,13 @@ import tags as tagscan
 from corpus import load_corpus
 from pebin import Binary
 
-from project import ROOT
+from project import CONFIG, ROOT
 # the newer of the two builds: tools/translate64.py links build/cmake, the user builds
 # cmake-build-release from CLion. Measuring the older one tied today's tags to yesterday's
-# functions (210 hand ports went untied, 2026-10-18).
+# functions (210 hand ports went untied, 2026-10-18). The port is the project's build target.
+_TARGET = CONFIG["build"]["target"] or "port"
 PORT_EXE, PORT_PDB = max(
-    ((ROOT / d / "FrostLite.exe", ROOT / d / "FrostLite.pdb") for d in ("build/cmake/bin/Release", "cmake-build-release/bin")),
+    ((ROOT / d / f"{_TARGET}.exe", ROOT / d / f"{_TARGET}.pdb") for d in ("build/cmake/bin/Release", "cmake-build-release/bin")),
     key=lambda p: p[0].stat().st_mtime if p[0].exists() and p[1].exists() else 0)
 LLVM = Path("C:/Program Files/LLVM/bin")
 OUT_JSON = ROOT / "build/fidelity.json"
@@ -260,9 +261,12 @@ def symbolize(addrs: list[int], base: int) -> dict[int, tuple[str, int]]:
 PORT_LIB = re.compile(r"^(std::|`|__|_[A-Z_a-z]|mem(cpy|set|move|cmp|chr)\b|str\w*$|wcs\w*$|"
                       r"(sqrt|sin|cos|tan|atan2?|floor|ceil|pow|exp|log|fmod|abs|fabs)f?$|rand$|atexit$|[a-z_]*(printf|scanf)[a-z_]*$|"
                       r"Concurrency::|Microsoft::)")
-# Storm's operator new/delete and the blz allocators are Blizzard code, flattened like any helper:
-# the reference inlines them down to SMemAlloc/SMemFree
-REF_KEEP = ("FUN_", "thunk_FUN", "Lua::", "Storm::", "CDataAllocator::")
+# the reference's own functions by name: unnamed ones, and the library names the project counts
+# as its code, rhipper.json "reference_name_prefixes" (a client library's allocators the reference
+# inlines down to its own, flattened like any helper)
+REF_KEEP = ("FUN_", "thunk_FUN", *CONFIG.get("reference_name_prefixes", ()))
+# the port's stub function, the one an unimplemented marker calls (rhipper.json forward_stubs)
+STUB_FUNCTION = CONFIG.get("forward_stubs", {}).get("function", "Unimplemented")
 
 # deliberate divergences, each with its reason (tools/fidelity_exceptions.json)
 # (a project without the file has none: fidelity32.py imports the scoring from here)
@@ -643,7 +647,7 @@ def link(ref, port, md, cor, procs, proc_at, proc_starts, port_of_ref, ref_of_po
         if va not in proc_at or va in ref_of_port or proc_at[va][0] < 8:
             return False
         stripped = strip_name(proc_at[va][1])
-        return not PORT_LIB.match(stripped) and not stripped.startswith("FrostUnimplemented")
+        return not PORT_LIB.match(stripped) and not stripped.startswith(STUB_FUNCTION)
 
     # strings each side takes the address of: one used by a single function on both sides pins
     # the pair
@@ -841,7 +845,7 @@ def main() -> None:
             r = ref_by_inline_name.get(short_name(name))
         return r
 
-    unimplemented = [va for va, _, name in procs if short_name(name) == "FrostUnimplemented"]
+    unimplemented = [va for va, _, name in procs if short_name(name) == STUB_FUNCTION]
     unimplemented_va = unimplemented[0] if unimplemented else None
 
     # ---- features ------------------------------------------------------------------------

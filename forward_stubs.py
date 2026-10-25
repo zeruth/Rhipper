@@ -1,6 +1,6 @@
-"""Forward the port's FROST_UNIMPLEMENTED stubs to the reference's own code, translated.
+"""Forward the port's unimplemented-marker stubs to the reference's own code, translated.
 
-A stub that a run reached (its name in Logs/FrostLite.log as `[unimplemented] <name>`) and that
+A stub that a run reached (its name in the port's log as `[unimplemented] <name>`) and that
 carries a `// ref: FUN_x` tag is rewritten in place as a forwarder:
 
     // translated: FUN_x
@@ -16,11 +16,18 @@ results and members' `this` alike; plain data, `void*` and callbacks always go. 
 destructors stay hand ports; a teardown is forwarded only beside a forwarded maker of the same
 object (the translation built it, so its own teardown takes it apart). When the port passes more
 parameters than the reference body reads (a CVar callback's userData), the leading ones are
-handed on. The network services stay offline stubs (docs/stubs.md), and the crash, error and
-allocator hooks stay the port's. (2026-10-22: these rules took the reached stubs from 2
-forwardable to 169.)
+handed on. The stubs the project holds back (its "forward_stubs" settings: files, names, name
+prefixes, a registry of addresses) stay the port's. (2026-10-22: these rules took the reached
+stubs from 2 forwardable to 169.)
 
-    python tools/forward_stubs.py --log client/_classic_/Logs/FrostLite.log [--apply]
+    python tools/forward_stubs.py --log <the port's log> [--apply]
+
+The project's rhipper.json "forward_stubs":
+    {"marker": "UNIMPLEMENTED();",          the stub's marker statement
+     "keep_files": ["src/services/"],       sources whose stubs stay the port's
+     "keep_names": ["Sub1415002E0"],        stubs that stay the port's by name
+     "keep_prefixes": ["Telemetry"],        and by the start of their name
+     "registry": "docs/stubs.md"}           a document whose 0x... addresses stay the port's
 """
 
 from __future__ import annotations
@@ -31,9 +38,10 @@ import re
 import sys
 from pathlib import Path
 
-from project import ROOT
-KEEP_FILES = ("src/services/", "src/client/CrashReport.cpp", "src/storm/ErrorReport.cpp", "src/storm/Memory.cpp",
-              "src/client/Telemetry", "src/glue/ScriptAPIStubs.cpp")
+from project import CONFIG, ROOT
+SETTINGS = CONFIG.get("forward_stubs", {})
+MARKER = SETTINGS.get("marker", "UNIMPLEMENTED();")
+KEEP_FILES = tuple(SETTINGS.get("keep_files", ()))
 VALUE_TYPE = re.compile(r"^(?:const\s+)?(?:bool|int|unsigned|unsigned int|int(?:8|16|32|64)_t|uint(?:8|16|32|64)_t|"
                         r"size_t|DWORD|BOOL|float|double|long|unsigned long)$")
 # a pointer to plain data (a string, a float buffer): no object, so no layout to agree on. Not
@@ -43,17 +51,17 @@ DATA_POINTER = re.compile(r"^(?:const\s+)?(?:char|float|double)\s*\*$")
 # teardown: the port leaves through its own quit path, and the shutdown faults came from code
 # walking its containers at exit (2026-10-17)
 TEARDOWN = re.compile(r"Shutdown|Destroy|Release|Clear|AddRef")
-# stubs kept the port's by what they do: the WowConnection network layer (offline), the
-# reference's unhandled-exception filter, the allocator hooks
-KEEP_NAMES = {"Sub1415002E0", "OsInitializeExceptionHandling", "Sub14165C0E0",
-              # the final shutdown: the port tears its subsystems down itself
-              "Sub140216880"}
-# the stubs held back on purpose, by the registry of them (docs/stubs.md: the network services
-# until they are ported against our own server), and the families it covers by name, whose
-# members also live outside their own files (`TelemetryEncryptionHandler` in Startup.cpp,
-# forwarded with --all, ran the telemetry key setup and CAS init failed, 2026-10-18)
-DELIBERATE = set(re.findall(r"\b0x(1[0-9a-f]{8})\b", (ROOT / "docs/stubs.md").read_text(encoding="utf-8")))
-OFFLINE_NAMES = re.compile(r"^(?:Telemetry|Agent|WowDownload|ClientServices|BattleNet|RealmConnection|NetClient)")
+# stubs kept the port's by what they do (a network layer kept offline, the reference's
+# unhandled-exception filter, allocator hooks, the final shutdown): the project's keep_names
+KEEP_NAMES = set(SETTINGS.get("keep_names", ()))
+# the stubs held back on purpose, by the project's registry of them, and the families it covers
+# by name, whose members also live outside their own files (one forwarded with --all ran a
+# telemetry key setup the port had kept offline, 2026-10-18)
+_registry = SETTINGS.get("registry")
+DELIBERATE = set(re.findall(r"\b0x(1[0-9a-f]{8})\b", (ROOT / _registry).read_text(encoding="utf-8"))) \
+    if _registry and (ROOT / _registry).exists() else set()
+_prefixes = SETTINGS.get("keep_prefixes", ())
+OFFLINE_NAMES = re.compile(r"^(?:" + "|".join(map(re.escape, _prefixes)) + r")") if _prefixes else re.compile(r"(?!)")
 DEFAULT_RESULT ={"void": "", "bool": "false", "float": "0.0f", "double": "0.0"}
 
 
@@ -113,11 +121,11 @@ def stub_at(lines: list[str], i: int):
         if depth == 0:
             break
         k += 1
-    # (a marker's own note, `FROST_UNIMPLEMENTED();  // FUN_x on DAT_y`, is still the marker)
+    # (a marker's own note, `UNIMPLEMENTED();  // FUN_x on DAT_y`, is still the marker)
     inner = [re.sub(r"\s*//.*$", "", l.strip()) for l in body[1:-1] if l.strip() and not l.strip().startswith("//")]
-    if "FROST_UNIMPLEMENTED();" not in inner:
+    if MARKER not in inner:
         return None
-    rest = [l for l in inner if l != "FROST_UNIMPLEMENTED();" and not re.fullmatch(r"\(void\)\w+;", l)
+    rest = [l for l in inner if l != MARKER and not re.fullmatch(r"\(void\)\w+;", l)
             and not re.fullmatch(r"return [^;]*;", l)]
     if rest:
         return None   # a stub with behaviour of its own around the marker: left for a hand port

@@ -444,7 +444,7 @@ void DynamicHash::uniqueHash(const Varnode *root,Funcdata *fd)
   // RHIPPER: 64, not 8. One SIMD instruction splits into a p-code op per lane (pavgb: 16 byte
   // lanes), which hash alike; past 8 no hash was unique, and the whole function failed to
   // decompile with "Unable to find unique hash for varnode" (FUN_1401a3150, FUN_1401a1150 in
-  // WowClassic 3.4.3, 2026-10-24). The position and total fields are 6 bits now (encodeTotalPosition)
+  // an x64 client, 2026-10-24). The position and total fields are 6 bits now (encodeTotalPosition)
   uint4 maxduplicates = 64;
 
   for(method=0;method<4;++method) {
@@ -508,7 +508,7 @@ void DynamicHash::uniqueHash(const PcodeOp *op,int4 slot,Funcdata *fd)
   // RHIPPER: 64, not 8. One SIMD instruction splits into a p-code op per lane (pavgb: 16 byte
   // lanes), which hash alike; past 8 no hash was unique, and the whole function failed to
   // decompile with "Unable to find unique hash for varnode" (FUN_1401a3150, FUN_1401a1150 in
-  // WowClassic 3.4.3, 2026-10-24). The position and total fields are 6 bits now (encodeTotalPosition)
+  // an x64 client, 2026-10-24). The position and total fields are 6 bits now (encodeTotalPosition)
   uint4 maxduplicates = 64;
 
   moveOffSkip(op, slot);

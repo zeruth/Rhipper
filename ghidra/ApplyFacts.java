@@ -3,7 +3,7 @@
 // tags and comments are idempotent.
 //
 // Usage (headless): -postScript ApplyFacts.java <facts dir>
-//@category FrostLite
+//@category Rhipper
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -166,8 +166,8 @@ public class ApplyFacts extends GhidraScript {
     // returns (the jumper's tail call). Left a branch, the decompiler followed it and decompiled
     // the callee into the caller: FUN_00def610's `jmp FUN_00dedcf0`, hkVersionPatchManager's
     // constructor, came out inline, its allocator call without the `this` its own call-site
-    // signature gives it, and the port called the allocator with 0x2c for its object (CrystalCore
-    // 2026-10-25). protos.py lists x64's (applyCallsites' "tail_jumps"); protos32.py lists none.
+    // signature gives it, and the port called the allocator with 0x2c for its object (a VS2010
+    // client, 2026-10-25). protos.py lists x64's (applyCallsites' "tail_jumps"); protos32.py lists none.
     private void tailJumps32() {
         int marked = 0, kept = 0;
         InstructionIterator it = currentProgram.getListing().getInstructions(true);
@@ -226,7 +226,7 @@ public class ApplyFacts extends GhidraScript {
             // (or whose parameters Ghidra laid out with a gap: a longlong aligned to 8, at 12 after a
             // 4-byte one at 4, where MSVC's x86 code packs it at 8. __lseeki64_nolock(fh, 0, 2) read
             // as (fh, 0x200000000, <the caller's next word>), _tsopen_nolock a stub for it and
-            // fopen dead in CrystalCore, 2026-10-24)
+            // fopen dead in a VS2010 client, 2026-10-24)
             boolean libraryGap = false;
             int expect = 4;
             for (ghidra.program.model.listing.Parameter p : f.getParameters()) {
@@ -344,7 +344,54 @@ public class ApplyFacts extends GhidraScript {
                 + " returns typed, " + keeps + " with registers kept, " + keepNames.size() + " keep conventions), kept " + keptSig
                 + " (thunks, hand-set or library), no function " + missing + ", failed " + failed);
         if (root.has("imports")) applyImportArgs32(root.getAsJsonObject("imports"));
+        splitWideImportArgs32();
         applyLongHelpers32();
+    }
+
+    // An import's 8-byte argument by value (SetFilePointerEx's LARGE_INTEGER): MSVC's x86 caller
+    // pushes it as two words in the next two 4-byte slots, but Ghidra's type library storage aligns
+    // it to 8, one slot late, and the arguments after it one slot late too. A client's
+    // FUN_004fa4b0 read SetFilePointerEx's dwMoveMethod past what was pushed (`unaff_EBX`) and was
+    // a stub; its callers elsewhere passed five words to a four-argument import (2026-10-25). Each
+    // is split into its low and high words, every argument in its own slot in order: the call
+    // passes the words as pushed, and the runtime's adapter (runtime32/Adapters.cpp) joins them
+    private void splitWideImportArgs32() throws Exception {
+        DataType u4 = ghidra.program.model.data.DWordDataType.dataType;
+        List<String> split = new ArrayList<>();
+        for (Function f : currentProgram.getFunctionManager().getExternalFunctions()) {
+            Parameter[] ps = f.getParameters();
+            boolean wide = false;
+            for (Parameter p : ps) wide |= wideInteger(p.getDataType());
+            if (!wide) continue;
+            List<Variable> params = new ArrayList<>();
+            int off = 4;
+            for (Parameter p : ps) {
+                DataType t = p.getDataType();
+                int len = Math.max(4, (t.getLength() + 3) & ~3);
+                if (wideInteger(t)) {
+                    params.add(new ParameterImpl(p.getName() + "Low", u4,
+                            new ghidra.program.model.listing.VariableStorage(currentProgram, off, 4), currentProgram));
+                    params.add(new ParameterImpl(p.getName() + "High", u4,
+                            new ghidra.program.model.listing.VariableStorage(currentProgram, off + 4, 4), currentProgram));
+                } else {
+                    params.add(new ParameterImpl(p.getName(), t,
+                            new ghidra.program.model.listing.VariableStorage(currentProgram, off, len), currentProgram));
+                }
+                off += len;
+            }
+            Variable ret = new ghidra.program.model.listing.ReturnParameterImpl(f.getReturnType(),
+                    f.getReturn().getVariableStorage(), currentProgram);
+            f.updateFunction(f.getCallingConventionName(), ret, params, FunctionUpdateType.CUSTOM_STORAGE, true,
+                    SourceType.USER_DEFINED);
+            split.add(f.getName());
+        }
+        println("ApplyFacts: imports with an 8-byte argument split into two words " + split.size() + " " + split);
+    }
+
+    // an 8-byte integer or structure (a double is the math imports' own, typed by translate32.py)
+    private static boolean wideInteger(DataType t) {
+        DataType b = t instanceof ghidra.program.model.data.TypeDef td ? td.getBaseDataType() : t;
+        return t.getLength() == 8 && !(b instanceof Pointer) && !(b instanceof ghidra.program.model.data.AbstractFloatDataType);
     }
 
     // MSVC's x86 64-bit helpers (llmul.asm, lldiv.asm, ...): conventions of their own, values in
@@ -980,7 +1027,7 @@ public class ApplyFacts extends GhidraScript {
         for (Map.Entry<String, JsonElement> e : root.getAsJsonObject("functions").entrySet()) {
             Function f = functionAt(addr(e.getKey()));
             if (f == null) continue;
-            String full = e.getValue().getAsString();   // "C_Container.GetBagName" or "UnitExists"
+            String full = e.getValue().getAsString();   // "Inventory.GetItemName" or "GetName"
             int dot = full.lastIndexOf('.');
             String ns = dot < 0 ? "Lua" : "Lua::" + full.substring(0, dot);
             name(f, ns, dot < 0 ? full : full.substring(dot + 1));
@@ -1003,7 +1050,7 @@ public class ApplyFacts extends GhidraScript {
             // like code pointers, UTF-16 text among it (0x00650065). A function made there took a
             // byte out of the one around it, and FUN_009f9f40, split inside its `push 0x268`, was
             // read only up to it: a save it pops later looked like an argument, and the esi read
-            // as its input made its caller a stub, CrystalCore 2026-10-25)
+            // as its input made its caller a stub, a VS2010 client 2026-10-25)
             boolean bogus = false;
             for (JsonElement s : v.getAsJsonArray("slots")) {
                 if (midInstruction(addr(s.getAsString()))) {
@@ -2406,12 +2453,12 @@ public class ApplyFacts extends GhidraScript {
 
     // retcheck.json: functions carrying the anti-tamper return-address check.
     private void applyRetcheck(JsonObject root) throws Exception {
-        int stale = dropStaleTags("aegis:retcheck", root.getAsJsonObject("functions").keySet());
-        if (stale > 0) println("ApplyFacts: dropped " + stale + " stale aegis:retcheck tags");
+        int stale = dropStaleTags("tamper:retcheck", root.getAsJsonObject("functions").keySet());
+        if (stale > 0) println("ApplyFacts: dropped " + stale + " stale tamper:retcheck tags");
         for (Map.Entry<String, JsonElement> e : root.getAsJsonObject("functions").entrySet()) {
             Function f = getFunctionAt(addr(e.getKey()));
             if (f == null) continue;
-            f.addTag("aegis:retcheck");
+            f.addTag("tamper:retcheck");
             Address tail = addr(e.getValue().getAsString());
             setEOLComment(tail, "anti-tamper return-address check starts here: protection, not game logic");
             tagged++;

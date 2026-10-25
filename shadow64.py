@@ -17,8 +17,8 @@ at --until (a reference address), or when the program exits.
 Run it from where the program is installed, with the arguments it is normally started with.
 
 Where it differs from shadow32.py, because the x64 reference carries the anti-tamper layer
-(tools/aegis.py in the project):
-- the protection's functions (build/facts/aegis.json "protection") are left unarmed unless
+(the project's protection plugin):
+- the protection's functions (the protection facts file's "protection") are left unarmed unless
   --protection: the port stubs them, so they are not calls the two runs can share, and some run
   out of encrypted code that an int3 would corrupt;
 - a breakpoint or single step that is not ours is passed back to the program
@@ -183,7 +183,8 @@ class Shadow:
         self.image_size = len(b.image)
         self.text_lo, self.text_hi = b.text.start, b.text.end
         skip = set()
-        ae = FACTS / "aegis.json"
+        # (the protection plugin's facts file, rhipper.json "protection_facts")
+        ae = FACTS / project.CONFIG.get("protection_facts", "protection.json")
         if not with_protection and ae.exists():
             skip = {int(a, 16) for a in json.loads(ae.read_text()).get("protection", [])}
         self.entries = [a for a in b.func_starts if self.text_lo <= a < self.text_hi and a not in skip]
@@ -410,7 +411,7 @@ def main():
                     help="record each function at most this many times, then remove its breakpoint")
     ap.add_argument("--until", help="stop when this reference address (hex) is first reached")
     ap.add_argument("--protection", action="store_true",
-                    help="arm the anti-tamper layer's functions too (aegis.json; left alone by default)")
+                    help="arm the anti-tamper layer's functions too (protection facts; off by default)")
     ap.add_argument("args", nargs=argparse.REMAINDER, help="-- then the program's own arguments")
     a = ap.parse_args()
     if project.ARCH != "x86_64":

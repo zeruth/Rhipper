@@ -154,7 +154,7 @@ NOINLINE u32 sort_check(u32 s, int (*cmp)(const int *, const int *)) {
 
 /* a callee that never writes its ecx input: /GL keeps the caller's pointer in ecx across the
  * call and reads it after, which the decompiler, told every call kills ecx, lost as
- * `extraout_ECX` (a constructor calling a method on `this`, CrystalCore's FUN_00d7be90) */
+ * `extraout_ECX` (a constructor calling a method on `this`, a game client's FUN_00d7be90) */
 typedef struct { u32 v[4]; u32 n; } Box;
 NOINLINE void __fastcall box_touch(Box *b, u32 k) { b->v[k & 3] += k; b->n++; }
 NOINLINE Box *__fastcall box_chain(Box *b, u32 k) {
@@ -165,7 +165,8 @@ NOINLINE Box *__fastcall box_chain(Box *b, u32 k) {
 }
 /* a callee-saved register as an input: /GL may hand a static callee the caller's zero in edi,
  * which it pushes, unset, as the arguments of its own calls (the CRT's _tsopen_nolock and its
- * __lseeki64_nolock(fh, 0, 2), CrystalCore). The push is no save: read so, the value was lost */
+ * __lseeki64_nolock(fh, 0, 2), a VS2010 client). The push is no save: read so, the value was
+ * lost */
 NOINLINE u32 __cdecl seek3(u32 fh, u32 lo, u32 hi, u32 origin) { return fh * 1000 + lo + hi * 10 + origin * 100; }
 static NOINLINE u32 opener(u32 *fh, u32 mode, u32 zero) {
     u32 r = 0;
@@ -182,7 +183,7 @@ NOINLINE u32 open_helper(u32 s) {
 }
 /* a COM interface from C: `this` the last word pushed, the vtable often loaded into ecx (`mov
  * ecx, [eax]; push eax; call [ecx + 8]`), which is then no __thiscall's object. Read so, Release
- * took its vtable for `this` and dropped the stack one (IMalloc's, CrystalCore) */
+ * took its vtable for `this` and dropped the stack one (IMalloc's, in a VS2010 client) */
 typedef struct Thing Thing;
 typedef struct {
     u32 (__stdcall *query)(Thing *t, u32 iid, void **out);
@@ -206,6 +207,19 @@ NOINLINE u32 com_calls(u32 s) {
     r += u->vt->get(u, 2, s) * 100000;
     r += t->vt->release(t);
     return r + u->vt->release(u) * 7;
+}
+/* and a Release last before a /GS function's restores, `push eax; call edx; ...; pop esi; pop ebx;
+ * call __security_check_cookie`: the pops were counted as owed to the cookie check, which took
+ * Release's one word (IMalloc's in a VS2010 client) */
+NOINLINE u32 com_release_last(u32 s) {
+    char name[40];
+    Thing *t = thing_open(s);
+    u32 k, r = 0;
+    for (k = 0; k < sizeof name; k++) name[k] = (char)(s + k);
+    for (k = 0; k < sizeof name; k += 3) r += (u8)name[k] * k;
+    t->vt->add_ref(t);
+    r += t->vt->get(t, (u32)name[s & 31], r & 7);
+    return r + t->vt->release(t);
 }
 NOINLINE u32 boxes(u32 s) {
     Box b = {{1, 2, 3, 4}, 0};
@@ -247,4 +261,5 @@ void rhtest_run(void) {
     check("boxes", boxes(s));
     check("open_helper", open_helper(s));
     check("com_calls", com_calls(s));
+    check("com_release_last", com_release_last(s));
 }

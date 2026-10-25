@@ -2,7 +2,7 @@
 // inline / thunk / noreturn flags, calling convention, signature source, and which function
 // contains each address. A quick look before changing ApplyFacts.
 //   bash tools/ghidra/ghidra.sh script ProbeFunctions.java 0x141832146 0x1418a72a0
-// @category FrostLite
+// @category Rhipper
 import ghidra.app.script.GhidraScript;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Function;

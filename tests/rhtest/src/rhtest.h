@@ -15,8 +15,8 @@
 #define NOINLINE __declspec(noinline)
 
 /* Every program builds with each toolset rhtest.py knows, the newest MSVC and Visual Studio 2010
- * (msvc-16.00-x86, the compiler CrystalCore was built with), with what each lacks filled in
- * here; nothing here changes what a newer compiler makes of the source. */
+ * (msvc-16.00-x86, the compiler a VS2010 /MT game client was built with), with what each lacks
+ * filled in here; nothing here changes what a newer compiler makes of the source. */
 #if defined(_MSC_VER) && _MSC_VER < 1700
 #ifdef __cplusplus
 /* (VS2010: `override` an extension, warned at /W4 and refused on a destructor; no noexcept) */
