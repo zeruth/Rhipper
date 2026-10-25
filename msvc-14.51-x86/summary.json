@@ -2,134 +2,134 @@
  "calls-GL": {
   "fidelity": {
    "by_size": 1.0,
-   "functions": 99,
+   "functions": 100,
    "mean": 1.0,
-   "perfect": 99,
+   "perfect": 100,
    "stubs": 0,
-   "translated": 99
+   "translated": 100
   },
   "status": "PASS",
-  "when": "2026-10-25 17:45"
+  "when": "2026-10-25 19:23"
  },
  "calls-O2": {
   "fidelity": {
    "by_size": 1.0,
-   "functions": 101,
+   "functions": 102,
    "mean": 1.0,
-   "perfect": 101,
+   "perfect": 102,
    "stubs": 0,
-   "translated": 101
+   "translated": 102
   },
   "status": "PASS",
-  "when": "2026-10-25 17:45"
+  "when": "2026-10-25 19:23"
  },
  "calls-Od": {
   "fidelity": {
    "by_size": 1.0,
-   "functions": 107,
+   "functions": 108,
    "mean": 1.0,
-   "perfect": 107,
+   "perfect": 108,
    "stubs": 0,
-   "translated": 107
+   "translated": 108
   },
   "status": "PASS",
-  "when": "2026-10-25 17:45"
+  "when": "2026-10-25 19:23"
  },
  "core-O2": {
   "fidelity": {
-   "by_size": 1.0,
-   "functions": 113,
-   "mean": 1.0,
-   "perfect": 113,
+   "by_size": 0.998,
+   "functions": 116,
+   "mean": 0.998,
+   "perfect": 115,
    "stubs": 0,
-   "translated": 113
+   "translated": 116
   },
   "status": "PASS",
-  "when": "2026-10-25 17:45"
+  "when": "2026-10-25 19:23"
  },
  "core-Od": {
   "fidelity": {
    "by_size": 1.0,
-   "functions": 118,
+   "functions": 121,
    "mean": 1.0,
-   "perfect": 118,
+   "perfect": 121,
    "stubs": 0,
-   "translated": 118
+   "translated": 121
   },
   "status": "PASS",
-  "when": "2026-10-25 17:45"
+  "when": "2026-10-25 19:23"
  },
  "cpp-O2": {
   "fidelity": {
    "by_size": 1.0,
-   "functions": 113,
+   "functions": 146,
    "mean": 1.0,
-   "perfect": 113,
+   "perfect": 146,
    "stubs": 0,
-   "translated": 113
+   "translated": 146
   },
   "status": "PASS",
-  "when": "2026-10-25 17:45"
+  "when": "2026-10-25 19:23"
  },
  "cpp-Od": {
   "fidelity": {
-   "by_size": 1.0,
-   "functions": 179,
-   "mean": 0.999,
-   "perfect": 178,
-   "stubs": 0,
-   "translated": 179
+   "by_size": 0.999,
+   "functions": 236,
+   "mean": 0.996,
+   "perfect": 235,
+   "stubs": 1,
+   "translated": 235
   },
   "status": "PASS",
-  "when": "2026-10-25 17:45"
+  "when": "2026-10-25 19:23"
  },
  "crt-O2": {
   "fidelity": {
-   "by_size": 1.0,
-   "functions": 72,
-   "mean": 1.0,
-   "perfect": 72,
+   "by_size": 0.997,
+   "functions": 76,
+   "mean": 0.999,
+   "perfect": 75,
    "stubs": 0,
-   "translated": 72
+   "translated": 76
   },
   "status": "PASS",
-  "when": "2026-10-25 17:45"
+  "when": "2026-10-25 19:23"
  },
  "crt-Od": {
   "fidelity": {
    "by_size": 1.0,
-   "functions": 84,
+   "functions": 91,
    "mean": 1.0,
-   "perfect": 84,
+   "perfect": 91,
    "stubs": 0,
-   "translated": 84
+   "translated": 91
   },
   "status": "PASS",
-  "when": "2026-10-25 17:45"
+  "when": "2026-10-25 19:23"
  },
  "eh-O2": {
   "fidelity": {
    "by_size": 1.0,
-   "functions": 112,
+   "functions": 115,
    "mean": 1.0,
-   "perfect": 112,
+   "perfect": 115,
    "stubs": 0,
-   "translated": 112
+   "translated": 115
   },
   "status": "PASS",
-  "when": "2026-10-25 17:45"
+  "when": "2026-10-25 19:23"
  },
  "eh-Od": {
   "fidelity": {
    "by_size": 1.0,
-   "functions": 133,
+   "functions": 136,
    "mean": 1.0,
-   "perfect": 133,
+   "perfect": 136,
    "stubs": 0,
-   "translated": 133
+   "translated": 136
   },
   "status": "PASS",
-  "when": "2026-10-25 17:45"
+  "when": "2026-10-25 19:23"
  },
  "float-IA32": {
   "fidelity": {
@@ -141,7 +141,7 @@
    "translated": 91
   },
   "status": "PASS",
-  "when": "2026-10-25 17:45"
+  "when": "2026-10-25 19:23"
  },
  "float-O2": {
   "fidelity": {
@@ -153,7 +153,7 @@
    "translated": 92
   },
   "status": "PASS",
-  "when": "2026-10-25 17:45"
+  "when": "2026-10-25 19:23"
  },
  "float-Od": {
   "fidelity": {
@@ -165,54 +165,54 @@
    "translated": 104
   },
   "status": "PASS",
-  "when": "2026-10-25 17:45"
+  "when": "2026-10-25 19:23"
  },
  "int64-O2": {
   "fidelity": {
    "by_size": 1.0,
-   "functions": 90,
+   "functions": 92,
    "mean": 1.0,
-   "perfect": 90,
+   "perfect": 92,
    "stubs": 0,
-   "translated": 90
+   "translated": 92
   },
   "status": "PASS",
-  "when": "2026-10-25 17:45"
+  "when": "2026-10-25 19:23"
  },
  "int64-Od": {
   "fidelity": {
    "by_size": 0.999,
-   "functions": 93,
+   "functions": 95,
    "mean": 1.0,
-   "perfect": 92,
+   "perfect": 94,
    "stubs": 0,
-   "translated": 93
+   "translated": 95
   },
   "status": "PASS",
-  "when": "2026-10-25 17:45"
+  "when": "2026-10-25 19:23"
  },
  "misc-O2": {
   "fidelity": {
-   "by_size": 0.971,
-   "functions": 72,
-   "mean": 0.972,
-   "perfect": 70,
+   "by_size": 0.976,
+   "functions": 83,
+   "mean": 0.975,
+   "perfect": 80,
    "stubs": 0,
-   "translated": 72
+   "translated": 83
   },
   "status": "PASS",
-  "when": "2026-10-25 17:45"
+  "when": "2026-10-25 19:23"
  },
  "misc-Od": {
   "fidelity": {
-   "by_size": 0.968,
-   "functions": 78,
-   "mean": 0.979,
-   "perfect": 73,
+   "by_size": 0.976,
+   "functions": 89,
+   "mean": 0.982,
+   "perfect": 84,
    "stubs": 0,
-   "translated": 78
+   "translated": 89
   },
   "status": "PASS",
-  "when": "2026-10-25 17:45"
+  "when": "2026-10-25 19:23"
  }
 }
