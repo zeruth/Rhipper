@@ -30,7 +30,7 @@ Steps per project:
 
 - `ref`: cl, then the reference is run to produce `ref/expected.txt`. With `--bins`, the committed reference, map and `expected.txt` are copied in instead.
 - `import`: Ghidra's import and analysis, rerun only when the reference changed.
-- `facts`: toolchain.py, noreturn.py, protos32.py and helpers32.py. toolchain.py's reading of the reference is printed when it disagrees with the toolset. While protos32.py finds code that only a pointer reaches, `ghidra.sh apply` and `functions` turn it into functions and the facts run again.
+- `facts`: toolchain.py, vtables.py, noreturn.py, protos32.py and helpers32.py (vtables.py as a real project's facts have it: protos32.py reads every slot of a class's vtable as a method). toolchain.py's reading of the reference is printed when it disagrees with the toolset. While protos32.py finds code that only a pointer reaches, `ghidra.sh apply` and `functions` turn it into functions and the facts run again.
 - `ghidra`: `ghidra.sh all`.
 - `translate`: translate32.py.
 - `port`: `port/CMakeLists.txt`, built for x64.
@@ -61,9 +61,12 @@ a failure.
 | misc | O2, Od | thread-local storage (`__declspec(thread)` and `TlsAlloc`), intrinsics, bitfields, `alloca`, `setjmp`/`longjmp` |
 | eh | O2, Od | C++ exceptions (`/EHsc`): catch by type, rethrow, nested, across frames, unwinding destructors, a throwing constructor; C's `__try`/`__except`/`__finally` with `RaiseException` |
 
-Status as of 2026-10-24: all 18 projects pass. Every translated function scores 1.0 in core,
-int64, float, calls and crt. cpp, misc and eh are at 0.97–1.0; the gaps are decompiler folds that
-are equivalent but not the reference's instructions. The few stubs left are CRT helpers (AVX-512
+Status as of 2026-10-25: every project passes on both toolsets from a fresh import (18 on
+`msvc-14.51-x86`, 18 on `msvc-16.00-x86`). On `msvc-14.51-x86` nearly every translated function
+scores 1.0 (misc 0.97); the gaps are decompiler folds that are equivalent but not the reference's
+instructions. `msvc-16.00-x86` scores 0.93–0.97: its `/MT` C runtime is translated code, and
+10–21 of its functions per program are still stubs (registers the decompiler lost in the CRT's
+SEH prolog and epilog, `__report_gsfailure`, `__ftol2`, the locale frees). The few stubs left are CRT helpers (AVX-512
 conversion paths, `__alloca_probe`'s return address). Hardware faults inside `__try` and `/EHa`
 are not covered yet.
 

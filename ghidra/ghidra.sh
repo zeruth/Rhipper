@@ -42,8 +42,9 @@ project_data() {
     cp "$ROOT/data/imports.json" "$ROOT/build/facts/"
   fi
   if [ -f "$ROOT/data/names.json" ]; then cp "$ROOT/data/names.json" "$ROOT/build/facts/names.json"; fi
-  # (and layouts for the types Ghidra has only as placeholders: ApplyFacts applyStructs)
-  if [ -f "$ROOT/data/structs.json" ]; then cp "$ROOT/data/structs.json" "$ROOT/build/facts/structs.json"; fi
+  # (and layouts for the types Ghidra has only as placeholders, ApplyFacts applyStructs: the
+  # toolchain's C runtime's, toolchains/<name>/structs.json, and the project's data/structs.json)
+  python "$HERE/../toolchain.py" --structs
 }
 
 case "$1" in

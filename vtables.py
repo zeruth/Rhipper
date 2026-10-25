@@ -101,7 +101,8 @@ def main() -> None:
         "vtables": vtables,
         "shared_slots": {f: c for f, c in sorted(slot_use.items(), key=lambda x: -x[1])[:200]},
     })
-    sizes = sorted(len(v["slots"]) for v in vtables)
+    # (none at all in a C program, rhtest's misc)
+    sizes = sorted(len(v["slots"]) for v in vtables) or [0]
     print(f"{len(vtables)} vtables, {sum(sizes)} slots, median {sizes[len(sizes)//2]} max {sizes[-1]} -> {out}")
     print("most shared slot targets (stubs / base implementations):")
     for f, c in sorted(slot_use.items(), key=lambda x: -x[1])[:5]:

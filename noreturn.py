@@ -114,6 +114,14 @@ def body_facts(b: Binary):
                         indirect_out = True
                     else:
                         indirect_out = True
+                # (a conditional jump out of it too: VS2010's /O2 nested() takes its normal path
+                # with `je 0x401484` into the join after its catch funclets, past the range Ghidra
+                # drew, the rest of it ending in the throw. Noreturn, its caller rhtest_run was cut
+                # off after it, rhtest msvc-16.00-x86 eh-O2)
+                elif mn.startswith(("j", "loop")) and ops.startswith("0x"):
+                    t = int(ops, 16)
+                    if b.func_containing(t) != root:
+                        tails.add(t)
             # 32-bit: Ghidra ends a range where code runs on into the next function it made
             # (the CRT's strchr at 0xc51da0 is 6 bytes, then falls into its shared tail): that
             # is a tail call to whatever follows. .pdata pieces end on a ret or jmp. A range

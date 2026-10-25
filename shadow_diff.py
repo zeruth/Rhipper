@@ -36,7 +36,13 @@ def load(path):
 
 # MSVC's frame helpers: Ghidra folds each into the function that calls it (the SEH frame, the
 # stack probe), so the port never calls them; the reference's calls to them are left out
-HELPERS = ("SEH_prolog", "SEH_epilog", "EH_prolog", "EH_epilog", "alloca_probe", "chkstk")
+HELPERS = ("SEH_prolog", "SEH_epilog", "EH_prolog", "EH_epilog", "alloca_probe", "chkstk",
+           # (and what Windows' exception dispatch runs, which the port's runtime does itself: the
+           # handlers and their checks, the filter reached directly. 10 job threads named by
+           # RaiseException under _except_handler3 parted CrystalCore's runs, 2026-10-25)
+           "except_handler", "ValidateEH3RN", "ValidateScopeTableHandler", "ValidateImageBase",
+           "FindPESection", "EH4_CallFilterFunc", "EH4_TransferToHandler", "EH4_GlobalUnwind",
+           "EH4_LocalUnwind", "local_unwind", "global_unwind", "CallSettingFrame")
 
 
 def by_thread(recs, skip=frozenset()):
@@ -81,9 +87,22 @@ def main():
     ap.add_argument("--args", action="store_true", help="compare arguments too, not just the call sequence")
     ap.add_argument("--thread", type=int, help="only this thread index (default: every matched thread)")
     ap.add_argument("--context", type=int, default=12, help="calls of shared history to show before a divergence")
+    ap.add_argument("--resync", type=int, default=0, metavar="N",
+                    help="step over up to N calls one run makes and the other does not, where the two agree "
+                         "again after them (an inner call of a library routine the translation does inline, "
+                         "memcpy's own pieces), listing each, before stopping at a divergence they do not "
+                         "agree after")
+    ap.add_argument("--skip", nargs="*", default=[], metavar="ADDR",
+                    help="more functions to leave out of both runs (an unnamed exception handler)")
     a = ap.parse_args()
     nm = names()
-    skip = frozenset(addr for addr, n in nm.items() if any(h in n for h in HELPERS))
+    skip = frozenset(addr for addr, n in nm.items() if any(h in n for h in HELPERS)) | \
+        {int(x, 16) for x in a.skip}
+    # (and the compiler's arithmetic helpers helpers32.py identified, which the translation does
+    # inline: `__time64`'s __aulldiv parted CrystalCore's runs, 2026-10-25)
+    hp = FACTS / "helpers32.json"
+    if hp.exists():
+        skip |= {int(a, 16) for a in json.loads(hp.read_text())["helpers"]}
     ref, port = by_thread(load(a.ref), skip), by_thread(load(a.port), skip)
     print(f"reference: {len(ref)} threads, {sum(len(v) for v in ref.values())} calls; "
           f"port: {len(port)} threads, {sum(len(v) for v in port.values())} calls\n")
@@ -91,34 +110,65 @@ def main():
     found = False
     for t in threads:
         r, p = ref.get(t, []), port.get(t, [])
-        i = 0
-        while i < len(r) and i < len(p):
-            ra, rargs = r[i]
-            pa, pargs = p[i]
-            if ra != pa or (a.args and rargs != pargs):
-                break
-            i += 1
-        else:
-            # one ran out: the shorter stopped (the port's crash, usually)
-            if len(r) == len(p):
-                print(f"thread {t}: {len(r)} calls, identical")
+
+        def same(x, y):
+            return x[0] == y[0] and (not a.args or x[1] == y[1])
+
+        def agree(ri, pi, k=32):
+            """the next k calls the same from ri in the reference and pi in the port"""
+            n = min(k, len(r) - ri, len(p) - pi)
+            return n > 0 and all(same(r[ri + j], p[pi + j]) for j in range(n))
+        # i in the reference, j in the port: equal until a step over
+        i = j = 0
+        skips = 0
+        while i < len(r) and j < len(p):
+            if same(r[i], p[j]):
+                i += 1
+                j += 1
                 continue
-            i = min(len(r), len(p))
+            # (a few calls one run makes and the other not, or a stretch each makes differently
+            # (printf of the time of day, other digits), the two in step again after them: the
+            # fewest calls stepped over)
+            step = None
+            for total in range(1, 2 * a.resync + 1):
+                for ki in range(max(0, total - a.resync), min(total, a.resync) + 1):
+                    if agree(i + ki, j + total - ki):
+                        step = (ki, total - ki)
+                        break
+                if step:
+                    break
+            if step is None:
+                break
+            ki, kj = step
+            skips += 1
+            if skips <= 20:
+                def calls(s):
+                    names_ = [name(nm, c[0]) for c in s[:6]]
+                    return ", ".join(names_) + (f", ... ({len(s)})" if len(s) > 6 else "") if s else "nothing"
+                print(f"thread {t}: at reference call {i} stepped over ref: {calls(r[i:i + ki])} | port: {calls(p[j:j + kj])}")
+            i += ki
+            j += kj
+        if i >= len(r) or j >= len(p):
+            # one ran out: the shorter stopped (the port's crash, usually)
+            if i >= len(r) and j >= len(p):
+                print(f"thread {t}: {len(r)} calls, identical" + (f" ({skips} stepped over)" if skips else ""))
+                continue
         found = True
-        print(f"thread {t}: diverges at call {i} of {min(len(r), len(p))}")
-        for j in range(max(0, i - a.context), i):
-            print(f"       {j:>7}  {name(nm, r[j][0])}")
+        print(f"thread {t}: diverges at reference call {i} of {len(r)} (port call {j} of {len(p)})"
+              + (f", {skips} stepped over before" if skips else ""))
+        for k in range(max(0, i - a.context), i):
+            print(f"       {k:>7}  {name(nm, r[k][0])}")
         print("  ---- the two runs part here ----")
         if i < len(r):
             ra, rargs = r[i]
             print(f"  ref  {i:>7}  {name(nm, ra)}  args {[hex(x) for x in rargs]}")
         else:
             print(f"  ref  {i:>7}  (the reference made no more calls on this thread)")
-        if i < len(p):
-            pa, pargs = p[i]
-            print(f"  port {i:>7}  {name(nm, pa)}  args {[hex(x) for x in pargs]}")
+        if j < len(p):
+            pa, pargs = p[j]
+            print(f"  port {j:>7}  {name(nm, pa)}  args {[hex(x) for x in pargs]}")
         else:
-            print(f"  port {i:>7}  (the port stopped here --- its crash)")
+            print(f"  port {j:>7}  (the port stopped here --- its crash)")
         print()
     if not found:
         print("the runs agree on every matched thread")

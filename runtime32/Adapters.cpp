@@ -5,6 +5,7 @@
 // An adapter takes the reference's 32-bit arguments (an address, below 2 GB, is its own value)
 // and returns its 32-bit result.
 #include <windows.h>
+#include <shlobj.h>
 
 #include <csetjmp>
 #include <cstdint>
@@ -18,6 +19,7 @@
 #include <float.h>
 
 extern "C" uint32_t gen_ref_base;   // RefImage.cpp
+const wchar_t* RefImagePath();       // RefImage.cpp
 extern "C" unsigned int gen_teb32(void);
 extern "C" const unsigned int g_genEhFuncInfo[];   // gen/jumps.c
 extern "C" {
@@ -334,6 +336,39 @@ uint32_t ScopeTableOf(uint32_t node) {
     return st;
 }
 
+// and an EH3 frame's, _except_handler3's (an older compiler's library, Havok's in CrystalCore,
+// whose SetThreadName raises 0x406D1388 under one, 2026-10-25): the same node at ebp - 0x10, its
+// scope table at node + 8 as it is (no cookie, no header) and the try level at node + 0xC, -1
+// for none. Taken only where the node is no EH4 one
+constexpr int32_t kTryNone3 = -1;
+uint32_t ScopeTable3Of(uint32_t node) {
+    uint32_t st = U(node + 8);
+    int32_t level = I(node + 0xC);
+    if (!InImage(st) || level < kTryNone3 || level > 0x400) return 0;
+    // (each record's filter and handler code in the image, or a __finally's 0 filter)
+    for (int32_t l = level; l != kTryNone3;) {
+        uint32_t rec = st + 12 * l;
+        if (!InImage(rec) || (U(rec + 4) && !InImage(U(rec + 4))) || !InImage(U(rec + 8))) return 0;
+        int32_t enclosing = I(rec);
+        if (enclosing >= l) return 0;
+        l = enclosing;
+    }
+    return st;
+}
+
+// an EH3 frame's __finally blocks from its try level down to `target`
+void LocalUnwind3(uint32_t node, uint32_t st, int32_t target) {
+    uint32_t ebp = node + 0x10;
+    int32_t level = I(node + 0xC);
+    while (level != kTryNone3 && level != target) {
+        uint32_t rec = st + 12 * level;
+        int32_t enclosing = I(rec);
+        *At<int32_t>(node + 0xC) = enclosing;
+        if (U(rec + 4) == 0) Call1(U(rec + 8), ebp);
+        level = enclosing;
+    }
+}
+
 struct Thrown {
     uint32_t code;
     uint32_t object;        // a C++ exception's object and ThrowInfo; 0 for SEH
@@ -450,6 +485,8 @@ void UnwindFrame(uint32_t node) {
         UnwindToState(node, fi, -1);
     else if (uint32_t st = ScopeTableOf(node))
         LocalUnwind4(node, st, kTryNone);
+    else if (uint32_t st3 = ScopeTable3Of(node))
+        LocalUnwind3(node, st3, kTryNone3);
 }
 
 [[noreturn]] void Land(uint32_t node, uint32_t at, uint32_t ebp) {
@@ -468,6 +505,7 @@ void UnwindFrame(uint32_t node) {
     }
     g_resumeAt = at;
     g_resumeEbp = ebp;
+    if (Tracing()) fprintf(stderr, "rhipper eh: land at node %08X, continuation %08X\n", node, at);
     longjmp(l->buf, 1);
 }
 
@@ -529,6 +567,29 @@ void Dispatch(Thrown t) {
                 }
                 level = enclosing;
             }
+        } else if (uint32_t st3 = ScopeTable3Of(node)) {
+            uint32_t ebp = node + 0x10;
+            for (int32_t level = I(node + 0xC); level != kTryNone3;) {
+                uint32_t rec = st3 + 12 * level;
+                int32_t enclosing = I(rec);
+                uint32_t filter = U(rec + 4);
+                if (filter) {
+                    *At<uint32_t>(ebp - 0x14) = t.pointers;
+                    int32_t r = static_cast<int32_t>(Call1(filter, ebp));
+                    if (r < 0) return;
+                    if (r > 0) {
+                        for (uint32_t above = Head(); above != node; above = U(above)) {
+                            Head() = above;
+                            UnwindFrame(above);
+                        }
+                        Head() = node;
+                        LocalUnwind3(node, st3, level);
+                        *At<int32_t>(node + 0xC) = enclosing;
+                        Land(node, U(rec + 8), ebp);
+                    }
+                }
+                level = enclosing;
+            }
         }
     }
     fprintf(stderr, "rhipper: unhandled exception %08X; the chain:\n", t.code);
@@ -552,14 +613,15 @@ jmp_buf* gen_eh_landing(unsigned int node) {
         l->node = node;
     }
     l->depth = eh::g_caught.size();
+    if (eh::Tracing()) fprintf(stderr, "rhipper eh: frame linked at node %08X\n", node);
     return &l->buf;
 }
 // a landing's continuation, a function on the frame's ebp: what the frame's function returns
 unsigned long long gen_eh_resume(void) {
     return eh::Call1(eh::g_resumeAt, eh::g_resumeEbp);
 }
-// throw (vcruntime's x86 __stdcall one): an object and its ThrowInfo, or both 0 to rethrow
-unsigned int gen_imp__CxxThrowException(uint32_t object, uint32_t info) {
+// a C++ throw: an object and its ThrowInfo, or both 0 to rethrow the innermost caught
+[[noreturn]] static void CxxThrow(uint32_t magic, uint32_t object, uint32_t info) {
     eh::Thrown t{eh::kCxxCode, object, info, 0, false};
     if (object == 0 && info == 0) {
         if (eh::g_caught.empty()) {
@@ -570,17 +632,27 @@ unsigned int gen_imp__CxxThrowException(uint32_t object, uint32_t info) {
         t = eh::g_caught.back();
         t.rethrown = false;
     }
-    uint32_t args[3] = {0x19930520u, t.object, t.info};
+    uint32_t args[3] = {magic, t.object, t.info};
     t.pointers = eh::Pointers(eh::kCxxCode, 1, 3, args);
     eh::Dispatch(t);
     fprintf(stderr, "rhipper: a C++ exception continued\n");
     TerminateProcess(GetCurrentProcess(), 3);
-    return 0;
+    for (;;) {}
 }
-// RaiseException: dispatched as the reference's; returns where a filter continues execution
+// throw (vcruntime's x86 __stdcall one, imported by a /MD program)
+unsigned int gen_imp__CxxThrowException(uint32_t object, uint32_t info) {
+    CxxThrow(0x19930520u, object, info);
+}
+// RaiseException: dispatched as the reference's; returns where a filter continues execution.
+// (a C++ throw too where the C runtime is the reference's own: VS2010's /MT _CxxThrowException is
+// translated, and raises 0xE06D7363 with {magic, object, ThrowInfo}. Taken as an SEH exception,
+// no typed catch matched it, catch (...) took every throw, and a rethrow had no object, rhtest
+// msvc-16.00-x86 eh)
 unsigned int gen_imp_RaiseException(uint32_t code, uint32_t flags, uint32_t n, uint32_t args) {
     uint32_t a[15] = {};
     for (uint32_t k = 0; k < n && k < 15; k++) a[k] = *At<uint32_t>(args + 4 * k);
+    if (code == eh::kCxxCode && n >= 3 && a[0] >= 0x19930520u && a[0] <= 0x19930522u)
+        CxxThrow(a[0], a[1], a[2]);
     eh::Thrown t{code, 0, 0, eh::Pointers(code, flags, n, a), false};
     eh::Dispatch(t);
     return 0;
@@ -840,6 +912,239 @@ unsigned int gen_imp_GetModuleHandleW(uint32_t name) {
 }
 unsigned int gen_imp_GetModuleHandleA(uint32_t name) {
     return name ? Low(GetModuleHandleA(At<char>(name))) : gen_ref_base;
+}
+// (and its file name is the reference's: CrystalCore hashes its own executable at startup,
+// GetModuleFileNameW(NULL) and a read of it in 1 KB pieces, and the port's file, another size,
+// read one piece more, 2026-10-25). As the API: the length copied, the name cut and
+// ERROR_INSUFFICIENT_BUFFER where it does not fit with its terminator
+// ---- SECURITY_ATTRIBUTES: 12 bytes on x86 (length, a 4-byte descriptor pointer, inherit), 24 on
+// x64. Handed through as it was, the CRT's _sopen gave CreateFileA its x86 one and Windows read past
+// it: ERROR_NOACCESS, and CrystalCore's first file open failed, 2026-10-25 -------------------------
+struct SA32 {
+    uint32_t length, descriptor, inherit;
+};
+static SECURITY_ATTRIBUTES* Sa64(uint32_t p, SECURITY_ATTRIBUTES* out) {
+    if (p == 0) return nullptr;
+    const SA32* s = At<SA32>(p);
+    out->nLength = sizeof *out;
+    out->lpSecurityDescriptor = At<void>(s->descriptor);
+    out->bInheritHandle = static_cast<BOOL>(s->inherit);
+    return out;
+}
+unsigned int gen_imp_CreateFileA(uint32_t name, uint32_t access, uint32_t share, uint32_t sa, uint32_t disposition,
+                                 uint32_t flags, uint32_t tmpl) {
+    SECURITY_ATTRIBUTES s;
+    return Low(CreateFileA(At<char>(name), access, share, Sa64(sa, &s), disposition, flags,
+                           reinterpret_cast<HANDLE>(static_cast<uintptr_t>(tmpl))));
+}
+unsigned int gen_imp_CreateFileW(uint32_t name, uint32_t access, uint32_t share, uint32_t sa, uint32_t disposition,
+                                 uint32_t flags, uint32_t tmpl) {
+    SECURITY_ATTRIBUTES s;
+    return Low(CreateFileW(At<wchar_t>(name), access, share, Sa64(sa, &s), disposition, flags,
+                           reinterpret_cast<HANDLE>(static_cast<uintptr_t>(tmpl))));
+}
+unsigned int gen_imp_CreateDirectoryW(uint32_t path, uint32_t sa) {
+    SECURITY_ATTRIBUTES s;
+    return CreateDirectoryW(At<wchar_t>(path), Sa64(sa, &s));
+}
+unsigned int gen_imp_CreateDirectoryA(uint32_t path, uint32_t sa) {
+    SECURITY_ATTRIBUTES s;
+    return CreateDirectoryA(At<char>(path), Sa64(sa, &s));
+}
+unsigned int gen_imp_CreateEventA(uint32_t sa, uint32_t manual, uint32_t initial, uint32_t name) {
+    SECURITY_ATTRIBUTES s;
+    return Low(CreateEventA(Sa64(sa, &s), manual, initial, At<char>(name)));
+}
+unsigned int gen_imp_CreateEventW(uint32_t sa, uint32_t manual, uint32_t initial, uint32_t name) {
+    SECURITY_ATTRIBUTES s;
+    return Low(CreateEventW(Sa64(sa, &s), manual, initial, At<wchar_t>(name)));
+}
+unsigned int gen_imp_CreateMutexA(uint32_t sa, uint32_t owner, uint32_t name) {
+    SECURITY_ATTRIBUTES s;
+    return Low(CreateMutexA(Sa64(sa, &s), owner, At<char>(name)));
+}
+unsigned int gen_imp_CreateMutexW(uint32_t sa, uint32_t owner, uint32_t name) {
+    SECURITY_ATTRIBUTES s;
+    return Low(CreateMutexW(Sa64(sa, &s), owner, At<wchar_t>(name)));
+}
+unsigned int gen_imp_CreateSemaphoreA(uint32_t sa, uint32_t initial, uint32_t maximum, uint32_t name) {
+    SECURITY_ATTRIBUTES s;
+    return Low(CreateSemaphoreA(Sa64(sa, &s), static_cast<LONG>(initial), static_cast<LONG>(maximum), At<char>(name)));
+}
+unsigned int gen_imp_CreateSemaphoreW(uint32_t sa, uint32_t initial, uint32_t maximum, uint32_t name) {
+    SECURITY_ATTRIBUTES s;
+    return Low(CreateSemaphoreW(Sa64(sa, &s), static_cast<LONG>(initial), static_cast<LONG>(maximum), At<wchar_t>(name)));
+}
+// (and its two handles into the reference's 4-byte slots)
+unsigned int gen_imp_CreatePipe(uint32_t read, uint32_t write, uint32_t sa, uint32_t size) {
+    SECURITY_ATTRIBUTES s;
+    HANDLE r = nullptr, w = nullptr;
+    BOOL ok = CreatePipe(&r, &w, Sa64(sa, &s), size);
+    if (ok) {
+        *At<uint32_t>(read) = Low(r);
+        *At<uint32_t>(write) = Low(w);
+    }
+    return ok;
+}
+
+// ---- the processors: x86's SYSTEM_LOGICAL_PROCESSOR_INFORMATION is 24 bytes (a 4-byte mask), x64's
+// 32, and affinity masks are 4 bytes. Handed the x64 entries, Havok's thread pool counted one core
+// and started 1 job thread for the reference's 10, CrystalCore 2026-10-25 ----------------------------
+#pragma pack(push, 4)
+struct ProcessorInfo32 {
+    uint32_t mask;
+    uint32_t relationship;
+    uint8_t rest[16];       // the union: a flags byte, a node number, a CACHE_DESCRIPTOR (12 bytes)
+};
+#pragma pack(pop)
+static_assert(sizeof(ProcessorInfo32) == 24, "SYSTEM_LOGICAL_PROCESSOR_INFORMATION, x86");
+unsigned int gen_imp_GetLogicalProcessorInformation(uint32_t buf, uint32_t plen) {
+    uint32_t* len = At<uint32_t>(plen);
+    DWORD bytes = 0;
+    GetLogicalProcessorInformation(nullptr, &bytes);
+    std::vector<SYSTEM_LOGICAL_PROCESSOR_INFORMATION> all(bytes / sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION) + 1);
+    bytes = static_cast<DWORD>(all.size() * sizeof all[0]);
+    if (!GetLogicalProcessorInformation(all.data(), &bytes)) return 0;
+    size_t n = bytes / sizeof all[0];
+    uint32_t need = static_cast<uint32_t>(n * sizeof(ProcessorInfo32));
+    if (buf == 0 || *len < need) {
+        *len = need;
+        SetLastError(ERROR_INSUFFICIENT_BUFFER);
+        return 0;
+    }
+    auto out = At<ProcessorInfo32>(buf);
+    for (size_t k = 0; k < n; k++) {
+        out[k].mask = static_cast<uint32_t>(all[k].ProcessorMask);
+        out[k].relationship = static_cast<uint32_t>(all[k].Relationship);
+        static_assert(sizeof(all[k].Cache) == 12, "CACHE_DESCRIPTOR");
+        memset(out[k].rest, 0, sizeof out[k].rest);
+        memcpy(out[k].rest, &all[k].Cache, sizeof all[k].Cache);
+    }
+    *len = need;
+    return 1;
+}
+unsigned int gen_imp_GetProcessAffinityMask(uint32_t process, uint32_t pmask, uint32_t psystem) {
+    DWORD_PTR mine = 0, all = 0;
+    HANDLE h = reinterpret_cast<HANDLE>(static_cast<intptr_t>(static_cast<int32_t>(process)));
+    if (!GetProcessAffinityMask(h, &mine, &all)) return 0;
+    if (pmask) *At<uint32_t>(pmask) = static_cast<uint32_t>(mine);
+    if (psystem) *At<uint32_t>(psystem) = static_cast<uint32_t>(all);
+    return 1;
+}
+
+// ---- COM objects the reference is handed: an x64 object's vtable has 8-byte slots, and the
+// reference's code calls a 4-byte slot at 4 * index. An object of the runtime's in their place: a
+// 4-byte vtable whose slots are the runtime's methods, each taking the reference's x86 arguments
+// (`this` first, as COM's __stdcall has it on the stack). The shell's IMalloc, the first on
+// CrystalCore's path (FUN_00420900's My Documents lookup, 2026-10-25) ------------------------------
+struct ComObject32 {
+    uint32_t vtbl;          // the reference reads its slots through this
+};
+static unsigned int Malloc32_QueryInterface(uint32_t, uint32_t, uint32_t out) {
+    if (out) *At<uint32_t>(out) = 0;
+    return static_cast<unsigned int>(E_NOINTERFACE);
+}
+static unsigned int Malloc32_AddRef(uint32_t) { return 1; }
+static unsigned int Malloc32_Release(uint32_t) { return 1; }
+static unsigned int Malloc32_Alloc(uint32_t, uint32_t cb) { return Low(CoTaskMemAlloc(cb)); }
+static unsigned int Malloc32_Realloc(uint32_t, uint32_t pv, uint32_t cb) { return Low(CoTaskMemRealloc(At<void>(pv), cb)); }
+static unsigned int Malloc32_Free(uint32_t, uint32_t pv) {
+    CoTaskMemFree(At<void>(pv));
+    return 0;
+}
+static unsigned int Malloc32_GetSize(uint32_t, uint32_t pv) {
+    IMalloc* m = nullptr;
+    unsigned int n = 0xFFFFFFFF;
+    if (SUCCEEDED(CoGetMalloc(1, &m))) {
+        n = static_cast<unsigned int>(m->GetSize(At<void>(pv)));
+        m->Release();
+    }
+    return n;
+}
+static unsigned int Malloc32_DidAlloc(uint32_t, uint32_t pv) {
+    IMalloc* m = nullptr;
+    unsigned int r = static_cast<unsigned int>(-1);
+    if (SUCCEEDED(CoGetMalloc(1, &m))) {
+        r = static_cast<unsigned int>(m->DidAlloc(At<void>(pv)));
+        m->Release();
+    }
+    return r;
+}
+static unsigned int Malloc32_HeapMinimize(uint32_t) { return 0; }
+
+// a vtable of 4-byte slots for the runtime's functions (all below 4 GB: the port is linked at a
+// fixed base under 2 GB), in memory of its own
+static uint32_t Vtable32(void* const* fns, size_t n) {
+    auto v = static_cast<uint32_t*>(HeapAlloc(GetProcessHeap(), 0, n * 4));
+    for (size_t k = 0; k < n; k++) v[k] = Low(fns[k]);
+    return Low(v);
+}
+static uint32_t Malloc32() {
+    static uint32_t obj = 0;
+    if (obj == 0) {
+        void* const fns[] = {reinterpret_cast<void*>(Malloc32_QueryInterface), reinterpret_cast<void*>(Malloc32_AddRef),
+                             reinterpret_cast<void*>(Malloc32_Release), reinterpret_cast<void*>(Malloc32_Alloc),
+                             reinterpret_cast<void*>(Malloc32_Realloc), reinterpret_cast<void*>(Malloc32_Free),
+                             reinterpret_cast<void*>(Malloc32_GetSize), reinterpret_cast<void*>(Malloc32_DidAlloc),
+                             reinterpret_cast<void*>(Malloc32_HeapMinimize)};
+        auto o = static_cast<ComObject32*>(HeapAlloc(GetProcessHeap(), 0, sizeof(ComObject32)));
+        o->vtbl = Vtable32(fns, sizeof fns / sizeof fns[0]);
+        obj = Low(o);
+    }
+    return obj;
+}
+unsigned int gen_imp_SHGetMalloc(uint32_t out) {
+    *At<uint32_t>(out) = Malloc32();
+    return S_OK;
+}
+unsigned int gen_imp_CoGetMalloc(uint32_t context, uint32_t out) {
+    *At<uint32_t>(out) = Malloc32();
+    return context == 1 ? S_OK : static_cast<unsigned int>(E_INVALIDARG);
+}
+// (an item list's address into the reference's 4-byte slot)
+unsigned int gen_imp_SHGetSpecialFolderLocation(uint32_t hwnd, uint32_t folder, uint32_t out) {
+    PIDLIST_ABSOLUTE pidl = nullptr;
+    HRESULT hr = SHGetSpecialFolderLocation(reinterpret_cast<HWND>(static_cast<uintptr_t>(hwnd)), static_cast<int>(folder), &pidl);
+    *At<uint32_t>(out) = Low(pidl);
+    return static_cast<unsigned int>(hr);
+}
+
+static const wchar_t* RefFullPath(size_t* len) {
+    static wchar_t full[MAX_PATH] = {};
+    if (full[0] == 0) GetFullPathNameW(RefImagePath(), MAX_PATH, full, nullptr);
+    *len = wcslen(full);
+    return full;
+}
+static unsigned int RefNameCopied(size_t len, uint32_t n) {
+    if (len >= n) {
+        SetLastError(ERROR_INSUFFICIENT_BUFFER);
+        return n;
+    }
+    return static_cast<unsigned int>(len);
+}
+unsigned int gen_imp_GetModuleFileNameW(uint32_t module, uint32_t buf, uint32_t n) {
+    if (module != 0 && module != gen_ref_base)
+        return GetModuleFileNameW(reinterpret_cast<HMODULE>(static_cast<uintptr_t>(module)), At<wchar_t>(buf), n);
+    size_t len;
+    const wchar_t* full = RefFullPath(&len);
+    if (n == 0) return 0;
+    wchar_t* out = At<wchar_t>(buf);
+    size_t k = len < n ? len : n - 1;
+    memcpy(out, full, k * sizeof(wchar_t));
+    out[k] = 0;
+    return RefNameCopied(len, n);
+}
+unsigned int gen_imp_GetModuleFileNameA(uint32_t module, uint32_t buf, uint32_t n) {
+    if (module != 0 && module != gen_ref_base)
+        return GetModuleFileNameA(reinterpret_cast<HMODULE>(static_cast<uintptr_t>(module)), At<char>(buf), n);
+    size_t len;
+    const wchar_t* full = RefFullPath(&len);
+    if (n == 0) return 0;
+    char* out = At<char>(buf);
+    size_t k = len < n ? len : n - 1;
+    for (size_t i = 0; i < k; i++) out[i] = static_cast<char>(full[i]);   // (an ASCII path, as RefImagePath's)
+    out[k] = 0;
+    return RefNameCopied(len, n);
 }
 
 // An x86 SLIST_HEADER is 8 bytes; x64's is 16 and 16-aligned (the CRT's type_info list head)

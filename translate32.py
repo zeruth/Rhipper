@@ -108,7 +108,10 @@ WIDE = {"longlong", "ulonglong", "qword", "undefined8", "uint8", "int8", "uint5"
 CC = re.compile(r"\b(__thiscall|__cdecl|__stdcall|__fastcall|__vectorcall)(?:_keep(?:_[a-z][a-z0-9]*)+)?\b\s*")
 LOST = re.compile(r"\b(in_[A-Z][A-Za-z0-9_]*|in_stack_[0-9a-f]+|unaff_[A-Za-z0-9_]+|extraout_[A-Za-z0-9_]+|in_FS_OFFSET)\b")
 # a symbol ending in its address (DAT_00401000, PTR_FUN_00401000, s_text_00401000, LAB_...)
-ADDR_SYM = re.compile(r"(?<![\w$])(_*(?:DAT|PTR|LAB|UNK|BYTE|WORD|DWORD|QWORD|s|u|ws|switchdataD|vtable)(?:_\w*?)?_([0-9a-f]{8})(?:_\d+)?)(?![\w$])")
+# (the address its last: Ghidra's suffix for a repeated name is a short count, `_1`. As any digits,
+# it took the address of `PTR_vtable_004031d8_00404088` for one, and thing_open returned the
+# vtable it points at, not the object, rhtest msvc-14.51-x86 calls-GL com_calls 2026-10-25)
+ADDR_SYM = re.compile(r"(?<![\w$])(_*(?:DAT|PTR|LAB|UNK|BYTE|WORD|DWORD|QWORD|s|u|ws|switchdataD|vtable)(?:_\w*?)?_([0-9a-f]{8})(?:_\d{1,7})?)(?![\w$])")
 # C's own words, and the names Ghidra32.h defines that the body may use
 C_WORDS = {"if", "else", "while", "for", "do", "switch", "case", "default", "break", "continue", "return",
            "goto", "sizeof", "const", "volatile", "struct", "union", "enum", "static", "extern", "unsigned",
@@ -192,7 +195,13 @@ TYPE_ALIASES = {
     "time_t": "__time64_t", "__time32_t": "int", "LPCH": "LPSTR", "LPWCH": "LPWSTR", "PCHAR": "LPSTR",
     # the CRT's initializer function types (_initterm's tables)
     "_PVFV": "code *", "PVFV": "code *", "_PIFV": "code *", "PIFV": "code *",
+    # (an exception handler's result, an enum: the /MT CRT's CatchGuardHandler and
+    # TranslatorGuardHandler, rhtest msvc-16.00-x86 cpp and eh 2026-10-25)
+    "_EXCEPTION_DISPOSITION": "int", "EXCEPTION_DISPOSITION": "int",
 }
+# the return types narrower than eax, by the unsigned type of their width (emit's jump wrappers)
+NARROW_RETS = {t: "unsigned char" for t in ("byte", "uchar", "char", "bool", "undefined1", "sbyte", "int1", "uint1")}
+NARROW_RETS.update({t: "unsigned short" for t in ("ushort", "short", "undefined2", "wchar_t", "word", "int2", "uint2", "wchar16")})
 _ALIAS = re.compile(r"\b(" + "|".join(TYPE_ALIASES) + r")\b")
 # Windows' pointer typedefs Ghidra spells from its type library (LPCRITICAL_SECTION, PBYTE,
 # LPSECURITY_ATTRIBUTES, PEXCEPTION_RECORD, ...): 4-byte pointers, as LPVOID is (Ghidra32.h)
@@ -302,13 +311,16 @@ def v16_forms(c: str) -> str:
     c = re.sub(r"\(\s*undefined1\s*\(\s*\*\s*\)\s*\[\s*(" + V_SIZES + r")\s*\]\s*\)", r"(gen_v\1 *)", c)
     c = re.sub(r"(?m)^([ \t]*)([^=;\n{}]+?)\s*=\s*\(\s*undefined1\s*\[\s*16\s*\]\s*\)\s*([^;\n]+);[ \t]*$",
                r"\1GEN_V16_SET(\2, \3);", c)
+    # (the first bytes of one, `*(undefined1 (*) [12])*(undefined1 (*) [16])(pfVar25 + 8)`: those
+    # bytes where it is, C's inner `*` being the whole array, FUN_00d5c7e0 in CrystalCore 2026-10-25)
+    c = re.sub(r"\*\s*\(\s*(gen_v\d+)\s*\*\s*\)\s*\*\s*\(\s*gen_v\d+\s*\*\s*\)", r"*(\1 *)", c)
     # (and one copied whole, `auVar1 = *(gen_v16 *)p;`, `*p = auVar1;`: 16 bytes)
     arrays = set(re.findall(r"(?m)^[ \t]+undefined1\s+([A-Za-z_]\w*)\s*\[\s*(?:" + V_SIZES + r")\s*\]\s*;", c))
     ptrs = set(re.findall(r"\bgen_v\d+\s*\*\s*([A-Za-z_]\w*)", c))
 
     def v16(e: str) -> bool:
         e = e.strip()
-        return e in arrays or bool(re.match(r"\*\s*\(\s*gen_v16\s*\*\s*\)", e)) \
+        return e in arrays or bool(re.match(r"\*\s*\(\s*gen_v(?:" + V_SIZES + r")\s*\*\s*\)", e)) \
             or any(re.fullmatch(r"\*\s*" + p + r"|" + p + r"\s*\[[^\]]+\]", e) for p in ptrs)
 
     def copy(m):
@@ -437,9 +449,12 @@ def sse_ops(c: str, arrays: set[str], v16) -> str:
 
 
 # (and ApplyFacts' object blocks, blk_N, N below the entry too: as a C local of its own, nested()'s
-# Guards were nowhere its unwind funclets look through ebp, rhtest eh 2026-10-24)
+# Guards were nowhere its unwind funclets look through ebp, rhtest eh 2026-10-24). Not a variable's
+# name as the type: a wrapped expression's last line, `fVar34 * local_90;`, is no declaration
+# (FUN_00d657d0 in CrystalCore 2026-10-25)
 FRAME_LOCAL = r"(?:local|[a-z]{0,3}Stack|blk)_([0-9a-f]+)"
 FRAME_DECL = re.compile(r"(?m)^[ \t]+(?!(?:return|goto|case|else|do)\b)(?!(?:local|[a-z]{0,3}Stack|blk)_[0-9a-f]+\b)"
+                        r"(?![a-z]{1,4}Var\d+\b)(?!(?:param|in|unaff|extraout)_\w+\b)"
                         r"((?:struct\s+)?[A-Za-z_]\w*(?:[ \t]+[A-Za-z_]\w*)*?(?:[ \t]*\*(?:[ \t]*PTR32)?)*)"
                         r"[ \t]*\b(" + FRAME_LOCAL + r")[ \t]*(\[[ \t]*(?:0x)?[0-9a-f]+[ \t]*\])?[ \t]*;[ \t]*\n")
 
@@ -597,6 +612,12 @@ def returned_local(v: str, lines: list[str]) -> bool:
             continue                                    # its declaration
         if re.fullmatch(r"return\s+(?:\(\w+\)\s*)?" + re.escape(v) + r"\s*;", s):
             continue
+        # (or as the high half of one, `return CONCAT44(uVar4,uVar2);`: edx beside an int result,
+        # the CRT's __vsnprintf_helper typed ulonglong, whose callers read eax, CrystalCore
+        # 2026-10-25)
+        if re.fullmatch(r"return\s+CONCAT44\(\s*" + re.escape(v) + r"\s*,[^;]*\)\s*;", s) \
+                and len(re.findall(r"\b" + re.escape(v) + r"\b", s)) == 1:
+            continue
         m = re.fullmatch(r"(\w+)\s*=\s*(.+);", s)
         if m and m.group(1) == v and not re.search(r"\b" + re.escape(v) + r"\b", m.group(2)):
             continue                                    # written
@@ -701,12 +722,30 @@ def filler_args(c: str) -> set[str]:
     into its callee and keeps the slot, `fc4(a, 2, c, -1)` reading ecx and one stack word but
     popping two, and its caller pushes what ecx holds there, `extraout_ECX` after the call
     before (rhtest calls-GL, 2026-10-24). 0 in the port."""
+    # (or through a local it is copied to, `piVar2 = extraout_ECX;`, that is only ever assigned or
+    # passed whole so: /GL's opener pushes ecx, whatever seek3 left there, for the lo seek3 ignores,
+    # rhtest msvc-14.51-x86 calls-GL 2026-10-25)
+    lines = c.split("\n")
+
+    def filler(n, seen):
+        uses = [l for l in lines if re.search(r"\b" + re.escape(n) + r"\b", l)
+                and not re.fullmatch(r"\s*[A-Za-z_][\w ]*?[\s*]*\b" + re.escape(n) + r";\s*", l)]
+        if not uses:
+            return False
+        for l in uses:
+            if re.fullmatch(r"\s*" + re.escape(n) + r"\s*=(?!=)[^;]*;\s*", l) and n not in seen[:1]:
+                continue                                  # (a local's own assignment)
+            m = re.fullmatch(r"\s*([A-Za-z_]\w*)\s*=\s*" + re.escape(n) + r"\s*;\s*", l)
+            if m and m.group(1) not in seen:
+                if not filler(m.group(1), seen + [m.group(1)]):
+                    return False
+                continue
+            if len(re.findall(r"\b" + re.escape(n) + r"\b", l)) != len(re.findall(r"[(,]\s*" + re.escape(n) + r"\s*(?=[,)])", l)):
+                return False
+        return True
     out = set()
     for n in set(re.findall(r"\bextraout_E[ACD]X(?:_\d+)?\b", c)):
-        uses = [l for l in c.split("\n") if re.search(r"\b" + n + r"\b", l)
-                and not re.fullmatch(r"\s*(?:undefined\d?|uint|int)\s+" + n + r";\s*", l)]
-        if uses and all(len(re.findall(r"\b" + n + r"\b", l)) == len(re.findall(r"[(,]\s*" + n + r"\s*(?=[,)])", l))
-                        for l in uses):
+        if filler(n, [n]):
             out.add(n)
     return out
 
@@ -762,21 +801,32 @@ def balanced(body: str) -> bool:
 
 
 SETJMP_CALL = re.compile(r"\bgen_imp_(_setjmp3|_setjmp|setjmp|longjmp)\s*\(")
+# (the same functions linked into the image, by the names Ghidra's function ID gives them: VS2010's
+# /MT __setjmp3, and longjmp as `FID_conflict:___longjmp_internal`)
+SETJMP_NAME = re.compile(r"(?:FID_conflict:)?_*(setjmp3|setjmp|longjmp|longjmp_internal)")
 
 
-def jump_calls(body: str) -> str:
+def jump_calls(body: str, linked: dict[int, str] | None = None) -> str:
     """setjmp and longjmp the port's own (Ghidra32.h GEN_SETJMP, GEN_LONGJMP): `gen_imp__setjmp3(buf,
     0)` a setjmp in this function, on the native jmp_buf for buf, `gen_imp_longjmp(buf, v)` a
     longjmp to it. Through an adapter, the setjmp's frame was the adapter's, gone when longjmp came
-    (and the CRT's x86 _setjmp3 no function of the port's: rhtest misc 2026-10-24)."""
+    (and the CRT's x86 _setjmp3 no function of the port's: rhtest misc 2026-10-24). `linked`: the
+    image's own setjmp and longjmp, {address: "setjmp" or "longjmp"}, called as F_<address>: a
+    static C runtime's, x86 code that saves and restores registers and esp, which a translation
+    cannot do (rhtest msvc-16.00-x86 misc jumps)."""
+    pattern = SETJMP_CALL
+    if linked:
+        pattern = re.compile(r"\b(?:gen_imp_(_setjmp3|_setjmp|setjmp|longjmp)|("
+                             + "|".join(f"F_{x:08x}" for x in linked) + r"))\s*\(")
     out, i = [], 0
-    for m in SETJMP_CALL.finditer(body):
+    for m in pattern.finditer(body):
         if m.start() < i:
             continue
         open_ = m.end() - 1
         close = match_paren(body, open_)
         args = split_top(body[open_ + 1:close - 1])
-        if m.group(1) == "longjmp":
+        kind = m.group(1) or linked[int(m.group(2)[2:], 16)]
+        if kind == "longjmp":
             new = f"GEN_LONGJMP({args[0].strip()}, {args[1].strip() if len(args) > 1 else '1'})"
         else:
             new = f"GEN_SETJMP({args[0].strip()})"
@@ -889,15 +939,26 @@ FLOATISH = re.compile(r"\b\d+\.\d*(?:[eE][-+]?\d+)?f?\b|\(float(?:10)?\)|\(doubl
 
 
 def match_paren(s: str, i: int) -> int:
-    """The index just past the parenthesis group that opens at s[i]."""
+    """The index just past the parenthesis group that opens at s[i]. (Not counting those in a
+    string or character literal: `F_00d9fe80(buf,"Block (")`, the undecorator's strings in
+    CrystalCore, 2026-10-25.)"""
     depth = 0
-    for j in range(i, len(s)):
-        if s[j] == "(":
+    j = i
+    while j < len(s):
+        ch = s[j]
+        if ch in "\"'":
+            k = j + 1
+            while k < len(s) and s[k] != ch:
+                k += 2 if s[k] == "\\" else 1
+            j = k + 1
+            continue
+        if ch == "(":
             depth += 1
-        elif s[j] == ")":
+        elif ch == ")":
             depth -= 1
             if depth == 0:
                 return j + 1
+        j += 1
     return -1
 
 
@@ -1000,6 +1061,10 @@ class Translator32:
     def __init__(self):
         t0 = time.time()
         self.corpus = load_corpus()
+        self._pe = None                           # (truncates: the image, opened when first read)
+        # (the image's own setjmp and longjmp, a static C runtime's: jump_calls)
+        self.linked_jumps = {a: "longjmp" if "longjmp" in m.group(1) else "setjmp" for a, r in self.corpus.items()
+                             if (m := SETJMP_NAME.fullmatch(r["name"]))}
         self.refdata, self.ref_names = load_refdata()
         # (each function's frame allocation, protos32.py's "frame": an EH frame's is laid out whole)
         pp = FACTS / "protos.json"
@@ -1082,7 +1147,7 @@ class Translator32:
         return out
 
     def local_thunks(self) -> dict[str, tuple[int, int]]:
-        """name -> (thunk, target) for each `jmp rel32` thunk Ghidra made a function of in the
+        """name -> (thunk, target) for each `jmp` thunk Ghidra made a function of in the
         image's own code (functions.json "thunk", not an import's): the corpus leaves thunks out,
         so a call by its name is the target's, and the runtime's jump at it goes to the target's
         translation (`thunk_FUN_00403020`, which the /MD CRT's pre_c_initialization calls,
@@ -1101,6 +1166,11 @@ class Translator32:
             target = at
             for _ in range(4):                       # (through thunks of thunks)
                 code = pe.get_data(target - base, 5)
+                # (and `jmp short`: VS2010's catch continuation in nested(), `jmp 0x40149b` in two
+                # bytes, its thunk's name undeclared and the catch demoted, rhtest msvc-16.00-x86 eh)
+                if len(code) >= 2 and code[0] == 0xEB:
+                    target = (target + 2 + int.from_bytes(code[1:2], "little", signed=True)) & 0xFFFFFFFF
+                    continue
                 if len(code) < 5 or code[0] != 0xE9:
                     break
                 target = (target + 5 + int.from_bytes(code[1:5], "little", signed=True)) & 0xFFFFFFFF
@@ -1108,6 +1178,26 @@ class Translator32:
                 out[f["name"]] = (at, target)
         pe.close()
         return out
+
+    def truncates(self, a: int) -> bool:
+        """Whether the function sets the x87 control word's rounding to truncation (`or eax,
+        0xc00; mov [esp], eax; fldcw [esp]`) for its `fistp`: Ghidra drops the fldcw and reads
+        fistp as ROUND, the current mode's (VS2010's inline (u32)double, d2u, rounded
+        4200000000.75 up, rhtest msvc-16.00-x86 float 2026-10-25)."""
+        import capstone
+        import pefile
+        if self._pe is None:
+            self._pe = pefile.PE(str(project.EXE), fast_load=True)
+        base = self._pe.OPTIONAL_HEADER.ImageBase
+        code = self._pe.get_data(a - base, self.corpus[a].get("size") or 0)
+        md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+        mode = False
+        for ins in md.disasm(code, a):
+            if ins.mnemonic == "or" and ("0xc00" in ins.op_str or ins.op_str.endswith("h, 0xc")):
+                mode = True
+            elif ins.mnemonic == "fldcw" and mode:
+                return True
+        return False
 
     def eh_funcinfos(self) -> dict[int, int]:
         """handler -> FuncInfo for each function whose first instructions load a FuncInfo into eax
@@ -1150,6 +1240,15 @@ class Translator32:
             uses = len(re.findall(r"\b" + re.escape(n) + r"\b", c))
             decls = len(re.findall(r"(?m)^[ \t]+[A-Za-z_][\w ]*?\s+" + re.escape(n) + r"\s*;", c))
             if uses - decls == sum(len(re.findall(r"\b" + re.escape(n) + r"\b", s)) for s in calls):
+                out.add(n)
+                continue
+            # (or used besides as a local the function assigns before anything reads it: the
+            # register it found is only what the call that does not return is handed, on a path
+            # that set nothing. VS2010's __tzset_nolock, `unaff_EDI = (int *)0xffffffff;` first,
+            # `__invoke_watson(unaff_EDI,0,0,0,0,0)` on an early error, CrystalCore 2026-10-25)
+            body = split_decls(c.partition("{")[2])[1]
+            first = re.search(r"\b" + re.escape(n) + r"\b.*", body)
+            if first and re.match(re.escape(n) + r"\s*=(?!=)", first.group(0)):
                 out.add(n)
         return out
 
@@ -1292,6 +1391,47 @@ class Translator32:
         return word in KNOWN_TYPES
 
     # ---- member access, by the exported layouts -------------------------------------------------
+    def small_arrays(self, body: str) -> str:
+        """A byte array of 1, 2, 4 or 8 bytes Ghidra assigns or reads as a whole value (`local_8 =
+        SUB42(uVar2,0);`, `(ushort)local_8`, `CONCAT22(0x804,local_8)` of an `undefined1 local_8
+        [2]`): its bytes as one integer of that size. C has no array assignment, and the array
+        read as a value is its address."""
+        decls, rest = split_decls(body)
+        esize = {"char": 1, "undefined1": 1, "byte": 1, "uchar": 1, "undefined": 1, "wchar_t": 2,
+                 "ushort": 2, "short": 2, "undefined2": 2, "undefined4": 4, "uint": 4, "int": 4}
+        ints = {1: "unsigned char", 2: "unsigned short", 4: "unsigned int", 8: "unsigned long long"}
+        small = {}
+        for m in re.finditer(r"(?m)^\s+(" + "|".join(esize) + r")\s+([A-Za-z_]\w*)\s*\[\s*(\d+)\s*\]\s*;", decls):
+            n = esize[m.group(1)] * int(m.group(3))
+            if n in ints:
+                small[m.group(2)] = n
+        for name, n in small.items():
+            t = ints[n]
+
+            def assign(mm, name=name, n=n, t=t):
+                # (another one copied in, `auVar6 = local_cc;`: its bytes, not its address,
+                # FUN_006835d0 in CrystalCore)
+                v = mm.group(2).strip()
+                v = f"(*({ints[small[v]]} *){v})" if v in small else v
+                return f"{mm.group(1)}{{ {t} gen_ac = ({t})({v}); memcpy({name}, &gen_ac, {n}); }}"
+            rest = re.sub(rf"(?m)^([ \t]*){name} = ([^;\n]+);", assign, rest)
+            whole = f"(*({t} *){name})"
+            # (a cast of one read whole: of a register's, `auVar6`, which has no address, any cast,
+            # `(int)auVar6 + 0x147c` its pointer's value (FUN_006835d0). Of a stack array a
+            # pointer-sized cast is its address, `(int)aiStack_1c + iVar1 + 4` in VS2010's alloca
+            # path and the /GS cookie's `(uint)local_c` (rhtest msvc-16.00-x86 misc-O2, crt-O2):
+            # only a narrower or wider one, `(uint3)(ushort)local_8`, not added to)
+            if name.startswith("auVar"):
+                casts = r"char|uchar|byte|ushort|short|uint|int|uint3|ulonglong|longlong|undefined[1248]?"
+                after = r"(?!\s*[\[.])"
+            else:
+                casts = r"char|uchar|byte|ushort|short|uint3|ulonglong|longlong|undefined[128]?"
+                after = r"(?!\s*[\[.+-])"
+            rest = re.sub(rf"(\(\s*(?:unsigned\s+)?(?:{casts})\s*\)\s*){name}\b{after}", rf"\1{whole}", rest)
+            rest = re.sub(rf"(\bCONCAT\d\d\((?:[^(),]|\([^()]*\))*,\s*){name}\s*\)", rf"\1{whole})", rest)
+            rest = re.sub(rf"(\bCONCAT\d\d\(\s*){name}\s*,", rf"\1{whole},", rest)
+        return decls + rest
+
     def struct_of(self, t: str) -> str | None:
         """The composite a type names, through typedefs (`pthreadlocinfo` -> `threadlocinfostruct *`
         is a pointer, not a composite: None)."""
@@ -1526,6 +1666,26 @@ class Translator32:
         m = re.fullmatch(r"\(\s*\(\s*(?:struct\s+)?([A-Za-z_]\w*)\s*\*\s*\)\s*(.+)\)", base, re.S)
         if m and self.struct_of(m.group(1)):
             return f"(char *)({m.group(2)})", ("ptrval", self.struct_of(m.group(1)))
+        # (a pointer to one, read from where a cast puts it: an SEH filter's `(*(_EXCEPTION_POINTERS
+        # **)(in_ebp + -0x14))->ExceptionRecord`, the frame's saved pointers; mainCRTStartup's
+        # filter in every VS2010 program was a stub, rhtest msvc-16.00-x86 2026-10-25)
+        m = re.fullmatch(r"\(\s*\*\s*\(\s*(?:struct\s+)?([A-Za-z_]\w*)\s*\*\s*\*\s*\)\s*(.+)\)", base, re.S)
+        if m and self.struct_of(m.group(1)):
+            return f"(char *)(*(undefined * PTR32 *)({m.group(2)}))", ("ptrval", self.struct_of(m.group(1)))
+        # (and one of an array a cast says is of them: FindHandlerForForeignException's
+        # `((HandlerType *)local_c[1])[*local_c + -1].pType`, the /MT CRT's, rhtest msvc-16.00-x86)
+        m = re.fullmatch(r"\(\s*\(\s*(?:struct\s+)?([A-Za-z_]\w*)\s*\*\s*\)\s*(.+)\)\s*\[(.*)\]", base, re.S)
+        def paired(x):
+            depth = 0
+            for ch in x:
+                depth += ch in "(["
+                depth -= ch in ")]"
+                if depth < 0:
+                    return False
+            return depth == 0
+        if m and self.struct_of(m.group(1)) and paired(m.group(2)) and paired(m.group(3)):
+            s = self.struct_of(m.group(1))
+            return f"((char *)({m.group(2)}) + ({m.group(3)}) * {self.composites[s]['size']})", ("struct", s)
         m = re.fullmatch(r"_*(?:DAT|PTR)_[0-9a-f]{0,}?([0-9a-f]{8})", base)
         if m:
             n, t = self.refdata.get(int(m.group(1), 16), (0, ""))
@@ -1635,6 +1795,11 @@ class Translator32:
         # graphics allocator's free-bucket mask found no bucket, CrystalCore 2026-10-24)
         c = int_min(c)
         c = re.sub(r"(?<=[\w>])[ \t]*\n[ \t]*::", "::", c)
+        # (a label named as the function that starts there, `FUN_00410044:` and `goto FUN_00410044;`
+        # inside FUN_0041002d: a label still, not that function's address, CrystalCore 2026-10-25)
+        for lab in set(re.findall(r"(?m)^\s*(FUN_[0-9a-f]{8})\s*:(?!:)", c)):
+            c = re.sub(rf"(?m)^(\s*){lab}(\s*:)(?!:)", rf"\1LAB_{lab[4:]}_f\2", c)
+            c = re.sub(rf"\bgoto\s+{lab}\s*;", f"goto LAB_{lab[4:]}_f;", c)
         head, sep, body = c.partition("{")
         body = out_stack("{" + body, "replaced with injection: alloca_probe" in self.corpus[a]["c"],
                          bool(EH_PROLOG.search(self.corpus[a]["c"]) or EH_LINK.search(body)))
@@ -1649,6 +1814,10 @@ class Translator32:
             return f"{m.group(1)}{{ {t} gen_ac = ({t})({m.group(5)}); memcpy(&{m.group(2)}, &gen_ac, {n}); }}"
         body = re.sub(r"(?m)^([ \t]*)([A-Za-z_]\w*) = \(\s*(char|undefined1|byte|uchar|wchar_t|ushort|short|undefined2)"
                       r"\s*\[(\d+)\]\s*\)\s*([^;\n]+);", array_set, body)
+        # (and from a value with no array cast, `local_8 = SUB42(uVar2,0);` of an `undefined1
+        # local_8 [2]`, or read whole, `(ushort)local_8`: Ghidra's word store into a byte array,
+        # FUN_005b2c00 in CrystalCore 2026-10-25)
+        body = self.small_arrays(body)
         # (the entry esp itself, in a function whose frame frame_locals lays out: the frame's top,
         # GEN_SLOT(0), each local GEN_SLOT(N) below it. Ghidra folds a sum of `p - buf` over a local
         # buffer into `(int)&stack0x00000000 * -8`, strings()'s strchr and strrchr offsets, rhtest
@@ -1660,7 +1829,12 @@ class Translator32:
         # MSVC's default, 53-bit precision and every exception masked; the conversions it is set
         # for (`| 0xc00`, truncation) are C's own here)
         body = re.sub(r"(?m)^\s*[A-Za-z_]\w*\s+in_FPUControlWord\s*;\s*\n", "", body)
+        # (and its restore after the conversion, `in_FPUControlWord = uStack_43a;`: nothing to
+        # put back, FUN_00c19500 in CrystalCore 2026-10-25)
+        body = re.sub(r"(?m)^[ \t]*in_FPUControlWord\s*=[^;\n]*;[ \t]*\n", "", body)
         body = re.sub(r"\bin_FPUControlWord\b", "((undefined2)0x27f)", body)
+        if "ROUND(" in body and self.truncates(a):
+            body = re.sub(r"\bROUND\(", "TRUNC(", body)
         # a jump table's address (switchD_00403f1a::switchdataD_00403f30), and the labels Ghidra
         # qualifies (switchD_00403f1a::caseD_5)
         body = re.sub(r"\bswitchD_[0-9a-f]+::switchdataD_([0-9a-f]{8})\b",
@@ -1709,6 +1883,12 @@ class Translator32:
             else:
                 t = f"undefined{size}"
             return f"(*({t} *)((char *)&{name} + {off}))"
+        # (`(float)x` of an untyped 8-byte x: its low half's bits as a float, the piece the decompiler
+        # prints as a cast where it tags the high one `x._4_4f_`. Converted by value, VS2010's
+        # /arch:SSE2 vec_check read cross()'s c.x as 2^62-odd, rhtest msvc-16.00-x86 float-SSE2)
+        wide = set(re.findall(r"(?m)^[ \t]+undefined8[ \t]+([A-Za-z_]\w*)[ \t]*;", body))
+        if wide:
+            body = re.sub(r"\(float\)\s*(" + "|".join(sorted(wide)) + r")\b(?![.\[(])", r"\1._0_4f_", body)
         # (not a field's, `local_20.x._0_4_`: members() places the field first, paren_pieces after)
         body = re.sub(r"(?<![.\w>])(?<!\.\s)\b([A-Za-z_]\w*(?:\[[^\]\[]*\])?)\._(\d+)_(\d+)(f?)_", piece, body)
         # (a float lane in a bit mask, `~-(uint)(fVar15 < fVar11) & auVar2._4_4_`: Ghidra's SSE
@@ -1719,6 +1899,8 @@ class Translator32:
             if "(*(float *)((char *)&" in line:
                 rest = re.sub(r"\(\*\(float \*\)\(\(char \*\)&[\w\[\]]+ \+ \d+\)\)", "LANE", line)
                 rest = re.sub(r"\(\w[\w ]*\*\)&|&\w", "", rest)
+                # (its bits are no lane: `(uint)gen_fl2bits(c.x) ^ ...`, vec_check)
+                rest = re.sub(r"\bgen_fl2bits\(\s*LANE\s*\)", "BITS", rest)
                 if re.search(r"LANE\s*\)*\s*(?<![&|])[&|^](?![&|=])|(?<![&|])[&|^~](?![&|=])\s*\(*\s*LANE", rest):
                     raise ValueError("an SSE lane in a bit mask")
         # (and a piece of a parenthesized expression: `(*ptd)._0_4_`)
@@ -1745,8 +1927,13 @@ class Translator32:
         # `vftable` in std::exception's constructor, eh-Od)
         parts = self.corpus[a]["name"].split("::")[:-1]
         self.cur_ns = ["::".join(parts[:k]) + "::" for k in range(len(parts), 0, -1)]
+        # (and a call to a method of the same class, which Ghidra prints unqualified: the scalar
+        # deleting destructor's `_vbase_destructor_(this + -0xc)`, FID's std::basic_iostream for
+        # cpp's Left, rhtest msvc-16.00-x86 cpp-Od 2026-10-25)
+        parts = self.sigs[a].name.split("::")[:-1]
+        self.cur_call_ns = ["::".join(parts[:k]) + "::" for k in range(len(parts), 0, -1)]
         body = self.names(body)
-        body = jump_calls(body)
+        body = jump_calls(body, self.linked_jumps)
         body = CC.sub("", body)
         body = re.sub(r"\(uint\)&stack0x[0-9a-f]+", "0u", body)
         body = RAM.sub(lambda m: f"REFG({RAM_TYPES.get(m.group(1), 'undefined4')}, 0x{m.group(2)})", body)
@@ -1827,6 +2014,12 @@ class Translator32:
                 for k, (t, n) in enumerate(sig.params):
                     tt = self.type_text(t)
                     slot_t = f"{tt} PTR32" if "*" in tt else tt
+                    if re.fullmatch(r"code\s*\*", tt.strip()):
+                        # (a function pointer: 4 bytes as gen_code32, as frame_locals stores one, a
+                        # call through it converted; as a `(code *)` cast it could not be assigned,
+                        # FUN_00db9550's `param_1 = (code *)(...)` in CrystalCore 2026-10-25)
+                        slot_t = "gen_code32"
+                        body = re.sub(rf"\(\s*\*\s*{re.escape(n)}\s*\)(?=\s*\()", f"((code *){n})", body)
                     body = re.sub(rf"\b{re.escape(n)}\b", f"(*({slot_t} *)&gen_args[{at_slot[k]}])", body)
                 prologue = block
             else:
@@ -1869,8 +2062,11 @@ class Translator32:
             var_types[n] = "undefined1[]"
         body = self.typed_casts(body, var_types)
         body = self.call_args(body, var_types)
+        # (a code label's address indexed, `(&LAB_00436475)[param_2]`: its bytes, a jump table's
+        # index bytes kept in code, FUN_004387b0 in CrystalCore 2026-10-25)
+        body = re.sub(r"\(\s*REFP\((0x[0-9a-fA-F]+)\)\s*\)\s*\[", r"((undefined *)REFP(\1))[", body)
         # (an 8-byte structure cast to an integer: its 64 bits)
-        struct8_locals = [n for n, t in var_types.items() if t.strip() in STRUCT8]
+        struct8_locals =[n for n, t in var_types.items() if t.strip() in STRUCT8]
         if struct8_locals:
             body = re.sub(r"\(((?:unsigned\s+)?[A-Za-z_]\w*)\)\s*(" + "|".join(map(re.escape, struct8_locals)) + r")\b(?!\s*[.\[])",
                           lambda m: f"({m.group(1)})(*(ULONGLONG *)&{m.group(2)})"
@@ -2349,6 +2545,11 @@ class Translator32:
         """A return type as the port declares it: a void function returns its eax anyway, and
         callers Ghidra saw use it (`uVar4 = FUN_004308f0(...)` of a void FUN_004308f0); a bare
         `code` (a function type) is the address it was."""
+        # (a structure of 8 bytes or fewer returned by value comes back in edx:eax: its bits.
+        # VS2010's __Getcoll's _Collvec)
+        w = re.sub(r"^(?:struct\s+)?", "", CC.sub("", t).strip())
+        if w not in KNOWN_TYPES and self.composite_sizes.get(w) in (1, 2, 4, 8):
+            return "unsigned long long" if self.composite_sizes[w] == 8 else "unsigned int"
         t = self.type_text(t)
         return "unsigned int" if t in ("void", "code") else STRUCT8.get(t.strip(), t)
 
@@ -2511,9 +2712,22 @@ class Translator32:
                     or re.search(rf"\b{name}\b\s*(?:\[[^\]]*\]\s*)?(?:\.|->)", rest):
                 return m.group(0)
             size = self.composite_sizes[word] * (int(count, 0) if count else 1)
+            # (one of 1, 2, 4 or 8 bytes is an integer of that size: VS2010's _Getcoll takes the
+            # _Collvec __Getcoll returns in edx:eax, `_Var1 = __Getcoll(); *param_1 = _Var1;`)
+            if not count and size in (1, 2, 4, 8):
+                small[name] = size
+                return f"{m.group(1)}undefined{size} {name};"
             return f"{m.group(1)}undefined1 {name}[{size}];"
+        small = {}
         decls = re.sub(r"(?m)^(\s+)([A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*(?:\[\s*((?:0x)?[0-9a-f]+)\s*\])?\s*;",
                        opaque, decls)
+        # (and copied whole through a pointer, `*param_1 = _Var1;`: all its bytes, not the one
+        # byte the `undefined *` it became points at)
+        for name, size in small.items():
+            rest = re.sub(rf"(?m)^(\s*)\*\s*([A-Za-z_]\w*)\s*=\s*{name}\s*;",
+                          rf"\1*(undefined{size} *)\2 = {name};", rest)
+            rest = re.sub(rf"(?m)^(\s*){name}\s*=\s*\*\s*([A-Za-z_]\w*)\s*;",
+                          rf"\1{name} = *(undefined{size} *)\2;", rest)
         decls = re.sub(r"(?m)^(\s+)((?:(?:unsigned|signed)\s+)?[A-Za-z_]\w*(?:::\w+)*(?:<[^;()]*?>)?(?:\s*\*[\s*]*|\s+))([A-Za-z_]\w*\s*(?:\[[^\]]*\])?\s*;)",
                        lambda m: decl(m) if "*" in m.group(2) or self.type_word_ok(m.group(2)) else m.group(0), decls)
         return decls + rest
@@ -2545,11 +2759,23 @@ class Translator32:
         # each ends at a call's `(` or a scope's last part, and is found by scanning back
         body = self.odd_names(body)
 
+        # (an operator of the same class, called unqualified: std::exception's copy constructor's
+        # `operator=(this,param_1)`, rhtest msvc-16.00-x86 cpp 2026-10-25)
+        def operator(m):
+            for ns in getattr(self, "cur_call_ns", ()):
+                if ns + m.group(1) in self.by_printed:
+                    return f"F_{self.by_printed[ns + m.group(1)]:08x}("
+            return m.group(0)
+        body = re.sub(r"(?<![\w$:~])(operator[^\w\s(),;]{1,3})\s*\(", operator, body)
+
         def call(m):
             name = m.group(1)
             a = self.by_printed.get(name)
             if a is not None:
                 return f"F_{a:08x}("
+            for ns in getattr(self, "cur_call_ns", ()):
+                if ns + name in self.by_printed:
+                    return f"F_{self.by_printed[ns + name]:08x}("
             imp = self.import_of(name)
             if imp is not None:
                 return f"gen_imp_{imp}("
@@ -2789,7 +3015,10 @@ class Translator32:
         for k in range(0, len(items), PER_FILE):
             chunk = items[k:k + PER_FILE]
             path = GEN / f"translated_{k // PER_FILE:03d}.c"
-            text = ['#include "translated.h"', "#pragma warning(disable: 4024 4047 4133 4244 4305 4311 4312 4700 4715 4716 4022 4028 4090 4146 4554)"]
+            # (4717, recursive on all paths: a function whose other path ends in a call that does not
+            # return, which the port's declarations do not say. VS2010's /MT dive() bottoms out in
+            # the CRT's translated longjmp, rhtest msvc-16.00-x86 misc)
+            text = ['#include "translated.h"', "#pragma warning(disable: 4024 4047 4133 4244 4305 4311 4312 4700 4715 4716 4717 4022 4028 4090 4146 4554)"]
             for a, t in chunk:
                 text.append(t)
             write(path, "\n".join(text) + "\n")
@@ -2816,11 +3045,27 @@ class Translator32:
             s.append(f"{d} {{ {body}{r} }}")
         write(GEN / "stubs.c", "\n".join(s) + "\n")
         # the jumps the runtime writes at each reference entry
-        j = ['#include "translated.h"', "typedef struct { unsigned int ref; void *port; } GEN_JUMP;",
-             "const GEN_JUMP g_genJumps[] = {"]
-        j += [f"  {{0x{a:x}u, (void *)F_{a:08x}}}," for a in sorted(self.corpus)]
+        j = ['#include "translated.h"', "typedef struct { unsigned int ref; void *port; } GEN_JUMP;"]
+        # (a function returning a byte or a word, reached through a pointer, is called as one that
+        # returns all of eax: x64 leaves the rest of rax undefined, so its entry widens the result.
+        # /GL's thing_query, `xor eax, eax; ...; setne al`, an i1, came back 0xcccccc5f to an
+        # indirect caller, and the next call went there, rhtest msvc-14.51-x86 calls-GL com_calls)
+        narrow = {}
+        for a in sorted(self.corpus):
+            d = decls[a]
+            ret = d.split(f"F_{a:08x}")[0].strip()
+            width = NARROW_RETS.get(ret)
+            if width is None:
+                continue
+            ps = [p.strip() for p in d[d.index("(") + 1:d.rindex(")")].split(",")]
+            names = [] if ps in ([""], ["void"]) else [re.split(r"[\s*]+", p)[-1] for p in ps]
+            j.append(f"static unsigned int W_{a:08x}({', '.join(ps) or 'void'}) "
+                     f"{{ return (unsigned int)({width})F_{a:08x}({', '.join(names)}); }}")
+            narrow[a] = f"W_{a:08x}"
+        j += ["const GEN_JUMP g_genJumps[] = {"]
+        j += [f"  {{0x{a:x}u, (void *){narrow.get(a, f'F_{a:08x}')}}}," for a in sorted(self.corpus)]
         # (and each local thunk, to its target's)
-        j += [f"  {{0x{at:x}u, (void *)F_{t:08x}}}," for at, t in sorted(self.thunks.values())]
+        j += [f"  {{0x{at:x}u, (void *){narrow.get(t, f'F_{t:08x}')}}}," for at, t in sorted(self.thunks.values())]
         j += ["};", f"const unsigned int g_genJumpCount = {len(self.corpus) + len(self.thunks)};"]
         # (the C++ EH frames' handler thunks and their FuncInfo, for the runtime's dispatcher, which
         # cannot read the reference's code: int3 over all of it, Adapters.cpp eh::FuncInfoOf)
@@ -3032,8 +3277,10 @@ def rounds(t: Translator32, args, only: set[int] | None, demoted: dict[str, str]
         if args.no_build:
             return
         t0 = time.time()
-        with ThreadPoolExecutor(args.jobs) as pool:
-            results = dict(zip(files, pool.map(compile_one, files)))
+        # (its own name: as `pool` it was the next round's translation pool, and round 1 failed,
+        # 'ThreadPoolExecutor' object has no attribute 'imap_unordered')
+        with ThreadPoolExecutor(args.jobs) as compilers:
+            results = dict(zip(files, compilers.map(compile_one, files)))
         new = 0
         for path, errs in results.items():
             if not errs:

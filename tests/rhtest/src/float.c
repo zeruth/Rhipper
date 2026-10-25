@@ -129,6 +129,23 @@ NOINLINE float after_call(u32 n, float step) {
     return acc + (float)b;
 }
 
+/* an 8-byte struct returned in edx:eax, an x87 constant loaded before its high half is read:
+ * `call pair_of; fld qword ptr [c]; ...; mov [esp + x], edx`. Scanned only up to the x87 load, the
+ * callee returned eax alone and the high half was extraout_EDX (VS2010's templates() and walk(),
+ * rhtest msvc-16.00-x86 cpp-O2) */
+typedef struct { i32 lo, hi; } Pair32;
+NOINLINE Pair32 pair_of(u32 s) {
+    Pair32 p;
+    p.lo = (i32)s * 3;
+    p.hi = -(i32)s * 7;
+    return p;
+}
+NOINLINE double pair_scale(u32 s) {
+    Pair32 p = pair_of(s);
+    double d = (double)s * 0.75;
+    return d * 1.5 + (double)p.hi * 0.5 + (double)p.lo;
+}
+
 /* globals of float type */
 float g_scale = 1.5f;
 double g_offset = -0.125;
@@ -154,6 +171,7 @@ void rhtest_run(void) {
     checkf("fsqrt", fsqrt(sf * 5.0f));
     check("d2i", (u32)d2i(-s * 1234.567));
     check("d2u", d2u(s * 600000000.0));
+    check("d2u_frac", d2u(s * 600000000.0 + 0.75));      /* (truncated: VS2010's fldcw | 0xc00) */
     check64("d2l", (u64)d2l(-s * 1.0e15));
     check64("d2ul", d2ul(s * 2.5e18));
     checkd("i2d", i2d(-(i32)seed() * 100003));
@@ -180,4 +198,5 @@ void rhtest_run(void) {
     check("vec", vec_check());
     checkd("scaled", scaled(s));
     checkf("after_call", after_call((u32)s, sf * 0.25f));
+    checkd("pair_scale", pair_scale((u32)s));
 }

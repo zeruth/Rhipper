@@ -94,6 +94,13 @@ def summary(d: dict) -> str:
 def main() -> None:
     sys.path.insert(0, str(HERE))
     import project
+    # (`--structs`: only the merged layouts, for ghidra.sh apply, by the toolchain already found)
+    if "--structs" in sys.argv:
+        tc = project.FACTS / "toolchain.json"
+        name = json.loads(tc.read_text(encoding="utf-8"))["name"] if tc.exists() else detect(project.EXE)["toolchain"]
+        project.FACTS.mkdir(parents=True, exist_ok=True)
+        write_structs(project, name)
+        return
     found = detect(project.EXE)
     declared = project.CONFIG.get("toolchain")
     name = declared or found["toolchain"]
@@ -108,6 +115,24 @@ def main() -> None:
     project.FACTS.mkdir(parents=True, exist_ok=True)
     out = {"name": name, "declared": declared, "detected": found}
     (project.FACTS / "toolchain.json").write_text(json.dumps(out, indent=1) + "\n", encoding="utf-8")
+    write_structs(project, name)
+
+
+def write_structs(project, name: str) -> None:
+    """build/facts/structs.json: the toolchain's layouts (toolchains/<name>/structs.json, its C
+    runtime's types, for every program built with it) and the project's own (data/structs.json),
+    the project's winning. Kept in CrystalCore alone, the VS2010 CRT's _LocaleUpdate and DName
+    were placeholders in every rhtest msvc-16.00-x86 program, and their users stubs."""
+    merged: dict = {}
+    for src in (HERE / "toolchains" / name / "structs.json", project.ROOT / "data" / "structs.json"):
+        if src.exists():
+            merged.update(json.loads(src.read_text(encoding="utf-8")).get("structs", {}))
+    dest = project.FACTS / "structs.json"
+    if merged:
+        dest.write_text(json.dumps({"rule": "toolchain.py write_structs: the toolchain's and the project's",
+                                    "structs": merged}, indent=1) + "\n", encoding="utf-8")
+    elif dest.exists():
+        dest.unlink()
 
 
 if __name__ == "__main__":

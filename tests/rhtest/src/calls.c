@@ -180,6 +180,33 @@ NOINLINE u32 open_helper(u32 s) {
     r += opener(&fh, (s + 1) & 3, zero);
     return r ^ fh;
 }
+/* a COM interface from C: `this` the last word pushed, the vtable often loaded into ecx (`mov
+ * ecx, [eax]; push eax; call [ecx + 8]`), which is then no __thiscall's object. Read so, Release
+ * took its vtable for `this` and dropped the stack one (IMalloc's, CrystalCore) */
+typedef struct Thing Thing;
+typedef struct {
+    u32 (__stdcall *query)(Thing *t, u32 iid, void **out);
+    u32 (__stdcall *add_ref)(Thing *t);
+    u32 (__stdcall *release)(Thing *t);
+    u32 (__stdcall *get)(Thing *t, u32 k, u32 m);
+} ThingVtbl;
+struct Thing { const ThingVtbl *vt; u32 refs, base; };
+static NOINLINE u32 __stdcall thing_query(Thing *t, u32 iid, void **out) { *out = t; t->refs++; return iid == 7 ? 0 : 1; }
+static NOINLINE u32 __stdcall thing_add_ref(Thing *t) { return ++t->refs; }
+static NOINLINE u32 __stdcall thing_release(Thing *t) { return --t->refs * 100 + t->base; }
+static NOINLINE u32 __stdcall thing_get(Thing *t, u32 k, u32 m) { return t->base * k + m + t->refs; }
+static const ThingVtbl thing_vtbl = {thing_query, thing_add_ref, thing_release, thing_get};
+static Thing g_thing = {&thing_vtbl, 1, 0};
+static NOINLINE Thing *thing_open(u32 s) { g_thing.base = s; g_thing.refs = 1; return &g_thing; }
+NOINLINE u32 com_calls(u32 s) {
+    Thing *t = thing_open(s), *u = 0;
+    u32 r = t->vt->add_ref(t);
+    r += t->vt->get(t, s, 3) * 10;
+    r += t->vt->query(t, s, (void **)&u) * 1000;
+    r += u->vt->get(u, 2, s) * 100000;
+    r += t->vt->release(t);
+    return r + u->vt->release(u) * 7;
+}
 NOINLINE u32 boxes(u32 s) {
     Box b = {{1, 2, 3, 4}, 0};
     Box *p = box_chain(&b, s);
@@ -219,4 +246,5 @@ void rhtest_run(void) {
     check("sort_mod", sort_check(s + 1, cmp_mod));
     check("boxes", boxes(s));
     check("open_helper", open_helper(s));
+    check("com_calls", com_calls(s));
 }

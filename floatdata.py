@@ -104,15 +104,28 @@ def scan() -> dict[str, str]:
     return {f"{a:x}": k for a, k in out.items() if k != "mixed"}
 
 
+def _exe_hash() -> str:
+    """The reference's sha256: the cache is of one binary. Kept across a rebuilt reference, it typed
+    the old layout's addresses, and a double constant at a new one read as an integer converted to
+    double (-1.0 as -4616189618054758400.0, rhtest float-O2 series, 2026-10-25)."""
+    import hashlib
+    from project import EXE
+    return hashlib.sha256(Path(EXE).read_bytes()).hexdigest()
+
+
 def load() -> dict[int, str]:
-    if not CACHE.exists():
+    key = CACHE.with_suffix(".sha256")
+    h = _exe_hash()
+    if not CACHE.exists() or not key.exists() or key.read_text(encoding="utf-8").strip() != h:
         CACHE.write_text(json.dumps(scan()), encoding="utf-8")
+        key.write_text(h, encoding="utf-8")
     return {int(a, 16): k for a, k in json.loads(CACHE.read_text(encoding="utf-8")).items()}
 
 
 if __name__ == "__main__":
     found = scan()
     CACHE.write_text(json.dumps(found), encoding="utf-8")
+    CACHE.with_suffix(".sha256").write_text(_exe_hash(), encoding="utf-8")
     kinds = {}
     for k in found.values():
         kinds[k] = kinds.get(k, 0) + 1

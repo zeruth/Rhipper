@@ -51,6 +51,26 @@ int Launch() {
     return static_cast<int>(code);
 }
 
+// The environment WoW64 gives a 32-bit program: PROCESSOR_ARCHITECTURE x86 with the machine's own
+// in PROCESSOR_ARCHITEW6432, and the 32-bit program folders as ProgramFiles and CommonProgramFiles.
+// The CRT's _setenvp walks every string, and run natively the reference saw one more than the port
+// and two longer: shadow_diff parted the runs there (CrystalCore 2026-10-25). Set by the program's
+// own process: a 64-bit one's start puts the launcher's back to the machine's.
+void Wow64Environment() {
+    wchar_t arch[64] = {};
+    if (GetEnvironmentVariableW(L"PROCESSOR_ARCHITEW6432", arch, 64) != 0 ||
+        GetEnvironmentVariableW(L"PROCESSOR_ARCHITECTURE", arch, 64) == 0) {
+        return;
+    }
+    SetEnvironmentVariableW(L"PROCESSOR_ARCHITEW6432", arch);
+    SetEnvironmentVariableW(L"PROCESSOR_ARCHITECTURE", L"x86");
+    wchar_t dir[MAX_PATH];
+    if (GetEnvironmentVariableW(L"ProgramFiles(x86)", dir, MAX_PATH) > 0)
+        SetEnvironmentVariableW(L"ProgramFiles", dir);
+    if (GetEnvironmentVariableW(L"CommonProgramFiles(x86)", dir, MAX_PATH) > 0)
+        SetEnvironmentVariableW(L"CommonProgramFiles", dir);
+}
+
 }  // namespace
 
 int main() {
@@ -59,6 +79,7 @@ int main() {
         return Launch();
     }
     RefSetEnv("CHILD", nullptr);   // (not inherited by what the program starts)
+    Wow64Environment();
     if (!RefMapImage(RefImagePath())) {
         return 1;
     }

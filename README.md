@@ -53,6 +53,7 @@ with JDK 21, Git for Windows' bash, and Visual Studio 2022 or later.
 ```bash
 bash ghidra/ghidra.sh import            # once: import and analyze, export function extents
 python toolchain.py                      # the compiler that built it, and the rhtest toolset for it
+python vtables.py                        # x86: the vtables, whose slots protos32.py reads as methods
 python noreturn.py                       # facts (x86: protos32.py; x64: facts.sh runs them all)
 python protos32.py --jobs 2
 python helpers32.py                      # x86: the compiler's 64-bit/float helpers, by running them

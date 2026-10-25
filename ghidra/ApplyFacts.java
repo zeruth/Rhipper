@@ -71,6 +71,7 @@ public class ApplyFacts extends GhidraScript {
         if (creg.exists()) applyLua(read(creg));
         File vt = new File(dir, "vtables.json");
         if (vt.exists()) applyVtables(read(vt));
+        repairBodies();
         File src = new File(dir, "srcrefs.json");
         if (src.exists()) applySrcrefs(read(src));
         File imp = new File(dir, "imports.json");
@@ -161,11 +162,40 @@ public class ApplyFacts extends GhidraScript {
     // from entry + 4, as custom storage under __stdcall (callee cleans) or __cdecl. A signature
     // someone set by hand or that came with a library match (USER_DEFINED, IMPORTED) is kept, and
     // so are thunks, whose signature is their target's.
+    // Each direct jump from a function to another's entry, outside its own body: a call that
+    // returns (the jumper's tail call). Left a branch, the decompiler followed it and decompiled
+    // the callee into the caller: FUN_00def610's `jmp FUN_00dedcf0`, hkVersionPatchManager's
+    // constructor, came out inline, its allocator call without the `this` its own call-site
+    // signature gives it, and the port called the allocator with 0x2c for its object (CrystalCore
+    // 2026-10-25). protos.py lists x64's (applyCallsites' "tail_jumps"); protos32.py lists none.
+    private void tailJumps32() {
+        int marked = 0, kept = 0;
+        InstructionIterator it = currentProgram.getListing().getInstructions(true);
+        while (it.hasNext()) {
+            Instruction insn = it.next();
+            if (!insn.getFlowType().isUnConditional() || !insn.getFlowType().isJump() || insn.getFlowType().isComputed()) continue;
+            Address[] flows = insn.getFlows();
+            if (flows.length != 1) continue;
+            Function target = getFunctionAt(flows[0]);
+            Function self = getFunctionContaining(insn.getAddress());
+            if (target == null || self == null || target.equals(self) || self.isThunk()
+                    || self.getBody().contains(flows[0])) continue;
+            if (insn.getFlowOverride() == FlowOverride.CALL_RETURN) {
+                kept++;
+                continue;
+            }
+            insn.setFlowOverride(FlowOverride.CALL_RETURN);
+            marked++;
+        }
+        println(String.format("ApplyFacts: x86 tail jumps marked calls that return %d (%d already)", marked, kept));
+    }
+
     private void applyProtos32(JsonObject root) throws Exception {
         // (the code Ghidra's analysis never reached, made functions first: their prototypes come
         // on protos32.py's next run, over the extents `ghidra.sh functions` then exports)
         applyLeaves(root);
         cleanFunctions32();
+        tailJumps32();
         int set = 0, keptSig = 0, missing = 0, failed = 0, custom = 0, keeps = 0;
         DataType u4 = Undefined.getUndefinedDataType(4);
         // the keep conventions the functions need (protos32.py "keep"), each made once
@@ -298,7 +328,9 @@ public class ApplyFacts extends GhidraScript {
                     // (one that leaves eax alone returns nothing in it: void, whatever an earlier
                     // round typed. __security_check_cookie kept the ulonglong it had, and its 7,155
                     // callers returned that, not the eax they had set, 2026-10-24)
+                    // (but for its result in ecx, "c4", which keeps eax alone)
                     if (o.getAsJsonArray("keep").contains(new com.google.gson.JsonPrimitive("eax"))
+                            && !(o.has("ret") && "c4".equals(o.get("ret").getAsString()))
                             && !(f.getReturnType() instanceof ghidra.program.model.data.VoidDataType)) {
                         f.setReturnType(ghidra.program.model.data.VoidDataType.dataType, SourceType.ANALYSIS);
                     }
@@ -693,6 +725,20 @@ public class ApplyFacts extends GhidraScript {
     private int returnsSet = 0;
     private void setReturn32(Function f, String kind) throws Exception {
         DataType have = f.getReturnType();
+        // (void, protos32.py "v": a result only inferred for one with a path that never writes
+        // eax, refused there; an earlier round's type goes. _free's uint stayed in the project, and
+        // ___free_lconv_num, ending in its calls, a stub of extraout_EAX, rhtest msvc-16.00-x86)
+        if (kind.equals("v")) {
+            if (have instanceof ghidra.program.model.data.VoidDataType) return;
+            if (f.hasCustomVariableStorage()) {
+                f.setReturn(ghidra.program.model.data.VoidDataType.dataType,
+                        ghidra.program.model.listing.VariableStorage.VOID_STORAGE, SourceType.ANALYSIS);
+            } else {
+                f.setReturnType(ghidra.program.model.data.VoidDataType.dataType, SourceType.ANALYSIS);
+            }
+            returnsSet++;
+            return;
+        }
         // (a float or double in xmm0, /LTCG's own convention between functions it sees whole: its
         // storage named, as no x86 model returns there. Left to the model, the caller read the
         // value from before the call, rhtest calls-GL fc_dbl, 2026-10-24)
@@ -706,6 +752,19 @@ public class ApplyFacts extends GhidraScript {
             if (!f.hasCustomVariableStorage()) f.setCustomVariableStorage(true);
             f.setReturn(want, new ghidra.program.model.listing.VariableStorage(currentProgram,
                     currentProgram.getRegister(q ? "XMM0_Qa" : "XMM0_Da")), SourceType.ANALYSIS);
+            returnsSet++;
+            return;
+        }
+        // (an int in ecx, protos32.py's "c4": a function's code its own funclet hands a value to in
+        // ecx, seh's __finally body and the code after it, rhtest eh-O2)
+        if (kind.equals("c4")) {
+            DataType want = ghidra.program.model.data.UnsignedIntegerDataType.dataType;
+            if (want.isEquivalent(have) && f.hasCustomVariableStorage()
+                    && f.getReturn().getVariableStorage().getRegister() != null
+                    && f.getReturn().getVariableStorage().getRegister().getName().equals("ECX")) return;
+            if (!f.hasCustomVariableStorage()) f.setCustomVariableStorage(true);
+            f.setReturn(want, new ghidra.program.model.listing.VariableStorage(currentProgram,
+                    currentProgram.getRegister("ECX")), SourceType.ANALYSIS);
             returnsSet++;
             return;
         }
@@ -928,11 +987,34 @@ public class ApplyFacts extends GhidraScript {
         }
     }
 
+    // An address inside an instruction that starts before it: no function's entry.
+    private boolean midInstruction(Address a) {
+        Instruction in = getInstructionContaining(a);
+        return in != null && !in.getAddress().equals(a);
+    }
+
     private void applyVtables(JsonObject root) throws Exception {
+        int skipped = 0;
         for (JsonElement el : root.getAsJsonArray("vtables")) {
             JsonObject v = el.getAsJsonObject();
             Address a = addr(v.get("vtable").getAsString());
             int slots = v.getAsJsonArray("slots").size();
+            // (not a table one of whose slots lands inside an instruction: data that only looks
+            // like code pointers, UTF-16 text among it (0x00650065). A function made there took a
+            // byte out of the one around it, and FUN_009f9f40, split inside its `push 0x268`, was
+            // read only up to it: a save it pops later looked like an argument, and the esi read
+            // as its input made its caller a stub, CrystalCore 2026-10-25)
+            boolean bogus = false;
+            for (JsonElement s : v.getAsJsonArray("slots")) {
+                if (midInstruction(addr(s.getAsString()))) {
+                    bogus = true;
+                    break;
+                }
+            }
+            if (bogus) {
+                skipped++;
+                continue;
+            }
             String label = "vtable_" + a.toString();
             Symbol existing = getSymbolAt(a);
             // (a name Ghidra's RTTI analysis gave, `Client::UI::AddonX::vftable` on a binary built
@@ -956,6 +1038,35 @@ public class ApplyFacts extends GhidraScript {
             for (JsonElement r : v.getAsJsonArray("referenced_by")) sb.append(' ').append(r.getAsString());
             setPlateComment(a, sb.toString());
         }
+        if (skipped > 0) println("ApplyFacts: " + skipped + " vtables skipped, a slot inside an instruction");
+    }
+
+    // What earlier runs' tables of that kind did: a function whose entry is inside another's
+    // instruction goes, and a body cut inside an instruction is found again from its entry.
+    private void repairBodies() throws Exception {
+        List<Function> mid = new ArrayList<>();
+        List<Function> cut = new ArrayList<>();
+        for (Function f : currentProgram.getFunctionManager().getFunctions(true)) {
+            if (f.isThunk() || f.isExternal()) continue;
+            if (midInstruction(f.getEntryPoint())) {
+                mid.add(f);
+                continue;
+            }
+            for (ghidra.program.model.address.AddressRange r : f.getBody()) {
+                Instruction in = getInstructionContaining(r.getMaxAddress());
+                if (in != null && in.getMaxAddress().compareTo(r.getMaxAddress()) > 0) {
+                    cut.add(f);
+                    break;
+                }
+            }
+        }
+        for (Function f : mid) currentProgram.getFunctionManager().removeFunction(f.getEntryPoint());
+        int fixed = 0;
+        for (Function f : cut) {
+            if (CreateFunctionCmd.fixupFunctionBody(currentProgram, f, monitor)) fixed++;
+        }
+        println(String.format("ApplyFacts: removed %d functions inside an instruction, refit %d of %d bodies cut inside one",
+                mid.size(), fixed, cut.size()));
     }
 
     // The Windows API prototypes Ghidra ships (Base/data/typeinfo/win32), by function name. The
@@ -1142,6 +1253,14 @@ public class ApplyFacts extends GhidraScript {
                     if (in.getFlowType().isTerminal() && in.getMnemonicString().toUpperCase().contains("RET")) {
                         returns = true;
                         break;
+                    }
+                    // (or a jump out of its body, as noreturn.py counts one: VS2010's nested()
+                    // returns through the join past its catch funclets, rhtest msvc-16.00-x86 eh-O2)
+                    if (in.getFlowType().isJump()) {
+                        for (Address t : in.getFlows()) {
+                            if (!f.getBody().contains(t)) returns = true;
+                        }
+                        if (returns) break;
                     }
                 }
                 if (returns) {

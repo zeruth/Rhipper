@@ -277,6 +277,10 @@ class Project:
         if gpr.exists() and stamp.exists() and stamp.read_text().strip() == digest and not getattr(self, "fresh", False):
             print("    (the reference is unchanged since its import)")
             return True
+        # (the stamp goes first: an import stopped after --overwrite removed the program left it
+        # matching, and the next run skipped the import and found no program, "Requested project
+        # program file(s) not found")
+        stamp.unlink(missing_ok=True)
         if not self.ghidra_sh("import", *(["--overwrite"] if gpr.exists() else []), log="import.log"):
             return False
         if not (self.build / "facts" / "functions.json").exists():
@@ -296,6 +300,12 @@ class Project:
         for line in log.read_text(encoding="utf-8", errors="replace").splitlines():
             if "declares" in line or "no rhtest toolset" in line:
                 print(f"    {line}")
+        # (the vtables, as a real project has them: protos32.py makes every slot of a class's vtable
+        # a __thiscall, the methods that leave `this` alone too. Without them Backend::grab was a
+        # __stdcall of two, and the virtual call's `this` its first argument, rhtest msvc-16.00-x86
+        # cpp-O2 fronts; CrystalCore's facts had them)
+        if run([sys.executable, str(RHIPPER / "vtables.py")], self.root, self.env, self.build / "vtables.log") != 0:
+            return False
         for _ in range(4):
             for tool, extra in (("noreturn.py", []), ("protos32.py", ["--jobs", str(JOBS)]), ("helpers32.py", [])):
                 if run([sys.executable, str(RHIPPER / tool), *extra], self.root, self.env,

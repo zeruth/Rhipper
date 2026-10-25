@@ -1,0 +1,17 @@
+{
+  "rule": "Layouts for types the binary's library matches name but Ghidra has only as empty one-byte placeholders. ApplyFacts applyStructs lays each out in place. The Visual Studio 2010 CRT's own, for every program linked with it (toolchain.py merges them into build/facts/structs.json): _LocaleUpdate from crt/src/setlocal.h, _Lockit from yvals.h, DName from undname.cxx. First written for CrystalCore (data/structs.json there)",
+  "structs": {
+    "_LocaleUpdate": {"size": 16, "fields": [
+      ["localeinfo", 0, "localeinfo_struct"],
+      ["ptd", 8, "_tiddata *"],
+      ["updated", 12, "bool"]
+    ]},
+    "_Lockit": {"size": 4, "fields": [
+      ["_Locktype", 0, "int"]
+    ]},
+    "DName": {"size": 8, "fields": [
+      ["node", 0, "DNameNode *"],
+      ["flags", 4, "uint"]
+    ]}
+  }
+}

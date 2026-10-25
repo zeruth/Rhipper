@@ -254,16 +254,33 @@ _Static_assert(sizeof(OSVERSIONINFOA) == 148, "OSVERSIONINFOA, x86");
 #endif
 
 /* ---- Ghidra's piecewise helpers ------------------------------------------------------------- */
-static __inline unsigned long long gen_d2bits(double x) { unsigned long long r; memcpy(&r, &x, 8); return r; }
-static __inline unsigned long long gen_fl2bits(float x) { unsigned int r; memcpy(&r, &x, 4); return r; }
+static __inline unsigned long long gen_d2bits_(double x) { unsigned long long r; memcpy(&r, &x, 8); return r; }
+static __inline unsigned long long gen_fl2bits_(float x) { unsigned int r; memcpy(&r, &x, 4); return r; }
 static __inline unsigned long long gen_u2bits64(unsigned long long x) { return x; }
-#define GEN_BITS(x) _Generic((x), double: gen_d2bits, float: gen_fl2bits, default: gen_u2bits64)(x)
+static __inline unsigned long long gen_u2bits32(unsigned long long x) { return (unsigned int)x; }
+/* (by the operand's type: an integer is bits already. Ghidra prints a view of a value it holds as
+   floating point; translate32.py may hold the same place as an integer, an untyped global or
+   local, and as `(float)` of it the bits were converted by value) */
+#define gen_d2bits(x) _Generic((x), double: gen_d2bits_, long double: gen_d2bits_, float: gen_d2bits_, \
+    default: gen_u2bits64)(x)
+#define gen_fl2bits(x) _Generic((x), float: gen_fl2bits_, double: gen_fl2bits_, long double: gen_fl2bits_, \
+    default: gen_u2bits32)(x)
+#define GEN_BITS(x) _Generic((x), double: gen_d2bits_, float: gen_fl2bits_, default: gen_u2bits64)(x)
 /* an 8-byte value as the reference's two argument words, low first (a variadic call's double:
    translate32.py's calls to a variadic translation) */
 #define GEN_LO32(x) ((unsigned int)(unsigned long long)GEN_BITS(x))
 #define GEN_HI32(x) ((unsigned int)((unsigned long long)GEN_BITS(x) >> 32))
-static __inline double gen_bits2d(unsigned long long u) { double d; memcpy(&d, &u, 8); return d; }
-static __inline float gen_bits2f(unsigned int u) { float f; memcpy(&f, &u, 4); return f; }
+static __inline double gen_bits2d_(unsigned long long u) { double d; memcpy(&d, &u, 8); return d; }
+static __inline float gen_bits2f_(unsigned int u) { float f; memcpy(&f, &u, 4); return f; }
+static __inline double gen_d_same(double d) { return d; }
+static __inline float gen_f_same(float f) { return f; }
+/* (and the other way: a floating-point operand is the value already. Ghidra viewed u2d's table of
+   2^32 adjustments as bits, floatdata.py types it double from its `addsd`, and gen_bits2d of the
+   double converted it to an integer first, rhtest float-O2 u2d) */
+#define gen_bits2d(x) _Generic((x), double: gen_d_same, long double: gen_d_same, float: gen_d_same, \
+    default: gen_bits2d_)(x)
+#define gen_bits2f(x) _Generic((x), float: gen_f_same, double: gen_f_same, long double: gen_f_same, \
+    default: gen_bits2f_)(x)
 
 /* A cast between floating point and a pointer is Ghidra moving a register's bits (movd, or a value
    through the x87 stack): `(float)*ppvVar4`, `(int *)fVar2`. C converts between float and integer
