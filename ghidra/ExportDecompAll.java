@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class ExportDecompAll extends GhidraScript {
+    private static final long SLOW_LOG_MS = 30000;
 
     private static String jsonEscape(String s) {
         StringBuilder b = new StringBuilder(s.length() + 16);
@@ -174,6 +175,8 @@ public class ExportDecompAll extends GhidraScript {
         StringBuilder b = new StringBuilder();
         b.append("{\"addr\":\"").append(r[0]).append("\",\"name\":\"").append(jsonEscape(r[1]))
          .append("\",\"size\":").append(r[2]);
+        // (the decompile's time: decomptimes.py ranks the functions by it)
+        if (r.length > 6 && r[6] != null) b.append(",\"ms\":").append(r[6]);
         if (r[3] != null) {
             b.append(",\"c\":\"").append(jsonEscape(r[3])).append("\"");
             if (r[5] != null) b.append(",\"g\":").append(r[5]);
@@ -266,6 +269,17 @@ public class ExportDecompAll extends GhidraScript {
                         ifc.setSimplificationStyle("decompile");
                     }
                 }) {
+            // (each function's time, r[6] in ms: what fails or is slow is logged by it, `took`)
+            @Override
+            public String[] process(Function f, TaskMonitor mon) throws Exception {
+                long t0 = System.currentTimeMillis();
+                String[] r = super.process(f, mon);
+                if (r != null) {
+                    r[6] = Long.toString(System.currentTimeMillis() - t0);
+                }
+                return r;
+            }
+
             @Override
             public String[] process(DecompileResults res, TaskMonitor mon) {
                 Function f = res.getFunction();
@@ -274,9 +288,9 @@ public class ExportDecompAll extends GhidraScript {
                 String size = Long.toString(f.getBody().getNumAddresses());
                 if (res.decompileCompleted()) {
                     return new String[] { addr, name, size, res.getDecompiledFunction().getC(), null,
-                                          globalWidths(res) };
+                                          globalWidths(res), null };
                 }
-                return new String[] { addr, name, size, null, res.getErrorMessage(), null };
+                return new String[] { addr, name, size, null, res.getErrorMessage(), null, null };
             }
         };
         callback.setTimeout(90);
@@ -315,6 +329,13 @@ public class ExportDecompAll extends GhidraScript {
             ParallelDecompiler.decompileFunctions(callback, currentProgram, functions.iterator(), r -> {
                 if (r == null) {
                     return;
+                }
+                // (every failure with its reason, and every function slower than SLOW_LOG: which
+                // functions cost the export its time, and why, without a second run)
+                long ms = r[6] == null ? 0 : Long.parseLong(r[6]);
+                if (r[3] == null || ms >= SLOW_LOG_MS) {
+                    println("ExportDecompAll: took " + r[0] + " (" + r[2] + " bytes) " + ms / 1000 + "s"
+                            + (r[3] != null ? "" : ", failed: " + (r[4] == null ? "" : r[4].trim().split("\n")[0])));
                 }
                 if (r[3] == null) {
                     synchronized (failed) {
@@ -383,6 +404,16 @@ public class ExportDecompAll extends GhidraScript {
                         ifc.setOptions(opts);
                     }
                 }) {
+            @Override
+            public String[] process(Function f, TaskMonitor mon) throws Exception {
+                long t0 = System.currentTimeMillis();
+                String[] r = super.process(f, mon);
+                if (r != null) {
+                    r[6] = Long.toString(System.currentTimeMillis() - t0);
+                }
+                return r;
+            }
+
             @Override
             public String[] process(DecompileResults res, TaskMonitor mon) throws Exception {
                 return callback.process(res, mon);

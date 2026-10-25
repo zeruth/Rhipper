@@ -775,8 +775,12 @@ bool rhSetjmpBound(const Funcdata *fd,AddrSpace *space,uintb &bound)
       if ((*it)->isWritten() && (*it)->getSize() == 4) { bound = 0; return true; }
     list<PcodeOp *>::const_iterator op = fd->beginOp(CPUI_STORE), opend = fd->endOp(CPUI_STORE);
     for(;op!=opend;++op) {
+      // (the opcode's list holds its dead ops too, their inputs maybe cleared already: a null
+      // pointer here crashed the decompiler, CrystalCore's 4deb50 and 7029e0, 2026-10-25. A dead
+      // one that still has its pointer counts, as before: the link was made)
+      if ((*op)->numInput() < 2) continue;
       Varnode *ptr = (*op)->getIn(1);
-      if (ptr->isConstant() && ptr->getOffset() == 0xffdff000) { bound = 0; return true; }
+      if (ptr != (Varnode *)0 && ptr->isConstant() && ptr->getOffset() == 0xffdff000) { bound = 0; return true; }
     }
   }
   bool found = false;

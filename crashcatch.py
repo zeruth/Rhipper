@@ -277,6 +277,7 @@ def main():
     ap.add_argument("--second-chance", action="store_true",
                     help="report only an exception nothing handled (guarded faults pass through)")
     ap.add_argument("--args", default="", help="the command line after the exe, as one string")
+    ap.add_argument("--stdin", default=None, help="a file the exe reads as its input")
     ap.add_argument("--hits", default=None, help="at the stop, write the translated functions' call counts here")
     ap.add_argument("--all-threads", action="store_true",
                     help="at a timeout, also show every thread once, with its registers")
@@ -295,6 +296,21 @@ def main():
         si.dwFlags = 0x100
         si.hStdError = handle
         si.hStdOutput = handle
+        inherit = True
+    if args.stdin:
+        # (its input from a file: the decompiler console's commands, ghidra/decompiler's decomp_dbg)
+        import msvcrt
+        src = open(args.stdin, "rb")
+        handle = msvcrt.get_osfhandle(src.fileno())
+        k32.SetHandleInformation(wt.HANDLE(handle), 1, 1)
+        k32.GetStdHandle.restype = wt.HANDLE
+        if not inherit:
+            for std in (-11, -12):          # (STD_OUTPUT_HANDLE, STD_ERROR_HANDLE: this console's)
+                h = k32.GetStdHandle(std)
+                k32.SetHandleInformation(wt.HANDLE(h), 1, 1)
+            si.hStdOutput, si.hStdError = k32.GetStdHandle(-11), k32.GetStdHandle(-12)
+        si.dwFlags = 0x100
+        si.hStdInput = handle
         inherit = True
     pi = PROCESS_INFORMATION()
     command = ctypes.create_unicode_buffer('"%s"' % exe + (" " + args.args if args.args else ""))
