@@ -105,13 +105,19 @@ _cleanup: dict[int, int] = {}
 _noreturn: set[int] = set()
 _imp_cleanup: dict[int, int] = {}    # import slot -> the bytes the import pops
 _cdecl_args: dict[int, int] = {}     # a __cdecl function -> its stack parameter bytes (the last run's)
+_untyped: dict[int, int] = {}        # an import's thunk or slot with no prototype -> its slot
+_thunk_slot: dict[int, int] = {}     # an import's thunk -> its slot
+_imp_params: dict[int, int] = {}     # import slot -> its prototype's stack parameter bytes
 
 
-def _init(names, cleanup, noreturn, imp_cleanup, cdecl_args=None):
-    global _b, _names, _cleanup, _noreturn, _imp_cleanup, _cdecl_args
+def _init(names, cleanup, noreturn, imp_cleanup, cdecl_args=None, untyped=None, thunk_slot=None, imp_params=None):
+    global _b, _names, _cleanup, _noreturn, _imp_cleanup, _cdecl_args, _untyped, _thunk_slot, _imp_params
     _b = Binary()
     _names, _cleanup, _noreturn, _imp_cleanup = names, cleanup, noreturn, imp_cleanup
     _cdecl_args = cdecl_args or {}
+    _untyped = untyped or {}
+    _thunk_slot = thunk_slot or {}
+    _imp_params = imp_params or {}
 
 
 class Insn:
@@ -563,6 +569,13 @@ def analyse(root: int, ranges):
                     pass
                 elif t is not None and t in _cdecl_args:
                     pushed = max(0, pushed - _cdecl_args[t])
+                elif known == 0 and (slot if slot is not None else _thunk_slot.get(t)) in _imp_params \
+                        and (slot if slot is not None else _thunk_slot.get(t)) not in _untyped:
+                    # (an import with a prototype that pops nothing: its own parameter bytes, the
+                    # rest outstanding for a later call. GetCurrentProcessId among a crash
+                    # handler's pushes for MiniDumpWriteDump, `push edx; push 1; push esi; call
+                    # [GetCurrentProcessId]; push eax; ...`, took them all, a VS2010 client)
+                    pushed = max(0, pushed - _imp_params[slot if slot is not None else _thunk_slot.get(t)])
                 else:
                     pushed = 0
             # eax, ecx and edx are the callee's to clobber; the stack probe's eax only (`push ecx ...
@@ -779,6 +792,13 @@ def analyse(root: int, ranges):
             if pi.mnemonic not in ("call", "jmp") and not pi.mnemonic.startswith("j") \
                     and any(x in EAX_REGS for x in regs_access(pi)[1]):
                 w = regs_access(pi)[1]
+                # (not the address of its own frame or arguments, `lea eax, [esp + k]`: no value a
+                # caller can use once the frame is gone, the pointer a clamp through locals leaves,
+                # std::min/max's shape. As a result the port returned its frame's address (C4172)
+                # where callers read nothing, a VS2010 client's FUN_00571440 2026-10-25)
+                if pi.mnemonic == "lea" and po and po[1].type == X.X86_OP_MEM \
+                        and po[1].mem.base in (X.X86_REG_ESP, X.X86_REG_EBP):
+                    break
                 sets_eax = max(sets_eax, 4 if X.X86_REG_EAX in w else 2 if X.X86_REG_AX in w else 1)
                 rets_set += 1
             # (and a call through a pointer just before it: what that returns, passed on. The
@@ -895,6 +915,21 @@ def analyse(root: int, ranges):
         if k:
             n = min(n, k)
         call_pushes[a] = (t, n)
+    # (the bytes outstanding at each call to an import with no prototype, and the caller's own
+    # cleanup after it: main() takes what most of its calls push as its own, where none cleans up)
+    untyped_pushed: dict[int, tuple[int, int, int]] = {}
+    if _untyped:
+        for a in state:
+            ins = insns[a]
+            if ins.mnemonic != "call":
+                continue
+            t = _target(ins)
+            s = _untyped.get(t) if t is not None else None
+            if t is None:
+                slot = import_slot(insns, prv, a)
+                s = _untyped.get(slot) if slot is not None else None
+            if s is not None:
+                untyped_pushed[a] = (s, state[a][3], later_cleanup(insns, nxt, a) or 0)
     # (a callee taking more stack words than were pushed for it reads the caller's own slots above
     # them; where one is a push of a callee-saved register still as it came in, that push hands the
     # caller's input on: /GL's sort_check takes cmp in esi and pushes it early, among unrelated
@@ -1001,6 +1036,7 @@ def analyse(root: int, ranges):
     return {"local_block": block, "passed": passed, "tail_jumps": tail_jumps, "eh_imms": eh_imms,
             "frame": -floor[0] if floor[0] is not None and floor[0] < 0 else None,"inputs": inputs, "in_width": in_width, "stack_hi": stack_hi, "slots": slots,
             "addr_taken": addr_taken, "calls": calls, "variadic": variadic, "call_pushes": call_pushes, "pushes_past": pushes_past,
+            "untyped_pushed": untyped_pushed,
             "x87_use": x87_use, "st0_live": st0_live,
             "open": open_, "lost": lost, "ret": ret_bytes(insns), "visited": len(state), "insns": len(insns),
             "icalls": {a: s for a, s in icalls.items() if s is not None},
@@ -1627,6 +1663,72 @@ def reused_slots(insns, prv, nxt, a, n):
     return extra
 
 
+def ecx_scan(insns, prv, p, budget, labels, preds, pushed, seen) -> tuple[bool, bool, int]:
+    """Back from p to the previous call: (ecx written there, and not pushed after its write; ecx
+    pushed on the way; steps taken). At a jump target the scan goes on along every way in, the
+    jumps to it and the fall into it, and ecx is written only if it is on each: `mov ecx, esi;
+    test al, al; jne 0x4de99b` then `mov edx, [esi]; mov eax, [edx + 8]; call eax` there, after a
+    `ret 8` in address order. Scanned back over the ret alone, AddRef took no `this` (a VS2010
+    client's 0x4de9a0, 2026-10-25)."""
+    steps = 0
+    while steps < budget:
+        if p is None or p not in insns:
+            return False, pushed, steps
+        ins = insns[p]
+        mn = ins.mnemonic
+        if mn in ("call", "jmp", "ret", "int3"):
+            return False, pushed, steps
+        # (nor back over a loop's back edge: what the loop body writes is its own. /O2's
+        # shell_malloc fills the block with ecx its counter, `inc ecx; cmp ecx, edi; jb top`, then
+        # calls IMalloc's Realloc, a __thiscall of the count, rhtest msvc-14.51-x86 misc-O2)
+        if (mn.startswith("j") or mn.startswith("loop")) and _target(ins) is not None and _target(ins) < p:
+            return False, pushed, steps
+        ops = ins.operands
+        steps += 1
+        if mn == "push":
+            if ops and ops[0].type == X.X86_OP_REG and ops[0].reg == X.X86_REG_ECX:
+                pushed = True
+        elif mn == "pop":
+            if ops and ops[0].type == X.X86_OP_REG and ops[0].reg == X.X86_REG_ECX:
+                return False, pushed, steps        # (`pop ecx`: a __cdecl call's cleanup, no `this`)
+        elif any(REG_BITS.get(r) == ECX for r in regs_access(ins)[1]):
+            return not pushed, pushed, steps
+        if p in labels and p not in seen:
+            s_set, s_pushed, s_steps = ecx_ways(insns, prv, p, budget - steps, labels, preds, pushed, seen)
+            return s_set, s_pushed, steps + s_steps
+        p = prv[p]
+    return False, pushed, steps
+
+
+def ecx_ways(insns, prv, p, budget, labels, preds, pushed, seen) -> tuple[bool, bool, int]:
+    """ecx_scan over every way into the jump target p: each jump here, and the instruction before
+    if it falls through, ecx written only if it is on each. One from below, a loop's back edge,
+    ends it (unwritten)."""
+    if not preds:
+        for q, qi in insns.items():
+            if qi.mnemonic.startswith("j") or qi.mnemonic.startswith("loop"):
+                t = _target(qi)
+                if t is not None:
+                    preds.setdefault(t, []).append(q)
+    srcs = preds.get(p, [])
+    if any(s > p for s in srcs):
+        return False, pushed, 0
+    before = prv[p]
+    ways = [prv[s] for s in srcs]
+    if before is not None and before in insns and insns[before].mnemonic not in ("jmp", "ret", "int3") \
+            and not insns[before].mnemonic.startswith("ret"):
+        ways.append(before)
+    if not ways:
+        return False, pushed, 0
+    all_set, any_pushed, steps = True, pushed, 0
+    for w in ways:
+        s_set, s_pushed, s_steps = ecx_scan(insns, prv, w, budget - steps, labels, preds, pushed, seen | {p})
+        steps += s_steps
+        all_set &= s_set
+        any_pushed |= s_pushed
+    return all_set, any_pushed, steps
+
+
 def icall_shape(insns, prv, nxt, state, a, labels, own_this):
     """An indirect call's convention and stack arguments, as its caller sets it up: (cc, n).
     Ghidra's decompiler gives such a call the arguments it sees pushed and nothing in ecx, so a
@@ -1643,31 +1745,14 @@ def icall_shape(insns, prv, nxt, state, a, labels, own_this):
     # esi; add esp, 8`, a __cdecl call of two, taken for one, rhtest msvc-16.00-x86 calls-GL)
     k = later_cleanup(insns, nxt, a)
     # ecx: written in the scan back to the previous call, and not pushed after its write
-    ecx_set, ecx_pushed = False, False
-    p = prv[a]
-    for _ in range(ICALL_WINDOW):
-        if p is None or p not in insns:
-            break
-        ins = insns[p]
-        mn = ins.mnemonic
-        if mn in ("call", "jmp", "ret", "int3"):
-            break
-        # (nor back over a loop's back edge: what the loop body writes is its own. /O2's
-        # shell_malloc fills the block with ecx its counter, `inc ecx; cmp ecx, edi; jb top`, then
-        # calls IMalloc's Realloc, a __thiscall of the count, rhtest msvc-14.51-x86 misc-O2)
-        if (mn.startswith("j") or mn.startswith("loop")) and _target(ins) is not None and _target(ins) < p:
-            break
-        ops = ins.operands
-        if mn == "push":
-            if ops and ops[0].type == X.X86_OP_REG and ops[0].reg == X.X86_REG_ECX:
-                ecx_pushed = True
-        elif mn == "pop":
-            if ops and ops[0].type == X.X86_OP_REG and ops[0].reg == X.X86_REG_ECX:
-                break                              # (`pop ecx`: a __cdecl call's cleanup, no `this`)
-        elif any(REG_BITS.get(r) == ECX for r in regs_access(ins)[1]):
-            ecx_set = not ecx_pushed
-            break
-        p = prv[p]
+    # (and a call that is itself a jump target, from each way in: counted_take's `mov ecx, esi;
+    # test al, al; jne grab_call` with the address order's predecessor the other path's `ret`. Scanned
+    # from the ret, grab took the vtable for `this`, incremented its slot, and the next init call
+    # ran a byte into init, rhtest msvc-14.51-x86 cpp-O2 counteds 2026-10-25)
+    if a in labels:
+        ecx_set, ecx_pushed, _steps = ecx_ways(insns, prv, a, ICALL_WINDOW, labels, {}, False, frozenset())
+    else:
+        ecx_set, ecx_pushed, _steps = ecx_scan(insns, prv, prv[a], ICALL_WINDOW, labels, {}, False, frozenset())
     # (the method's own `this`, still in ecx: nothing wrote ecx since the entry, calls included,
     # and the call a virtual one, through a slot of a vtable loaded from an object. `mov edi,
     # [__imp_CloseHandle]; ...; call edi` is no method's, and took `this` for its handle)
@@ -1997,6 +2082,86 @@ def import_args(b: Binary, ranges, funcs, takes: dict[int, int] | None = None) -
     return {hexa(t): max(c.items(), key=lambda kv: (kv[1], -kv[0]))[0] for t, c in sorted(seen.items())}
 
 
+def thunk_slots(b: Binary, funcs) -> dict[int, int]:
+    """Each import thunk, `jmp dword ptr [slot]`, and its slot."""
+    md = disassembler()
+    out = {}
+    for f in funcs:
+        if f.get("thunk") and "::" in f["name"]:
+            e = int(f["entry"], 16)
+            ins = next(md.disasm_lite(bytes(b.image[b.off(e):b.off(e) + 6]), e), None)
+            m = re.fullmatch(r"dword ptr \[(0x[0-9a-f]+)\]", ins[3]) if ins and ins[2] == "jmp" else None
+            if m:
+                out[e] = int(m.group(1), 16)
+    return out
+
+
+def untyped_cleanup(local: dict, untyped: dict[int, int]) -> dict[int, int]:
+    """The bytes each import with no prototype pops, from analyse's untyped_pushed: what most of
+    its calls have outstanding, where no caller cleans up after it (a __cdecl one's callers do) and
+    the count is a word or more. Its decompiled calls take what Ghidra sees pushed, but this
+    analysis took the import for one that pops nothing: d3d9's Direct3DCreate9, `push 0x20; call
+    thunk`, left its word outstanding on one path to a join, the other path's count differed, and
+    the virtual call after it, `push edi; push esi; call edx`, took no `this`. And dinput8's
+    DirectInput8Create, `push 0; ...; push 0x800; push 0; call [GetModuleHandleW]; push eax; call
+    thunk`: five words, one since the call before (a VS2010 client, 2026-10-25). Slot -> bytes."""
+    from collections import Counter
+    votes: dict[int, Counter] = {}
+    cleaned: set[int] = set()
+    for v in local.values():
+        for _a, (slot, pushed, k) in v.get("untyped_pushed", {}).items():
+            if k:
+                cleaned.add(slot)
+            votes.setdefault(slot, Counter())[pushed] += 1
+    out = {}
+    for slot, c in votes.items():
+        n, hits = c.most_common(1)[0]
+        if slot not in cleaned and n >= 4 and n % 4 == 0 and hits * 2 > sum(c.values()):
+            out[slot] = n
+    return out
+
+
+def stdcall_import_cleanup(b: Binary, ranges, funcs, imp_cleanup: dict[int, int],
+                           imp_params: dict[int, int]) -> dict[int, int]:
+    """The bytes an import its type library calls __cdecl pops when it is __stdcall: its
+    prototype's parameter bytes (ExportFunctions' import_params), where it is called and none of
+    its callers cleans up after it. d3d9's Direct3DCreate9, so declared, popped nothing to this
+    analysis: `push 0x20; call thunk` left its word outstanding on one path to a join, the other
+    path's count differed, and the virtual call after the join, `push edi; push esi; call edx`,
+    took no `this` (a VS2010 client, 2026-10-25). Slot -> bytes."""
+    thunk_slot = thunk_slots(b, funcs)
+    lo, hi = b.iat
+    md = disassembler()
+    called: set[int] = set()
+    cleaned: set[int] = set()
+    for root, rs in ranges.items():
+        if root in thunk_slot:
+            continue
+        for lo_r, hi_r in rs:
+            got = list(md.disasm_lite(bytes(b.image[b.off(lo_r):b.off(hi_r)]), lo_r))
+            for k, (_a, _s, mn, ops) in enumerate(got):
+                if mn != "call":
+                    continue
+                slot = None
+                if ops.startswith("0x"):
+                    slot = thunk_slot.get(int(ops, 16))
+                else:
+                    m = re.fullmatch(r"dword ptr \[(0x[0-9a-f]+)\]", ops)
+                    if m and lo <= int(m.group(1), 16) < hi:
+                        slot = int(m.group(1), 16)
+                if slot is None or imp_cleanup.get(slot) != 0 or not imp_params.get(slot):
+                    continue
+                called.add(slot)
+                # (cleaned up by the caller within a few instructions: a __cdecl one indeed)
+                for _a2, _s2, mn2, ops2 in got[k + 1:k + 5]:
+                    if (mn2 == "add" and ops2.startswith("esp, ")) or (mn2 == "pop" and ops2 in ("ecx", "edx")):
+                        cleaned.add(slot)
+                        break
+                    if mn2 in ("call", "ret", "push") or mn2.startswith("j"):
+                        break
+    return {slot: imp_params[slot] for slot in called - cleaned}
+
+
 SSE_FLOAT = {f"{op}{w}" for op in ("mov", "add", "sub", "mul", "div", "sqrt", "min", "max", "comi", "ucomi")
              for w in ("ss", "sd")} | {"cvtss2sd", "cvtsd2ss", "cvtss2si", "cvtsd2si", "cvttss2si", "cvttsd2si"}
 X87_FLOAT = {"fld", "fst", "fstp", "fadd", "fsub", "fsubr", "fmul", "fdiv", "fdivr", "fcom", "fcomp"}
@@ -2064,6 +2229,11 @@ def main() -> None:
     # 1. each function's own `ret N`, then through tail jumps (thunks) to a fixpoint
     b = Binary()
     md = disassembler()
+    # (and the imports their type library calls __cdecl that pop their own: no caller cleans up)
+    imp_params = {int(k, 16): v for k, v in exported.get("import_params", {}).items()}
+    std_imp = stdcall_import_cleanup(b, ranges, funcs, imp_cleanup, imp_params)
+    imp_cleanup.update(std_imp)
+    print(f"imports typed __cdecl popping their own arguments: {len(std_imp)}", flush=True)
     # (a jump into the middle of another function shares its code: that function's range is this
     # one's too, from where it lands. VS2010's strcpy is `push edi; mov edi, [esp + 8]; jmp` into
     # strcat's copy loop, which reads its source at [esp + 0xc]: with its 7 bytes alone, strcpy
@@ -2125,18 +2295,50 @@ def main() -> None:
             if f not in cleanup and t in cleanup:
                 cleanup[f] = cleanup[t]
 
+    # (the imports with no prototype, by slot and by thunk: their cleanup from their callers, below)
+    t_slots = thunk_slots(b, funcs)
+    untyped = {int(s, 16): int(s, 16) for s in exported.get("import_untyped", [])}
+    untyped.update({t: s for t, s in t_slots.items() if s in untyped})
+
+    # (and a typed import's parameter bytes: one that pops none still takes its own off what was
+    # pushed, analyse)
+    typed_params = {s: n for s, n in imp_params.items() if s not in untyped}
+    init_args = lambda: (names, cleanup, noreturn, imp_cleanup, cdecl_args, untyped, t_slots, typed_params)  # noqa: E731
+
     if args.show:
-        _init(names, cleanup, noreturn, imp_cleanup, cdecl_args)
+        _init(*init_args())
         for s in args.show:
             a = int(s, 16)
             print(hexa(a), names.get(a), "cleanup", cleanup.get(a), analyse(a, ranges[a]))
         return
 
     # 2. local pass, in parallel
-    with Pool(args.jobs, initializer=_init, initargs=(names, cleanup, noreturn, imp_cleanup, cdecl_args)) as pool:
+    with Pool(args.jobs, initializer=_init, initargs=init_args()) as pool:
         # (by address, whatever order the workers finish in: the passes below are order-sensitive,
         # and two runs over the same facts typed different returns, 2026-10-25)
         local = dict(sorted(pool.imap_unordered(_job, list(ranges.items()), chunksize=64)))
+    # (an import with no prototype pops what its callers push, if none cleans up after it: its
+    # cleanup set, and the functions calling one analysed again with it, until the counts hold.
+    # Counted while another one's was still unknown, d3d9's D3DPERF_SetOptions took the word
+    # pushed for Direct3DCreate9 before it as its own too)
+    popped: dict[int, int] = {}
+    for _round in range(4):
+        found = untyped_cleanup(local, untyped)
+        changed = {s: n for s, n in found.items() if popped.get(s) != n}
+        if not changed:
+            break
+        popped.update(changed)
+        imp_cleanup.update(changed)
+        for t, s in t_slots.items():
+            if s in changed:
+                cleanup[t] = changed[s]
+        again = [(f, ranges[f]) for f, v in local.items()
+                 if any(s in changed for s, _p, _k in v.get("untyped_pushed", {}).values())]
+        with Pool(args.jobs, initializer=_init, initargs=init_args()) as pool:
+            local.update(pool.imap_unordered(_job, again, chunksize=8))
+        local = dict(sorted(local.items()))
+    print(f"imports with no prototype popping their callers' words: {len(popped)} "
+          f"({', '.join(f'{hexa(s)} {n}' for s, n in sorted(popped.items()))})", flush=True)
     errors = sum(1 for v in local.values() if "error" in v)
 
     # the code no function covers, for ApplyFacts to make functions (prototyped on the next run,

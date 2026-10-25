@@ -16,6 +16,8 @@
 set -e
 RH="$(cd "$(dirname "$0")" && pwd)"
 eval "$(python "$RH/project.py" --sh)"
+# (a 32-bit project's pipeline is pipeline32.py's: protos32, helpers32, translate32, its build and run)
+[ "$ARCH" = "x86" ] && exec python "$RH/pipeline32.py" "$@"
 cd "$ROOT"
 start=$(date +%s)
 stamp() { echo "[$(( $(date +%s) - start ))s] $*"; }

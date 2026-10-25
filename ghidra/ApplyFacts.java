@@ -134,6 +134,10 @@ public class ApplyFacts extends GhidraScript {
         }
         File cs = new File(dir, "callsites.json");
         if (cs.exists()) applyCallsites(read(cs));
+        // (an x86 binary's virtual functions by their RTTI classes, rtti32.py: before the hand
+        // names, which win)
+        File rtti = new File(dir, "names_rtti.json");
+        if (rtti.exists()) applyNames(read(rtti));
         // hand-identified names last, so they win over anything extracted
         File names = new File(dir, "names.json");
         if (names.exists()) applyNames(read(names));
@@ -446,9 +450,13 @@ public class ApplyFacts extends GhidraScript {
                 + pop16);
         bodies.put("aulldvrm", args + "q:8 = a / b; r:8 = a % b; EAX = q:4; EDX = q(4); ECX = r:4; EBX = r(4);"
                 + pop16);
-        bodies.put("allshl", value + "v = v << c; EAX = v:4; EDX = v(4);" + pop0);
-        bodies.put("allshr", value + "v = v s>> c; EAX = v:4; EDX = v(4);" + pop0);
-        bodies.put("aullshr", value + "v = v >> c; EAX = v:4; EDX = v(4);" + pop0);
+        // (a count of 64 or more as the helpers have it, `cmp cl, 64; jae`: 0, or the sign for
+        // __allshr. Left to the shift, the C read it as one an x64 shift masks to 6 bits, x << 65 as
+        // x << 1, rhtest int64 shl64_big/sar64_big/shr64_big 2026-10-25)
+        String inRange = "big:1 = c > 63; zb:8 = zext(big); zs:8 = zext(!big);\n";
+        bodies.put("allshl", value + inRange + "v = zs * (v << c); EAX = v:4; EDX = v(4);" + pop0);
+        bodies.put("allshr", value + inRange + "v = (zb * (v s>> 63)) + (zs * (v s>> c)); EAX = v:4; EDX = v(4);" + pop0);
+        bodies.put("aullshr", value + inRange + "v = zs * (v >> c); EAX = v:4; EDX = v(4);" + pop0);
         // and the floating-point conversions: SSE2's take or give the double in xmm0 and the
         // integer in edx:eax; x87's (_ftol2, _ftoul2) take st0 and pop it. P-code converts only
         // signed integers, so an unsigned one is chosen by the value's top bit (or 2^63)
@@ -456,9 +464,14 @@ public class ApplyFacts extends GhidraScript {
         String two63 = "h:8 = 0x4000000000000000; t:8 = int2float(h); two:8 = int2float(2:8); big:8 = t f* two;\n";
         bodies.put("dtol3", "r:8 = trunc(XMM0_Qa); EAX = r:4; EDX = r(4);" + pop0);
         // (every zext into a temporary of its size: sleigh cannot size `int2float(zext(x))`)
+        // (and 2^64 or more, the integer indefinite, 0x8000000000000000, as the helper's: the
+        // subtracted 2^63 overflowed trunc to it, and 2^63 added on made it 0, rhtest float
+        // d2ul_huge 2026-10-25)
         bodies.put("dtoul3", two63 + "hi:1 = XMM0_Qa f>= big; a:8 = trunc(XMM0_Qa); b:8 = trunc(XMM0_Qa f- big);\n"
-                + "zh:8 = zext(hi); zl:8 = zext(!hi);\n"
-                + "r:8 = (zh * (b + 0x8000000000000000)) + (zl * a); EAX = r:4; EDX = r(4);" + pop0);
+                + "big2:8 = big f* two; ov:1 = XMM0_Qa f>= big2;\n"
+                + "zh:8 = zext(hi); zl:8 = zext(!hi); zo:8 = zext(ov); zn:8 = zext(!ov);\n"
+                + "v:8 = (zh * (b + 0x8000000000000000)) + (zl * a);\n"
+                + "r:8 = (zo * 0x8000000000000000) + (zn * v); EAX = r:4; EDX = r(4);" + pop0);
         // (the 64-bit integer in edx:ecx, the low half in ecx: __ltod3's `movd xmm0, ecx`)
         bodies.put("ltod3", "v:8 = (zext(EDX) << 32) | zext(ECX); XMM0_Qa = int2float(v);" + pop0);
         bodies.put("ultod3", "v:8 = (zext(EDX) << 32) | zext(ECX); hv:8 = (v >> 1) | (v & 1);\n"
@@ -466,11 +479,17 @@ public class ApplyFacts extends GhidraScript {
                 + "f1:8 = int2float(v); f2:8 = int2float(hv) f+ int2float(hv);\n"
                 + "XMM0_Qa = (int2float(zn) f* f2) f+ (int2float(zp) f* f1);" + pop0);
         bodies.put("ftol2", "r:8 = trunc(ST0); EAX = r:4; EDX = r(4);" + pop87 + pop0);
-        bodies.put("ftol2_sse", "r:8 = trunc(ST0); EAX = r:4; EDX = r(4);" + pop87 + pop0);
+        // (_ftol2_sse is (int)double's: cvttsd2si into eax, 32 bits, the integer indefinite past
+        // them. As a 64-bit truncation's low word, 7e10 came out 0x4c533c00, rhtest
+        // msvc-16.00-x86 float d2i_huge 2026-10-25)
+        bodies.put("ftol2_sse", "r:4 = trunc(ST0); EAX = r;" + pop87 + pop0);
         bodies.put("ftoi2", "r:4 = trunc(ST0); EAX = r;" + pop87 + pop0);
         String ftoul = "h:8 = 0x4000000000000000; t:10 = int2float(h); two:10 = int2float(2:8); big:10 = t f* two;\n"
                 + "hi:1 = ST0 f>= big; a:8 = trunc(ST0); b:8 = trunc(ST0 f- big); zh:8 = zext(hi); zl:8 = zext(!hi);\n"
-                + "r:8 = (zh * (b + 0x8000000000000000)) + (zl * a); EAX = r:4; EDX = r(4);" + pop87 + pop0;
+                // (2^64 or more: the integer indefinite, as dtoul3's)
+                + "big2:10 = big f* two; ov:1 = ST0 f>= big2; zo:8 = zext(ov); zn:8 = zext(!ov);\n"
+                + "v:8 = (zh * (b + 0x8000000000000000)) + (zl * a);\n"
+                + "r:8 = (zo * 0x8000000000000000) + (zn * v); EAX = r:4; EDX = r(4);" + pop87 + pop0;
         bodies.put("ftoul2", ftoul);
         bodies.put("ftoul2_legacy", ftoul);
         // (the CRT's square roots, imported: x87's in st0, SSE2's in xmm0)

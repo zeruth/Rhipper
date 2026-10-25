@@ -294,6 +294,20 @@ def main() -> None:
                     calls.add(int(ins.op_str, 16))
         if calls & (found_at - {a}):
             del found[k]
+    # (an ftol2 by its run that converts to 32 bits itself where SSE2 is there, `cmp [__sse2_avail],
+    # 0; je __ftol2; ...; cvttsd2si eax, [esp]`, is __ftol2_sse, (int)double's: the run, before the
+    # CRT set the flag, took the jump. On the machine it is cvttsd2si's, the integer indefinite past
+    # 32 bits, and as __ftol2's 64-bit truncation 7e10 came out 0x4c533c00, rhtest msvc-16.00-x86
+    # float d2i_huge 2026-10-25)
+    for k, name in list(found.items()):
+        if name != "ftol2":
+            continue
+        a = int(k, 16)
+        for lo, hi in ranges.get(a, ()):
+            lo, hi = int(lo, 16), int(hi, 16)
+            if any(ins.mnemonic == "cvttsd2si" and ins.op_str.startswith("eax")
+                   for ins in md.disasm(bytes(b.image[b.off(lo):b.off(lo) + (hi - lo)]), lo)):
+                found[k] = "ftol2_sse"
     path = write_facts("helpers32", {"rule": "helpers32.py: run under Unicorn in each helper's convention, "
                                               "every case matching", "helpers": found})
     print(f"{len(found)} helpers: {found} -> {path}", file=sys.stderr)

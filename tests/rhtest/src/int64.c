@@ -146,4 +146,12 @@ void rhtest_run(void) {
     check64("sum_lcg", sum_lcg(s * 5));
     check64("rec", rec_check());
     check64("seeks", (u64)seeks(s));
+    /* (shift counts of 64 or more: C leaves them undefined, x86's helpers decide, `cmp cl, 64; jae`
+       to 0 or the sign, where an x64 shift masks the count to 6 bits; and 32..63, the helpers'
+       other half) */
+    check64("shl64_big", (u64)shl64((i64)s * 0x10001, (int)s + 58));
+    check64("sar64_big", (u64)sar64(-(i64)s * 0x10001, (int)s + 60));
+    check64("shr64_big", shr64((u64)s * 0x9e3779b97f4a7c15ull, (int)s + 93));
+    check64("shl64_mid", (u64)shl64((i64)s * 0x10001, (int)s + 30));
+    check64("shr64_mid", shr64((u64)s * 0x9e3779b97f4a7c15ull, (int)s + 33));
 }

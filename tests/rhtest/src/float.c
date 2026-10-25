@@ -174,6 +174,15 @@ void rhtest_run(void) {
     check("d2u_frac", d2u(s * 600000000.0 + 0.75));      /* (truncated: VS2010's fldcw | 0xc00) */
     check64("d2l", (u64)d2l(-s * 1.0e15));
     check64("d2ul", d2ul(s * 2.5e18));
+    /* (and out of range: C leaves it undefined, the reference does one thing, the CRT helper's or
+       cvttsd2si's integer indefinite, and the port has to do the same: negative to unsigned, past
+       2^63, NaN) */
+    check64("d2ul_neg", d2ul(-s * 2.5));
+    check64("d2ul_huge", d2ul(s * 1.0e19));
+    check64("d2l_huge", (u64)d2l(s * 2.0e18));
+    check("d2u_neg", d2u(-s * 3.25));
+    check("d2i_huge", (u32)d2i(s * 1.0e10));
+    check64("d2ul_nan", d2ul((s - 7.0) / (s - 7.0)));
     checkd("i2d", i2d(-(i32)seed() * 100003));
     checkd("u2d", u2d(0xfffffff0u + seed()));
     checkd("l2d", l2d(-(i64)seed() * 0x123456789abll));

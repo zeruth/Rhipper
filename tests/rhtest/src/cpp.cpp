@@ -418,6 +418,53 @@ NOINLINE u32 fronts(u32 s) {
     return the_front(&f)->grab(s * 3, 16);
 }
 
+/* ---- function-local statics built on first use: MSVC 14's thread-safe initialization (the
+ * _Init_thread_header / _Init_thread_footer guard and the thread's epoch in its TLS block), VS2010's
+ * plain guard bit; a second call takes the built object, and a destructor registered with atexit
+ * runs at exit ---- */
+struct Lazy {
+    u32 n, base;
+    explicit Lazy(u32 b) : n(0), base(b * 17) { g_events += 1000; }
+    ~Lazy() { g_events += 1; }
+    NOINLINE u32 next() { return base + n++; }
+};
+NOINLINE Lazy &the_lazy(u32 s) {
+    static Lazy lazy(s);
+    return lazy;
+}
+NOINLINE u32 lazies(u32 s) {
+    static u32 calls = s * 3;
+    u32 r = the_lazy(s).next();
+    r = r * 10 + the_lazy(s + 100).next();
+    calls += r;
+    return r ^ calls << 4;
+}
+
+/* ---- a virtual call reached only by a branch, `this` loaded before it: the other way in
+ * returns first, and before the call in address order is a `ret`. A VS2010 client's 0x4de9a0:
+ * `mov ecx, esi; test al, al; jne L` ... `L: mov edx, [esi]; mov eax, [edx + 8]; call eax`, its
+ * AddRef given no `this` by a scan back across that ret (2026-10-25) ---- */
+struct Counted {
+    int refs, inits;
+    Counted() : refs(1), inits(0) {}
+    virtual ~Counted() {}
+    virtual bool init(int k) { inits += k; return (k & 1) != 0; }
+    virtual void grab() { refs++; }
+    virtual void drop() { refs--; }
+};
+NOINLINE int counted_take(Counted *c, int k) {
+    if (!c->init(k)) {
+        c->drop();
+        return -c->refs;
+    }
+    c->grab();
+    return c->refs * 10 + c->inits;
+}
+NOINLINE u32 counteds(u32 s) {
+    Counted a, b;
+    return (u32)(counted_take(&a, (int)s) * 100 + counted_take(&b, (int)s + 1));
+}
+
 void rhtest_run(void) {
     u32 s = seed();   /* 7 */
     check("statics", (u32)g_registry.sum() ^ (u32)g_counter.value());
@@ -432,9 +479,11 @@ void rhtest_run(void) {
     check("gadgets", gadgets(s));
     check("pools", pools(s));
     check("fronts", fronts(s));
+    check("lazies", lazies(s) * 3 + lazies(s + 1));
     {
         Sink sk;
         check("sinks", sinks(&sk, s) * 100 + (g_sink == &sk));
     }
+    check("counteds", counteds(s));
     check("events", g_events);
 }

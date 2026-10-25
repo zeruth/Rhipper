@@ -378,6 +378,60 @@ NOINLINE u32 buckets(u32 s) {
     return r ^ mask;
 }
 
+/* ---- layouts the decompiler has to read exactly: a packed record (unaligned fields, `#pragma
+ * pack(1)`), a structure over 8 bytes by value both ways (returned through the hidden pointer the
+ * caller passes, passed as words copied onto the stack), a union read as another of its members,
+ * and narrow signed values widened (movsx) and compared ---- */
+#pragma pack(push, 1)
+typedef struct { u8 tag; u32 id; u16 len; u32 crc; i8 bias; } Packed;
+#pragma pack(pop)
+NOINLINE u32 packed_check(u32 s) {
+    Packed p[3];
+    u32 k, h = 0;
+    for (k = 0; k < 3; k++) {
+        p[k].tag = (u8)(s + k);
+        p[k].id = s * 0x01010101u + k;
+        p[k].len = (u16)(s * 1000 + k);
+        p[k].crc = ~p[k].id ^ (u32)p[k].len << 8;
+        p[k].bias = (i8)(-(i32)s * (i32)(k + 1));
+    }
+    for (k = 0; k < 3; k++) h = h * 31 + p[k].tag + p[k].id + p[k].len + p[k].crc + (u32)(i32)p[k].bias;
+    return h ^ (u32)sizeof(Packed) << 24;
+}
+typedef struct { u32 v[5]; double d; i16 w; } Big;
+NOINLINE Big make_big(u32 s) {
+    Big b;
+    u32 k;
+    for (k = 0; k < 5; k++) b.v[k] = s * (k + 3) ^ k;
+    b.d = (double)s * 1.25;
+    b.w = (i16)(-(i32)s * 300);
+    return b;
+}
+NOINLINE u32 sum_big(Big b, u32 scale) {
+    u32 k, r = 0;
+    for (k = 0; k < 5; k++) r = r * 7 + b.v[k] * scale;
+    return r + (u32)(i32)(b.d * 8.0) + (u32)(i32)b.w;
+}
+NOINLINE u32 big_check(u32 s) {
+    Big a = make_big(s), c = make_big(s + 1);
+    a.v[2] += c.v[4];
+    return sum_big(a, 3) ^ sum_big(c, s) << 1;
+}
+typedef union { float f; u32 u; u8 b[4]; i16 h[2]; } Pun;
+NOINLINE u32 pun_check(u32 s) {
+    Pun p;
+    p.f = (float)s * -2.5f;
+    return p.u ^ (u32)p.b[3] << 3 ^ (u32)(i32)p.h[1];
+}
+NOINLINE u32 narrow_check(u32 s) {
+    i8 a = (i8)(s * 37), b = (i8)(-(i32)s * 21);
+    i16 c = (i16)(s * 9001), d = (i16)(-(i32)s * 4801);
+    u32 r = 0;
+    r += (a < b) | (c < d) << 1 | (a < 0) << 2 | (d < 0) << 3;
+    r = r * 1000 + (u32)(i32)(a * b) + (u32)(i32)(c / (b ? b : 1)) + (u32)(i32)(i16)(c + d);
+    return r ^ (u32)(u8)a << 16 ^ (u32)(u16)d;
+}
+
 static void level2(void) {
     u32 s = seed(), k, h;
     for (h = 0, k = 0; k < 12; k++) h = h * 13 + (u32)dense(k + s - 7);
@@ -401,6 +455,10 @@ static void level2(void) {
     check("list", list_check());
     check("buckets", buckets(s));
     check("high_mask", high_mask(s, 0xdeadbeef) ^ high_mask(s + 20, 0xffffffff) << 1);
+    check("packed", packed_check(s));
+    check("big", big_check(s));
+    check("pun", pun_check(s));
+    check("narrow", narrow_check(s));
 }
 
 void rhtest_run(void) {

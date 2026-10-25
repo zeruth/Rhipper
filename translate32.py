@@ -312,11 +312,12 @@ V_SIZES = "8|12|16|24|32|48|64"
 
 def cpu_state(c: str) -> str:
     """Processor state Ghidra reads as a lost register that the host has as an intrinsic: XCR0
-    (xgetbv, ecx = 0; the CRT's __isa_available_init, whose result picks /O2's vector paths)."""
+    (xgetbv, ecx = 0; the CRT's __isa_available_init, whose result picks /O2's vector paths),
+    without AVX-512's state, as Ghidra32.h's gen_cpuid reports none."""
     if "in_XCR0" not in c:
         return c
     c = re.sub(r"(?m)^[ \t]*\w+ in_XCR0;\n", "", c)
-    return re.sub(r"\bin_XCR0\b", "(uint)_xgetbv(0)", c)
+    return re.sub(r"\bin_XCR0\b", "GEN_XCR0()", c)
 
 
 def v16_forms(c: str) -> str:
@@ -1006,6 +1007,72 @@ def match_paren(s: str, i: int) -> int:
                 return j + 1
         j += 1
     return -1
+
+
+BOOL_PRODUCT = re.compile(r"\((ulonglong|longlong)\)\s*(!?)\s*\(")
+OPERAND = re.compile(r"\s*\*\s*((?:\(\s*(?:unsigned\s+)?[A-Za-z_]\w*\s*\**\s*\)\s*)*)")
+
+
+def bool_products(body: str) -> str:
+    """`(ulonglong)(c) * x`, Ghidra's branchless select of x or 0 (and the call fixups' bodies'),
+    as `(c ? x : 0)`: MSVC's x64 optimizer (14.51, /O1 and /O2) computes some of them in 32 bits,
+    `(ulonglong)(k < 0x40) * (v >> k)` and `(ulonglong)(c) * v` with their high halves 0. rhtest
+    int64 sum_lcg read its shifted values' low words alone, 2026-10-25."""
+    # (nested ones, the operand itself a product, a pass each)
+    for _ in range(8):
+        out, i, changed = [], 0, False
+        while True:
+            m = BOOL_PRODUCT.search(body, i)
+            if not m:
+                break
+            c0 = m.end() - 1
+            c1 = match_paren(body, c0)
+            om = OPERAND.match(body, c1) if c1 > 0 else None
+            if om is None:
+                out.append(body[i:m.end()])
+                i = m.end()
+                continue
+            j = om.end()
+            # (the operand: a parenthesized expression, or a name with its calls and subscripts,
+            # each after the casts OPERAND took)
+            if j < len(body) and body[j] == "(":
+                k = match_paren(body, j)
+            else:
+                nm = re.match(r"[A-Za-z_]\w*", body[j:])
+                k = j + nm.end() if nm else -1
+                while 0 < k < len(body) and body[k] in "([":
+                    k = match_paren(body, k) if body[k] == "(" else body.find("]", k) + 1
+            if k <= j:
+                out.append(body[i:m.end()])
+                i = m.end()
+                continue
+            cond = body[c0:c1]
+            # (only a condition, a comparison or a logical operator at its top level, or one
+            # negated: `(ulonglong)(a + b) * c` is a product)
+            top = cond[1:-1]
+            while True:
+                q = top.find("(")
+                if q < 0:
+                    break
+                e = match_paren(top, q)
+                if e < 0:
+                    break
+                top = top[:q] + " " + top[e:]
+            if not m.group(2) and not re.search(r"(?<![<>])[<>]=?(?![<>])|[=!]=|&&|\|\|", top):
+                out.append(body[i:m.end()])
+                i = m.end()
+                continue
+            operand = om.group(1) + body[j:k]
+            test = f"!{cond}" if m.group(2) else cond
+            out.append(body[i:m.start()])
+            out.append(f"(({m.group(1)})({test} ? ({operand}) : 0))")
+            i = k
+            changed = True
+        out.append(body[i:])
+        body = "".join(out)
+        if not changed:
+            break
+    return body
 
 
 def split_params(p: str) -> list[str]:
@@ -1845,6 +1912,7 @@ class Translator32:
         # so `-0x80000000 >> n`, an x86 `sar` making a mask of ones, shifted in zeros. The
         # graphics allocator's free-bucket mask found no bucket, a VS2010 client 2026-10-24)
         c = int_min(c)
+        c = bool_products(c)
         c = re.sub(r"(?<=[\w>])[ \t]*\n[ \t]*::", "::", c)
         # (a label named as the function that starts there, `FUN_00410044:` and `goto FUN_00410044;`
         # inside FUN_0041002d: a label still, not that function's address, a VS2010 client 2026-10-25)
@@ -2036,7 +2104,11 @@ class Translator32:
         eh_prolog = bool(EH_PROLOG.search(self.corpus[a]["c"]))
         eh = (bool(EH_LINK.search(body)) or eh_prolog) and bool(sig.params)
         eh_args: list[str] = []
-        if sig.variadic or param_addressed or eh or re.search(r"&\s*stack0x(?!f[0-9a-f]{7}\b)[0-9a-f]{8}", body):
+        # (or esp itself read as it came in, register0x00000010, the walk below: a structure by value
+        # copied off the stack, `lea esi, [esp + 0x44]; rep movsd`, VS2010's sum_big, rhtest
+        # msvc-16.00-x86 core-O2 big)
+        if sig.variadic or param_addressed or eh or re.search(r"&\s*stack0x(?!f[0-9a-f]{7}\b)[0-9a-f]{8}", body) \
+                or (re.search(r"\bregister0x00000010\b", body) and sig.params):
             if sig.variadic and not params:
                 raise ValueError("variadic with no fixed parameter")
             # (each parameter at its slot as the reference pushed it: a double or an 8-byte integer

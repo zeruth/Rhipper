@@ -50,27 +50,41 @@ public class ExportFunctions extends GhidraScript {
             // the stack bytes each import pops, by its slot (x86: a call through `[__imp_X]` to a
             // __stdcall import is cleaned up by the import, and protos32.py follows the caller's
             // stack across it)
+            // (and its prototype's stack parameter bytes whatever its convention, "import_params":
+            // the type library declares some __stdcall ones __cdecl, d3d9's and dinput8's among
+            // them, and protos32.py takes those its callers never clean up after as popping these)
+            StringBuilder params = new StringBuilder();
+            // (and the imports with no prototype at all, "import_untyped": protos32.py counts what
+            // their callers push for them)
+            StringBuilder untyped = new StringBuilder();
             w.println("], \"import_cleanup\": {");
             boolean firstImp = true;
             FunctionIterator ex = currentProgram.getFunctionManager().getExternalFunctions();
             while (ex.hasNext()) {
                 Function f = ex.next();
-                int purge = 0;
-                if (!"__cdecl".equals(f.getCallingConventionName()) && !f.hasVarArgs()) {
-                    for (ghidra.program.model.listing.Parameter p : f.getParameters()) {
-                        if (p.isStackVariable()) purge += (p.getLength() + 3) & ~3;
-                    }
+                int bytes = 0;
+                for (ghidra.program.model.listing.Parameter p : f.getParameters()) {
+                    if (p.isStackVariable()) bytes += (p.getLength() + 3) & ~3;
                 }
+                int purge = !"__cdecl".equals(f.getCallingConventionName()) && !f.hasVarArgs() ? bytes : 0;
                 for (ghidra.program.model.symbol.Reference ref :
                         getReferencesTo(f.getExternalLocation().getExternalSpaceAddress())) {
                     // (the slot's own reference; the calls through it refer to the import too)
                     if (getInstructionAt(ref.getFromAddress()) != null) continue;
                     w.printf("%s\"0x%x\": %d%n", firstImp ? " " : ",", ref.getFromAddress().getOffset(), purge);
+                    if (!f.hasVarArgs())
+                        params.append(String.format("%s\"0x%x\": %d%n", params.length() == 0 ? " " : ",",
+                                ref.getFromAddress().getOffset(), bytes));
+                    if (f.getSignatureSource() == ghidra.program.model.symbol.SourceType.DEFAULT)
+                        untyped.append(String.format("%s\"0x%x\"", untyped.length() == 0 ? "" : ", ",
+                                ref.getFromAddress().getOffset()));
                     firstImp = false;
                     imports++;
                 }
             }
-            w.println("}}");
+            w.println("}, \"import_params\": {");
+            w.print(params);
+            w.println("}, \"import_untyped\": [" + untyped + "]}");
         }
         println("ExportFunctions: wrote " + count + " functions and " + imports + " import slots to " + out);
     }

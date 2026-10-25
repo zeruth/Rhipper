@@ -412,13 +412,21 @@ static unsigned int gen_ud2(void) { __ud2(); return 0; }
 
 /* Ghidra's `cpuid` pseudo-functions: the leaf's registers as Ghidra's x86 spec reads them back,
    EAX, EBX, EDX, ECX, each call its own slot of a small ring (Ghidra64.h's). The CRT's
-   __isa_available_init reads them, and its result picks /O2's vector paths */
+   __isa_available_init reads them, and its result picks /O2's vector paths. AVX-512 is never
+   reported (leaf 7's bits and XCR0's opmask/ZMM state, GEN_XCR0): the CRT's AVX-512 paths are
+   ones Ghidra decompiles lossily (__ultod3's `vmovd; vpinsrd; vcvtuqq2pd` as the low word alone,
+   a stub), and on a machine that has it the port would run them where the others are exact */
 static __inline unsigned int *gen_cpuid(int leaf) {
     static __declspec(thread) int regs[8][4];
     static __declspec(thread) unsigned int next;
     int *slot = regs[next++ & 7];
     int r[4];
     __cpuidex(r, leaf, 0);
+    if (leaf == 7) {
+        r[1] &= ~(int)0xDC230000u;     /* EBX: AVX512F, DQ, IFMA, PF, ER, CD, BW, VL */
+        r[2] &= ~(int)0x00005842u;     /* ECX: VBMI, VBMI2, VNNI, BITALG, VPOPCNTDQ */
+        r[3] &= ~(int)0x0080010Cu;     /* EDX: 4VNNIW, 4FMAPS, VP2INTERSECT, FP16 */
+    }
     slot[0] = r[0];
     slot[1] = r[1];
     slot[2] = r[3];
@@ -427,7 +435,9 @@ static __inline unsigned int *gen_cpuid(int leaf) {
 }
 /* `xinuse(0)`: xgetbv with ecx = 1, the state components in use (in_XCR0, ecx = 0, is
    translate32.py's _xgetbv(0)) */
-#define xinuse(x) _xgetbv(1)
+#define xinuse(x) (_xgetbv(1) & ~0xE0ull)
+/* XCR0 without AVX-512's state components (opmask, ZMM_Hi256, Hi16_ZMM), as gen_cpuid */
+#define GEN_XCR0() ((unsigned int)(_xgetbv(0) & ~0xE0ull))
 #define cpuid(x) gen_cpuid((int)(x))
 #define cpuid_basic_info(x) gen_cpuid(0)
 #define cpuid_Version_info(x) gen_cpuid(1)
