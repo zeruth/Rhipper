@@ -1637,6 +1637,13 @@ def import_slot(insns, prv, a) -> int | None:
         if p is None or p not in insns:
             return None
         pi = insns[p]
+        # (but an if's jump on to its join, between it and the call: a branch's end, its other
+        # branch scanned too on the way back. Havok's tagfile reader 0xe0c190, `mov ebx,
+        # [__imp_TlsGetValue]` above an if/else, `call ebx` below it with `xor ecx, ecx` between:
+        # a __thiscall of 2, the index the second, read at 0, 2026-10-26)
+        if pi.mnemonic == "jmp" and _target(pi) is not None and p < _target(pi) <= a:
+            p = prv[p]
+            continue
         if pi.mnemonic in ("ret", "jmp"):
             return None
         _r, w = regs_access(pi)

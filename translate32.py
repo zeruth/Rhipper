@@ -964,7 +964,10 @@ def returned_only(c: str) -> set[str]:
                 if m and m.group(2).strip() == n and next_is_return(m.group(1), lines, lines.index(line)):
                     continue
                 # (or into one every other read of which a write of something else comes before)
-                if m and m.group(2).strip() == n and m.group(1) not in names and reads_after_writes(m.group(1), lines, names):
+                # (one of the lost names too: Ghidra's `in_EAX` reused as a local, TlsGetValue's
+                # there and extraout_EAX after LeaveCriticalSection, Havok's removeReference
+                # 0xd91a80; read before any write, it is the entry's and fails the same test)
+                if m and m.group(2).strip() == n and reads_after_writes(m.group(1), lines, names - {m.group(1)}):
                     continue
                 ok.discard(n)
                 changed = True
