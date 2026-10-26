@@ -7,6 +7,7 @@
 
 #include <d3d9.h>
 #include <dinput.h>
+#include <mmreg.h>
 #include <oleauto.h>
 
 #include <cstdio>
@@ -401,6 +402,7 @@ struct SendsN {
         return &s;
     }
 };
+void* EffectOf(uint32_t p);   // (below: a proxy's native object, or a face over the reference's own)
 struct ChainN {
     Chain64 c = {};
     std::vector<Effect64> d;
@@ -410,7 +412,7 @@ struct ChainN {
         d.resize(a->EffectCount);
         for (uint32_t k = 0; k < a->EffectCount; k++) {
             auto e = At<Effect32>(a->pEffectDescriptors + k * sizeof(Effect32));
-            d[k] = {Unwrap(e->pEffect), e->InitialState, e->OutputChannels};
+            d[k] = {EffectOf(e->pEffect), e->InitialState, e->OutputChannels};
         }
         c = {a->EffectCount, d.empty() ? nullptr : d.data()};
         return &c;
@@ -435,6 +437,144 @@ struct EngineCallback {
     virtual void STDMETHODCALLTYPE OnCriticalError(HRESULT error) { CallMethod(obj, 2, error); }
     uint32_t obj = 0;
 };
+// The reference's own XAPO effects (an effect chain's pEffect, the reference's objects with a 4-byte
+// vtable, CXAPOBase's): a native IXAPO / IXAPOParameters face, each method the reference's in the
+// same slot, its formats copied below 4 GB and its parameter arrays in the x86 layouts
+#pragma pack(push, 1)
+struct LockParams32 { uint32_t pFormat, MaxFrameCount; };
+struct ProcessParams32 { uint32_t pBuffer, BufferFlags, ValidFrameCount; };
+#pragma pack(pop)
+struct LockParams64 { const WAVEFORMATEX* pFormat; UINT32 MaxFrameCount; };
+struct ProcessParams64 { void* pBuffer; UINT32 BufferFlags; UINT32 ValidFrameCount; };
+// IXAPO, IXAPOParameters (xapo.h)
+const GUID kIID_IXAPO = {0xA90BC001, 0xE897, 0xE897, {0x55, 0xE4, 0x9E, 0x47, 0x00, 0x00, 0x00, 0x00}};
+const GUID kIID_IXAPOParameters = {0xA90BC001, 0xE897, 0xE897, {0x55, 0xE4, 0x9E, 0x47, 0x00, 0x00, 0x00, 0x01}};
+
+// a native format copied where the reference can read it (WAVEFORMATEX and its cbSize extra)
+uint32_t LowFormat(const WAVEFORMATEX* f, std::vector<uint8_t>& buf) {
+    if (!f) return 0;
+    size_t n = sizeof(WAVEFORMATEX) + (f->wFormatTag == WAVE_FORMAT_PCM ? 0 : f->cbSize);
+    buf.assign(reinterpret_cast<const uint8_t*>(f), reinterpret_cast<const uint8_t*>(f) + n);
+    return Low(buf.data());
+}
+// what the reference can address of a native buffer XAudio2 hands it (below 2 GB in this process)
+uint32_t LowBuffer(void* p) {
+    if (reinterpret_cast<uintptr_t>(p) >> 32) {
+        static bool told = false;
+        if (!told) {
+            told = true;
+            fprintf(stderr, "%s: XAPO: a buffer above 4 GB (%p), out of the reference's reach\n", RHIPPER_NAME, p);
+        }
+    }
+    return Low(p);
+}
+
+template <typename F>
+F* FaceOf(uint32_t obj);
+void* XapoFaceFor(uint32_t obj, REFIID riid);
+
+struct XapoFace {
+    virtual HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** out) {
+        if (!out) return E_POINTER;
+        GUID iid = riid;   // (the caller's may be in a DLL above 4 GB)
+        uint32_t got = 0;
+        uint32_t hr = CallMethod(obj, 0, Low(&iid), Low(&got));
+        *out = SUCCEEDED(static_cast<HRESULT>(hr)) && got ? XapoFaceFor(got, riid) : nullptr;
+        return static_cast<HRESULT>(hr);
+    }
+    virtual ULONG STDMETHODCALLTYPE AddRef() { return CallMethod(obj, 1); }
+    virtual ULONG STDMETHODCALLTYPE Release() { return CallMethod(obj, 2); }
+    virtual HRESULT STDMETHODCALLTYPE GetRegistrationProperties(void** props) {
+        uint32_t got = 0;
+        HRESULT hr = static_cast<HRESULT>(CallMethod(obj, 3, Low(&got)));
+        if (props) *props = At<void>(got);   // (XAPOAlloc's, CoTaskMemAlloc: XAudio2 frees it so)
+        return hr;
+    }
+    virtual HRESULT STDMETHODCALLTYPE IsInputFormatSupported(const WAVEFORMATEX* output, const WAVEFORMATEX* requested,
+                                                            WAVEFORMATEX** supported) {
+        return FormatQuery(4, output, requested, supported);
+    }
+    virtual HRESULT STDMETHODCALLTYPE IsOutputFormatSupported(const WAVEFORMATEX* input, const WAVEFORMATEX* requested,
+                                                             WAVEFORMATEX** supported) {
+        return FormatQuery(5, input, requested, supported);
+    }
+    virtual HRESULT STDMETHODCALLTYPE Initialize(const void* data, UINT32 size) {
+        std::vector<uint8_t> copy(static_cast<const uint8_t*>(data), static_cast<const uint8_t*>(data) + (data ? size : 0));
+        return static_cast<HRESULT>(CallMethod(obj, 6, data ? Low(copy.data()) : 0u, size));
+    }
+    virtual void STDMETHODCALLTYPE Reset() { CallMethod(obj, 7); }
+    virtual HRESULT STDMETHODCALLTYPE LockForProcess(UINT32 nin, const LockParams64* in, UINT32 nout, const LockParams64* out) {
+        std::vector<LockParams32> i32(nin), o32(nout);
+        std::vector<std::vector<uint8_t>> formats(nin + nout);
+        for (UINT32 k = 0; k < nin; k++) i32[k] = {LowFormat(in[k].pFormat, formats[k]), in[k].MaxFrameCount};
+        for (UINT32 k = 0; k < nout; k++) o32[k] = {LowFormat(out[k].pFormat, formats[nin + k]), out[k].MaxFrameCount};
+        // (the reference keeps the formats it is locked with: kept here as long as the lock)
+        locked = std::move(formats);
+        return static_cast<HRESULT>(CallMethod(obj, 8, nin, nin ? Low(i32.data()) : 0u, nout, nout ? Low(o32.data()) : 0u));
+    }
+    virtual void STDMETHODCALLTYPE UnlockForProcess() { CallMethod(obj, 9); }
+    virtual void STDMETHODCALLTYPE Process(UINT32 nin, const ProcessParams64* in, UINT32 nout, ProcessParams64* out,
+                                           BOOL enabled) {
+        ProcessParams32 i32[8], o32[8];
+        if (nin > 8 || nout > 8) return;
+        for (UINT32 k = 0; k < nin; k++) i32[k] = {LowBuffer(in[k].pBuffer), in[k].BufferFlags, in[k].ValidFrameCount};
+        for (UINT32 k = 0; k < nout; k++) o32[k] = {LowBuffer(out[k].pBuffer), out[k].BufferFlags, out[k].ValidFrameCount};
+        CallMethod(obj, 10, nin, Low(i32), nout, Low(o32), static_cast<uint32_t>(enabled));
+        for (UINT32 k = 0; k < nout; k++) {
+            out[k].BufferFlags = o32[k].BufferFlags;
+            out[k].ValidFrameCount = o32[k].ValidFrameCount;
+        }
+    }
+    virtual UINT32 STDMETHODCALLTYPE CalcInputFrames(UINT32 n) { return CallMethod(obj, 11, n); }
+    virtual UINT32 STDMETHODCALLTYPE CalcOutputFrames(UINT32 n) { return CallMethod(obj, 12, n); }
+    uint32_t obj = 0;
+    std::vector<std::vector<uint8_t>> locked;
+
+    HRESULT FormatQuery(unsigned k, const WAVEFORMATEX* other, const WAVEFORMATEX* requested, WAVEFORMATEX** supported) {
+        std::vector<uint8_t> a, b;
+        uint32_t got = 0;
+        HRESULT hr = static_cast<HRESULT>(
+            CallMethod(obj, k, LowFormat(other, a), LowFormat(requested, b), supported ? Low(&got) : 0u));
+        if (supported) *supported = At<WAVEFORMATEX>(got);   // (XAPOAlloc's, freed by XAudio2)
+        return hr;
+    }
+};
+struct XapoParamsFace {
+    virtual HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** out) {
+        if (!out) return E_POINTER;
+        GUID iid = riid;
+        uint32_t got = 0;
+        uint32_t hr = CallMethod(obj, 0, Low(&iid), Low(&got));
+        *out = SUCCEEDED(static_cast<HRESULT>(hr)) && got ? XapoFaceFor(got, riid) : nullptr;
+        return static_cast<HRESULT>(hr);
+    }
+    virtual ULONG STDMETHODCALLTYPE AddRef() { return CallMethod(obj, 1); }
+    virtual ULONG STDMETHODCALLTYPE Release() { return CallMethod(obj, 2); }
+    virtual void STDMETHODCALLTYPE SetParameters(const void* p, UINT32 size) {
+        std::vector<uint8_t> copy(static_cast<const uint8_t*>(p), static_cast<const uint8_t*>(p) + (p ? size : 0));
+        CallMethod(obj, 3, p ? Low(copy.data()) : 0u, size);
+    }
+    virtual void STDMETHODCALLTYPE GetParameters(void* p, UINT32 size) {
+        std::vector<uint8_t> copy(p ? size : 0);
+        CallMethod(obj, 4, p ? Low(copy.data()) : 0u, size);
+        if (p) memcpy(p, copy.data(), size);
+    }
+    uint32_t obj = 0;
+};
+
+void* XapoFaceFor(uint32_t obj, REFIID riid) {
+    if (IsEqualGUID(riid, kIID_IXAPOParameters)) return static_cast<void*>(FaceOf<XapoParamsFace>(obj));
+    return static_cast<void*>(FaceOf<XapoFace>(obj));
+}
+
+// an effect the reference names: the native object of a proxy the port gave it, else a face over
+// the reference's own
+void* EffectOf(uint32_t p) {
+    if (!p) return nullptr;
+    if (At<Proxy32>(p)->magic == kProxyMagic) return Unwrap(p);
+    return static_cast<void*>(FaceOf<XapoFace>(p));
+}
+
 // one face per reference object, kept for good (XAudio2 may call it until the voice is gone)
 template <typename F>
 F* FaceOf(uint32_t obj) {

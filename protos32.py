@@ -2835,6 +2835,14 @@ def main() -> None:
     if vt_path.exists():
         for vt in json.loads(vt_path.read_text())["vtables"]:
             slots = [int(s, 16) for s in vt["slots"]]
+            # (a COM interface first, whatever its other slots read: slot 0 QueryInterface's shape,
+            # `ret 0xc` reading no ecx. Its methods take `this` on the stack; one slot of an XAPO's
+            # reading ecx made every slot a method, `this` a dummy ecx before the real one, and
+            # XAudio2's QueryInterface wrote through its riid, 2026-10-26. A slot that reads ecx
+            # is a __thiscall by its own inputs all the same)
+            first = local.get(slots[0]) if slots else None
+            if first is not None and first.get("ret") == 12 and not inputs.get(slots[0], 0) & ECX:
+                continue
             if any(inputs.get(s, 0) & ECX for s in slots):
                 methods.update(slots)
                 continue
