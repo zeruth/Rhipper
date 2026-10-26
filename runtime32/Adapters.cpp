@@ -18,6 +18,8 @@
 #include <corecrt_startup.h>
 #include <float.h>
 
+#include "RefImage.hpp"
+
 extern "C" uint32_t gen_ref_base;   // RefImage.cpp
 const wchar_t* RefImagePath();       // RefImage.cpp
 extern "C" unsigned int gen_teb32(void);
@@ -754,16 +756,32 @@ unsigned int gen_imp_VirtualQuery(uint32_t address, uint32_t out, uint32_t lengt
 }
 
 // ---- message boxes: what the reference says, on the console too ----------------------------
+// <ENV>_NODIALOGS=1: a message box logged and answered with its default button, not shown. An
+// unattended run (pipeline32.py's) that met the reference's "An unexpected error has occurred"
+// waited on a dialog no one was there to close, 2026-10-26
+static unsigned int Unattended(uint32_t type) {
+    wchar_t v[8] = {};
+    if (!RefEnv("NODIALOGS", v, 8) || v[0] == L'0') return 0;
+    static const unsigned int buttons[][3] = {
+        {IDOK, IDOK, IDOK}, {IDOK, IDCANCEL, IDCANCEL}, {IDABORT, IDRETRY, IDIGNORE},
+        {IDYES, IDNO, IDCANCEL}, {IDYES, IDNO, IDNO}, {IDRETRY, IDCANCEL, IDCANCEL},
+        {IDCANCEL, IDTRYAGAIN, IDCONTINUE}};
+    unsigned kind = type & MB_TYPEMASK, def = (type & MB_DEFMASK) >> 8;
+    return buttons[kind < 7 ? kind : 0][def < 3 ? def : 0];
+}
+
 unsigned int gen_imp_MessageBoxW(uint32_t hwnd, uint32_t text, uint32_t caption, uint32_t type) {
     // (narrow: stderr's first output was narrow, and a wide write to it then printed nothing)
     fprintf(stderr, "%s: MessageBox [%ls] %ls\n", RHIPPER_NAME, caption ? At<wchar_t>(caption) : L"",
             text ? At<wchar_t>(text) : L"");
     fflush(stderr);
+    if (unsigned int r = Unattended(type)) return r;
     return MessageBoxW(At<HWND__>(hwnd), At<wchar_t>(text), At<wchar_t>(caption), type);
 }
 unsigned int gen_imp_MessageBoxA(uint32_t hwnd, uint32_t text, uint32_t caption, uint32_t type) {
     fprintf(stderr, "%s: MessageBox [%s] %s\n", RHIPPER_NAME, caption ? At<char>(caption) : "", text ? At<char>(text) : "");
     fflush(stderr);
+    if (unsigned int r = Unattended(type)) return r;
     return MessageBoxA(At<HWND__>(hwnd), At<char>(text), At<char>(caption), type);
 }
 

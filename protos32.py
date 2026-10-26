@@ -780,18 +780,40 @@ def analyse(root: int, ranges):
     # 2026-10-25)
     # (and whether every ret has its own byte or word write so: a bool on each path, whatever
     # width a caller reads it at, main())
-    sets_eax = 0
+    sets_eax = sets_eax_far = 0
     rets = rets_set = 0
+    # (and whether st0 can hold a value at a ret: the last x87 instruction before it not one that
+    # pops what it used, `fstp`, `fcompp`. A load or an operation leaves its result in st0)
+    x87_ret_live = False
+    for a in state:
+        if insns[a].mnemonic != "ret":
+            continue
+        q = prv.get(a)
+        for _ in range(32):
+            if q is None or q not in insns:
+                break
+            qm = insns[q].mnemonic
+            if qm.startswith("f") and not qm.startswith(("fn", "fwait")):
+                if not (qm.endswith("p") or qm in ("fcompp", "fucompp")):
+                    x87_ret_live = True
+                break
+            if qm == "call" or qm.startswith("j"):
+                x87_ret_live = x87_ret_live or qm == "call"   # (a callee's st0 passed on)
+                break
+            q = prv.get(q)
     for a in state:
         if insns[a].mnemonic != "ret":
             continue
         rets += 1
         p = prv.get(a)
-        for _ in range(8):
+        x87_on_way = crossed = False
+        # (24 back: a vector's normalize sets eax before eight x87 stores and its epilogue)
+        for _ in range(24):
             if p is None or p not in insns or p not in state or p + insns[p].size not in insns:
                 break
             pi = insns[p]
             po = pi.operands
+            x87_on_way |= pi.mnemonic.startswith("f") and not pi.mnemonic.startswith(("fn", "fwait"))
             if pi.mnemonic in ("pop", "leave") or (pi.mnemonic in ("mov", "lea", "add") and po
                                                    and po[0].type == X.X86_OP_REG and po[0].reg == X.X86_REG_ESP):
                 p = prv.get(p)
@@ -817,6 +839,21 @@ def analyse(root: int, ranges):
                     and not any(x in EAX_REGS for x in regs_access(pi)[1]):
                 p = prv.get(p)
                 continue
+            # (nor a conditional jump, whose fall-through comes on to the ret: a resource handle's
+            # load callback, `mov eax, [ebp + 0xc]; cmp eax, 1; jne out; ...; je out; out: pop ebp;
+            # ret 8`, returns its argument, void stopped at the je, and returning 0 the file it
+            # loaded was failed: a client's root.exl, its "unexpected error (ed)", 2026-10-26)
+            # (a forward one only: a loop's, `add eax, 8; jne top; ret 0xc`, closes on a counter, no
+            # result, and a byte swapper so made i4 took its callers' x87 results with it. Nor
+            # past an x87 load on the way: `call edx; test al, al; je out; fld [k]; ret` returns
+            # st0, the call's al only its condition)
+            # (what is found past one counts only where nothing else is: a result for a function
+            # that had none, never a bool's every-path al widened, its upper bytes extraout_EAX)
+            if pi.mnemonic.startswith("j") and pi.mnemonic != "jmp" and (_target(pi) or 0) > pi.address \
+                    and not x87_on_way:
+                crossed = True
+                p = prv.get(p)
+                continue
             if pi.mnemonic not in ("call", "jmp") and not pi.mnemonic.startswith("j") \
                     and any(x in EAX_REGS for x in regs_access(pi)[1]):
                 w = regs_access(pi)[1]
@@ -827,14 +864,23 @@ def analyse(root: int, ranges):
                 if pi.mnemonic == "lea" and po and po[1].type == X.X86_OP_MEM \
                         and po[1].mem.base in (X.X86_REG_ESP, X.X86_REG_EBP):
                     break
-                sets_eax = max(sets_eax, 4 if X.X86_REG_EAX in w else 2 if X.X86_REG_AX in w else 1)
-                rets_set += 1
+                width = 4 if X.X86_REG_EAX in w else 2 if X.X86_REG_AX in w else 1
+                if crossed:
+                    sets_eax_far = max(sets_eax_far, width)
+                else:
+                    sets_eax = max(sets_eax, width)
+                    rets_set += 1
             # (and a call through a pointer just before it: what that returns, passed on. The
             # allocator's FUN_00404d40, `call eax; pop ebp; ret 0x10`, the next in that chain. A
             # result given to a void one is ignored by its callers; one lost is 0)
             elif pi.mnemonic == "call" and _target(pi) is None and import_slot(insns, prv, p) is None:
-                sets_eax = 4
+                if crossed:
+                    sets_eax_far = 4
+                else:
+                    sets_eax = 4
             break
+    if not sets_eax:
+        sets_eax = sets_eax_far
     labels = {_target(i) for i in insns.values() if i.mnemonic.startswith("j") or i.mnemonic.startswith("loop")}
     inputs |= pushed_inputs(insns, prv, nxt, state, labels)
     icalls = {a: icall_shape(insns, prv, nxt, state, a, labels, bool(inputs & ECX)) for a in state
@@ -1074,7 +1120,7 @@ def analyse(root: int, ranges):
             # after a virtual getter of a float, 305 stubs, 2026-10-23)
             "icall_rets": {t[1]: k for t, k in results.items() if isinstance(t, tuple) and k in ("f4", "d8")},
             "passes": passes, "passes_via": passes_via, "writes_ret": writes_ret, "vol_writes": vol_writes, "opaque": opaque,
-            "sets_eax": sets_eax, "narrow_ret": sets_eax if sets_eax in (1, 2) and rets and rets_set == rets else 0,
+            "sets_eax": sets_eax, "x87_ret_live": x87_ret_live, "narrow_ret": sets_eax if sets_eax in (1, 2) and rets and rets_set == rets else 0,
             "eax_unset": root in state and eax_reaches_ret(insns, state, nxt, root, limit=256),
             "tail_ijmps": [(j, c or bool(inputs & ECX)) for j, c in tail_ijmps]}
 
@@ -2549,10 +2595,22 @@ def main() -> None:
     setjmps = {f for f in local if SETJMP_NAME.fullmatch(names.get(f, ""))}
     for f in setjmps:
         inputs[f] = 0
+    # (nor xmm registers from the C runtime's x87 math, which helpers32.py identified on a run before:
+    # its SSE2 branches read xmm registers they never take, and handed on they made a rotation's
+    # caller read in_XMM2_Da, a stub; each takes st0 (and pow st1), its call a fixup in ApplyFacts)
+    hp = FACTS / "helpers32.json"
+    math_helpers = set()
+    if hp.exists():
+        for k, n in json.loads(hp.read_text()).get("helpers", {}).items():
+            if n in ("CIsqrt", "CIsin", "CIcos", "CIpow", "sqrt") and int(k, 16) in inputs:
+                inputs[int(k, 16)] &= ST0
+                math_helpers.add(int(k, 16))
     changed = True
     while changed:
         changed = False
         for f, v in local.items():
+            if f in math_helpers:
+                continue                          # (nor from their own SSE2 branches' callees)
             for t, undef, _kind in v.get("calls", ()):
                 if t in noreturn:
                     continue
@@ -2617,9 +2675,29 @@ def main() -> None:
             return True
         return any(makes_edx(c, (*seen, t)) for c in v.get("passes", ()) if c != t and c not in seen)
 
+    def reaches_x87(f, seen=()):
+        """whether a function's result can be an x87 value: it runs x87 code itself, or returns
+        what a callee that can returns (its passes; an indirect call's might)"""
+        v = local.get(f)
+        if v is None or v.get("x87_use") or f in seen or len(seen) > 8:
+            return True
+        return any(isinstance(t, tuple) or reaches_x87(t, (*seen, f)) for t in v.get("passes", ()))
+
     def give(t, k, src, down=False):
         v = local.get(t)
         if v is None:
+            return False
+        # (no float result for one that runs no x87 code, nor anything it calls: a caller's x87
+        # read after it is of the caller's own st0, kept across. 0x50c620 in a VS2010 client returns
+        # al; as a double, its callers' st0 and its own paths read in_ST0, a stub on its startup path)
+        if k in ("f4", "d8") and not reaches_x87(t):
+            return False
+        # (nor for one that sets all of eax just before its ret and leaves nothing on the x87 stack
+        # there: what it returns. A vector's normalize, `mov eax, esi; ... fstp [esi + 8]; ret`,
+        # returns itself, and as a double its callers' `*extraout_EAX` made 0x634920 a stub; a
+        # random float's `... fld [ebp - 4]; ret` returns st0 though eax holds its bits, a VS2010
+        # client 2026-10-26)
+        if k in ("f4", "d8") and v.get("sets_eax") == 4 and not v.get("x87_ret_live", True):
             return False
         # (no integer result inferred, none a caller reads, for one with a path to its ret that
         # never writes eax, which it does not take: what it leaves there is its caller's own. _free's

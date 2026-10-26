@@ -95,6 +95,11 @@ SPECS: dict[str, tuple[str, list]] = {
     # (and its power, x in st1 and y in st0, x^y in st0: a VS2010 client's 0xc4cb50, which function
     # ID left unnamed, its 56 callers handing it six xmm registers and st0 alone. Powers of two:
     # Unicorn's x87 logarithm is exact only there, 3^4 coming out a bit short of 81)
+    # (and its sine and cosine, st0 to st0: a VS2010 client's 0xc4cde0 and 0xc4ca20, unnamed. Their
+    # SSE2 branches read xmm registers, which protos32 handed on to every caller as inputs, a
+    # rotation's caller a stub for in_XMM2_Da. Values Unicorn's x87 gives exactly as Python's)
+    "CIsin": ("st0", [((x,), {"st0": f64(math.sin(x))}) for x in (0.5, 1.0, 3.0, 0.25)]),
+    "CIcos": ("st0", [((x,), {"st0": f64(math.cos(x))}) for x in (0.5, 1.0, 3.0, 0.25)]),
     "CIpow": ("st01", [((x, y), {"st0": f64(x ** y)}) for x, y in ((2.0, 10.0), (4.0, 0.5), (2.0, -2.0),
                                                                     (16.0, 0.25), (0.5, 3.0))]),
     # (and the library's sqrt, a __cdecl double on the stack, its root pushed in st0: what VS2010

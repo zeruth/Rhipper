@@ -123,7 +123,7 @@ HEADER_NAMES = {"REFG", "REFP", "GP", "PTR32", "MXCSR", "ExceptionList", "GenUni
                 "SQRT", "ROUND", "TRUNC", "FLOOR", "CEIL", "HeapCompatibilityInformation", "uintptr_t",
                 "intptr_t", "uint32_t", "int32_t", "uint64_t", "int64_t", "uint16_t", "int16_t", "uint8_t",
                 "int8_t", "__ptr32", "__uptr", "_InterlockedExchange", "NAN", "INFINITY",
-                "__debugbreak", "_rotl", "_rotr", "_rotl64", "_rotr64", "fabs", "sqrt", "pow",
+                "__debugbreak", "_rotl", "_rotr", "_rotl64", "_rotr64", "fabs", "sqrt", "pow", "fsin", "fcos",
                 "builtin_strncpy", "builtin_memcpy", "builtin_memset",
                 "floor", "ceil", "trunc", "nearbyint", "memcpy", "memset", "rdtsc", "GEN_PIECE", "GEN_ISNAN",
                 "gen_piece_set", "gen_fl2bits", "gen_d2bits", "gen_bits2f", "gen_bits2d", "GEN_TOF", "GEN_TOD", "GEN_SLOT", "GEN_LOW",
@@ -937,6 +937,34 @@ def x87_pow(c: str) -> str:
     return c.replace("(unkbyte10)", "")
 
 
+def switch_offset(c: str) -> str:
+    """A switch the decompiler writes on its normalized index with its cases labelled by the
+    original values: `V = E - K; ... uVar5 = (&...switchdataD_...)[V]; switch(V) { case K + i: }`,
+    a two-level jump table (a byte table, then the targets) reached through `sub reg, K`. Lua's
+    suffixedexp switched on the token less 0x28 against cases '(' '.' ':' '[': no case ever matched,
+    every expression ended at its first suffix, and a client's scripts failed to parse ("'=' expected").
+    The switch is on V + K: its cases' values then mean what they say."""
+    for m in re.finditer(r"switchdataD_[0-9a-f]+\)\s*\[\s*(\w+)\s*\]", c):
+        v = m.group(1)
+        k = re.search(rf"(?m)^\s*{re.escape(v)}\s*=\s*[^;]*?\s-\s*(0x[0-9a-f]+|\d+)\s*;", c)
+        if not k:
+            continue
+        off = int(k.group(1), 0)
+        sw = re.search(rf"switch\s*\(\s*{re.escape(v)}\s*\)\s*\{{", c[m.end():])
+        if not sw:
+            continue
+        # (the cases this switch labels: up to the end of its block)
+        start = m.end() + sw.end()
+        depth, i = 1, start
+        while i < len(c) and depth:
+            depth += {"{": 1, "}": -1}.get(c[i], 0)
+            i += 1
+        cases = [int(x, 0) for x in re.findall(r"\bcase\s+(0x[0-9a-f]+|\d+)\s*:", c[start:i])]
+        if cases and min(cases) >= off:
+            c = c[:m.end()] + c[m.end():].replace(sw.group(0), f"switch({v} + {k.group(1)}) {{", 1)
+    return c
+
+
 def load_corpus() -> dict[int, dict]:
     out = {}
     with open(CORPUS, encoding="utf-8") as f:
@@ -949,6 +977,12 @@ def load_corpus() -> dict[int, dict]:
             # p-code having no pow, is pow(x, y))
             if "from_bcd(" in r["c"]:
                 r["c"] = x87_pow(r["c"])
+            # (a cast to the 10-byte type around an x87 operation's operand, `fsin((unkbyte10)x)`
+            # from the __CIsin fixup: a double's value here, no C type of its own)
+            if "(unkbyte10)" in r["c"]:
+                r["c"] = r["c"].replace("(unkbyte10)", "")
+            if "switchdataD_" in r["c"]:
+                r["c"] = switch_offset(r["c"])
             out[int(r["addr"], 16)] = r
     return out
 
@@ -1329,6 +1363,7 @@ class Translator32:
         self.frames = {int(k, 16): v["frame"] for k, v in protos.items() if v.get("frame")}
         # (and the register inputs each leaves as it found them, kept_inputs)
         self.keeps_in = {int(k, 16): v["keeps_in"] for k, v in protos.items() if v.get("keeps_in")}
+        self.keeps = {int(k, 16): set(v["keep"]) for k, v in protos.items() if v.get("keep")}
         # (and the registers each takes its parameters in, entry_registers)
         self.param_regs = {}
         for k, v in protos.items():
@@ -1545,18 +1580,34 @@ class Translator32:
         there. /LTCG keeps `this` in ecx across a call to a method that never writes ecx, and the
         decompiler, told the call kills it, lost it: FUN_00d7be90's `FUN_00d79e80(this); this =
         extraout_ECX;`, a stub on a VS2010 client's WinMain path, 2026-10-24."""
-        names = sorted(set(re.findall(r"\bextraout_E[CD]X(?:_\d+)?\b", c)))
+        names = [(n, "ecx" if "ECX" in n else "edx")
+                 for n in sorted(set(re.findall(r"\bextraout_E[CD]X(?:_\d+)?\b", c)))]
+        # (and a local the decompiler declared and reads but never assigns: a kept register it
+        # named for the parameter it is passed as, `this_00` in a VS2010 client's 0x50b800, ecx
+        # its `this` across two calls that keep it; translated as written, an uninitialized local
+        # handed a deque's push_back its object, a crash at startup 2026-10-26)
+        for n in sorted(set(re.findall(r"(?m)^[ \t]+[A-Za-z_][\w ]*?[\s*]+(this_\d+|pv\w+|p\w*Var\d+)\s*;\s*$", c))):
+            if not re.search(rf"\b{n}\b(?!\s*;\s*$)", c, re.M):
+                continue
+            if re.search(rf"(?<![\w.>])\b{n}\s*(?:[-+*/|&^]|<<|>>)?=(?!=)|&\s*{n}\b|\b{n}\s*(?:\+\+|--)|(?:\+\+|--)\s*{n}\b", c):
+                continue
+            uses_n = [l for l in c.split("\n") if re.search(rf"\b{n}\b", l)]
+            if len(uses_n) < 2:
+                continue
+            names += [(n, "ecx"), (n, "edx")]
         if not names or not self.keeps_in:
             return c
         lines = c.split("\n")
         orig = list(lines)                        # (as written: the scan back reads them so)
-        for n in names:
+        done = set()
+        for n, reg in names:
+            if n in done:
+                continue
             decl = re.compile(rf"^[ \t]+([A-Za-z_][\w ]*?[\s*]*?)\s*\b{n};\s*$")
             dl = next((i for i, l in enumerate(lines) if l is not None and decl.match(l)), None)
             uses = [i for i, l in enumerate(lines) if l is not None and re.search(rf"\b{n}\b", l) and i != dl]
             if dl is None or not uses:
                 continue
-            reg = "ecx" if "ECX" in n else "edx"
             value = None
             for u in uses:
                 p = u - 1
@@ -1586,9 +1637,24 @@ class Translator32:
                 # (back to the nearest line with a call in it, a name and its parenthesis: casts,
                 # conditions and braces between are no call)
                 calls_in = re.compile(r"\b(?!(?:if|while|for|switch|return|sizeof)\b)[A-Za-z_]\w*\s*\(")
-                while p >= 0 and not calls_in.search(orig[p]):
+                call = None
+
+                def real_call(l):
+                    # (a function's name or a call through a pointer; not LOCK() / UNLOCK(), the
+                    # decompiler's marks around a locked instruction, which run no code)
+                    return "))(" in l.replace(" ", "") or any(
+                        m.group(1) in self.by_printed for m in re.finditer(r"\b([A-Za-z_]\w*)\s*\(", l))
+                while p >= 0:
+                    if calls_in.search(orig[p]) and real_call(orig[p]):
+                        call = self.kept_call(orig[p], reg)
+                        # (back over a call that leaves the register alone, its keep convention:
+                        # `FUN_00504070(this, x); n = FUN_004ff570(k); FUN_00529340(this_00 + ...)`,
+                        # ecx `this` through both, a VS2010 client's 0x50b800)
+                        if call is None and self.call_keeps(orig[p], reg):
+                            p -= 1
+                            continue
+                        break
                     p -= 1
-                call = self.kept_call(orig[p], reg) if p >= 0 else None
                 if call is not None:
                     later = "\n".join(orig[p + 1:])
                     names_in = set(re.findall(r"[A-Za-z_]\w*", call))
@@ -1603,6 +1669,7 @@ class Translator32:
             # (the declaration gone, not blanked: an empty line ends the declarations, and those
             # after it were undeclared, FUN_00dc0b40's iVar2, 2026-10-24)
             lines[dl] = None
+            done.add(n)
         return "\n".join(l for l in lines if l is not None)
 
     def entry_registers(self, a: int, c: str) -> str:
@@ -1635,6 +1702,15 @@ class Translator32:
                      for i, l in enumerate(lines)]
             lines[dl] = None
         return "\n".join(l for l in lines if l is not None)
+
+    def call_keeps(self, line: str, reg: str) -> bool:
+        """Whether a statement's one call is to a function that leaves `reg` as it was, its keep
+        convention (protos32's keep): the register goes on past it."""
+        m = re.fullmatch(r"\s*(?:[\w.\->\[\]]+\s*=\s*)?(?:\([^()]*\))?\s*([A-Za-z_]\w*)\s*\((.*)\);\s*", line)
+        if not m or len(re.findall(r"\b(?!(?:if|while|for|switch|return|sizeof)\b)[A-Za-z_]\w*\s*\(", line)) != 1:
+            return False
+        a2 = self.by_printed.get(m.group(1))
+        return a2 is not None and reg in self.keeps.get(a2, ())
 
     def kept_call(self, line: str, reg: str) -> str | None:
         """The argument a statement's one call passes in `reg`, when the callee leaves it as it
@@ -2525,10 +2601,20 @@ class Translator32:
             body = eh_landing(body, ret)
         decl = f"{ret} F_{a:08x}({', '.join(params) or 'void'})"
         # (the shadow trace's record of the call, first: its address and first four integer
-        # arguments, as shadow32.py records the reference's)
-        args = [f"gen_a{k}" if abi_type(self.type_text(t)) == "unsigned int" else "0u"
-                for k, (t, _n) in enumerate(sig.params[:4])]
-        args += ["0u"] * (4 - len(args))
+        # arguments, as shadow32.py records the reference's: its words, a float's bits and an
+        # 8-byte argument's two words)
+        args = []
+        for k, (t, _n) in enumerate(sig.params[:4]):
+            abi = abi_type(self.type_text(t))
+            if abi == "float":
+                args.append(f"gen_trace_f(gen_a{k})")
+            elif abi == "double":
+                args += [f"(unsigned int)gen_trace_d(gen_a{k})", f"(unsigned int)(gen_trace_d(gen_a{k}) >> 32)"]
+            elif abi == "unsigned long long":
+                args += [f"(unsigned int)gen_a{k}", f"(unsigned int)(gen_a{k} >> 32)"]
+            else:
+                args.append(f"gen_a{k}")
+        args = (args + ["0u"] * 4)[:4]
         prologue = [f"  GEN_ENTER(0x{a:x}u, {', '.join(args)});"] + prologue
         # (the parameters' names are locals now, declared first in the body)
         body = body.replace("{", "{\n" + "\n".join(prologue), 1)
@@ -3247,6 +3333,14 @@ class Translator32:
             signed = {1: "char", 2: "short", 4: "int", 8: "longlong"}.get(n)
             if signed and seen and seen <= {signed} | ({"long"} if n == 4 else set()):
                 return f"REFG({signed}, 0x{addr:x})"
+            # (and the one pointer type it gave a 4-byte one: its arithmetic steps the pointee.
+            # A client's resource manager, `int *DAT_x`, passed `DAT_x + 1` as an interface's this:
+            # as undefined4 a byte on, not four, the next object's field read as a list, 2026-10-26)
+            if n == 4 and len(seen) == 1 and next(iter(seen)).endswith("*"):
+                pt = self.c_data_type(next(iter(seen)))
+                # (a structure's pointer has no C type here: undefined *, a byte step, as before)
+                if pt and not (pt.startswith("undefined *") and not next(iter(seen)).startswith("undefined ")):
+                    return f"REFG({pt}, 0x{addr:x})"
         ct = self.c_data_type(t)
         if ct is None:
             return f"(*(undefined (*)[{max(n, 1)}])REFP(0x{addr:x}))"

@@ -85,6 +85,10 @@ extern int gen_trace_on;
 void gen_trace_enter(unsigned int addr, unsigned int a0, unsigned int a1, unsigned int a2, unsigned int a3);
 #define GEN_ENTER(addr, a0, a1, a2, a3) \
     do { if (gen_trace_on) gen_trace_enter((addr), (a0), (a1), (a2), (a3)); } while (0)
+/* (a float or 8-byte argument's stack words, as the reference's record holds them: its bits, not
+   its value converted, pi/4 recorded as 0 parted a client's runs at a sincos, 2026-10-26) */
+static __inline unsigned int gen_trace_f(float f) { union { float f; unsigned int u; } v; v.f = f; return v.u; }
+static __inline unsigned long long gen_trace_d(double d) { union { double d; unsigned long long u; } v; v.d = d; return v.u; }
 /* an SSE register's 16 bytes, as Ghidra writes one (`undefined1 [16]`): an array, so a pointer
    to one steps 16 and indexes its bytes as the reference does. An array is not assignable: a
    value stored into one (`*p = (undefined1 [16])0x0`) is GEN_V16_SET's, zero-extended */
@@ -401,6 +405,10 @@ static __inline unsigned long long gen_piece_set(void *p, int off, int n, unsign
 #define CEIL(x) ceil(x)
 /* the copies the decompiler folds into a call of its own name: an inlined strcpy of a literal,
    `builtin_strncpy(p, ".exh", 5)` (a file name's extension), stubbed as an undeclared name */
+/* the x87's sine and cosine, as the decompiler names the language's operations (FSIN, FCOS, and
+   ApplyFacts' __CIsin / __CIcos fixups) */
+#define fsin(x) sin(x)
+#define fcos(x) cos(x)
 #define builtin_strncpy(d, s, n) ((void)strncpy((char *)(d), (const char *)(s), (n)))
 #define builtin_memcpy(d, s, n) ((void)memcpy((void *)(d), (const void *)(s), (n)))
 #define builtin_memset(d, c, n) ((void)memset((void *)(d), (c), (n)))

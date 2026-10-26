@@ -131,7 +131,10 @@ def run_port(_jobs: int, secs: int) -> bool:
     side = [subprocess.Popen([a.format(**fill) for a in cmd], cwd=ROOT, env=ENV, stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL) for cmd in r.get("with", [])]
     log = open(OUT / "run.log", "w", encoding="utf-8", errors="replace")
-    p = subprocess.Popen([str(ROOT / r["exe"]), *r.get("args", [])], cwd=ROOT / r.get("cwd", "."), env=ENV,
+    # (unattended: a message box logged and answered, not left open for no one, the runtime's
+    # <ENV>_NODIALOGS; the prefix the project's name, as its CMakeLists gives RHIPPER_ENV)
+    env = dict(ENV, **{project.CONFIG.get("env", project.NAME.upper()) + "_NODIALOGS": "1"})
+    p = subprocess.Popen([str(ROOT / r["exe"]), *r.get("args", [])], cwd=ROOT / r.get("cwd", "."), env=env,
                          stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
     t0, k = time.time(), 0
     while time.time() - t0 < secs and p.poll() is None:

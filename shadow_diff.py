@@ -48,16 +48,52 @@ HELPERS = ("SEH_prolog", "SEH_epilog", "EH_prolog", "EH_epilog", "alloca_probe",
            "_setjmp3")
 
 
-def by_thread(recs, skip=frozenset()):
-    """{thread index in first-seen order: [(addr, args), ...]}, the frame helpers left out."""
-    order, seqs = {}, {}
+def by_thread(recs, skip=frozenset(), helpers=frozenset(), inner=frozenset()):
+    """{thread index in first-seen order: [(addr, args), ...]}, the frame helpers left out, and
+    the calls a compiler helper's body makes (inner) straight after its entry (helpers): the
+    translation does the helper inline and never calls them."""
+    order, seqs, under = {}, {}, {}
     for tid, addr, a0, a1, a2, a3 in recs:
+        if addr in helpers:
+            under[tid] = True
+            continue
+        if under.get(tid):
+            if addr in inner:
+                continue
+            under[tid] = False
         if addr in skip:
             continue
         if tid not in order:
             order[tid] = len(order)
         seqs.setdefault(order[tid], []).append((addr, (a0, a1, a2, a3)))
     return seqs
+
+
+def helper_callees(helpers):
+    """Every function a helper's body reaches by a direct call or jump, through its callees in
+    turn (the C runtime's sin: _CIsin, its SSE2 body at another entry, _errno, its exception
+    raiser), from functions.json's extents and the image."""
+    from pebin import Binary, disassembler
+    fj = FACTS / "functions.json"
+    if not helpers or not fj.exists():
+        return set()
+    ranges = {int(f["entry"], 16): [(int(lo, 16), int(hi, 16)) for lo, hi in f["ranges"]]
+              for f in json.loads(fj.read_text())["functions"]}
+    pe, cs = Binary(), disassembler()
+    seen, todo = set(), list(helpers)
+    while todo:
+        f = todo.pop()
+        for lo, hi in ranges.get(f, ()):
+            for insn in cs.disasm(bytes(pe.image[lo - pe.base:hi - pe.base + 1]), lo):
+                if insn.mnemonic in ("call", "jmp") or insn.mnemonic.startswith("j"):
+                    try:
+                        t = int(insn.op_str, 16)
+                    except ValueError:
+                        continue
+                    if t in ranges and t not in seen and t not in helpers:
+                        seen.add(t)
+                        todo.append(t)
+    return seen
 
 
 def names():
@@ -104,29 +140,46 @@ def main():
                          "and walk on, stopping only where the functions called part")
     ap.add_argument("--after", type=int, default=0, metavar="N",
                     help="at a divergence, the context and each run's next N calls side by side, with arguments")
+    ap.add_argument("--start", type=lambda s: int(s, 16), metavar="ADDR",
+                    help="walk each thread from its first call of ADDR in both runs (a point the two are "
+                         "known to reach alike, past a stretch where worker threads' timing parts them)")
     ap.add_argument("--skip", nargs="*", default=[], metavar="ADDR",
                     help="more functions to leave out of both runs (an unnamed exception handler)")
     a = ap.parse_args()
     nm = names()
-    skip = frozenset(addr for addr, n in nm.items() if any(h in n for h in HELPERS)) | \
-        {int(x, 16) for x in a.skip}
+    # (and the reference's import thunks, `KERNEL32.DLL::GetCurrentThreadId`'s `jmp [iat]`: the
+    # translation calls the import itself, through no thunk the port's trace records)
+    skip = frozenset(addr for addr, n in nm.items() if any(h in n for h in HELPERS)
+                     or re.search(r"\.(?:dll|DLL|drv|DRV)::", n)) | {int(x, 16) for x in a.skip}
     # (and the compiler's arithmetic helpers helpers32.py identified, which the translation does
     # inline: `__time64`'s __aulldiv parted a client's runs, 2026-10-25)
     hp = FACTS / "helpers32.json"
-    if hp.exists():
-        skip |= {int(a, 16) for a in json.loads(hp.read_text())["helpers"]}
+    helpers = frozenset(int(a, 16) for a in json.loads(hp.read_text())["helpers"]) if hp.exists() else frozenset()
+    # (and what their bodies call, recorded in the reference's run straight after each: sin's
+    # SSE2 body at its second entry parted a client's runs at a sincos, 2026-10-26)
+    inner = frozenset(helper_callees(helpers))
     nwords = {}
     pr = FACTS / "protos.json"
     if a.small_args is not None and pr.exists():
         for k, e in json.loads(pr.read_text())["functions"].items():
             nwords[int(k, 16)] = min(len(e.get("params", [])), 4)
-    ref, port = by_thread(load(a.ref), skip), by_thread(load(a.port), skip)
+    ref, port = (by_thread(load(a.ref), skip, helpers, inner),
+                 by_thread(load(a.port), skip, helpers, inner))
+    if inner:
+        print(f"the helpers' own callees, left out after a helper: {', '.join(name(nm, x) for x in sorted(inner))}")
     print(f"reference: {len(ref)} threads, {sum(len(v) for v in ref.values())} calls; "
           f"port: {len(port)} threads, {sum(len(v) for v in port.values())} calls\n")
     threads = [a.thread] if a.thread is not None else sorted(set(ref) & set(port))
     found = False
     for t in threads:
         r, p = ref.get(t, []), port.get(t, [])
+        if a.start is not None:
+            ri = next((k for k, c in enumerate(r) if c[0] == a.start), None)
+            pj = next((k for k, c in enumerate(p) if c[0] == a.start), None)
+            if ri is None or pj is None:
+                continue
+            print(f"thread {t}: from 0x{a.start:x}, reference call {ri}, port call {pj} (numbered from there)")
+            r, p = r[ri:], p[pj:]
 
         def same(x, y):
             if x[0] != y[0]:

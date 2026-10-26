@@ -498,6 +498,10 @@ public class ApplyFacts extends GhidraScript {
         // the language's operations nothing else writes together, `fscale(from_bcd(x), y)`, which
         // translate32.py reads as pow(x, y). FBLD's from_bcd never wraps an fscale's operand)
         bodies.put("CIpow", "b:10 = from_bcd(ST1); r:10 = fscale(b, ST0); ST1 = r;" + pop87 + pop0);
+        // (and its sine and cosine, st0 to st0: the language's fsin and fcos, C's sin and cos in
+        // Ghidra32.h)
+        bodies.put("CIsin", "ST0 = fsin(ST0);" + pop0);
+        bodies.put("CIcos", "ST0 = fcos(ST0);" + pop0);
         // (and the library's sqrt, a __cdecl double on the stack, its root pushed: VS2010's _sqrt at
         // /Od, found by helpers32.py; the caller pops the argument)
         String push87 = " ST7 = ST6; ST6 = ST5; ST5 = ST4; ST4 = ST3; ST3 = ST2; ST2 = ST1; ST1 = ST0;";
