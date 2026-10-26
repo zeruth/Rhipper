@@ -1384,7 +1384,8 @@ class Translator32:
             self.by_printed.setdefault(s.name, a)
         self.thunks = self.local_thunks()
         for name, (_at, target) in self.thunks.items():
-            self.by_printed.setdefault(name, target)
+            if not name.startswith("<thunk "):
+                self.by_printed.setdefault(name, target)
         self.imports = self.load_imports()
         # names a plain identifier scan cannot take whole (templates, backquoted scopes, spaces):
         # looked up by a backward scan from where they end, at these lengths
@@ -1482,7 +1483,7 @@ class Translator32:
         base = pe.OPTIONAL_HEADER.ImageBase
         out = {}
         for f in json.loads(path.read_text())["functions"]:
-            if not f.get("thunk") or "::" in f["name"]:
+            if not f.get("thunk"):
                 continue
             at = int(f["entry"], 16)
             target = at
@@ -1497,7 +1498,11 @@ class Translator32:
                     break
                 target = (target + 5 + int.from_bytes(code[1:5], "little", signed=True)) & 0xFFFFFFFF
             if target != at and target in self.corpus:
-                out[f["name"]] = (at, target)
+                # (a method's, `Client::...::vf1`, its slot in a vtable folded onto another's body
+                # by the linker: no name a call is printed by, but the runtime's jump at it all the
+                # same. Without one a camera's virtual call ran into the reference's own code,
+                # 2026-10-26)
+                out[f"<thunk {at:x}>" if "::" in f["name"] else f["name"]] = (at, target)
         pe.close()
         return out
 
