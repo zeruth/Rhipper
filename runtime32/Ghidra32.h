@@ -77,6 +77,9 @@ typedef unsigned int code();
    pointer to a function (an 8-byte load of the slot), so translate32.py loads one as this and
    converts it to `code *` to call it */
 typedef unsigned int gen_code32;
+/* a function called through a pointer for its x87 result: every translated function returning one
+   is entered as one returning a double (jumps.c's W_ entries) */
+typedef double gen_fcode();
 
 /* The shadow trace (shadow32.py): every translated function records its entry and first four
    arguments while the runtime has tracing on (<ENV>_TRACE), to be compared call by call with the

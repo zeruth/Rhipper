@@ -938,6 +938,55 @@ def x87_pow(c: str) -> str:
     return c.replace("(unkbyte10)", "")
 
 
+X87_ICALL = re.compile(r"\(\*+\s*\(code \*+\)|\(\*\w+\)\s*\(")
+
+
+def x87_icall_results(c: str) -> str:
+    """`extraout_ST0` read after a call through a pointer, the call's x87 result (st0) that the
+    decompiler would not take for its return: read through st1 after a push, `call edx; fld1;
+    fdivrp st(1)`, it is an extra output whatever the call-site override says. The call statement
+    becomes the variable's assignment, `extraout_ST0 = (**(code **)(..))(args);`, which code_slots
+    makes a call through gen_fcode (an XAudio2 effect's update, 307 functions, 2026-10-26).
+    Only where nothing else is called between the call and the first read, and the variable is
+    not read before the call."""
+    lines = c.split("\n")
+    for v in sorted(set(re.findall(r"\bextraout_ST0(?:_\d+)?\b", c))):
+        decl = re.compile(r"^\s*float10\s+" + v + r"\s*;\s*$")
+        uses = [i for i, l in enumerate(lines) if re.search(r"\b" + v + r"\b", l) and not decl.match(l)]
+        if not uses:
+            continue
+        first = uses[0]
+        # the call statement before the first read: its last line ends `);`, its first starts
+        # `(*`, with only plain statements between (no call, no branch or label: st0 unchanged)
+        k = first - 1
+        while k >= 0:
+            l = lines[k].strip()
+            if not l:
+                k -= 1
+                continue
+            if l.endswith(");") and not re.match(r"[\w.\[\]*()+ -]+=", l):
+                break
+            plain = l.endswith(";") and not re.search(r"[{}:]|\b(?:if|while|for|switch|return|goto|do)\b", l) \
+                and not re.search(r"\b(?!(?:sizeof)\b)[A-Za-z_]\w*\s*\(", re.sub(r"\(\s*[\w ]+\s*\**\s*\)", "", l))
+            if not plain:
+                k = -1
+                break
+            k -= 1
+        if k < 0 or not lines[k].rstrip().endswith(");"):
+            continue
+        s = k
+        while s > k - 4 and s >= 0 and not lines[s].lstrip().startswith("(*"):
+            s -= 1
+        if s < 0 or not lines[s].lstrip().startswith("(*") or not X87_ICALL.match(lines[s].lstrip()):
+            continue
+        stmt = " ".join(l.strip() for l in lines[s:k + 1])
+        if stmt.count("(") != stmt.count(")"):
+            continue
+        indent = lines[s][:len(lines[s]) - len(lines[s].lstrip())]
+        lines[s] = indent + v + " = " + lines[s].lstrip()
+    return "\n".join(lines)
+
+
 def switch_offset(c: str) -> str:
     """A switch the decompiler writes on its normalized index with its cases labelled by the
     original values: `V = E - K; ... uVar5 = (&...switchdataD_...)[V]; switch(V) { case K + i: }`,
@@ -984,6 +1033,8 @@ def load_corpus() -> dict[int, dict]:
                 r["c"] = r["c"].replace("(unkbyte10)", "")
             if "switchdataD_" in r["c"]:
                 r["c"] = switch_offset(r["c"])
+            if "extraout_ST0" in r["c"]:
+                r["c"] = x87_icall_results(r["c"])
             out[int(r["addr"], 16)] = r
     return out
 
@@ -1758,7 +1809,9 @@ class Translator32:
             if not re.search(rf"(?<![\w.>])\b{n}\s*(?:[-+*/|&^]|<<|>>)?=(?!=)|&\s*{n}\b|\b{n}\s*(?:\+\+|--)|(?:\+\+|--)\s*{n}\b", c):
                 return f"a register the decompiler lost ({n})"
         # (and a full xmm register as an SSE pseudo-op's destination found it: zeroed, sse_ops)
+        # (and a call's x87 result made its assignment, x87_icall_results)
         ok = returned_only(c) | self.noreturn_args_only(a, c) | filler_args(c) | upper_only(c) | declared_only(c) | {"in_FPUControlWord"} | \
+            set(re.findall(r"(?m)^\s*(extraout_ST0(?:_\d+)?) = \(\*", c)) | \
             set(re.findall(r"(?m)^[ \t]+undefined1\s+(in_XMM\d+)\s*\[\s*16\s*\]\s*;", c))
         m = next((m for m in LOST.finditer(c) if m.group(1) not in ok and not OUT_STACK.fullmatch(m.group(1))), None)
         if m:
@@ -2692,6 +2745,13 @@ class Translator32:
                 # (code_pointer_calls' `((code *)*n)` of a pointer stored __ptr32 too)
                 body = re.sub(r"\(\s*\*\s*" + re.escape(n) + r"\s*\)(?=\s*\()", f"((code *){n})", body)
                 body = body.replace(f"((code *)*{n})(", f"((code *){n})(")
+        # (a call whose x87 result goes to a float, double or float10, `fVar1 = ((code *)..)()`:
+        # through gen_fcode, a double's type, as each such callee's entry returns it (jumps.c W_).
+        # Through code, an unsigned int's, the number taken was what eax held, 2026-10-26)
+        floats = {n for n, t in var_types.items() if t.strip() in ("float", "double", "float10", "float8")}
+        if floats:
+            body = re.sub(r"(?m)^(\s*)(" + "|".join(sorted(map(re.escape, floats))) + r")(\s*=\s*)\(\(code \*\)",
+                          r"\1\2\3((gen_fcode *)", body)
         return body.replace("code * PTR32", "gen_code32")
 
     @staticmethod
@@ -3485,10 +3545,19 @@ class Translator32:
             d = decls[a]
             ret = d.split(f"F_{a:08x}")[0].strip()
             width = NARROW_RETS.get(ret)
-            if width is None:
-                continue
             ps = [p.strip() for p in d[d.index("(") + 1:d.rindex(")")].split(",")]
             names = [] if ps in ([""], ["void"]) else [re.split(r"[\s*]+", p)[-1] for p in ps]
+            # (and one returning an x87 value, float, double or float10, as a double: an indirect
+            # caller reading it calls through gen_fcode, double's type, and a float in xmm0 read so
+            # was another number, code_slots, 2026-10-26)
+            # (not a variadic one: no wrapper can pass its `...` on)
+            if width is None and "*" not in ret and ret.split()[-1] in FLOATS and "..." not in ps:
+                j.append(f"static double W_{a:08x}({', '.join(ps) or 'void'}) "
+                         f"{{ return (double)F_{a:08x}({', '.join(names)}); }}")
+                narrow[a] = f"W_{a:08x}"
+                continue
+            if width is None:
+                continue
             j.append(f"static unsigned int W_{a:08x}({', '.join(ps) or 'void'}) "
                      f"{{ return (unsigned int)({width})F_{a:08x}({', '.join(names)}); }}")
             narrow[a] = f"W_{a:08x}"
