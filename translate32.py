@@ -865,6 +865,22 @@ def filler_args(c: str) -> set[str]:
     return out
 
 
+def x87_pow(c: str) -> str:
+    """ApplyFacts' __CIpow fixup, `fscale(from_bcd(x), y)`, as pow(x, y): whole, or split by the
+    decompiler through a 10-byte temporary, `unkbyte10 Var1; Var1 = from_bcd((unkbyte10)x); ...
+    fscale(Var1,(unkbyte10)y)`, which no C type holds (a Lua number formatter's 0xc03850)."""
+    c = c.replace("fscale(from_bcd(", "pow((")
+    for m in list(re.finditer(r"(?m)^[ \t]*(\w+) = from_bcd\((.*)\);[ \t]*\n", c)):
+        var, x = m.group(1), m.group(2)
+        rest = c.replace(m.group(0), "", 1)
+        new = re.sub(r"\bfscale\(\s*" + re.escape(var) + r"\s*,", f"pow({x},", rest)
+        if new != rest and not re.search(r"\b" + re.escape(var) + r"\b(?!\s*;)", re.sub(
+                r"(?m)^[ \t]*unkbyte10\s+" + re.escape(var) + r"\s*;[ \t]*\n", "", new)):
+            c = re.sub(r"(?m)^[ \t]*unkbyte10\s+" + re.escape(var) + r"\s*;[ \t]*\n", "", new)
+    # (the operands' casts to the 10-byte type, a double's value here)
+    return c.replace("(unkbyte10)", "")
+
+
 def load_corpus() -> dict[int, dict]:
     out = {}
     with open(CORPUS, encoding="utf-8") as f:
@@ -875,8 +891,8 @@ def load_corpus() -> dict[int, dict]:
             r["c"] = r.get("c", "").replace("\r\n", "\n").replace("\r", "\n")
             # (the CRT's x87 power, as ApplyFacts' call fixup writes it: `fscale(from_bcd(x), y)`,
             # p-code having no pow, is pow(x, y))
-            if "fscale(from_bcd(" in r["c"]:
-                r["c"] = r["c"].replace("fscale(from_bcd(", "pow((")
+            if "from_bcd(" in r["c"]:
+                r["c"] = x87_pow(r["c"])
             out[int(r["addr"], 16)] = r
     return out
 
