@@ -37,6 +37,13 @@
 #               it (its value printed as a store the program never made), nor as an input of a
 #               MULTIEQUAL whose output is not tied (the join's other values became the tied
 #               variable's, and a read of its storage through a pointer saw them)
+#   coreaction.cc  a LOAD is not printed past a write to an aliased stack or memory variable whose
+#               address the function takes (a COPY into it, which the release's check, STOREs
+#               only, missed): std::max through a reused temporary, `p = (b <= g) ? &g : &tmp;
+#               tmp = a; ... *p`, read tmp's new value
+#   heritage.cc (and) a write to memory whose address the function takes is kept (address-forced):
+#               a LOAD through a pointer that may be it reads it, and the release dropped the
+#               store to g the next one overwrote
 #   varmap.cc   a call to setjmp aliases the frame above its stack pointer: longjmp comes back
 #               into it, and a local the function changes and reads again stays memory; and a
 #               function that links an x86 EH frame (fs:[0]) has all of its frame aliased, its

@@ -1165,6 +1165,37 @@ void Heritage::reprocessFreeStores(AddrSpace *spc,vector<PcodeOp *> &freeStores)
 /// \param read is the set of Varnode values reading from the range
 /// \param write is the set of written Varnodes in the range
 /// \param inputvars is the set of Varnodes in the range already marked as input
+/// RHIPPER: whether the function takes the address of memory in [addr, addr + size): a constant
+/// of an address's size there among its ops' inputs (`mov ecx, &g`). A LOAD through a pointer
+/// that may be it reads the variable, and nothing guards memory for LOADs as the stack is: a
+/// store to it the next store overwrites was dead, though the LOAD between read it. std::max
+/// through `p = (b <= g) ? &g : &tmp`, its `g = *p` then compared again through p, lost the
+/// first store, and the table it sized was too small (a client's motion blend table)
+static bool rhMemAddressTaken(Funcdata *fd,const Address &addr,int4 size)
+
+{
+  static uint4 generation = ~(uint4)0;
+  static const Funcdata *who = (const Funcdata *)0;
+  static set<uintb> taken;
+  if (generation != rhHeritageGeneration || who != fd) {
+    generation = rhHeritageGeneration;
+    who = fd;
+    taken.clear();
+    int4 asize = fd->getArch()->getDefaultDataSpace()->getAddrSize();
+    for(PcodeOpTree::const_iterator iter=fd->beginOpAll();iter!=fd->endOpAll();++iter) {
+      PcodeOp *op = (*iter).second;
+      if (op->isDead()) continue;
+      for(int4 i=0;i<op->numInput();++i) {
+	Varnode *in = op->getIn(i);
+	if (in->isConstant() && in->getSize() == asize)
+	  taken.insert(in->getOffset());
+      }
+    }
+  }
+  set<uintb>::const_iterator t = taken.lower_bound(addr.getOffset());
+  return t != taken.end() && *t < addr.getOffset() + size;
+}
+
 void Heritage::guard(const Address &addr,int4 size,bool addIndirects,
 		     vector<Varnode *> &read,vector<Varnode *> &write,vector<Varnode *> &inputvars)
 
@@ -1191,6 +1222,11 @@ void Heritage::guard(const Address &addr,int4 size,bool addIndirects,
     if (vn->getSize() < size)
       *iter = vn = normalizeWriteSize(vn,addr,size);
     vn->setActiveHeritage();
+  }
+  // RHIPPER: every write kept to memory whose address the function takes (rhMemAddressTaken)
+  if (addr.getSpace() == fd->getArch()->getDefaultDataSpace() && rhMemAddressTaken(fd,addr,size)) {
+    for(iter=write.begin();iter!=write.end();++iter)
+      (*iter)->setAddrForce();
   }
 
   // The full syntax tree may form over several stages, so we see a new
