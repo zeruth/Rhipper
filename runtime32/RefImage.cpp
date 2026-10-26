@@ -212,6 +212,19 @@ LONG CALLBACK OnException(EXCEPTION_POINTERS* info) {
                 rec->NumberParameters >= 2 ? reinterpret_cast<void*>(rec->ExceptionInformation[1]) : nullptr);
         RefTraceFlush();
         PrintStack(GetCurrentThread(), *info->ContextRecord);
+        // (which thread, and the words at its stack pointer: where the instruction pointer is no
+        // code, a call through a bad pointer, the stack walk has nowhere to start, and the return
+        // address into the caller is the first word there)
+        {
+            const uint64_t* sp = reinterpret_cast<const uint64_t*>(info->ContextRecord->Rsp);
+            fprintf(stderr, "%s: thread %lu, rsp %p:", RHIPPER_NAME, GetCurrentThreadId(), static_cast<const void*>(sp));
+            for (int k = 0; k < 8; k++) {
+                MEMORY_BASIC_INFORMATION mbi;
+                if (!VirtualQuery(sp + k, &mbi, sizeof mbi) || mbi.State != MEM_COMMIT) break;
+                fprintf(stderr, " %llx", static_cast<unsigned long long>(sp[k]));
+            }
+            fprintf(stderr, "\n");
+        }
         if (g_watch) {
             // (what the watched word and its neighbours hold now: a write the debug register
             // cannot see, the kernel's into a buffer, named by what it wrote)
@@ -503,6 +516,11 @@ void GuardHeapStart() {
 }
 
 }  // namespace
+
+// (the stack printer for the rest of the runtime: Trace.cpp's <ENV>_STACKAT)
+void RefPrintStack(HANDLE thread, CONTEXT c) {
+    PrintStack(thread, c);
+}
 
 unsigned RefEnv(const char* suffix, wchar_t* buf, unsigned size) {
     wchar_t name[96];

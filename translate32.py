@@ -916,11 +916,10 @@ def filler_args(c: str) -> set[str]:
     # callee's partial SSE writes made protos32 take for its input, `FUN_00c03850(in_XMM0_Da, ...,
     # L, 1)` where the CRT's _CIpow far below merges into xmm0, a VS2010 client's 0xbb9600
     # 2026-10-25. The function sets none of them, so whatever is there reaches the callee as it would)
-    # (and a callee-saved register as the function found it, only passed on whole: the slot of a
-    # parameter its caller never pushed, the stack's next word, where the prologue saved it. A
-    # string's init reads two words of one pushed, `FUN_0042cc20(local_5c, uVar1, unaff_EDI)`,
-    # a stub on an add-on's path, 2026-10-26)
-    for n in set(re.findall(r"\bextraout_E[ACD]X(?:_\d+)?\b|\bin_XMM\d+_D[a-d]\b|\bunaff_E(?:BX|SI|DI)\b", c)):
+    # (not a callee-saved register as the function found it, `FUN_0042cc20(local_5c, uVar1,
+    # unaff_EDI)`: that was a word pushed earlier for a later call, -1 there, the call before
+    # given it instead (protos32 next_call_deficit); 0 for it made an empty string, 2026-10-26)
+    for n in set(re.findall(r"\bextraout_E[ACD]X(?:_\d+)?\b|\bin_XMM\d+_D[a-d]\b", c)):
         if filler(n, [n]):
             out.add(n)
     return out

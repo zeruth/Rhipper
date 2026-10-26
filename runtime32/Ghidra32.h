@@ -370,6 +370,10 @@ static __inline uintptr_t gen_top_p(const volatile void *p) { return (uintptr_t)
 #define ZEXT68(x) ((uint64_t)(x) & 0xffffffffffffull)
 #define ZEXT78(x) ((uint64_t)(x) & 0xffffffffffffffull)
 #define ZEXT34(x) ((uint32_t)(x) & 0xffffffu)
+/* a 4-byte piece of a 12-byte value, a float vector's x, y or z (`SUB124(*v, 8) * f`): the float
+   its bytes hold, the 12 bytes an array in memory (gen_v12), the piece read from them. Only ever a
+   float's in the decompiler's output: an integer's would read its bits as one */
+#define SUB124(x, n) (*(float *)((unsigned char *)(x) + (n)))
 #define SEXT14(x) ((int32_t)(int8_t)(x))
 #define SEXT18(x) ((int64_t)(int8_t)(x))
 #define SEXT24(x) ((int32_t)(int16_t)(x))

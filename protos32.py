@@ -2350,10 +2350,16 @@ def next_call_deficit(insns, prv, nxt, a) -> int:
     call [vt + 0x3c]; mov ecx, eax; call FUN_0043c920` (ret 8) is `FUN_0043c920(getter(), 0xcf, 2)`:
     taken as the getter's, the 8 bytes made FUN_0043c920's arguments of the caller's saved
     registers, 2,200 functions' unaff_ (2026-10-23)."""
+    # (and the calls after that one, in a straight line, each taking the latest words first: the
+    # arguments of two later calls pushed before a virtual getter, `push edx (-1); push 0; call
+    # [vt + 8]; mov ecx, eax; call cb0950 (ret 4); push eax; call 0x42cc20 (ret 8)`. Counted for
+    # the next call alone, the getter took the 0, cb0950 the -1, and a string init its length
+    # from a saved register, an empty string, 2026-10-26)
     p, end, after = nxt[a], a + insns[a].size, 0
-    for _ in range(24):
+    deficit, calls_seen = 0, 0
+    for _ in range(40):
         if p is None or p != end or p not in insns:
-            return 0
+            return deficit
         pi = insns[p]
         end = p + pi.size
         if pi.mnemonic == "push":
@@ -2364,12 +2370,12 @@ def next_call_deficit(insns, prv, nxt, a) -> int:
             # check, they took IMalloc::Release's one word, `push eax; call edx`, a VS2010
             # client's FUN_00420900 2026-10-25)
             if after <= 0:
-                return 0
+                return deficit
             after -= 4
         elif pi.mnemonic in ("ret", "jmp") or pi.mnemonic.startswith("j"):
-            return 0
+            return deficit
         elif any(o.type == X.X86_OP_REG and o.reg == X.X86_REG_ESP for o in pi.operands) and pi.mnemonic != "call":
-            return 0                                   # (esp adjusted otherwise: no telling)
+            return deficit                             # (esp adjusted otherwise: no telling)
         elif pi.mnemonic == "call":
             t = _target(pi)
             take = _cleanup.get(t) if t is not None else None
@@ -2383,9 +2389,25 @@ def next_call_deficit(insns, prv, nxt, a) -> int:
                 take = later_cleanup(insns, nxt, p)
             if not take and t is not None:
                 take = _cdecl_args.get(t)
-            return max(0, (take or 0) - after)
+            # (a call through a pointer after the first: what it takes is not known here, so the
+            # count stops there, as before)
+            if calls_seen and t is None:
+                return deficit
+            take = take or 0
+            # (on only while each call is short: calls nested in each other's arguments, the
+            # later's words pushed first. One with its own words all pushed ends it: past it a
+            # later call's shortfall is someone else's, `push 7; call [vt + 0xc]; push eax; push
+            # fmt; push 0x40; push ecx; call fmt_s` gave the getter's 7 to a call two on)
+            if take > after:
+                deficit += take - after
+                after = 0
+            else:
+                return deficit
+            calls_seen += 1
+            if calls_seen >= 3:
+                return deficit
         p = nxt[p]
-    return 0
+    return deficit
 
 
 def code_pointers(b: Binary) -> set[int]:

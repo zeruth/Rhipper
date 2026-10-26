@@ -77,11 +77,27 @@ extern unsigned int g_watchFn;   // RefImage.cpp, <ENV>_WATCH=<function>+<offset
 void RefWatchEnter(unsigned int a0);
 void RefWatchStart();
 
+void RefPrintStack(HANDLE thread, CONTEXT c);   // RefImage.cpp
+
 extern "C" void gen_trace_enter(unsigned int addr, unsigned int a0, unsigned int a1, unsigned int a2, unsigned int a3) {
     static bool first = true;
+    // <ENV>_STACKAT=<hex address>: the stack at that function's first entry, its callers (a
+    // function reached only through a pointer has no caller the trace names)
+    static unsigned int stack_at = 0;
     if (first) {
         first = false;
         RefWatchStart();
+        wchar_t at[24] = {};
+        if (RefEnv("STACKAT", at, 24)) stack_at = static_cast<unsigned int>(wcstoul(at, nullptr, 16));
+    }
+    if (stack_at && addr == stack_at) {
+        stack_at = 0;
+        fprintf(stderr, "%s: STACKAT %x(%x, %x, %x, %x) on thread %lu:\n", RHIPPER_NAME, addr, a0, a1, a2, a3,
+                GetCurrentThreadId());
+        CONTEXT c = {};
+        RtlCaptureContext(&c);
+        RefPrintStack(GetCurrentThread(), c);
+        fflush(stderr);
     }
     if (addr == g_watchFn && addr) RefWatchEnter(a0);
     std::lock_guard<std::mutex> hold(g_lock);
