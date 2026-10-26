@@ -1313,6 +1313,12 @@ def result_reads(insns, state, nxt):
                     break
                 p = nxt[p]
                 continue
+            # (the control and status words touch no st0: a float rounded toward zero, `call f;
+            # fnstcw [m]; ...; fldcw [m2]; fistp qword ptr [t]`, its fldcw taken for the first x87
+            # instruction and no read, f void and its callers stubs for extraout_ST0, 2026-10-26)
+            if mn in ("fldcw", "fstcw", "fnstcw", "fstsw", "fnstsw", "fclex", "fnclex", "fwait", "wait"):
+                p = nxt[p]
+                continue
             if mn.startswith("f") and not mn.startswith("fn"):
                 # (st0: the callee's x87 result, if the first x87 instruction reads it)
                 if mn in ("fstp", "fst", "fcomp", "fcom", "fxch", "fadd", "fmul", "fsub", "fdiv",
