@@ -308,9 +308,12 @@ static __inline double gen_tod_u(unsigned long long x) { return (double)x; }
 static __inline double gen_tod_p(const volatile void *p) { return gen_bits2f((unsigned int)(uintptr_t)p); }
 static __inline uintptr_t gen_top_f(float x) { return gen_fl2bits(x); }
 static __inline uintptr_t gen_top_d(double x) { return (unsigned int)gen_d2bits(x); }
-static __inline uintptr_t gen_top_i(long long x) { return (uintptr_t)x; }
-static __inline uintptr_t gen_top_u(unsigned long long x) { return (uintptr_t)x; }
-static __inline uintptr_t gen_top_p(const volatile void *p) { return (uintptr_t)p; }
+/* (an address the reference computes is 32 bits, and wraps so: `p + (i - 4)` of an unsigned i
+   below 4 is p - 16 there, 16 GB on here, and a negative int sign-extended is no address at all.
+   Truncated, as every address in the port's low 2 GB is) */
+static __inline uintptr_t gen_top_i(long long x) { return (uintptr_t)(unsigned int)x; }
+static __inline uintptr_t gen_top_u(unsigned long long x) { return (uintptr_t)(unsigned int)x; }
+static __inline uintptr_t gen_top_p(const volatile void *p) { return (uintptr_t)(unsigned int)(uintptr_t)p; }
 #define GEN_BYTYPE(x, f, d, i, u, p) _Generic((x), float: f, double: d, long double: d, \
     char: i, signed char: i, short: i, int: i, long: i, long long: i, \
     unsigned char: u, unsigned short: u, unsigned int: u, unsigned long: u, unsigned long long: u, _Bool: u, \
