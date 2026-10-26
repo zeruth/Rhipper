@@ -20,6 +20,7 @@ import ghidra.program.model.data.DataTypeManager;
 import ghidra.program.model.data.FileDataTypeManager;
 import ghidra.program.model.data.FunctionDefinition;
 import ghidra.program.model.data.FunctionDefinitionDataType;
+import ghidra.program.model.data.MutabilitySettingsDefinition;
 import ghidra.program.model.data.Pointer;
 import ghidra.program.model.data.PointerDataType;
 import ghidra.program.model.data.Undefined;
@@ -33,7 +34,11 @@ import ghidra.program.model.listing.ReturnParameterImpl;
 import ghidra.program.model.listing.FlowOverride;
 import ghidra.program.model.listing.Instruction;
 import ghidra.program.model.listing.InstructionIterator;
+import ghidra.program.model.listing.Listing;
 import ghidra.program.model.listing.Variable;
+import ghidra.program.model.mem.Memory;
+import ghidra.program.model.scalar.Scalar;
+import ghidra.program.model.symbol.ReferenceManager;
 import ghidra.program.model.symbol.Namespace;
 import ghidra.program.model.symbol.Reference;
 import ghidra.program.model.symbol.SourceType;
@@ -125,6 +130,7 @@ public class ApplyFacts extends GhidraScript {
             JsonObject protos = read(pr);
             applyProtos32(protos);
             applyEhHandlerImports();
+            constantCallSlots32();
             if (protos.has("stack_blocks")) applyStackBlocks(protos.getAsJsonObject("stack_blocks"), true);
         } else if (pr.exists()) {
             JsonObject protos = read(pr);
@@ -1305,6 +1311,90 @@ public class ApplyFacts extends GhidraScript {
                 "left as typed %d", typed, unsigned, occupied));
     }
 
+    // 32-bit: a call through a data slot that holds a function's entry and that nothing writes,
+    // `call [0x12b57bc]` (the image's own table of CRT routines, not an import's): a call override
+    // to that function, which the decompiler takes for a direct call with the callee's own
+    // prototype and storage. Called through the pointer, a math routine's x87 result was lost
+    // (extraout_ST0), and an XAPO's format check a stub, 2026-10-26. (A pointer type on the slot
+    // was not enough: a function definition carries no custom storage, its st0 result.)
+    private final java.util.Set<Address> constSlotCalls = new java.util.HashSet<>();
+
+    private void overrideCall(ReferenceManager refs, Instruction ins, Function target) {
+        Address from = ins.getAddress();
+        for (Reference r : refs.getReferencesFrom(from))
+            if (r.getReferenceType() == ghidra.program.model.symbol.RefType.CALL_OVERRIDE_UNCONDITIONAL)
+                refs.delete(r);
+        Reference r = refs.addMemoryReference(from, target.getEntryPoint(),
+                ghidra.program.model.symbol.RefType.CALL_OVERRIDE_UNCONDITIONAL, SourceType.USER_DEFINED, 0);
+        refs.setPrimary(r, true);
+        constSlotCalls.add(from);
+    }
+
+    private void constantCallSlots32() throws Exception {
+        Listing listing = currentProgram.getListing();
+        ReferenceManager refs = currentProgram.getReferenceManager();
+        Memory mem = currentProgram.getMemory();
+        java.util.Map<Address, Function> done = new java.util.HashMap<>();
+        int typed = 0, written = 0, external = 0, calls = 0;
+        InstructionIterator it = listing.getInstructions(true);
+        while (it.hasNext() && !monitor.isCancelled()) {
+            Instruction ins = it.next();
+            if (!ins.getFlowType().isCall() || !ins.getFlowType().isComputed()) continue;
+            if (!"CALL".equals(ins.getMnemonicString())) continue;
+            // (`call dword ptr [abs]`: a memory operand of one address and no register)
+            // (Ghidra gives the operand as the slot's Address, or as a Scalar)
+            Object[] ops = ins.getOpObjects(0);
+            if (ops.length != 1) continue;
+            Address slot;
+            if (ops[0] instanceof Address) slot = (Address) ops[0];
+            else if (ops[0] instanceof Scalar)
+                slot = currentProgram.getAddressFactory().getDefaultAddressSpace()
+                        .getAddress(((Scalar) ops[0]).getUnsignedValue());
+            else continue;
+            if (done.containsKey(slot)) {
+                if (done.get(slot) != null) {
+                    overrideCall(refs, ins, done.get(slot));
+                    calls++;
+                }
+                continue;
+            }
+            done.put(slot, null);
+            if (!mem.contains(slot)) continue;
+            Data have = getDataAt(slot);
+            if (have != null && have.isPointer() && have.getValue() instanceof Address
+                    && ((Address) have.getValue()).isExternalAddress()) {
+                external++;
+                continue;
+            }
+            boolean importRef = false, writes = false;
+            for (Reference r : refs.getReferencesFrom(slot)) importRef |= r.isExternalReference();
+            for (Reference r : refs.getReferencesTo(slot)) writes |= r.getReferenceType().isWrite();
+            if (importRef) {
+                external++;
+                continue;
+            }
+            if (writes) {
+                written++;
+                continue;
+            }
+            int v;
+            try {
+                v = mem.getInt(slot);
+            } catch (Exception ex) {
+                continue;
+            }
+            Function f = getFunctionAt(currentProgram.getAddressFactory().getDefaultAddressSpace()
+                    .getAddress(v & 0xffffffffL));
+            if (f == null) continue;
+            done.put(slot, f);
+            typed++;
+            overrideCall(refs, ins, f);
+            calls++;
+        }
+        println(String.format("ApplyFacts: constant call slots %d, their calls overridden %d (slots written %d, " +
+                "imports %d)", typed, calls, written, external));
+    }
+
     // data/names.json: functions identified by hand, with the evidence as a comment.
     private void applyNames(JsonObject root) throws Exception {
         for (Map.Entry<String, JsonElement> e : root.getAsJsonObject("functions").entrySet()) {
@@ -2219,6 +2309,8 @@ public class ApplyFacts extends GhidraScript {
                 missing++;
                 continue;
             }
+            // (a call through a constant slot takes its callee's prototype: constantCallSlots32)
+            if (constSlotCalls.contains(at)) continue;
             JsonArray args = e.getValue().getAsJsonArray();
             StringBuilder key = new StringBuilder();
             for (JsonElement a : args) {
