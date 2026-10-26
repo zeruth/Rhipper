@@ -92,6 +92,11 @@ SPECS: dict[str, tuple[str, list]] = {
     # left unnamed in VS2010's, and its callers reached its stub, rhtest msvc-16.00-x86 float.
     # Squares, whose roots are exact whatever precision the x87 rounds to)
     "CIsqrt": ("st0", [((d,), {"st0": f64(math.sqrt(d))}) for d in (2.25, 4.0, 1.0e10, 0.0625)]),
+    # (and its power, x in st1 and y in st0, x^y in st0: a VS2010 client's 0xc4cb50, which function
+    # ID left unnamed, its 56 callers handing it six xmm registers and st0 alone. Powers of two:
+    # Unicorn's x87 logarithm is exact only there, 3^4 coming out a bit short of 81)
+    "CIpow": ("st01", [((x, y), {"st0": f64(x ** y)}) for x, y in ((2.0, 10.0), (4.0, 0.5), (2.0, -2.0),
+                                                                    (16.0, 0.25), (0.5, 3.0))]),
     # (and the library's sqrt, a __cdecl double on the stack, its root pushed in st0: what VS2010
     # calls at /Od, `_sqrt`, which runs on into the body __CIsqrt shares and branches on the flags
     # its call to __load_CW left, a stub for in_ZF, rhtest msvc-16.00-x86 float-Od)
@@ -171,7 +176,15 @@ class Runner:
             code += b"\xe8" + struct.pack("<i", entry - (call_at + 5)) + b"\xf4"
             uc.mem_write(STUB, code)
             start = STUB
-        stub = shape in ("st0", "stackd")
+        elif shape == "st01":
+            # (two loaded, x first: x in st1, y in st0, as `fld x; fld y; call __CIpow`)
+            uc.mem_write(DATA, struct.pack("<dd", inputs[0], inputs[1]))
+            code = b"\xdb\xe3" + b"\xdd\x05" + struct.pack("<I", DATA) + b"\xdd\x05" + struct.pack("<I", DATA + 8)
+            call_at = STUB + len(code)
+            code += b"\xe8" + struct.pack("<i", entry - (call_at + 5)) + b"\xf4"
+            uc.mem_write(STUB, code)
+            start = STUB
+        stub = shape in ("st0", "st01", "stackd")
         if not stub:
             esp -= 4
             uc.mem_write(esp, struct.pack("<I", RETURN))
@@ -245,11 +258,11 @@ def shape_of(e: dict) -> set[str]:
         if "xmm0" in regs:
             out.add("xmm0")
         if "st0" in regs:
-            out.add("st0")
+            out |= {"st0", "st01"}
         # (one that shows no inputs may hand them on through a jump, `__ftoul2: jmp
         # __ftoul2_legacy` past a check: the register shapes, for a small one, cost little)
         if not regs and not e.get("params"):
-            out |= {"st0", "xmm0", "edx:ecx"}
+            out |= {"st0", "st01", "xmm0", "edx:ecx"}
     return out
 
 

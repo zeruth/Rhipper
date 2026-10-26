@@ -42,7 +42,10 @@ HELPERS = ("SEH_prolog", "SEH_epilog", "EH_prolog", "EH_epilog", "alloca_probe",
            # RaiseException under _except_handler3 parted a VS2010 client's runs, 2026-10-25)
            "except_handler", "ValidateEH3RN", "ValidateScopeTableHandler", "ValidateImageBase",
            "FindPESection", "EH4_CallFilterFunc", "EH4_TransferToHandler", "EH4_GlobalUnwind",
-           "EH4_LocalUnwind", "local_unwind", "global_unwind", "CallSettingFrame")
+           "EH4_LocalUnwind", "local_unwind", "global_unwind", "CallSettingFrame",
+           # (and setjmp, which the port's runtime does natively: a protected call's every entry
+           # parted the runs by one call)
+           "_setjmp3")
 
 
 def by_thread(recs, skip=frozenset()):
@@ -92,6 +95,15 @@ def main():
                          "again after them (an inner call of a library routine the translation does inline, "
                          "memcpy's own pieces), listing each, before stopping at a divergence they do not "
                          "agree after")
+    ap.add_argument("--small-args", type=lambda s: int(s, 0), nargs="?", const=0x1000000, default=None,
+                    metavar="LIMIT",
+                    help="compare the argument words both runs hold below LIMIT (default 0x1000000): numbers and "
+                         "the image's addresses, not each run's heap and stack addresses")
+    ap.add_argument("--list-args", type=int, default=0, metavar="N",
+                    help="with --small-args: list the first N calls of the same function with other arguments "
+                         "and walk on, stopping only where the functions called part")
+    ap.add_argument("--after", type=int, default=0, metavar="N",
+                    help="at a divergence, the context and each run's next N calls side by side, with arguments")
     ap.add_argument("--skip", nargs="*", default=[], metavar="ADDR",
                     help="more functions to leave out of both runs (an unnamed exception handler)")
     a = ap.parse_args()
@@ -103,6 +115,11 @@ def main():
     hp = FACTS / "helpers32.json"
     if hp.exists():
         skip |= {int(a, 16) for a in json.loads(hp.read_text())["helpers"]}
+    nwords = {}
+    pr = FACTS / "protos.json"
+    if a.small_args is not None and pr.exists():
+        for k, e in json.loads(pr.read_text())["functions"].items():
+            nwords[int(k, 16)] = min(len(e.get("params", [])), 4)
     ref, port = by_thread(load(a.ref), skip), by_thread(load(a.port), skip)
     print(f"reference: {len(ref)} threads, {sum(len(v) for v in ref.values())} calls; "
           f"port: {len(port)} threads, {sum(len(v) for v in port.values())} calls\n")
@@ -112,7 +129,16 @@ def main():
         r, p = ref.get(t, []), port.get(t, [])
 
         def same(x, y):
-            return x[0] == y[0] and (not a.args or x[1] == y[1])
+            if x[0] != y[0]:
+                return False
+            if a.small_args is not None:
+                # (a word both runs hold below the limit is a number or the image's address, the
+                # same in both; above it a heap or stack address, each run's own. Only the words
+                # of the function's parameter list: a recording before shadow32.py counted the
+                # stack's words too has zeros past it)
+                n = nwords.get(x[0], 4)
+                return all(u == v for u, v in list(zip(x[1], y[1]))[:n] if u < a.small_args and v < a.small_args)
+            return not a.args or x[1] == y[1]
 
         def agree(ri, pi, k=32):
             """the next k calls the same from ri in the reference and pi in the port"""
@@ -121,8 +147,18 @@ def main():
         # i in the reference, j in the port: equal until a step over
         i = j = 0
         skips = 0
+        listed = 0
         while i < len(r) and j < len(p):
             if same(r[i], p[j]):
+                i += 1
+                j += 1
+                continue
+            if a.list_args and r[i][0] == p[j][0]:
+                # (the same function called with other arguments: listed, the walk on in step)
+                listed += 1
+                if listed <= a.list_args:
+                    print(f"thread {t}: ref {i} / port {j}  {name(nm, r[i][0])}  ref {[hex(x) for x in r[i][1]]}"
+                          f"  port {[hex(x) for x in p[j][1]]}")
                 i += 1
                 j += 1
                 continue
@@ -169,6 +205,17 @@ def main():
             print(f"  port {j:>7}  {name(nm, pa)}  args {[hex(x) for x in pargs]}")
         else:
             print(f"  port {j:>7}  (the port stopped here --- its crash)")
+        if a.after:
+            # (each run's own next calls, side by side with their arguments: an extra loop pass,
+            # a branch the other did not take, read off directly)
+            def row(s, k):
+                if k >= len(s):
+                    return ""
+                ad, ar = s[k]
+                return f"{k:>8} {nm.get(ad, '?')[:30]:30} {ad:>7x} " + " ".join(f"{x:>8x}" for x in ar)
+            print(f"  {'reference':^86} | {'port':^86}")
+            for k in range(-min(a.context, i, j), a.after):
+                print(f"  {row(r, i + k):86} | {row(p, j + k)}")
         print()
     if not found:
         print("the runs agree on every matched thread")

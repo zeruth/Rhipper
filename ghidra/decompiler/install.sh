@@ -33,6 +33,10 @@
 #   cast.cc     a float into an untyped place (copy, store, argument) gets a cast: its bits
 #   typeop.cc/.hh  a float into a PIECE or SUBPIECE (CONCAT44(f,g), SUB84(d,0)) gets an integer
 #               cast: its bits, as the reader's CONCAT and SUB take integers
+#   merge.cc    an address-tied variable is not merged with one that is not: speculatively beside
+#               it (its value printed as a store the program never made), nor as an input of a
+#               MULTIEQUAL whose output is not tied (the join's other values became the tied
+#               variable's, and a read of its storage through a pointer saw them)
 #   varmap.cc   a call to setjmp aliases the frame above its stack pointer: longjmp comes back
 #               into it, and a local the function changes and reads again stays memory; and a
 #               function that links an x86 EH frame (fs:[0]) has all of its frame aliased, its

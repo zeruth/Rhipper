@@ -308,6 +308,132 @@ NOINLINE u32 shell_malloc(u32 s) {
     return h;
 }
 
+/* A heap's free-list unlink, as a VS2010 client's (0x4f56b0): the bucket index computed into an
+   address-taken local (std::min/max pick a pointer to it), which MSVC keeps in the dead parameter's
+   slot, and the function's eax the parameter on one path, a list head or a mask on the others.
+   Ghidra merged them all into the parameter: the C stored the head in the slot, then read the
+   index back through the pointer and cleared the wrong bit of the free-bucket mask */
+typedef struct Link { struct Link *next, *prev; u32 pad[3], size; } Link;
+typedef struct { u32 pad; Link heads[24]; u32 mask; } Buckets;
+static const int *pick_max(const int *a, const int *b) { return *a < *b ? b : a; }
+static const int *pick_min(const int *a, const int *b) { return *b < *a ? b : a; }
+NOINLINE u32 bucket_unlink(Buckets *b, Link *n) {
+    if (n != n->next) {
+        int i, zero = 0, top = 23;
+        unsigned long hi;
+        n->next->prev = n->prev;
+        n->prev->next = n->next;
+        n->next = n->prev = n;
+        i = _BitScanReverse(&hi, n->size) ? (int)hi - 7 : -8;
+        {
+            Link *head = &b->heads[*pick_max(&zero, pick_min(&i, &top))];
+            if (head->next == head) b->mask &= ~(1u << (*pick_max(&zero, pick_min(&i, &top)) & 31));
+            return (u32)(uintptr_t)head;
+        }
+    }
+    return (u32)(uintptr_t)n;
+}
+NOINLINE u32 free_buckets(u32 s) {
+    static Buckets b;
+    static Link nodes[6];
+    u32 k, h = 0;
+    for (k = 0; k < 24; k++) b.heads[k].next = b.heads[k].prev = &b.heads[k];
+    b.mask = 0xffffffu;
+    for (k = 0; k < 6; k++) {
+        /* each node alone in its bucket: unlinking it empties that bucket */
+        Link *head = &b.heads[k * 3 + (s & 1)];
+        nodes[k].size = 0x80u << (k * 3 + (s & 1));
+        nodes[k].next = nodes[k].prev = head;
+        head->next = head->prev = &nodes[k];
+    }
+    for (k = 0; k < 6; k++) h = h * 31 + (bucket_unlink(&b, &nodes[k]) != 0) + b.mask;
+    return h ^ b.mask;
+}
+
+/* Lua's table rehash: `nums[ceillog2(k)]++` with ceillog2(k) = log2(k - 1) + 1, the +1 folded by
+   MSVC into an array based one element on, and log2(0) = -1 (unsigned 0xffffffff) indexing its
+   first element: a 32-bit address wraps there, a 64-bit index went 16 GB on */
+static const u8 log2_lut[16] = {0, 0, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3};
+NOINLINE u32 log2_floor(u32 x) {
+    u32 l = (u32)-1;
+    while (x >= 16) { x >>= 4; l += 4; }
+    return l + (x ? log2_lut[x] + 1 : 0);
+}
+NOINLINE u32 folded_index(u32 s) {
+    u32 nums[33] = {0}, k, h = 0;
+    for (k = 1; k <= s * 5; k++) nums[log2_floor(k - 1) + 1]++;
+    for (k = 0; k < 33; k++) h = h * 31 + nums[k];
+    return h;
+}
+
+/* Lua's llex: a jump-table switch, a case that calls a noreturn error function with its arguments
+   pushed (the `add esp` after the call dead code), and a cookie-guarded buffer. protos32 seeded
+   every address nothing else reached at the switch's esp, the dead `add esp` among them, and the
+   epilogue's cookie read became 15 stack parameters */
+static jmp_buf lex_jb;
+__declspec(noreturn) NOINLINE void lex_error(const char *what, u32 a, u32 b, u32 c) {
+    (void)what;
+    longjmp(lex_jb, (int)(a + b + c + 1));
+}
+NOINLINE u32 lex_token(const char *p, u32 *pos) {
+    char buf[64];
+    u32 n = 0;
+    for (;;) {
+        switch (p[*pos]) {
+            case ' ': case '\t': (*pos)++; continue;
+            case '-': (*pos)++; return '-';
+            case '=': (*pos)++; return p[*pos] == '=' ? ((*pos)++, 0x100) : '=';
+            case '<': (*pos)++; return '<';
+            case '>': (*pos)++; return '>';
+            case '~': (*pos)++; if (p[*pos] != '=') lex_error("bad ~", *pos, n, 3); (*pos)++; return 0x101;
+            case '"': case '\'':
+                for ((*pos)++; p[*pos] && p[*pos] != '"' && p[*pos] != '\''; (*pos)++)
+                    if (n < sizeof buf - 1) buf[n++] = p[*pos];
+                buf[n] = 0;
+                if (!p[*pos]) lex_error("unfinished string", *pos, n, (u32)buf[0]);
+                (*pos)++;
+                return 0x200 + n + (u32)buf[0];
+            case 0: return 0;
+            default: (*pos)++; return (u32)(unsigned char)p[*pos - 1] | 0x400;
+        }
+    }
+}
+NOINLINE u32 lex_switch(u32 s) {
+    static const char src[] = "a = 'xy' ~= b == c -- d \"ok";
+    u32 pos = 0, t;
+    volatile u32 h = s;   /* (changed after setjmp, read after longjmp) */
+    int e = setjmp(lex_jb);
+    if (e) return h * 31 + (u32)e;
+    while ((t = lex_token(src, &pos)) != 0) h = h * 31 + t;
+    return h;
+}
+
+/* memcpy(dst, obj->vt->base(obj) + off, n) with the getter a method: MSVC /O2 pushes n before the
+   virtual call (`push ebx; call [vt + 4]; add eax, edi; push eax; push dst; call memcpy; add esp,
+   0xc`), and protos32 took the early push for the getter's argument and its `this` */
+struct Blob;
+typedef struct { u32(__fastcall *size)(struct Blob *); u8 *(__fastcall *base)(struct Blob *); } BlobVt;
+typedef struct Blob { const BlobVt *vt; u8 data[64]; } Blob;
+static u32 __fastcall blob_size(Blob *b) { return sizeof b->data; }
+static u8 *__fastcall blob_base(Blob *b) { return b->data; }
+static const BlobVt blob_vt = {blob_size, blob_base};
+NOINLINE u32 blob_read(Blob *b, u8 *dst, u32 off, u32 n) {
+    memcpy(dst, b->vt->base(b) + off, n);
+    return n;
+}
+NOINLINE u32 early_push(u32 s) {
+    Blob b;
+    u8 out[16];
+    u32 k, h = 0;
+    b.vt = &blob_vt;
+    for (k = 0; k < 64; k++) b.data[k] = (u8)(k * s + 1);
+    for (k = 0; k < 4; k++) {
+        blob_read(&b, out, k * 8 + s, 8 + k);
+        h = h * 31 + out[0] + out[7] + out[7 + k];
+    }
+    return h;
+}
+
 void rhtest_run(void) {
     u32 s = seed();   /* 7 */
     check("tls_static", tls_static(s));
@@ -329,6 +455,10 @@ void rhtest_run(void) {
     check("window_class", window_class(s));
     check("file_seek", file_seek(s));
     check("shell_malloc", shell_malloc(s));
+    check("free_buckets", free_buckets(s));
+    check("folded_index", folded_index(s));
+    check("lex_switch", lex_switch(s));
+    check("early_push", early_push(s));
     {
         static const u8 utf8[] = {0xef, 0xbb, 0xbf, 'x'}, utf16[] = {0xff, 0xfe, 'x', 0};
         check("bom_kind", bom_kind(utf8, 4) * 100 + bom_kind(utf16, s & 3) * 10 + bom_kind(utf8 + 3, 1));

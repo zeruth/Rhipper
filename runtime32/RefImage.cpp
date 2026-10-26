@@ -2,6 +2,7 @@
 
 #include <windows.h>
 #include <dbghelp.h>
+#include <tlhelp32.h>
 
 #include <algorithm>
 #include <csetjmp>
@@ -9,6 +10,7 @@
 #include <cstring>
 #include <memory>
 #include <mutex>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -112,11 +114,90 @@ void PrintStack(HANDLE thread, CONTEXT c) {
     fflush(stderr);
 }
 
+// <ENV>_WATCH=<hex address>: every write of that 4-byte word, on any thread, its value after and
+// the writer's stack (the first 40): who overwrote an object a crash found corrupted. A hardware
+// breakpoint, debug register 0, set on each thread of the process as it appears.
+// <ENV>_WATCH=<function>+<offset> (hex): the word at the function's first argument plus the offset,
+// from its first call on (a heap object's field: its address differs from run to run). Trace.cpp
+// arms it, the trace on.
+volatile uint64_t g_watch = 0;
+volatile uint64_t g_watchArmed = 0;   // the address every thread's register held after a pass
+volatile LONG g_watchHits = 0;
+}  // namespace
+unsigned int g_watchFn = 0, g_watchOffset = 0;
+// (Trace.cpp: the watched function entered, its first argument)
+// (Trace.cpp, at the first call traced: an address watched from the start armed on this thread
+// before the reference goes on, the watcher's passes slower than its first few thousand calls)
+void RefWatchStart() {
+    for (int k = 0; k < 5000 && g_watch && g_watchArmed != g_watch; k++) Sleep(1);
+    // (and a pass begun after this thread exists)
+    g_watchArmed = 0;
+    for (int k = 0; k < 5000 && g_watch && g_watchArmed != g_watch; k++) Sleep(1);
+}
+void RefWatchEnter(unsigned int a0) {
+    if (g_watch) return;
+    g_watch = static_cast<uint64_t>(a0) + g_watchOffset;
+    fprintf(stderr, "%s: watch armed at %llx\n", RHIPPER_NAME, g_watch);
+    fflush(stderr);
+    // (the watcher thread arms every thread, this one too, meanwhile: a pass over the system's
+    // threads takes longer than the 2,500 calls from here to the corruption it was set to catch)
+    for (int k = 0; k < 5000 && g_watchArmed != g_watch; k++) Sleep(1);
+    // (the word written back as it is: the first hit shows the watch armed on this thread)
+    auto w = reinterpret_cast<volatile uint32_t*>(g_watch);
+    *w = *w;
+}
+namespace {
+
+DWORD WINAPI WatchThreads(void*) {
+    std::unordered_map<DWORD, uint64_t> armed;   // thread -> the address its register holds
+    DWORD self = GetCurrentThreadId(), pid = GetCurrentProcessId();
+    for (;;) {
+        if (!g_watch) {
+            Sleep(1);
+            continue;
+        }
+        uint64_t want = g_watch;
+        HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+        THREADENTRY32 te = {sizeof te};
+        for (BOOL ok = Thread32First(snap, &te); ok; ok = Thread32Next(snap, &te)) {
+            if (te.th32OwnerProcessID != pid || te.th32ThreadID == self) continue;
+            auto it = armed.find(te.th32ThreadID);
+            if (it != armed.end() && it->second == g_watch) continue;
+            HANDLE t = OpenThread(THREAD_ALL_ACCESS, FALSE, te.th32ThreadID);
+            if (!t) continue;
+            SuspendThread(t);
+            CONTEXT c = {};
+            c.ContextFlags = CONTEXT_DEBUG_REGISTERS;
+            GetThreadContext(t, &c);
+            c.Dr0 = g_watch;
+            c.Dr7 = (c.Dr7 & ~0xF0003ull) | 1 | (1ull << 16) | (3ull << 18);   // L0, on writes, 4 bytes
+            SetThreadContext(t, &c);
+            ResumeThread(t);
+            CloseHandle(t);
+            armed[te.th32ThreadID] = c.Dr0;
+        }
+        CloseHandle(snap);
+        g_watchArmed = want;
+        Sleep(1);
+    }
+}
+
 // A call into the reference's code that no translation took lands on an int3 there: log the
 // address once and return 0 to the caller, as GenUnimplemented does for a stub.
 LONG CALLBACK OnException(EXCEPTION_POINTERS* info) {
     auto rec = info->ExceptionRecord;
     uint64_t at = reinterpret_cast<uint64_t>(rec->ExceptionAddress);
+    if (g_watch && rec->ExceptionCode == EXCEPTION_SINGLE_STEP && (info->ContextRecord->Dr6 & 1)) {
+        info->ContextRecord->Dr6 = 0;
+        if (InterlockedIncrement(&g_watchHits) <= 40) {
+            const CONTEXT* c = info->ContextRecord;
+            fprintf(stderr, "%s: watch: thread %lu wrote %08x to %llx (rcx %llx rdx %llx r8 %llx r9 %llx rdi %llx "
+                    "rsi %llx)\n", RHIPPER_NAME, GetCurrentThreadId(), *reinterpret_cast<uint32_t*>(g_watch), g_watch,
+                    c->Rcx, c->Rdx, c->R8, c->R9, c->Rdi, c->Rsi);
+            PrintStack(GetCurrentThread(), *info->ContextRecord);
+        }
+        return EXCEPTION_CONTINUE_EXECUTION;
+    }
     if (rec->ExceptionCode == EXCEPTION_BREAKPOINT && at >= g_textLo && at < g_textHi) {
         GenUnimplemented(static_cast<unsigned int>(at));
         CONTEXT* c = info->ContextRecord;
@@ -131,6 +212,22 @@ LONG CALLBACK OnException(EXCEPTION_POINTERS* info) {
                 rec->NumberParameters >= 2 ? reinterpret_cast<void*>(rec->ExceptionInformation[1]) : nullptr);
         RefTraceFlush();
         PrintStack(GetCurrentThread(), *info->ContextRecord);
+        if (g_watch) {
+            // (what the watched word and its neighbours hold now: a write the debug register
+            // cannot see, the kernel's into a buffer, named by what it wrote)
+            fprintf(stderr, "%s: around the watched %llx:\n", RHIPPER_NAME, g_watch);
+            auto p = reinterpret_cast<const uint8_t*>((g_watch & ~0xFull) - 0x80);
+            for (int row = 0; row < 16; row++, p += 16) {
+                char text[17] = {};
+                fprintf(stderr, "  %p ", p);
+                for (int k = 0; k < 16; k++) {
+                    fprintf(stderr, " %02x", p[k]);
+                    text[k] = p[k] >= 32 && p[k] < 127 ? static_cast<char>(p[k]) : '.';
+                }
+                fprintf(stderr, "  %s\n", text);
+            }
+            fflush(stderr);
+        }
     }
     return EXCEPTION_CONTINUE_SEARCH;
 }
@@ -245,6 +342,15 @@ uint32_t LowStub(void* fn) {
 }
 }  // namespace
 
+// (for the runtime's other files: a 64-bit function the reference is handed, Com32.cpp's NVAPI)
+uint32_t RefLowStub(void* fn) {
+    uintptr_t at = reinterpret_cast<uintptr_t>(fn);
+    return at > 0xffffffffu ? LowStub(fn) : static_cast<uint32_t>(at);
+}
+
+// a function of a library the runtime bridges, by name (Com32.cpp): 0 for none
+uint32_t Com32Proc(uint32_t module, const char* name);
+
 // GetProcAddress: a function the reference resolves at run time goes through the adapter its
 // import would (the CRT's __crtMessageBoxW finds MessageBoxW so, and its old pointer-encoding
 // path EncodePointer, whose x64 one scrambles all 64 bits), and one above 4 GB through a stub
@@ -252,6 +358,7 @@ uint32_t LowStub(void* fn) {
 extern "C" unsigned int gen_imp_GetProcAddress(uint32_t module, uint32_t name) {
     if (name > 0xffff) {
         const char* n = reinterpret_cast<const char*>(static_cast<uintptr_t>(name));
+        if (uint32_t bridged = Com32Proc(module, n)) return bridged;
         for (unsigned k = 0; k < g_genImportCount; k++) {
             if (strcmp(g_genImports[k].name, n) == 0) {
                 return static_cast<uint32_t>(reinterpret_cast<uintptr_t>(g_genImports[k].adapter));
@@ -383,6 +490,21 @@ bool RefMapImage(const wchar_t* path) {
     DWORD old;
     VirtualProtect(image + (g_textLo - base), g_textHi - g_textLo, PAGE_EXECUTE_READ, &old);
     AddVectoredExceptionHandler(1, OnException);
+    wchar_t watch[40] = {};
+    if (RefEnv("WATCH", watch, 40)) {
+        wchar_t* end = nullptr;
+        uint64_t v = wcstoull(watch, &end, 16);
+        if (end && *end == L'+') {
+            g_watchFn = static_cast<unsigned int>(v);
+            g_watchOffset = static_cast<unsigned int>(wcstoul(end + 1, nullptr, 16));
+            fprintf(stderr, "%s: watching writes to %x's first argument + 0x%x, from its first call\n", RHIPPER_NAME,
+                    g_watchFn, g_watchOffset);
+        } else {
+            g_watch = v;
+            fprintf(stderr, "%s: watching writes to %llx\n", RHIPPER_NAME, v);
+        }
+        CreateThread(nullptr, 0, WatchThreads, nullptr, 0, nullptr);
+    }
     fprintf(stderr, "%s: reference mapped at 0x%x (0x%x bytes): %u entry jumps (%u too close to the next), "
             "%u imports resolved, %u missing\n", RHIPPER_NAME, base, size, written, crowded, resolved, missing);
     fflush(stderr);

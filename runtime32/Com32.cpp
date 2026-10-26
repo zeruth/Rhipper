@@ -7,6 +7,7 @@
 
 #include <d3d9.h>
 #include <dinput.h>
+#include <oleauto.h>
 
 #include <cstdio>
 #include <mutex>
@@ -528,7 +529,184 @@ unsigned int S_IXAudio2SourceVoice_GetState(uint32_t self, uint32_t out) {
 
 }  // extern "C"
 
+// ---- DxDiag (DirectX's system information): DXDIAG_INIT_PARAMS holds a pointer, and a VARIANT is
+// 16 bytes on x86 and 24 on x64 (its union is the size of two pointers there). The reference
+// reads each property as an x86 VARIANT, and frees it with VariantClear, adapted below ------------
+namespace {
+
+#pragma pack(push, 4)
+struct DxDiagInit32 {
+    uint32_t dwSize, dwDxDiagHeaderVersion, bAllowWHQLChecks, pReserved;
+};
+struct Variant32 {
+    uint16_t vt, r1, r2, r3;
+    uint32_t lo, hi;   // the union: a 4-byte value or pointer in lo, an 8-byte one in both
+};
+#pragma pack(pop)
+static_assert(sizeof(Variant32) == 16, "VARIANT, x86");
+
+struct DxDiagInit64 {
+    uint32_t dwSize, dwDxDiagHeaderVersion, bAllowWHQLChecks;
+    void* pReserved;
+};
+
+enum : unsigned { kDxDiagInitialize = 3, kDxDiagGetProp = 8 };
+
+}  // namespace
+
+extern "C" {
+
+unsigned int S_IDxDiagProvider_Initialize(uint32_t self, uint32_t params) {
+    auto p = At<DxDiagInit32>(params);
+    DxDiagInit64 n = {sizeof(DxDiagInit64), p->dwDxDiagHeaderVersion, p->bAllowWHQLChecks, At<void>(p->pReserved)};
+    return Native<uint32_t>(Unwrap(self), kDxDiagInitialize, &n);
+}
+
+// (a property as an x86 VARIANT: its type, and the value or pointer as x86 holds it; a BSTR's
+// memory is below 2 GB like all the port's, its 4-byte address the reference's to free)
+unsigned int S_IDxDiagContainer_GetProp(uint32_t self, uint32_t name, uint32_t out) {
+    VARIANT v;
+    VariantInit(&v);
+    uint32_t hr = Native<uint32_t>(Unwrap(self), kDxDiagGetProp, At<const wchar_t>(name), &v);
+    auto o = At<Variant32>(out);
+    memset(o, 0, sizeof *o);
+    if (SUCCEEDED(static_cast<HRESULT>(hr))) {
+        o->vt = v.vt;
+        uint64_t raw = 0;
+        memcpy(&raw, &v.llVal, 8);
+        if (v.vt == VT_BSTR || v.vt == VT_UNKNOWN || v.vt == VT_DISPATCH || (v.vt & VT_BYREF)) {
+            o->lo = static_cast<uint32_t>(raw);   // (a pointer: its 4-byte address)
+            if (v.vt == VT_UNKNOWN || v.vt == VT_DISPATCH) o->lo = Wrap(v.punkVal, &IUnknown_32);
+        } else {
+            o->lo = static_cast<uint32_t>(raw);
+            o->hi = static_cast<uint32_t>(raw >> 32);
+        }
+    }
+    return hr;
+}
+
+// oleaut32's VARIANT functions on the reference's x86 VARIANTs (16 bytes: a 24-byte x64 one would be
+// read past it)
+unsigned int gen_imp_VariantInit(uint32_t p) {
+    if (p) memset(At<Variant32>(p), 0, sizeof(Variant32));
+    return 0;
+}
+unsigned int gen_imp_VariantClear(uint32_t p) {
+    if (!p) return static_cast<unsigned int>(E_INVALIDARG);
+    auto v = At<Variant32>(p);
+    if (v->vt == VT_BSTR) {
+        SysFreeString(At<OLECHAR>(v->lo));
+    } else if ((v->vt == VT_UNKNOWN || v->vt == VT_DISPATCH) && v->lo) {
+        IUnknown* u = static_cast<IUnknown*>(Unwrap(v->lo));
+        if (u) u->Release();
+    }
+    memset(v, 0, sizeof *v);
+    return S_OK;
+}
+
+}  // extern "C"
+
+// ---- NVIDIA's NVAPI: nvapi64.dll in nvapi.dll's place (Adapters.cpp's LoadLibraryA), its one
+// export, nvapi_QueryInterface(id), given to the reference as a 32-bit one. Each function it hands
+// back is the 64-bit one reached from a 4-byte slot (its arguments all numbers or pointers to
+// structures laid out alike), or an adapter where one is an object of ours: the Direct3D device
+// of NvAPI_D3D_GetCurrentSLIState is a proxy (Com32.h) -------------------------------------------
+uint32_t RefLowStub(void* fn);   // RefImage.cpp
+
+namespace {
+
+void* (__cdecl* g_nvQueryInterface)(unsigned id) = nullptr;
+int (__cdecl* g_nvSliState)(void* device, void* state) = nullptr;
+
+int Nv_D3D_GetCurrentSLIState(uint32_t device, uint32_t state) {
+    return g_nvSliState(Unwrap(device), At<void>(state));
+}
+
+uint32_t Nv_QueryInterface(uint32_t id) {
+    void* fn = g_nvQueryInterface ? g_nvQueryInterface(id) : nullptr;
+    if (!fn) return 0;
+    switch (id) {
+        case 0x4b708b54:   // NvAPI_D3D_GetCurrentSLIState(IUnknown *, NV_GET_CURRENT_SLI_STATE *)
+            g_nvSliState = reinterpret_cast<int(__cdecl*)(void*, void*)>(fn);
+            return Low(reinterpret_cast<void*>(Nv_D3D_GetCurrentSLIState));
+        default:
+            return RefLowStub(fn);
+    }
+}
+
+// ---- the kernel display functions a reference finds in gdi32 by name: their structures hold an HDC
+// or a pointer, 8 bytes on x64. Given the 64-bit ones, the reference's 20-byte
+// D3DKMT_OPENADAPTERFROMHDC read as 24 failed, and its display query took the error path the
+// reference never did (a VS2010 client's 0xb1b020, 2026-10-25) -------------------------------------
+#pragma pack(push, 4)
+struct OpenAdapterFromHdc32 {
+    uint32_t hDc, hAdapter, luidLow;
+    int32_t luidHigh;
+    uint32_t vidPnSourceId;
+};
+struct Escape32 {
+    uint32_t hAdapter, hDevice, type, flags, pPrivateDriverData, privateDriverDataSize, hContext;
+};
+#pragma pack(pop)
+struct OpenAdapterFromHdc64 {
+    void* hDc;
+    uint32_t hAdapter, luidLow;
+    int32_t luidHigh;
+    uint32_t vidPnSourceId;
+};
+struct Escape64 {
+    uint32_t hAdapter, hDevice, type, flags;
+    void* pPrivateDriverData;
+    uint32_t privateDriverDataSize, hContext;
+};
+static_assert(sizeof(OpenAdapterFromHdc32) == 20 && sizeof(OpenAdapterFromHdc64) == 24, "D3DKMT_OPENADAPTERFROMHDC");
+static_assert(sizeof(Escape32) == 28 && sizeof(Escape64) == 32, "D3DKMT_ESCAPE");
+
+LONG (APIENTRY* g_kmtOpenAdapterFromHdc)(OpenAdapterFromHdc64*) = nullptr;
+LONG (APIENTRY* g_kmtEscape)(const Escape64*) = nullptr;
+
+unsigned int Kmt_OpenAdapterFromHdc(uint32_t p) {
+    auto a = At<OpenAdapterFromHdc32>(p);
+    OpenAdapterFromHdc64 n = {Handle32(a->hDc), a->hAdapter, a->luidLow, a->luidHigh, a->vidPnSourceId};
+    LONG st = g_kmtOpenAdapterFromHdc(&n);
+    a->hAdapter = n.hAdapter;
+    a->luidLow = n.luidLow;
+    a->luidHigh = n.luidHigh;
+    a->vidPnSourceId = n.vidPnSourceId;
+    return static_cast<unsigned int>(st);
+}
+
+unsigned int Kmt_Escape(uint32_t p) {
+    auto e = At<Escape32>(p);
+    Escape64 n = {e->hAdapter, e->hDevice, e->type, e->flags, At<void>(e->pPrivateDriverData),
+                  e->privateDriverDataSize, e->hContext};
+    return static_cast<unsigned int>(g_kmtEscape(&n));
+}
+
+}  // namespace
+
+// a function the reference resolves by name that the runtime gives it in a 32-bit form: NVAPI's
+// QueryInterface, the kernel display functions with structures of their own
+uint32_t Com32Proc(uint32_t module, const char* name) {
+    HMODULE m = reinterpret_cast<HMODULE>(static_cast<uintptr_t>(module));
+    if (strcmp(name, "D3DKMTOpenAdapterFromHdc") == 0) {
+        g_kmtOpenAdapterFromHdc = reinterpret_cast<LONG(APIENTRY*)(OpenAdapterFromHdc64*)>(GetProcAddress(m, name));
+        return g_kmtOpenAdapterFromHdc ? Low(reinterpret_cast<void*>(Kmt_OpenAdapterFromHdc)) : 0;
+    }
+    if (strcmp(name, "D3DKMTEscape") == 0) {
+        g_kmtEscape = reinterpret_cast<LONG(APIENTRY*)(const Escape64*)>(GetProcAddress(m, name));
+        return g_kmtEscape ? Low(reinterpret_cast<void*>(Kmt_Escape)) : 0;
+    }
+    HMODULE nv = GetModuleHandleW(L"nvapi64.dll");
+    if (!nv || module != Low(nv) || strcmp(name, "nvapi_QueryInterface") != 0) return 0;
+    g_nvQueryInterface = reinterpret_cast<void*(__cdecl*)(unsigned)>(GetProcAddress(nv, name));
+    return g_nvQueryInterface ? Low(reinterpret_cast<void*>(Nv_QueryInterface)) : 0;
+}
+
 // ---- the imports that make the objects ---------------------------------------------------------------
+bool DxDiagBridgeClass(REFCLSID clsid);           // DxDiagBridge.cpp
+HRESULT DxDiagBridgeCreate(REFIID riid, void** out);
+
 namespace {
 
 FARPROC Real(const wchar_t* dll, const char* name) {
@@ -545,6 +723,7 @@ bool Supported(const GUID& clsid) {
         {0xdb05ea35, 0x0329, 0x4d4b, {0xa5, 0x3a, 0x6d, 0xea, 0xd0, 0x3d, 0x38, 0x52}},   // XAudio2_Debug 2.7
         {0x6a93130e, 0x1d53, 0x41d1, {0xa9, 0xcf, 0xe7, 0x58, 0x80, 0x0b, 0xb1, 0x79}},   // AudioReverb 2.7
         {0xcac1105f, 0x619b, 0x4d04, {0x83, 0x1a, 0x44, 0xe1, 0xcb, 0xf1, 0x2d, 0x57}},   // AudioVolumeMeter 2.7
+        {0xa65b8071, 0x3bfe, 0x4213, {0x9a, 0x5b, 0x49, 0x1d, 0xa4, 0x46, 0x1c, 0xa7}},   // DxDiagProvider
     };
     for (const GUID& g : known)
         if (IsEqualGUID(g, clsid)) return true;
@@ -585,7 +764,10 @@ unsigned int gen_imp_CoCreateInstance(uint32_t clsid, uint32_t outer, uint32_t c
         return static_cast<unsigned int>(REGDB_E_CLASSNOTREG);
     }
     void* o = nullptr;
-    HRESULT hr = CoCreateInstance(*At<CLSID>(clsid), static_cast<LPUNKNOWN>(Unwrap(outer)), context, *At<IID>(riid), &o);
+    // (DxDiag's provider the 32-bit one, in its helper: DxDiagBridge.cpp)
+    HRESULT hr = DxDiagBridgeClass(*At<CLSID>(clsid))
+                     ? DxDiagBridgeCreate(*At<IID>(riid), &o)
+                     : CoCreateInstance(*At<CLSID>(clsid), static_cast<LPUNKNOWN>(Unwrap(outer)), context, *At<IID>(riid), &o);
     if (out) *At<uint32_t>(out) = Wrap(o, TypeOf(riid));
     return static_cast<unsigned int>(hr);
 }

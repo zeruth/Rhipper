@@ -35,6 +35,9 @@ HEADERS = {
     "dinput.h": ["IDirectInput8A", "IDirectInputDevice8A", "IDirectInputEffect"],
     "XAudio2.h": ["IXAudio2", "IXAudio2Voice", "IXAudio2SourceVoice", "IXAudio2SubmixVoice",
                   "IXAudio2MasteringVoice"],
+    # (DirectX's system information, which a client reads at startup: its COM calls pump the
+    # thread's messages, and the window procedure runs inside them)
+    "dxdiag.h": ["IDxDiagProvider", "IDxDiagContainer"],
 }
 EXTRA = """
 DECLARE_INTERFACE(IUnknown) {
@@ -71,6 +74,7 @@ SPECIAL = {
     ("IXAudio2", "CreateMasteringVoice"),
     ("IXAudio2Voice", "SetOutputVoices"), ("IXAudio2Voice", "SetEffectChain"),
     ("IXAudio2SourceVoice", "SubmitSourceBuffer"), ("IXAudio2SourceVoice", "GetState"),
+    ("IDxDiagProvider", "Initialize"), ("IDxDiagContainer", "GetProp"),
 }
 # methods not given to the reference yet (structures with pointers inside: force feedback, action
 # maps, effect files): logged, E_NOTIMPL
@@ -89,7 +93,8 @@ NONFLAT = {"D3DPRESENT_PARAMETERS", "D3DDEVICE_CREATION_PARAMETERS", "D3DLOCKED_
            "DIDATAFORMAT", "DIDEVICEOBJECTDATA", "DIEFFECT", "DIACTIONFORMATA", "DIEFFESCAPE",
            "DIFILEEFFECT", "DICONFIGUREDEVICESPARAMSA", "DIDEVICEIMAGEINFOHEADERA",
            "XAUDIO2_VOICE_SENDS", "XAUDIO2_EFFECT_CHAIN", "XAUDIO2_BUFFER", "XAUDIO2_BUFFER_WMA",
-           "XAUDIO2_VOICE_STATE", "IXAudio2EngineCallback", "IXAudio2VoiceCallback"}
+           "XAUDIO2_VOICE_STATE", "IXAudio2EngineCallback", "IXAudio2VoiceCallback",
+           "DXDIAG_INIT_PARAMS", "VARIANT"}
 
 FLOATS = {"float", "FLOAT"}
 HANDLES = {"HWND", "HANDLE", "HDC", "HMONITOR", "HICON", "HMENU", "HKEY"}

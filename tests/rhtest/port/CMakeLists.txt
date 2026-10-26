@@ -39,6 +39,7 @@ add_executable(rhtest-port
   ${RUNTIME32}/Trace.cpp
   ${RUNTIME32}/Com32.cpp
   ${RUNTIME32}/Com32Gen.cpp
+  ${RUNTIME32}/DxDiagBridge.cpp
   $<TARGET_OBJECTS:gen>)
 target_compile_options(rhtest-port PRIVATE /W3 /Zi)
 target_link_libraries(rhtest-port PRIVATE dbghelp)

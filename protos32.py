@@ -601,7 +601,8 @@ def analyse(root: int, ranges):
                 else:
                     calls.append((t, ~mask & ALL, "jmp"))
             elif ops and ops[0].type == X.X86_OP_MEM and ops[0].mem.index and ops[0].mem.scale == 4:
-                indirect_jumps.append((mask, esp, ebp))   # a switch: its targets are found below
+                # (a switch: its targets are found below, from its table)
+                indirect_jumps.append((mask, esp, ebp, ops[0].mem.disp & 0xFFFFFFFF))
             else:
                 open_ = True
                 # (a tail jump through a pointer with the frame gone: a call that returns, its
@@ -630,14 +631,34 @@ def analyse(root: int, ranges):
         # `mov eax, [ebp + 8]; leave`, made it take ebp. Its every caller was a stub for the
         # unaff_EBP, FUN_00b9d7c0 on WinMain's path among them, 2026-10-24)
         m = ALL | EBP_IN
-        for jm, _e, _b2 in indirect_jumps:
+        for jm, _e, _b2, _t in indirect_jumps:
             m &= jm
         seed = (m, indirect_jumps[0][1], indirect_jumps[0][2], 0)
-        for a in order:
-            if a not in state:
-                merge(a, seed)
+        # (the cases its tables name, each from its own jump's state: not every address nothing else
+        # reached, which takes in the dead code after a noreturn call. llex's `call lexerror; add esp,
+        # 0x40` so seeded at the switch's esp came out 0x40 high, its epilogue's cookie read as 15
+        # stack parameters, and luaX_next a stub, 2026-10-25)
+        cases = []
+        for jm, je, jb, table in indirect_jumps:
+            for k in range(1024):
+                try:
+                    t = b.u32(table + 4 * k)
+                except Exception:  # noqa: BLE001
+                    break
+                if t not in insns:
+                    break
+                cases.append((t, (m, je, jb, 0)))
+        for t, s in cases:
+            if t not in state:
+                merge(t, s)
                 while work:
                     visit(work.pop())
+        if not cases:
+            for a in order:
+                if a not in state:
+                    merge(a, seed)
+                    while work:
+                        visit(work.pop())
     results, passes, handoffs, passes_via = result_reads(insns, state, nxt)
     ecx_hands = ecx_handoffs(insns, state, nxt)
     # (which result registers the function writes itself, anywhere: a read after a call to one
@@ -779,6 +800,13 @@ def analyse(root: int, ranges):
             # got;`, ends `mov [ecx + 4], eax; ret 8`, and as void its virtual call came back 0,
             # rhtest msvc-16.00-x86 cpp-O2 sinks)
             if pi.mnemonic == "mov" and len(po) == 2 and po[0].type == X.X86_OP_MEM and po[1].type == X.X86_OP_REG:
+                p = prv.get(p)
+                continue
+            # (nor the cookie check, which keeps eax: `xor al, al; pop ebx; call
+            # __security_check_cookie; mov esp, ebp; pop ebp; ret 4` sets al before it. Stopped at
+            # the call, that path went uncounted, the bool an i4, and its upper bytes extraout_EAX:
+            # a VS2010 client's 0x4d14a0 a stub on WinMain's path, 2026-10-26)
+            if pi.mnemonic == "call" and "security_check_cookie" in _names.get(_target(pi), ""):
                 p = prv.get(p)
                 continue
             # (nor anything else that leaves eax, short of a branch or a call: Havok's lazy
@@ -1524,6 +1552,69 @@ def vtable_from_ecx(insns, prv, a) -> bool:
     return False
 
 
+def pushed_object_vtable(insns, prv, a) -> bool:
+    """The indirect call at `a` goes through the vtable of the object last pushed: its target is
+    `[vt + K]` (or a register loaded so), vt is loaded from `[obj]`, and the last push before the
+    call is obj itself. A COM call, `this` on the stack, whatever ecx holds: `mov edx, [esi]; mov
+    eax, [edx + 4]; push esi; call eax` (AddRef) on a path where ecx held a global's object was
+    taken for a __thiscall of it (a VS2010 client's 0x4e02b7, 2026-10-25)."""
+    op = insns[a].operands[0] if insns[a].operands else None
+    if op is None:
+        return False
+    # the straight line back to the previous call or branch, nearest first
+    line = []
+    p = prv[a]
+    while p is not None and p in insns and len(line) < 24:
+        mn = insns[p].mnemonic
+        if mn in ("call", "jmp", "ret", "int3") or mn.startswith("j") or mn.startswith("loop"):
+            break
+        line.append(insns[p])
+        p = prv[p]
+
+    def def_of(reg, after):
+        """the nearest write of reg in line past index `after`: (index, insn)"""
+        for i in range(after + 1, len(line)):
+            if reg in regs_access(line[i])[1]:
+                return i, line[i]
+        return None, None
+
+    def load(ins, disp_ok):
+        ops = ins.operands
+        return ins.mnemonic == "mov" and len(ops) == 2 and ops[1].type == X.X86_OP_MEM and not ops[1].mem.index \
+            and ops[1].mem.base and (disp_ok or not ops[1].mem.disp)
+
+    if op.type == X.X86_OP_REG:
+        i1, d = def_of(op.reg, -1)
+        if d is None or not load(d, True):
+            return False
+        vt = d.operands[1].mem.base
+    elif op.type == X.X86_OP_MEM and not op.mem.index and op.mem.base:
+        i1, vt = -1, op.mem.base
+    else:
+        return False
+    i2, d = def_of(vt, i1)
+    if d is None or not load(d, False):
+        return False
+    obj = d.operands[1].mem.base
+    ip = next((i for i, ins in enumerate(line) if ins.mnemonic == "push"), None)
+    if ip is None or not line[ip].operands or line[ip].operands[0].type != X.X86_OP_REG \
+            or line[ip].operands[0].reg != obj:
+        return False
+    # (the same object: obj not written between its push and its vtable's load)
+    lo, hi = sorted((ip, i2))
+    if any(obj in regs_access(line[i])[1] for i in range(lo + 1, hi)):
+        return False
+    # (but ecx loaded with that object too is a __thiscall that also passes it: `mov eax, [esi];
+    # mov edx, [eax + 0x14]; push esi; mov ecx, esi; call edx`, a worker thread's entry handing
+    # its object to its own run method. Taken for COM, the method's argument was its own address,
+    # a VS2010 client's 0x4cf90f 2026-10-25)
+    for ins in line:
+        ops = ins.operands
+        if ins.mnemonic == "mov" and len(ops) == 2 and ops[0].type == X.X86_OP_REG and ops[0].reg == X.X86_REG_ECX:
+            return not (ops[1].type == X.X86_OP_REG and ops[1].reg == obj)
+    return True
+
+
 def com_call(insns, prv, a) -> bool:
     """The indirect call at `a` is a COM one through ecx as the vtable: its target is loaded from
     `[ecx + K]` (or is `[ecx + K]` itself), and ecx from `[R]`, the first word of an object. A
@@ -1700,6 +1791,31 @@ def ecx_scan(insns, prv, p, budget, labels, preds, pushed, seen) -> tuple[bool, 
     return False, pushed, steps
 
 
+def reaches(insns, start, goal, limit=4096) -> bool:
+    """Whether control flows from start to goal within the function (falling through, branching,
+    jumping; a ret, or a call that does not return, ends a path)."""
+    order = sorted(insns)
+    nxt = {a: order[i + 1] if i + 1 < len(order) else None for i, a in enumerate(order)}
+    work, seen = [start], set()
+    while work and len(seen) < limit:
+        a = work.pop()
+        if a in seen or a not in insns:
+            continue
+        seen.add(a)
+        if a == goal:
+            return True
+        ins = insns[a]
+        mn = ins.mnemonic
+        if mn.startswith("ret") or mn in ("int3", "hlt", "ud2"):
+            continue
+        t = _target(ins)
+        if (mn.startswith("j") or mn.startswith("loop")) and t is not None:
+            work.append(t)
+        if mn != "jmp" and nxt.get(a) is not None:
+            work.append(nxt[a])
+    return False
+
+
 def ecx_ways(insns, prv, p, budget, labels, preds, pushed, seen) -> tuple[bool, bool, int]:
     """ecx_scan over every way into the jump target p: each jump here, and the instruction before
     if it falls through, ecx written only if it is on each. One from below, a loop's back edge,
@@ -1711,7 +1827,12 @@ def ecx_ways(insns, prv, p, budget, labels, preds, pushed, seen) -> tuple[bool, 
                 if t is not None:
                     preds.setdefault(t, []).append(q)
     srcs = preds.get(p, [])
-    if any(s > p for s in srcs):
+    # (a jump from below is a loop's back edge only where the code from p reaches it again: an
+    # out-of-line arm that jumps back up to a shared call is none. `mov ecx, esi; jne arm` ...
+    # `call eax`, `arm: mov eax, [edx + 0x80]; jmp call` above a ret: taken for a loop, the call
+    # lost `this`, and a resource handle's slot 32 read its argument from 0, a VS2010 client's
+    # 0x4fcfac, 2026-10-25)
+    if any(s > p and reaches(insns, p, s) for s in srcs):
         return False, pushed, 0
     before = prv[p]
     ways = [prv[s] for s in srcs]
@@ -1727,6 +1848,48 @@ def ecx_ways(insns, prv, p, budget, labels, preds, pushed, seen) -> tuple[bool, 
         all_set &= s_set
         any_pushed |= s_pushed
     return all_set, any_pushed, steps
+
+
+def ecx_index_only(insns, prv, a) -> bool:
+    """ecx's uses between its last write (in the straight line back from the call at `a`) and
+    the call are all as data: a memory operand's index, `[eax + ecx*4 + 0x20]`, or a value stored
+    to memory, `mov [esp + 0x38], ecx`. A number or a structure's field, no `this`.
+    `mov ecx, [idx]; mov eax, [eax + ecx*4 + 0x20]; mov edx, [eax]; push eax; mov eax, [edx +
+    0x30]; call eax`, an index buffer's Unlock, took the index for its object (a VS2010 client's
+    0x4dee41, 2026-10-25)."""
+    uses = 0
+    p = prv[a]
+    for _ in range(ICALL_WINDOW):
+        if p is None or p not in insns:
+            return False
+        ins = insns[p]
+        mn = ins.mnemonic
+        if mn in ("call", "jmp", "ret", "int3") or mn.startswith("j"):
+            return False
+        reads, writes = regs_access(ins)
+        ops = ins.operands
+        as_index = sum(1 for o in ops if o.type == X.X86_OP_MEM and o.mem.index == X.X86_REG_ECX
+                       and o.mem.base != X.X86_REG_ECX)
+        # (or stored to memory, `mov [esp + 0x38], ecx`: a value put in a structure. A display
+        # query's driver-data address, `lea ecx, [esp + 0x40]` then stored as D3DKMT_ESCAPE's
+        # pPrivateDriverData, was taken for D3DKMTEscape's `this`, a VS2010 client's 0xb1b39d,
+        # 2026-10-25)
+        stored = mn == "mov" and len(ops) == 2 and ops[0].type == X.X86_OP_MEM and ops[1].type == X.X86_OP_REG \
+            and REG_BITS.get(ops[1].reg) == ECX and ops[0].mem.base != X.X86_REG_ECX and ops[0].mem.index != X.X86_REG_ECX
+        if any(REG_BITS.get(r) == ECX for r in writes) and not (mn == "push"):
+            # (the write itself may read ecx too: `mov ecx, [ecx*4 + table]`)
+            return uses > 0
+        if any(REG_BITS.get(r) == ECX for r in reads):
+            if stored:
+                uses += 1
+                p = prv[p]
+                continue
+            if not as_index or any(o.type == X.X86_OP_REG and REG_BITS.get(o.reg) == ECX for o in ops) \
+                    or any(o.type == X.X86_OP_MEM and o.mem.base == X.X86_REG_ECX for o in ops):
+                return False
+            uses += 1
+        p = prv[p]
+    return False
 
 
 def icall_shape(insns, prv, nxt, state, a, labels, own_this):
@@ -1764,7 +1927,10 @@ def icall_shape(insns, prv, nxt, state, a, labels, own_this):
         ecx_set = True
     # (but ecx holding a COM vtable, the call's slot read from it, is no `this`: the interface
     # pointer is the last word pushed, com_call)
-    if ecx_set and (com_call(insns, prv, a) or pushed_this(insns, prv, a)):
+    if ecx_set and (com_call(insns, prv, a) or pushed_this(insns, prv, a) or pushed_object_vtable(insns, prv, a)):
+        ecx_set = False
+    # (nor ecx holding an index, used since its write only to address memory)
+    if ecx_set and ecx_index_only(insns, prv, a):
         ecx_set = False
     if k is not None:
         return ("__cdecl", k // 4)                 # (ecx then a scratch register: a variadic
@@ -1917,6 +2083,15 @@ def folded_cleanup(insns, nxt, a, n) -> bool:
             if after is not None and after.mnemonic == "ret" and ops[1].imm == frame_alloc(insns):
                 return False
             return ops[1].imm >= pushed + n
+        elif mn == "call":
+            # (a __cdecl call between that takes more than was pushed after `a`: the words pushed
+            # before `a` are its arguments, pushed early, not `a`'s. `push ebx; call [vt + 4]; add
+            # eax, edi; push eax; push dst; call memcpy; add esp, 0xc`: the getter took memcpy's
+            # size for `this`, and a shader load read 0xd4 + 8, a VS2010 client's 0x504190)
+            t = _target(ins)
+            need = _cdecl_args.get(t) if t is not None else None
+            if need and need > pushed:
+                return False
         elif mn in ("ret", "jmp") or mn.startswith("j") or any(
                 o.type == X.X86_OP_REG and o.reg == X.X86_REG_ESP for o in ops[:1]):
             return False
@@ -2792,6 +2967,13 @@ def main() -> None:
         for a, (cc, n) in v.get("icalls", {}).items():
             calls[hexa(a)] = [["i", 4]] * (n + {"__thiscall": 1, "__fastcall": 2}.get(cc, 0))
             ccs[hexa(a)] = cc
+            # (and its x87 result, where the caller reads one: `call edx; fcomp [x]`. Looked up in
+            # the direct calls' loop below, by their addresses, no indirect call's ever matched:
+            # every virtual float getter's result extraout_ST0, a VS2010 client's 0xcd9d70 a stub
+            # its job threads call 3 million times, 2026-10-26)
+            k = v.get("icall_rets", {}).get(a)
+            if k:
+                rets[hexa(a)] = ["f", 4] if k == "f4" else ["d", 8]
         # (a direct call to a variadic function: the words pushed for it, where more than its
         # fixed ones, analyse's call_pushes)
         for a, (t, n) in v.get("call_pushes", {}).items():
@@ -2806,9 +2988,6 @@ def main() -> None:
             if fixed is not None and n // 4 > fixed:
                 calls[hexa(a)] = [["i", 4]] * (n // 4)
                 ccs[hexa(a)] = "__cdecl"
-            k = v.get("icall_rets", {}).get(a)
-            if k:
-                rets[hexa(a)] = ["f", 4] if k == "f4" else ["d", 8]
     shapes: dict[str, int] = {}
     for cc in ccs.values():
         shapes[cc] = shapes.get(cc, 0) + 1

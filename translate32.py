@@ -111,7 +111,10 @@ LOST = re.compile(r"\b(in_[A-Z][A-Za-z0-9_]*|in_stack_[0-9a-f]+|unaff_[A-Za-z0-9
 # (the address its last: Ghidra's suffix for a repeated name is a short count, `_1`. As any digits,
 # it took the address of `PTR_vtable_004031d8_00404088` for one, and thing_open returned the
 # vtable it points at, not the object, rhtest msvc-14.51-x86 calls-GL com_calls 2026-10-25)
-ADDR_SYM = re.compile(r"(?<![\w$])(_*(?:DAT|PTR|LAB|UNK|BYTE|WORD|DWORD|QWORD|s|u|ws|switchdataD|vtable)(?:_\w*?)?_([0-9a-f]{8})(?:_\d{1,7})?)(?![\w$])")
+# (a string's label keeps some of its text's punctuation: `s_<name>_or_______expected_01348094`,
+# `s_in_function_<_s:_d>_013483cc`, Lua's messages. Read up to its `<`, the name was `s_`, undeclared)
+ADDR_SYM = re.compile(r"(?<![\w$])(_*(?:(?:DAT|PTR|LAB|UNK|BYTE|WORD|DWORD|QWORD|switchdataD|vtable)(?:_\w*?)?"
+                      r"|(?:s|u|ws)(?:_[\w<>:]*?)?)_([0-9a-f]{8})(?:_\d{1,7})?)(?![\w$])")
 # C's own words, and the names Ghidra32.h defines that the body may use
 C_WORDS = {"if", "else", "while", "for", "do", "switch", "case", "default", "break", "continue", "return",
            "goto", "sizeof", "const", "volatile", "struct", "union", "enum", "static", "extern", "unsigned",
@@ -120,7 +123,7 @@ HEADER_NAMES = {"REFG", "REFP", "GP", "PTR32", "MXCSR", "ExceptionList", "GenUni
                 "SQRT", "ROUND", "TRUNC", "FLOOR", "CEIL", "HeapCompatibilityInformation", "uintptr_t",
                 "intptr_t", "uint32_t", "int32_t", "uint64_t", "int64_t", "uint16_t", "int16_t", "uint8_t",
                 "int8_t", "__ptr32", "__uptr", "_InterlockedExchange", "NAN", "INFINITY",
-                "__debugbreak", "_rotl", "_rotr", "_rotl64", "_rotr64", "fabs", "sqrt",
+                "__debugbreak", "_rotl", "_rotr", "_rotl64", "_rotr64", "fabs", "sqrt", "pow",
                 "floor", "ceil", "trunc", "nearbyint", "memcpy", "memset", "rdtsc", "GEN_PIECE", "GEN_ISNAN",
                 "gen_piece_set", "gen_fl2bits", "gen_d2bits", "gen_bits2f", "gen_bits2d", "GEN_TOF", "GEN_TOD", "GEN_SLOT", "GEN_LOW",
                 "gen_ac", "GEN_LO32", "GEN_HI32",
@@ -470,8 +473,11 @@ def sse_ops(c: str, arrays: set[str], v16) -> str:
 # Guards were nowhere its unwind funclets look through ebp, rhtest eh 2026-10-24). Not a variable's
 # name as the type: a wrapped expression's last line, `fVar34 * local_90;`, is no declaration
 # (FUN_00d657d0 in a VS2010 client 2026-10-25)
-FRAME_LOCAL = r"(?:local|[a-z]{0,3}Stack|blk)_([0-9a-f]+)"
-FRAME_DECL = re.compile(r"(?m)^[ \t]+(?!(?:return|goto|case|else|do)\b)(?!(?:local|[a-z]{0,3}Stack|blk)_[0-9a-f]+\b)"
+# (the stack name's prefix is its type, any case: `aCStack_1a8` an array of CHAR. Lowercase only,
+# a DISPLAY_DEVICEA's DeviceName at +4 of the block a function fills was a C array of its own, and
+# CreateDCA got an unwritten name, a VS2010 client's 0xb1b020 2026-10-25)
+FRAME_LOCAL = r"(?:local|[A-Za-z]{0,5}Stack|blk)_([0-9a-f]+)"
+FRAME_DECL = re.compile(r"(?m)^[ \t]+(?!(?:return|goto|case|else|do)\b)(?!(?:local|[A-Za-z]{0,5}Stack|blk)_[0-9a-f]+\b)"
                         r"(?![a-z]{1,4}Var\d+\b)(?!(?:param|in|unaff|extraout)_\w+\b)"
                         r"((?:struct\s+)?[A-Za-z_]\w*(?:[ \t]+[A-Za-z_]\w*)*?(?:[ \t]*\*(?:[ \t]*PTR32)?)*)"
                         r"[ \t]*\b(" + FRAME_LOCAL + r")[ \t]*(\[[ \t]*(?:0x)?[0-9a-f]+[ \t]*\])?[ \t]*;[ \t]*\n")
@@ -554,6 +560,8 @@ def frame_locals(body: str, reserve: int = 0, minimum: int = 0, args: list[str] 
         body = re.sub(r"&\s*(" + alt + r")(?![\w$\[])", lambda m: repl[m.group(1)], body)
     if repl:
         body = re.sub(r"(?<![\w$])(" + "|".join(map(re.escape, repl)) + r")(?![\w$])", lambda m: repl[m.group(1)], body)
+    if arrays:
+        body = frame_index(body, [repl[a] for a in arrays])
     if reserve:
         body = frame_wrap(body)
     if args:
@@ -566,6 +574,33 @@ def frame_locals(body: str, reserve: int = 0, minimum: int = 0, args: list[str] 
 
 
 FRAME_AT = re.compile(r"\(gen_frame \+ 0x[0-9a-f]+\)")
+
+
+def frame_index(body: str, bases: list) -> str:
+    """A frame array's subscript as the reference computes it, in 32 bits: the index an int. An
+    unsigned one past 0x7fffffff is a negative one there, the address wrapping below the array:
+    MSVC folds `nums[log2(k - 1) + 1]` into an array based one element on, `nums1[log2(0)]` its
+    first element, and as a 64-bit index 0xffffffff landed 16 GB on (a Lua table's rehash)."""
+    for base in set(bases):
+        out, i = [], 0
+        while True:
+            p = body.find(base + "[", i)
+            if p < 0:
+                break
+            j = p + len(base) + 1
+            k, depth = j, 1
+            while k < len(body) and depth:
+                depth += {"[": 1, "]": -1}.get(body[k], 0)
+                k += 1
+            e = frame_index(body[j:k - 1], bases)
+            out.append(body[i:j])
+            # (a literal index is the same either way)
+            out.append(e if re.fullmatch(r"\s*-?(?:0x[0-9a-fA-F]+|\d+)\s*", e) else f"(int)({e})")
+            out.append("]")
+            i = k
+        out.append(body[i:])
+        body = "".join(out)
+    return body
 
 
 def frame_wrap(body: str) -> str:
@@ -620,6 +655,19 @@ def frame_wrap(body: str) -> str:
 RESULT_REG = re.compile(r"\b(?:in|extraout)_(?:E[AD]X|AL|AX)(?:_\d+)?\b")
 
 
+def next_is_return(v: str, lines: list[str], at: int) -> bool:
+    """The next line after `at` that mentions v is `return v;`, and no label or goto on the way: what
+    the line at `at` stores in v reaches only that return."""
+    for line in lines[at + 1:]:
+        s = line.strip()
+        if re.match(r"(?:goto\b|[A-Za-z_]\w*\s*:(?!:))", s) or re.match(r"(?:do|while|for)\b", s) \
+                or s.startswith("} while"):
+            return False
+        if re.search(r"\b" + re.escape(v) + r"\b", s):
+            return re.fullmatch(r"return\s+(?:\(\w+\)\s*)?" + re.escape(v) + r"\s*;", s) is not None
+    return False
+
+
 def returned_local(v: str, lines: list[str]) -> bool:
     """A local whose every read is a `return v;`: what is assigned to it reaches nothing else."""
     for line in lines:
@@ -672,8 +720,18 @@ def array_stores(c: str) -> str:
         if m.group(2) not in arrays or n not in (1, 2, 4, 8):
             return m.group(0)
         return f"{m.group(1)}*(undefined{n} *){m.group(2)} = {m.group(5)};"
-    return re.sub(r"(?m)^([ \t]+)([A-Za-z_]\w*)\s*=\s*\(\s*([A-Za-z_]\w*)\s*\[\s*((?:0x)?[0-9a-f]+)\s*\]\s*\)\s*(.+);[ \t]*$",
-                  one, c)
+    c = re.sub(r"(?m)^([ \t]+)([A-Za-z_]\w*)\s*=\s*\(\s*([A-Za-z_]\w*)\s*\[\s*((?:0x)?[0-9a-f]+)\s*\]\s*\)\s*(.+);[ \t]*$",
+               one, c)
+
+    # (and a local array stored whole through a pointer, `*(byte (*) [4])param_3 = local_28;`: its
+    # bytes as one store. A Direct3D surface's description copied out so, 0x4d5a50 in a VS2010 client)
+    def through(m):
+        n = ARRAY_ELEMENT.get(m.group(2), 0) * int(m.group(3), 0)
+        if m.group(5) not in arrays or n not in (1, 2, 4, 8):
+            return m.group(0)
+        return f"{m.group(1)}*(undefined{n} *)({m.group(4)}) = *(undefined{n} *){m.group(5)};"
+    return re.sub(r"(?m)^([ \t]+)\*\s*\(\s*([A-Za-z_]\w*)\s*\(\s*\*\s*\)\s*\[\s*((?:0x)?[0-9a-f]+)\s*\]\s*\)\s*"
+                  r"([A-Za-z_]\w*)\s*=\s*([A-Za-z_]\w*)\s*;[ \t]*$", through, c)
 
 
 def stack_vs_const(c: str) -> str:
@@ -727,6 +785,12 @@ def returned_only(c: str) -> set[str]:
                 # returns what OutputDebugStringA left in eax on one path, `uVar2 = extraout_EAX;
                 # ... return uVar2;`, a result no caller reads, 2026-10-24)
                 if m and m.group(2).strip() == n and returned_local(m.group(1), lines):
+                    continue
+                # (or into a local read elsewhere too, whose next mention after this is its return,
+                # nothing jumping in between: `CoUninitialize(); uVar1 = extraout_EAX; } ...;
+                # return uVar1;`, the COM teardown of a VS2010 client's 0xa0e240, whose one caller
+                # drops the result, 2026-10-25)
+                if m and m.group(2).strip() == n and next_is_return(m.group(1), lines, lines.index(line)):
                     continue
                 ok.discard(n)
                 changed = True
@@ -791,7 +855,11 @@ def filler_args(c: str) -> set[str]:
                 return False
         return True
     out = set()
-    for n in set(re.findall(r"\bextraout_E[ACD]X(?:_\d+)?\b", c)):
+    # (and an xmm register as the function found it, passed on whole and read nowhere else: what a
+    # callee's partial SSE writes made protos32 take for its input, `FUN_00c03850(in_XMM0_Da, ...,
+    # L, 1)` where the CRT's _CIpow far below merges into xmm0, a VS2010 client's 0xbb9600
+    # 2026-10-25. The function sets none of them, so whatever is there reaches the callee as it would)
+    for n in set(re.findall(r"\bextraout_E[ACD]X(?:_\d+)?\b|\bin_XMM\d+_D[a-d]\b", c)):
         if filler(n, [n]):
             out.add(n)
     return out
@@ -805,6 +873,10 @@ def load_corpus() -> dict[int, dict]:
             # (Ghidra writes Windows newlines; every pattern here reads \n. One it could not
             # decompile has an "error" and no C: no signature, so a stub)
             r["c"] = r.get("c", "").replace("\r\n", "\n").replace("\r", "\n")
+            # (the CRT's x87 power, as ApplyFacts' call fixup writes it: `fscale(from_bcd(x), y)`,
+            # p-code having no pow, is pow(x, y))
+            if "fscale(from_bcd(" in r["c"]:
+                r["c"] = r["c"].replace("fscale(from_bcd(", "pow((")
             out[int(r["addr"], 16)] = r
     return out
 
@@ -1219,6 +1291,25 @@ class Translator32:
             w = re.search(r"[\w~]+", n)
             if w:
                 self.odd_by_word[w.group(0)].append(n)
+        # (and each by its scopes' suffixes, as Ghidra writes one relative to a namespace the
+        # function shares with it: `System::Data::ChunkWrite<unsigned_char,unsigned_short>::vftable`
+        # inside `Client::UI::Misc`, for `Client::System::Data::...`. Only a suffix one name has)
+        self.odd_suffix: dict[str, str | None] = {}
+        for n in self.odd_functions | self.odd_data:
+            depth, cuts = 0, []
+            for i, ch in enumerate(n):
+                depth += ch in "<(" and 1 or ch in ">)" and -1 or 0
+                if depth == 0 and n.startswith("::", i) and i > 0:
+                    cuts.append(i + 2)
+            for c in cuts:
+                s = n[c:]
+                if odd.search(s) and s not in self.by_printed and s not in self.ref_names:
+                    self.odd_suffix[s] = n if s not in self.odd_suffix else None
+        for s, n in self.odd_suffix.items():
+            if n is not None:
+                w = re.search(r"[\w~]+", s)
+                if w:
+                    self.odd_by_word[w.group(0)].append(s)
         self.tls_index = self.ref_names.get("_tls_index") or self.tls_index_slot()
         # the globals the code loads and stores as floats (floatdata.py: x87 and SSE operand widths)
         import floatdata
@@ -1252,10 +1343,21 @@ class Translator32:
         pe = pefile.PE(str(project.EXE), fast_load=True)
         pe.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_IMPORT"]])
         out = {}
+        # (an import by ordinal by the name Ghidra gives its slot, `PTR_XInputEnable_0107e5a0`: the
+        # decompiled code calls it by that name, and the x64 DLL exports it so. Left out, its slot
+        # held its ordinal and the functions calling XInput or comctl32's SetWindowSubclass were
+        # stubs, a VS2010 client 2026-10-25)
+        by_slot = {}
+        for n in self.ref_names:
+            m = re.fullmatch(r"PTR_(\w+?)_([0-9a-f]{8})", n)
+            if m:
+                by_slot[int(m.group(2), 16)] = m.group(1)
         for dll in getattr(pe, "DIRECTORY_ENTRY_IMPORT", []):
             for imp in dll.imports:
                 if imp.name:
                     out[imp.name.decode()] = (imp.address, dll.dll.decode())
+                elif imp.address in by_slot and not by_slot[imp.address].startswith(("Ordinal_", "DAT_", "FUN_")):
+                    out[by_slot[imp.address]] = (imp.address, dll.dll.decode())
         pe.close()
         return out
 
@@ -1908,6 +2010,14 @@ class Translator32:
         # (a long C++ name Ghidra wraps at a `::`, `IpcChannel::\n        PacketBufferTmpl<...>::\n
         # vftable`: one name again, as the data export has it. 1,090 stubs, 2026-10-23)
         c = re.sub(r"::[ \t]*\n[ \t]*", "::", c)
+        # (or wraps before it, `...::ChatProtoDownCallbackInterface\n                 ::vf0`, a
+        # name's end then a line starting `::`: one name too, before the global scope's `::` goes)
+        c = re.sub(r"(?<=[\w>])[ \t]*\n[ \t]*::(?=[A-Za-z_~])", "::", c)
+        # (and a name Ghidra qualifies from the global scope, `::Common::Config::Item::vftable`, where
+        # the function's own namespace has a `Common` too: the data export has it without the
+        # leading `::`. Left so, 140 functions of a client with RTTI class names were stubs,
+        # 2026-10-25)
+        c = re.sub(r"(?<![\w$:>)\]])::(?=[A-Za-z_])", "", c)
         # (Ghidra's INT_MIN, `-0x80000000`: C reads 0x80000000 as unsigned, and its negation too,
         # so `-0x80000000 >> n`, an x86 `sar` making a mask of ones, shifted in zeros. The
         # graphics allocator's free-bucket mask found no bucket, a VS2010 client 2026-10-24)
@@ -2281,11 +2391,14 @@ class Translator32:
         # (Ghidra's stack pieces, `_uStack_1c`; not a library signature's `_StackCookie`)
         # (one the function declares is a local of its own: __setmbcp_nolock's `_cpinfo _Stack_1c;`,
         # a struct the decompiler named so, 2026-10-24)
-        left = next((m for m in re.finditer(r"::|`|\bregister0x|\b_(?:local|param|[a-z]*Stack(?![A-Za-z])|auStack)\w*|\bin_(?!E[ACD]X\b|E[ACD]X_\d+\b|A[LX]\b|A[LX]_\d+\b|XMM\d+\b)[A-Z]", code_only)
+        left = next((m for m in re.finditer(r"::|`|\bregister0x|\b_(?:local|param|[a-z]*Stack(?![A-Za-z])|auStack)\w*|\bin_(?!E[ACD]X\b|E[ACD]X_\d+\b|A[LX]\b|A[LX]_\d+\b|XMM\d+\b|XMM\d+_D[a-d]\b)[A-Z]", code_only)
                      if not (m.group(0).startswith("_") and re.search(
                          rf"^[ \t]+[\w ]+?[\s*]{re.escape(m.group(0))}(?:\s*\[\w+\])?;", code_only, re.M))), None)
         if left:
-            raise ValueError(f"a name C cannot take ({left.group(0)})")
+            # (with the name around it: `::` alone says nothing of which)
+            around = re.search(r"[\w$:<>,~`']*\Z", code_only[:left.start()]).group(0) + \
+                re.match(r"[\w$:<>,~`']*", code_only[left.start():]).group(0)
+            raise ValueError(f"a name C cannot take ({left.group(0)}: {around[:80]})")
         self.undeclared(body, var_types)
         ret = self.ret_type(sig.ret)
         if sig.ret.strip() == "void":
@@ -2968,10 +3081,12 @@ class Translator32:
                         if n in body}, key=len, reverse=True)
         if not cands:
             return body
-        odd_re = re.compile(r"(?<![\w$])(" + "|".join(map(re.escape, cands)) + r")(?![\w$])")
+        odd_re = re.compile(r"(?<![\w$:])(" + "|".join(map(re.escape, cands)) + r")(?![\w$])")
 
         def rep(m):
             name = m.group(1)
+            # (a relative spelling: the full name it is the suffix of)
+            name = self.odd_suffix.get(name) or name
             rest = body[m.end():].lstrip()
             if name in self.odd_functions:
                 a = self.by_printed[name]

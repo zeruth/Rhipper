@@ -11,8 +11,13 @@ function keeps its breakpoint only for its first --per-function hits, so a hot l
 does not take the run; the run ends at --max records, at --until (a reference address), or when the
 program exits.
 
+With --from ADDR the run starts recording at a known-good point instead of the entry: only ADDR has
+a breakpoint, the program runs at full speed to it, and from its first call there on every function
+is armed and recorded (the port's trace starts there too with <ENV>_TRACE_FROM=ADDR). The part
+before it is checked now and then from the start, for regressions.
+
     python shadow32.py --out build/shadow-ref.bin [--max 400000] [--per-function 2000] \
-                       [--until 0xc5c6db] [-- args to the program...]
+                       [--from 0xa0e240] [--until 0xc5c6db] [-- args to the program...]
 
 Run it from where the program is installed, with the arguments it is normally started with. Each
 record is 24 bytes: tid, reference address, and four argument words, matching the port's
@@ -26,6 +31,7 @@ import json
 import struct
 import sys
 import time
+from pathlib import Path
 from ctypes import wintypes as W
 
 from pebin import FACTS, Binary
@@ -87,9 +93,14 @@ class EXCEPTION_DEBUG_INFO(ctypes.Structure):
     _fields_ = [("ExceptionRecord", EXCEPTION_RECORD), ("dwFirstChance", W.DWORD)]
 
 
+class EXIT_PROCESS_DEBUG_INFO(ctypes.Structure):
+    _fields_ = [("dwExitCode", W.DWORD)]
+
+
 class _U(ctypes.Union):
     _fields_ = [("Exception", EXCEPTION_DEBUG_INFO), ("CreateThread", CREATE_THREAD_DEBUG_INFO),
-                ("CreateProcessInfo", CREATE_PROCESS_DEBUG_INFO), ("pad", ctypes.c_byte * 164)]
+                ("CreateProcessInfo", CREATE_PROCESS_DEBUG_INFO), ("ExitProcess", EXIT_PROCESS_DEBUG_INFO),
+                ("pad", ctypes.c_byte * 164)]
 
 
 class DEBUG_EVENT(ctypes.Structure):
@@ -125,10 +136,194 @@ k32.OpenThread.restype = W.HANDLE
 k32.OpenThread.argtypes = [W.DWORD, W.BOOL, W.DWORD]
 
 
+k32.SuspendThread.argtypes = [W.HANDLE]
+k32.ResumeThread.argtypes = [W.HANDLE]
+k32.VirtualAllocEx.restype = ctypes.c_void_p
+k32.VirtualAllocEx.argtypes = [W.HANDLE, ctypes.c_void_p, ctypes.c_size_t, W.DWORD, W.DWORD]
+k32.CreateRemoteThread.restype = W.HANDLE
+k32.CreateRemoteThread.argtypes = [W.HANDLE, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_void_p,
+                                   W.DWORD, ctypes.POINTER(W.DWORD)]
+k32.DebugActiveProcessStop.argtypes = [W.DWORD]
+k32.DebugSetProcessKillOnExit.argtypes = [W.BOOL]
+k32.WaitForSingleObject.argtypes = [W.HANDLE, W.DWORD]
+k32.GetExitCodeProcess.argtypes = [W.HANDLE, ctypes.POINTER(W.DWORD)]
+psapi = ctypes.WinDLL("psapi", use_last_error=True)
+psapi.EnumProcessModulesEx.argtypes = [W.HANDLE, ctypes.POINTER(W.HMODULE), W.DWORD, ctypes.POINTER(W.DWORD), W.DWORD]
+psapi.GetModuleBaseNameW.argtypes = [W.HANDLE, W.HMODULE, W.LPWSTR, W.DWORD]
+
+# ---- --inproc: the recording done in the reference itself (shadow32dll/ShadowTrace.cpp) -------------
+# The debugger only starts it: a breakpoint at the image's entry, the tracer DLL loaded there by a
+# thread of the process's own (the main thread held), then detached. The DLL arms every function
+# entry and records in the process, each call one exception there instead of a stop of the whole
+# process for this debugger: the run goes at a good fraction of the program's own speed.
+JCC = {"jo": 0, "jno": 1, "jb": 2, "jae": 3, "je": 4, "jne": 5, "jbe": 6, "ja": 7, "js": 8, "jns": 9,
+       "jp": 10, "jnp": 11, "jl": 12, "jge": 13, "jle": 14, "jg": 15}
+REG_CODES = {"eax": 0, "ecx": 1, "edx": 2, "ebx": 3, "esi": 4, "edi": 5, "ebp": 6,
+             "al": 0x10, "cl": 0x11, "dl": 0x12, "bl": 0x13, "ax": 0x20, "cx": 0x21, "dx": 0x22}
+
+
+def write_table(path):
+    """The tracer's table (ShadowTrace.cpp's header): every function's entry, its first instruction's
+    length and kind, and where its arguments are (protos.json, as Shadow._spec reads them)."""
+    import capstone
+    b = Binary()
+    md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+    funcs = json.loads((FACTS / "functions.json").read_text())["functions"]
+    pr = FACTS / "protos.json"
+    protos = json.loads(pr.read_text())["functions"] if pr.exists() else {}
+    lines = [f"{b.base:x} {len(b.image):x}"]
+    for f in funcs:
+        a = int(f["entry"], 16)
+        if not (b.text.start <= a < b.text.end):
+            continue
+        ins = next(md.disasm(bytes(b.image[a - b.base:a - b.base + 16]), a, 1), None)
+        if ins is None:
+            continue
+        mn, ops = ins.mnemonic, ins.op_str
+        kind, target, cc = 0, 0, 0
+        if mn == "call" and ops.startswith("0x"):
+            kind, target = 1, int(ops, 16)
+        elif mn == "jmp" and ops.startswith("0x"):
+            kind, target = 2, int(ops, 16)
+        elif mn in JCC and ops.startswith("0x"):
+            kind, target, cc = 3, int(ops, 16), JCC[mn]
+        elif mn.startswith("loop") or mn in ("jecxz", "jcxz") or ins.size > 15:
+            kind = 4
+        e = protos.get(f"0x{a:x}") or protos.get("0x%08x" % a)
+        nreg, regs, nargs = Shadow._spec(e)
+        codes = "".join(f"{REG_CODES[r]:02x}" for r in regs if r in REG_CODES) or "-"
+        lines.append(f"{a:x} {ins.size:x} {kind:x} {target:x} {cc:x} {codes} {nargs:x}")
+    Path(path).write_text("\n".join(lines) + "\n")
+    return len(lines) - 1
+
+
+def build_tracer() -> Path:
+    """ShadowTrace.dll, built with the x86 compiler when its source is newer (vcvars32 through
+    vswhere), into the project's build folder."""
+    import subprocess
+    src = Path(__file__).resolve().parent / "shadow32dll" / "ShadowTrace.cpp"
+    out = project.BUILD / "shadow32" / "ShadowTrace.dll"
+    if out.exists() and out.stat().st_mtime >= src.stat().st_mtime:
+        return out
+    out.parent.mkdir(parents=True, exist_ok=True)
+    vswhere = Path(r"C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe")
+    vs = subprocess.run([str(vswhere), "-latest", "-property", "installationPath"], capture_output=True,
+                        text=True).stdout.strip()
+    vcvars = Path(vs) / "VC" / "Auxiliary" / "Build" / "vcvars32.bat"
+    # (through a batch file: cmd /c's own quoting of a command line with quoted paths in it)
+    bat = out.parent / "build.bat"
+    bat.write_text(f'@call "{vcvars}" >nul\r\ncl /nologo /O2 /LD /MT /EHsc /W3 "{src}" /Fe"{out}" '
+                   f'/Fo"{out.parent}\\\\" /link /NOLOGO kernel32.lib\r\n')
+    r = subprocess.run(["cmd", "/c", str(bat)], capture_output=True, text=True, cwd=out.parent)
+    if not out.exists():
+        sys.exit(f"shadow32: the tracer did not build:\n{r.stdout}\n{r.stderr}")
+    return out
+
+
+def inproc_run(exe, cmdline, cwd, a):
+    """The reference run with the tracer in it (see above); returns its exit code."""
+    import os
+    table, out = os.environ.get("SHADOW_TABLE"), os.environ.get("SHADOW_OUT")
+    if not table or not out:
+        # (set by the caller, for the reference's run and the port's alike: the CRT walks the
+        # environment, and a variable one run has and the other does not parts them)
+        sys.exit("shadow32 --inproc: set SHADOW_TABLE and SHADOW_OUT (and the same in the port's run)")
+    n = write_table(table)
+    dll = build_tracer()
+    import pefile
+    entry = Binary().base + pefile.PE(exe, fast_load=True).OPTIONAL_HEADER.AddressOfEntryPoint
+    k32w = pefile.PE(r"C:\Windows\SysWOW64\kernel32.dll", fast_load=True)
+    k32w.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_EXPORT"]])
+    load_rva = next(s.address for s in k32w.DIRECTORY_ENTRY_EXPORT.symbols if s.name == b"LoadLibraryW")
+    si = STARTUPINFOW()
+    si.cb = ctypes.sizeof(si)
+    pi = PROCESS_INFORMATION()
+    if not k32.CreateProcessW(exe, ctypes.create_unicode_buffer(cmdline), None, None, False, DEBUG_ONLY_THIS_PROCESS,
+                              None, cwd, ctypes.byref(si), ctypes.byref(pi)):
+        sys.exit(f"shadow32: cannot start {exe} ({ctypes.get_last_error()})")
+    t0 = time.time()
+    ev = DEBUG_EVENT()
+    hproc, live_entry, orig, delta = None, None, None, 0
+    injected_tid = None
+    main_thread = pi.hThread
+    while True:
+        if not k32.WaitForDebugEvent(ctypes.byref(ev), INFINITE):
+            break
+        code, status = ev.dwDebugEventCode, DBG_CONTINUE
+        if code == CREATE_PROCESS_DEBUG_EVENT:
+            hproc = ev.u.CreateProcessInfo.hProcess
+            delta = (ev.u.CreateProcessInfo.lpBaseOfImage or 0) - Binary().base
+            live_entry = entry + delta
+            buf = (ctypes.c_char * 1)()
+            k32.ReadProcessMemory(hproc, ctypes.c_void_p(live_entry), buf, 1, None)
+            orig = buf.raw[0]
+            cc = ctypes.c_char(CC)
+            k32.WriteProcessMemory(hproc, ctypes.c_void_p(live_entry), ctypes.byref(cc), 1, None)
+            k32.FlushInstructionCache(hproc, ctypes.c_void_p(live_entry), 1)
+        elif code == EXIT_PROCESS_DEBUG_EVENT:
+            sys.exit("shadow32: the reference exited before its entry")
+        elif code == EXIT_THREAD_DEBUG_EVENT and ev.dwThreadId == injected_tid:
+            # (the tracer loaded and armed: the program goes on without this debugger)
+            k32.ContinueDebugEvent(ev.dwProcessId, ev.dwThreadId, DBG_CONTINUE)
+            k32.DebugSetProcessKillOnExit(False)
+            k32.DebugActiveProcessStop(pi.dwProcessId)
+            k32.ResumeThread(main_thread)
+            break
+        elif code == EXCEPTION_DEBUG_EVENT:
+            rec = ev.u.Exception.ExceptionRecord
+            ec, at = rec.ExceptionCode & 0xFFFFFFFF, rec.ExceptionAddress or 0
+            if ec in (STATUS_BREAKPOINT, STATUS_WX86_BREAKPOINT) and at == live_entry and injected_tid is None:
+                # the entry reached: its byte back, the main thread held there, the tracer loaded
+                b = ctypes.c_char(orig)
+                k32.WriteProcessMemory(hproc, ctypes.c_void_p(live_entry), ctypes.byref(b), 1, None)
+                k32.FlushInstructionCache(hproc, ctypes.c_void_p(live_entry), 1)
+                h = k32.OpenThread(0x1FFFFF, False, ev.dwThreadId)
+                ctx = WOW64_CONTEXT()
+                ctx.ContextFlags = WOW64_CONTEXT_FULL
+                k32.Wow64GetThreadContext(h, ctypes.byref(ctx))
+                ctx.Eip = live_entry
+                k32.Wow64SetThreadContext(h, ctypes.byref(ctx))
+                main_thread = h
+                k32.SuspendThread(h)
+                mods = (W.HMODULE * 512)()
+                need = W.DWORD(0)
+                psapi.EnumProcessModulesEx(hproc, mods, ctypes.sizeof(mods), ctypes.byref(need), 1)
+                base = None
+                name = ctypes.create_unicode_buffer(260)
+                for m in mods[:need.value // ctypes.sizeof(W.HMODULE)]:
+                    if m and psapi.GetModuleBaseNameW(hproc, m, name, 260) and name.value.lower() == "kernel32.dll":
+                        base = m
+                if base is None:
+                    sys.exit("shadow32: no 32-bit kernel32 in the reference at its entry")
+                path = str(dll) + "\0"
+                mem = k32.VirtualAllocEx(hproc, None, len(path) * 2, 0x3000, 0x04)
+                k32.WriteProcessMemory(hproc, ctypes.c_void_p(mem), ctypes.create_unicode_buffer(path), len(path) * 2, None)
+                tid = W.DWORD(0)
+                k32.CreateRemoteThread(hproc, None, 0, ctypes.c_void_p(base + load_rva), ctypes.c_void_p(mem), 0,
+                                       ctypes.byref(tid))
+                injected_tid = tid.value
+            elif ec not in (STATUS_BREAKPOINT, STATUS_WX86_BREAKPOINT, STATUS_SINGLE_STEP, STATUS_WX86_SINGLE_STEP):
+                status = DBG_EXCEPTION_NOT_HANDLED
+        k32.ContinueDebugEvent(ev.dwProcessId, ev.dwThreadId, status)
+    print(f"shadow32: tracing in the reference ({n} functions) after {time.time() - t0:.1f}s; waiting for it to exit",
+          file=sys.stderr, flush=True)
+    while k32.WaitForSingleObject(hproc, 30000) != 0:
+        size = os.path.getsize(out) if os.path.exists(out) else 0
+        print(f"shadow32: {size // 24} calls, {time.time() - t0:.0f}s", file=sys.stderr, flush=True)
+    code = W.DWORD(0)
+    k32.GetExitCodeProcess(hproc, ctypes.byref(code))
+    size = os.path.getsize(out) if os.path.exists(out) else 0
+    print(f"shadow32: the reference exited with 0x{code.value & 0xFFFFFFFF:08x}; {size // 24} calls in {out}",
+          file=sys.stderr, flush=True)
+    return code.value
+
+
 class Shadow:
     def __init__(self, exe, cmdline, cwd, args):
         self.exe, self.cmdline, self.cwd = exe, cmdline, cwd
         self.limit, self.per_function, self.until = args.max, args.per_function, args.until
+        self.start = getattr(args, "start", None)      # --from: the address recording starts at
+        self.recording = self.start is None
         self.hproc = None
         self.base = 0                           # where the loader put the image
         self.delta = 0                          # base - reference_base (functions.json is reference-based)
@@ -139,6 +334,8 @@ class Shadow:
         self.stepping: dict[int, int | None] = {}   # tid -> the live address to re-arm after its step
         self.records = bytearray()
         self.n = 0
+        self.out = None                         # the trace file, written as it grows (run())
+        self.faults = 0
         self.done = False
         self._load_facts()
 
@@ -175,7 +372,10 @@ class Shadow:
             regs = list(e.get("regs", []))
         else:
             regs = []
-        return (len(regs), regs, min(nparams, 4))
+        # (the stack's words count too where the parameter list is short of them: a __thiscall
+        # with `stack` 12 and three params took three stack words, its third recorded as 0)
+        words = len(regs) + e.get("stack", 0) // 4
+        return (len(regs), regs, min(max(nparams, words), 4))
 
     # ---- memory ----------------------------------------------------------------------------------
     def _read(self, addr, size):
@@ -207,10 +407,24 @@ class Shadow:
                 continue
             live = a + self.delta
             self.orig[live] = text[a - self.text_lo]
-            self._write_byte(live, CC)
-            armed += 1
+            # (with --from, only its address now: the rest when it is first reached, _arm_rest)
+            if self.start is None or a == self.start:
+                self._write_byte(live, CC)
+                armed += 1
         k32.FlushInstructionCache(self.hproc, ctypes.c_void_p(lo), hi - lo)
-        print(f"shadow32: armed {armed} function entries at base 0x{self.base:x}", file=sys.stderr, flush=True)
+        what = f"0x{self.start:x}, the rest when it is reached" if self.start is not None else f"{armed} function entries"
+        print(f"shadow32: armed {what} at base 0x{self.base:x}", file=sys.stderr, flush=True)
+
+    def _arm_rest(self):
+        """--from's address reached: every other function entry armed, recording from here."""
+        lo, hi = self.text_lo + self.delta, self.text_hi + self.delta
+        start_live = self.start + self.delta
+        for live in self.orig:
+            if live != start_live:
+                self._write_byte(live, CC)
+        k32.FlushInstructionCache(self.hproc, ctypes.c_void_p(lo), hi - lo)
+        self.recording = True
+        print(f"shadow32: reached 0x{self.start:x}; recording every function from here", file=sys.stderr, flush=True)
 
     def _context(self, tid):
         h = self.threads.get(tid)
@@ -245,6 +459,12 @@ class Shadow:
             vals = [(v - self.delta) & 0xFFFFFFFF if lo <= v < hi else v for v in vals]
         self.records += struct.pack("<6I", tid, ref_addr, *vals)
         self.n += 1
+        # (written out as it grows: a run cut short, the reference or this process killed from
+        # outside, keeps what it recorded. One killed at 400,000 calls kept nothing, 2026-10-25)
+        if self.out is not None and len(self.records) >= 1 << 20:
+            self.out.write(self.records)
+            self.out.flush()
+            self.records = bytearray()
 
     def _on_breakpoint(self, tid, live_addr):
         """A CC we planted (live_addr is its address). Record, restore, single-step to re-arm."""
@@ -254,6 +474,8 @@ class Shadow:
         h, ctx = self._context(tid)
         if ctx is None:
             return True
+        if not self.recording and ref_addr == self.start:
+            self._arm_rest()
         ctx.Eip = live_addr                      # back onto the real instruction
         if self.hits.get(ref_addr, 0) < self.per_function:
             self.hits[ref_addr] = self.hits.get(ref_addr, 0) + 1
@@ -307,6 +529,10 @@ class Shadow:
             elif code == EXIT_THREAD_DEBUG_EVENT:
                 self.threads.pop(ev.dwThreadId, None)
             elif code == EXIT_PROCESS_DEBUG_EVENT:
+                # (how the reference ended, when it ends on its own: a run cut short by the shadow
+                # itself is no record of the reference)
+                print(f"shadow32: the reference exited with 0x{ev.u.ExitProcess.dwExitCode & 0xFFFFFFFF:08x} "
+                      f"after {self.n} calls", file=sys.stderr, flush=True)
                 break
             elif code == EXCEPTION_DEBUG_EVENT:
                 rec = ev.u.Exception.ExceptionRecord
@@ -320,6 +546,14 @@ class Shadow:
                     self._on_singlestep(ev.dwThreadId)
                 else:
                     status = DBG_EXCEPTION_NOT_HANDLED   # a real fault: the program's own
+                    # (each logged, the first 50: one the program does not handle ends it, and a
+                    # recording that stops early says why here)
+                    self.faults += 1
+                    if self.faults <= 50:
+                        first = "first" if ev.u.Exception.dwFirstChance else "SECOND"
+                        ref = at - self.delta if self.base <= at < self.base + self.image_size else at
+                        print(f"shadow32: exception {ec:08x} ({first} chance) at {ref:#x} on thread "
+                              f"{ev.dwThreadId} after {self.n} calls", file=sys.stderr, flush=True)
             k32.ContinueDebugEvent(ev.dwProcessId, ev.dwThreadId, status)
             if self.n and self.n % 100000 == 0:
                 print(f"shadow32: {self.n} calls, {time.time() - t0:.0f}s", file=sys.stderr, flush=True)
@@ -344,18 +578,34 @@ def main():
     ap.add_argument("--per-function", type=int, default=2000,
                     help="record each function at most this many times, then remove its breakpoint")
     ap.add_argument("--until", help="stop when this reference address (hex) is first reached")
+    ap.add_argument("--from", dest="start", help="start recording when this reference address (hex) is first "
+                                                  "called, running at full speed until then")
+    ap.add_argument("--inproc", action="store_true",
+                    help="record in the reference itself (shadow32dll): many times faster. The trace goes to "
+                         "SHADOW_OUT, the function table to SHADOW_TABLE, both set by the caller (and in the "
+                         "port's run too); SHADOW_FROM, SHADOW_MAX and SHADOW_PER_FUNCTION as --from, --max and "
+                         "--per-function")
     ap.add_argument("args", nargs=argparse.REMAINDER, help="-- then the program's own arguments")
     a = ap.parse_args()
     a.until = int(a.until, 16) if a.until else None
+    a.start = int(a.start, 16) if a.start else None
     exe = a.exe or str(project.EXE)
     prog_args = a.args[1:] if a.args and a.args[0] == "--" else a.args
     cmdline = " ".join([f'"{exe}"'] + [f'"{x}"' if " " in x else x for x in prog_args])
     import os
+    if a.inproc:
+        inproc_run(exe, cmdline, os.getcwd(), a)
+        return
     sh = Shadow(exe, cmdline, os.getcwd(), a)
-    data = sh.run()
     with open(a.out, "wb") as f:
-        f.write(data)
-    print(f"shadow32: wrote {len(data) // 24} calls to {a.out}", file=sys.stderr)
+        sh.out = f
+        try:
+            sh.run()
+        finally:
+            # (what is left of the records, also when the run ends in an exception)
+            f.write(sh.records)
+            sh.records = bytearray()
+    print(f"shadow32: wrote {sh.n} calls to {a.out}", file=sys.stderr)
 
 
 if __name__ == "__main__":

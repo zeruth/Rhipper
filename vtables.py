@@ -78,6 +78,11 @@ def main() -> None:
                 holders[t].add(ds + j)
     starts = sorted(set(takers) | set(holders))
 
+    def text_like(v: int) -> bool:
+        """Two printable UTF-16 characters read as a word: 0x00XX00YY, an address in a 32-bit
+        image's .text by chance ("RM" is 0x004d0052)."""
+        return PS == 4 and v >> 24 == 0 and (v >> 8) & 0xFF == 0 and 0x20 <= v >> 16 < 0x7F and 0x20 <= v & 0xFF < 0x7F
+
     vtables = []
     for k, vt in enumerate(starts):
         i = (vt - s) // PS
@@ -86,6 +91,11 @@ def main() -> None:
         while i < limit and is_fp[i] and not iat_lo <= s + PS * i < iat_hi:
             slots.append(hexa(q[i]))
             i += 1
+        # (not a wide string a table in .data points at: its characters in pairs are "slots", and
+        # their functions cut real ones short. A VS2010 client's L"_SUPPORTED_RMODES" table made
+        # functions of 0x4d0050 and 0x4d0052 inside 0x4cffd0, a stub on WinMain's path 2026-10-26)
+        if slots and sum(text_like(int(x, 16)) for x in slots) * 4 >= len(slots) * 3:
+            continue
         entry = {"vtable": hexa(vt), "slots": slots, "referenced_by": sorted(hexa(f) for f in takers[vt])}
         if vt in holders:
             entry["held_by"] = sorted(hexa(g) for g in holders[vt])

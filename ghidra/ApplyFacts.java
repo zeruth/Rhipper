@@ -494,6 +494,10 @@ public class ApplyFacts extends GhidraScript {
         bodies.put("ftoul2_legacy", ftoul);
         // (the CRT's square roots, imported: x87's in st0, SSE2's in xmm0)
         bodies.put("CIsqrt", "ST0 = sqrt(ST0);" + pop0);
+        // (and its power, x in st1 and y in st0, x^y left in st0: p-code has no pow, so a pair of
+        // the language's operations nothing else writes together, `fscale(from_bcd(x), y)`, which
+        // translate32.py reads as pow(x, y). FBLD's from_bcd never wraps an fscale's operand)
+        bodies.put("CIpow", "b:10 = from_bcd(ST1); r:10 = fscale(b, ST0); ST1 = r;" + pop87 + pop0);
         // (and the library's sqrt, a __cdecl double on the stack, its root pushed: VS2010's _sqrt at
         // /Od, found by helpers32.py; the caller pops the argument)
         String push87 = " ST7 = ST6; ST6 = ST5; ST5 = ST4; ST4 = ST3; ST3 = ST2; ST2 = ST1; ST1 = ST0;";

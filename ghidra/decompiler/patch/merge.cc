@@ -350,6 +350,9 @@ void Merge::mergeOpcode(OpCode opc)
       for(int4 j=0;j<op->numInput();++j) {
 	vn2 = op->getIn(j);
 	if (!mergeTestBasic(vn2)) continue;
+	// RHIPPER: nor here an address-tied variable with one that is not (mergeTestAdjacent's
+	// reason): the COPY mergeOp puts on a tied input's path would be merged straight back
+	if (vn1->getHigh()->isAddrTied() != vn2->getHigh()->isAddrTied()) continue;
 	if (mergeTestRequired(vn1->getHigh(),vn2->getHigh()))
 	  merge(vn1->getHigh(),vn2->getHigh(),false);	// This is a required merge
       }
@@ -738,6 +741,18 @@ void Merge::mergeOp(PcodeOp *op)
   for(i=0;i<max;++i) {
     HighVariable *high_in = op->getIn(i)->getHigh();
     if (!mergeTestRequired(high_out,high_in)) {
+      trimOpInput(op,i);
+      continue;
+    }
+    // RHIPPER: nor an address-tied input into a MULTIEQUAL that is not: merged, the join's other
+    // values become the tied variable's, each printed as a store to its storage that the program
+    // never made, and a read of the storage through a pointer then sees them. An x86 heap's free-
+    // list unlink (0x4f56b0 in a VS2010 client) returned eax, its parameter on one path and a list
+    // head or a bit mask on the others; the parameter's slot also held a bucket index, read back
+    // through a std::max-style pointer to it, and the C read the list head there: the wrong bit of
+    // the free-bucket mask cleared, an empty bucket's head handed out as a block (Lua's strings
+    // written over the allocator itself). Trimmed, the parameter is copied on its own path
+    if (op->code() == CPUI_MULTIEQUAL && high_in->isAddrTied() && !high_out->isAddrTied()) {
       trimOpInput(op,i);
       continue;
     }

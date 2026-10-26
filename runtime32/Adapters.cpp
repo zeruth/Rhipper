@@ -907,11 +907,28 @@ unsigned int gen_imp_InterlockedCompareExchange(uint32_t p, uint32_t v, uint32_t
 // ---- the module: the reference's image, not the port's --------------------------------------
 // (GetModuleHandle(NULL) is the image the code reads its own PE headers from: the CRT's
 // __scrt_is_managed_app checked the port's x64 headers as PE32)
+// the 64-bit name of a 32-bit library that has one of its own (a path's file name compared)
+static const char* Library64(const char* name) {
+    static const char* const twins[][2] = {{"nvapi.dll", "nvapi64.dll"}, {"nvapi", "nvapi64"}};
+    if (name == nullptr) return name;
+    const char* file = name;
+    for (const char* p = name; *p; p++)
+        if (*p == '\\' || *p == '/') file = p + 1;
+    for (const auto& t : twins)
+        if (_stricmp(file, t[0]) == 0) return t[1];
+    return name;
+}
 unsigned int gen_imp_GetModuleHandleW(uint32_t name) {
     return name ? Low(GetModuleHandleW(At<wchar_t>(name))) : gen_ref_base;
 }
 unsigned int gen_imp_GetModuleHandleA(uint32_t name) {
-    return name ? Low(GetModuleHandleA(At<char>(name))) : gen_ref_base;
+    return name ? Low(GetModuleHandleA(Library64(At<char>(name)))) : gen_ref_base;
+}
+// (a 32-bit library whose 64-bit twin has another name, as the port loads it: NVIDIA's NVAPI,
+// nvapi.dll on x86 and nvapi64.dll on x64. Not loaded, the 32-bit reference's driver queries took
+// their no-NVAPI path, the reference its NVAPI one, and the two runs parted, 2026-10-25)
+unsigned int gen_imp_LoadLibraryA(uint32_t name) {
+    return Low(LoadLibraryA(name ? Library64(At<char>(name)) : nullptr));
 }
 // (and its file name is the reference's: a client hashes its own executable at startup,
 // GetModuleFileNameW(NULL) and a read of it in 1 KB pieces, and the port's file, another size,
