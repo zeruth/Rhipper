@@ -1247,6 +1247,10 @@ def result_reads(insns, state, nxt):
             via: set[int] = set()
             if eax_reaches_ret(insns, state, nxt, a + ins.size, through=via) and via:
                 passes_via.append((t, sorted(via)))
+    # (not the cookie check: it keeps eax, the function's own value, and returns none of its own.
+    # Taken as passed on, a bool returned in al stayed an i4 and its upper bytes extraout_EAX, a
+    # VS2010 client's 0x4d14a0 on WinMain's path, 2026-10-26)
+    passes = [p for p in passes if isinstance(p, tuple) or "security_check_cookie" not in _names.get(p, "")]
     return reads, passes, handoffs, passes_via
 
 
