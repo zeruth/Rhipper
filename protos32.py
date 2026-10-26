@@ -801,6 +801,38 @@ def analyse(root: int, ranges):
                 x87_ret_live = x87_ret_live or qm == "call"   # (a callee's st0 passed on)
                 break
             q = prv.get(q)
+    # (and whether st0 is certainly empty at its rets: each ret reached, back from it, from an x87
+    # instruction that pops before any branch or call, and the function's x87 pushes and pops
+    # balancing (`fld a; fld b; fstp c; ret` returns a). A float setter, `fld [esp + 4]; fstp
+    # [ecx + 0x1c]; ret 4`, and a listener's sin/cos update, typed by a caller's read, printed
+    # their st0 as in_ST0, stubs on a sound path, 2026-10-26)
+    x87_ret_dead = False
+    depth, used, ends = 0, False, []
+    for a in state:
+        m = insns[a].mnemonic
+        if m == "ret":
+            q, end = prv.get(a), False
+            for _ in range(32):
+                if q is None or q not in insns:
+                    break
+                qm = insns[q].mnemonic
+                if qm.startswith("f") and not qm.startswith(("fn", "fwait")):
+                    end = qm.endswith("p")
+                    break
+                if qm == "call" or qm.startswith(("j", "loop")):
+                    break
+                q = prv.get(q)
+            ends.append(end)
+        if not m.startswith("f") or m.startswith(("fn", "fwait")):
+            continue
+        used = True
+        if m.startswith(("fld", "fild", "fbld")):
+            depth += 1
+        if m in ("fcompp", "fucompp"):
+            depth -= 2
+        elif m.endswith("p"):
+            depth -= 1
+    x87_ret_dead = used and depth == 0 and bool(ends) and all(ends)
     for a in state:
         if insns[a].mnemonic != "ret":
             continue
@@ -1120,7 +1152,7 @@ def analyse(root: int, ranges):
             # after a virtual getter of a float, 305 stubs, 2026-10-23)
             "icall_rets": {t[1]: k for t, k in results.items() if isinstance(t, tuple) and k in ("f4", "d8")},
             "passes": passes, "passes_via": passes_via, "writes_ret": writes_ret, "vol_writes": vol_writes, "opaque": opaque,
-            "sets_eax": sets_eax, "x87_ret_live": x87_ret_live, "narrow_ret": sets_eax if sets_eax in (1, 2) and rets and rets_set == rets else 0,
+            "sets_eax": sets_eax, "x87_ret_live": x87_ret_live, "x87_ret_dead": x87_ret_dead, "narrow_ret": sets_eax if sets_eax in (1, 2) and rets and rets_set == rets else 0,
             "eax_unset": root in state and eax_reaches_ret(insns, state, nxt, root, limit=256),
             "tail_ijmps": [(j, c or bool(inputs & ECX)) for j, c in tail_ijmps]}
 
@@ -1715,10 +1747,51 @@ def com_call(insns, prv, a) -> bool:
             found = True
         elif any(REG_BITS.get(r) == ECX for r in w):
             # (the vtable, `mov ecx, [R]`, R no ecx)
-            return found and mn == "mov" and len(ops) == 2 and ops[1].type == X.X86_OP_MEM \
-                and not ops[1].mem.disp and not ops[1].mem.index and ops[1].mem.base not in (0, X.X86_REG_ECX)
+            if not (found and mn == "mov" and len(ops) == 2 and ops[1].type == X.X86_OP_MEM
+                    and not ops[1].mem.index and ops[1].mem.base not in (0, X.X86_REG_ECX)):
+                return False
+            if not ops[1].mem.disp:
+                return True
+            # (or `mov ecx, [R + d]`, an interface at d inside an object, when R is moved on to it,
+            # `add R, d`, and pushed last: the interface pointer is `this`. An effect's
+            # `mov ecx, [eax + 0x20]; add eax, 0x20; push 4; push edx; push eax; call [ecx + 0x10]`
+            # took ecx for `this` and its size went unpassed, 2026-10-26)
+            return embedded_interface_pushed(insns, nxt_of(insns, prv, p, a), p, a, ops[1].mem.base, ops[1].mem.disp)
         p = prv.get(p)
     return False
+
+
+def nxt_of(insns, prv, start, end) -> list[int]:
+    """the addresses from start to end (exclusive) in order, by walking prv back from end"""
+    out, p = [], prv.get(end)
+    while p is not None and p != start and len(out) < 32:
+        out.append(p)
+        p = prv.get(p)
+    return list(reversed(out))
+
+
+def embedded_interface_pushed(insns, between, load, a, base, disp) -> bool:
+    """between the vtable's load and the call, `base` moved on by disp (`add base, disp`, `lea
+    base, [base + disp]`) and then the last word pushed before the call"""
+    # (as it stood when pushed: the slot may be loaded into it after, `push eax; mov eax, [ecx +
+    # 0x10]; call eax`)
+    moved, pushed_moved = False, False
+    for q in between:
+        ins = insns[q]
+        mn, ops = ins.mnemonic, ins.operands
+        if mn == "push":
+            pushed_moved = bool(ops) and ops[0].type == X.X86_OP_REG and ops[0].reg == base and moved
+            continue
+        if mn == "add" and len(ops) == 2 and ops[0].type == X.X86_OP_REG and ops[0].reg == base \
+                and ops[1].type == X.X86_OP_IMM and ops[1].imm == disp:
+            moved = True
+        elif mn == "lea" and len(ops) == 2 and ops[0].type == X.X86_OP_REG and ops[0].reg == base \
+                and ops[1].type == X.X86_OP_MEM and ops[1].mem.base == base and not ops[1].mem.index \
+                and ops[1].mem.disp == disp:
+            moved = True
+        elif base in regs_access(ins)[1]:
+            moved = False
+    return pushed_moved
 
 
 def pushed_this(insns, prv, a) -> bool:
@@ -2699,6 +2772,9 @@ def main() -> None:
         # client 2026-10-26)
         if k in ("f4", "d8") and v.get("sets_eax") == 4 and not v.get("x87_ret_live", True):
             return False
+        # (nor one whose st0 is certainly empty at its ret, analyse's x87_ret_dead)
+        if k in ("f4", "d8") and v.get("x87_ret_dead"):
+            return False
         # (no integer result inferred, none a caller reads, for one with a path to its ret that
         # never writes eax, which it does not take: what it leaves there is its caller's own. _free's
         # `if (p == 0) return;` beside its errno store `mov [esi], eax; pop esi; ret`, an i4 by
@@ -2840,8 +2916,18 @@ def main() -> None:
             # reading ecx made every slot a method, `this` a dummy ecx before the real one, and
             # XAudio2's QueryInterface wrote through its riid, 2026-10-26. A slot that reads ecx
             # is a __thiscall by its own inputs all the same)
-            first = local.get(slots[0]) if slots else None
-            if first is not None and first.get("ret") == 12 and not inputs.get(slots[0], 0) & ECX:
+            # (or slot 0 an adjustor thunk to one, `sub [esp + 4], 4; jmp QueryInterface`: a second
+            # interface's vtable, IXAPOParameters beside IXAPO, whose SetParameters took XAudio2's
+            # parameters one word off, 2026-10-26)
+            def qi_shaped(f, depth=2):
+                v = local.get(f)
+                if v is None:
+                    return False
+                if v.get("ret") == 12 and not inputs.get(f, 0) & ECX:
+                    return True
+                return depth > 0 and v.get("ret") is None and any(
+                    k == "jmp" and isinstance(t, int) and qi_shaped(t, depth - 1) for t, _m, k in v.get("calls", ()))
+            if slots and qi_shaped(slots[0]):
                 continue
             if any(inputs.get(s, 0) & ECX for s in slots):
                 methods.update(slots)
