@@ -785,6 +785,81 @@ unsigned int gen_imp_MessageBoxA(uint32_t hwnd, uint32_t text, uint32_t caption,
     return MessageBoxA(At<HWND__>(hwnd), At<char>(text), At<char>(caption), type);
 }
 
+// ---- messages: x86's MSG is 28 bytes (4-byte handle, wParam, lParam), x64's 48 -----------------
+// Passed as they were, PeekMessage and GetMessage wrote x64's MSG over the 28 bytes the reference
+// keeps on its stack: a client's message pump returned into the message's own words, WM_COMMAND's
+// 0x111 its return address, 2026-10-26.
+#pragma pack(push, 4)
+struct Msg32 {
+    uint32_t hwnd, message, wParam, lParam, time;
+    int32_t x, y;
+};
+#pragma pack(pop)
+static_assert(sizeof(Msg32) == 28, "MSG, x86");
+
+static void ToMsg32(const MSG& m, uint32_t out) {
+    auto o = At<Msg32>(out);
+    o->hwnd = Low(m.hwnd);
+    o->message = m.message;
+    o->wParam = static_cast<uint32_t>(m.wParam);
+    o->lParam = static_cast<uint32_t>(m.lParam);
+    o->time = m.time;
+    o->x = m.pt.x;
+    o->y = m.pt.y;
+}
+static MSG FromMsg32(uint32_t in) {
+    auto o = At<Msg32>(in);
+    MSG m = {};
+    m.hwnd = reinterpret_cast<HWND>(static_cast<uintptr_t>(o->hwnd));
+    m.message = o->message;
+    m.wParam = o->wParam;
+    // (lParam signed, as LPARAM is: a packed coordinate's negative y stays negative)
+    m.lParam = static_cast<LPARAM>(static_cast<int32_t>(o->lParam));
+    m.time = o->time;
+    m.pt.x = o->x;
+    m.pt.y = o->y;
+    return m;
+}
+static HWND Hwnd32(uint32_t h) {
+    return reinterpret_cast<HWND>(static_cast<uintptr_t>(h));
+}
+
+unsigned int gen_imp_PeekMessageW(uint32_t msg, uint32_t hwnd, uint32_t lo, uint32_t hi, uint32_t remove) {
+    MSG m = {};
+    BOOL r = PeekMessageW(&m, Hwnd32(hwnd), lo, hi, remove);
+    if (r && msg) ToMsg32(m, msg);
+    return static_cast<unsigned int>(r);
+}
+unsigned int gen_imp_PeekMessageA(uint32_t msg, uint32_t hwnd, uint32_t lo, uint32_t hi, uint32_t remove) {
+    MSG m = {};
+    BOOL r = PeekMessageA(&m, Hwnd32(hwnd), lo, hi, remove);
+    if (r && msg) ToMsg32(m, msg);
+    return static_cast<unsigned int>(r);
+}
+unsigned int gen_imp_GetMessageW(uint32_t msg, uint32_t hwnd, uint32_t lo, uint32_t hi) {
+    MSG m = {};
+    BOOL r = GetMessageW(&m, Hwnd32(hwnd), lo, hi);
+    if (r != -1 && msg) ToMsg32(m, msg);
+    return static_cast<unsigned int>(r);
+}
+unsigned int gen_imp_TranslateMessage(uint32_t msg) {
+    MSG m = FromMsg32(msg);
+    return static_cast<unsigned int>(TranslateMessage(&m));
+}
+unsigned int gen_imp_DispatchMessageW(uint32_t msg) {
+    MSG m = FromMsg32(msg);
+    return static_cast<unsigned int>(DispatchMessageW(&m));
+}
+unsigned int gen_imp_DispatchMessageA(uint32_t msg) {
+    MSG m = FromMsg32(msg);
+    return static_cast<unsigned int>(DispatchMessageA(&m));
+}
+unsigned int gen_imp_TranslateAcceleratorA(uint32_t hwnd, uint32_t accel, uint32_t msg) {
+    MSG m = FromMsg32(msg);
+    return static_cast<unsigned int>(
+        TranslateAcceleratorA(Hwnd32(hwnd), reinterpret_cast<HACCEL>(static_cast<uintptr_t>(accel)), &m));
+}
+
 // ---- window classes: x86's WNDCLASS(EX), 4-byte pointers and handles -----------------------
 // Passed as they are, x64's RegisterClassExA read the 48-byte x86 structure as its 80-byte one
 // and failed; CreateWindowExA then found no class, and a client's WinMain returned 0 before
