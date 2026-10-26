@@ -70,7 +70,9 @@ void* Unwrap(uint32_t proxy) {
     if (!proxy) return nullptr;
     auto p = At<Proxy32>(proxy);
     if (p->magic != kProxyMagic) {
-        fprintf(stderr, "%s: COM: %08x is not an object the port gave the reference\n", RHIPPER_NAME, proxy);
+        // (its vtable word too: one in the reference's image is an object the reference made itself)
+        fprintf(stderr, "%s: COM: %08x is not an object the port gave the reference (vtable %08x)\n", RHIPPER_NAME,
+                proxy, *At<uint32_t>(proxy));
         return At<void>(proxy);
     }
     return p->native;

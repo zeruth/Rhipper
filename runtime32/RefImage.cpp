@@ -378,6 +378,132 @@ extern "C" unsigned int gen_imp_GetProcAddress(uint32_t module, uint32_t name) {
     return at > 0xffffffffu ? LowStub(reinterpret_cast<void*>(fn)) : static_cast<uint32_t>(at);
 }
 
+unsigned RefEnv(const char* suffix, wchar_t* buf, unsigned size);
+
+// <ENV>_GUARDHEAP=1: the reference's heap blocks (up to 256 KB) each end against a page nothing may
+// touch, and a freed one's pages are taken away, so an overrun or a use after free faults at the
+// instruction that does it, with its stack, not in a later heap check that fails fast without one
+// (STATUS_HEAP_CORRUPTION). For finding them; a block takes a page at least and its own guard page.
+namespace {
+
+struct GuardHeap {
+    uintptr_t lo = 0, hi = 0, next = 0;
+    std::mutex lock;
+    std::unordered_map<uintptr_t, size_t> sizes;
+    gen_real_fn alloc = nullptr, free = nullptr, realloc = nullptr, size = nullptr;
+
+    bool Owns(intptr_t p) const { return lo && static_cast<uintptr_t>(p) >= lo && static_cast<uintptr_t>(p) < hi; }
+    void* Alloc(size_t n) {
+        if (n > 0x40000) return nullptr;
+        size_t pages = (std::max<size_t>(n, 1) + 0xfff) / 0x1000;
+        std::lock_guard<std::mutex> hold(lock);
+        if (next + (pages + 1) * 0x1000 > hi) return nullptr;
+        uintptr_t base = next;
+        next += (pages + 1) * 0x1000;
+        if (!VirtualAlloc(reinterpret_cast<void*>(base), pages * 0x1000, MEM_COMMIT, PAGE_READWRITE)) return nullptr;
+        // (16-aligned as the heap's, so up to 15 bytes past the end go unseen)
+        uintptr_t p = base + pages * 0x1000 - ((std::max<size_t>(n, 1) + 15) & ~size_t(15));
+        sizes[p] = n;
+        return reinterpret_cast<void*>(p);
+    }
+    size_t SizeOf(intptr_t p) {
+        std::lock_guard<std::mutex> hold(lock);
+        auto it = sizes.find(static_cast<uintptr_t>(p));
+        return it == sizes.end() ? size_t(-1) : it->second;
+    }
+    void Free(intptr_t p) {
+        size_t n;
+        {
+            std::lock_guard<std::mutex> hold(lock);
+            auto it = sizes.find(static_cast<uintptr_t>(p));
+            if (it == sizes.end()) return;
+            n = it->second;
+            sizes.erase(it);
+        }
+        size_t pages = (std::max<size_t>(n, 1) + 0xfff) / 0x1000;
+        // (the block's first page: its end is its pages' end)
+        uintptr_t base = static_cast<uintptr_t>(p) + ((std::max<size_t>(n, 1) + 15) & ~size_t(15)) - pages * 0x1000;
+        VirtualFree(reinterpret_cast<void*>(base), pages * 0x1000, MEM_DECOMMIT);
+    }
+};
+GuardHeap g_guard;
+
+intptr_t GuardHeapAlloc(intptr_t heap, intptr_t flags, intptr_t n, intptr_t a3, intptr_t a4, intptr_t a5, intptr_t a6,
+                        intptr_t a7, intptr_t a8, intptr_t a9, intptr_t a10, intptr_t a11, intptr_t a12, intptr_t a13) {
+    if (void* p = g_guard.Alloc(static_cast<uint32_t>(n))) return reinterpret_cast<intptr_t>(p);   // (zeroed: fresh pages)
+    return g_guard.alloc(heap, flags, n, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13);
+}
+intptr_t GuardHeapFree(intptr_t heap, intptr_t flags, intptr_t p, intptr_t a3, intptr_t a4, intptr_t a5, intptr_t a6,
+                       intptr_t a7, intptr_t a8, intptr_t a9, intptr_t a10, intptr_t a11, intptr_t a12, intptr_t a13) {
+    if (g_guard.Owns(p)) {
+        g_guard.Free(p);
+        return 1;
+    }
+    return g_guard.free(heap, flags, p, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13);
+}
+intptr_t GuardHeapSize(intptr_t heap, intptr_t flags, intptr_t p, intptr_t a3, intptr_t a4, intptr_t a5, intptr_t a6,
+                       intptr_t a7, intptr_t a8, intptr_t a9, intptr_t a10, intptr_t a11, intptr_t a12, intptr_t a13) {
+    if (g_guard.Owns(p)) return static_cast<intptr_t>(g_guard.SizeOf(p));
+    return g_guard.size(heap, flags, p, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13);
+}
+intptr_t GuardHeapReAlloc(intptr_t heap, intptr_t flags, intptr_t p, intptr_t n, intptr_t a4, intptr_t a5, intptr_t a6,
+                          intptr_t a7, intptr_t a8, intptr_t a9, intptr_t a10, intptr_t a11, intptr_t a12, intptr_t a13) {
+    if (!g_guard.Owns(p)) {
+        // (a block of the real heap's grown into a guarded one: its size from the real heap)
+        if (static_cast<uint32_t>(n) > 0x40000 || (flags & HEAP_REALLOC_IN_PLACE_ONLY))
+            return g_guard.realloc(heap, flags, p, n, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13);
+        size_t old = static_cast<size_t>(g_guard.size(heap, 0, p, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0));
+        void* q = g_guard.Alloc(static_cast<uint32_t>(n));
+        if (!q) return g_guard.realloc(heap, flags, p, n, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13);
+        memcpy(q, reinterpret_cast<void*>(p), std::min<size_t>(old, static_cast<uint32_t>(n)));
+        g_guard.free(heap, 0, p, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        return reinterpret_cast<intptr_t>(q);
+    }
+    if (flags & HEAP_REALLOC_IN_PLACE_ONLY) return 0;
+    size_t old = g_guard.SizeOf(p);
+    intptr_t q = GuardHeapAlloc(heap, flags & ~HEAP_ZERO_MEMORY, n, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+    if (!q) return 0;
+    memcpy(reinterpret_cast<void*>(q), reinterpret_cast<void*>(p), std::min<size_t>(old, static_cast<uint32_t>(n)));
+    if ((flags & HEAP_ZERO_MEMORY) && static_cast<uint32_t>(n) > old)
+        memset(reinterpret_cast<char*>(q) + old, 0, static_cast<uint32_t>(n) - old);
+    g_guard.Free(p);
+    return q;
+}
+
+void GuardHeapStart() {
+    wchar_t on[8] = {};
+    if (RefEnv("GUARDHEAP", on, 8) == 0 || on[0] == L'0') return;
+    // (the most of the low 2 GB it can have, every block's address a 32-bit one)
+    for (size_t want = 0x50000000; want >= 0x8000000 && !g_guard.lo; want /= 2) {
+        if (void* r = VirtualAlloc(nullptr, want, MEM_RESERVE, PAGE_NOACCESS)) {
+            g_guard.lo = g_guard.next = reinterpret_cast<uintptr_t>(r);
+            g_guard.hi = g_guard.lo + want;
+        }
+    }
+    if (!g_guard.lo) return;
+    for (unsigned k = 0; k < g_genImportCount; k++) {
+        const GEN_IMPORT& im = g_genImports[k];
+        if (!im.real || !*im.real) continue;
+        struct { const char* name; gen_real_fn* keep; gen_real_fn guard; } hooks[] = {
+            {"HeapAlloc", &g_guard.alloc, GuardHeapAlloc}, {"HeapFree", &g_guard.free, GuardHeapFree},
+            {"HeapSize", &g_guard.size, GuardHeapSize}, {"HeapReAlloc", &g_guard.realloc, GuardHeapReAlloc}};
+        for (auto& h : hooks)
+            if (strcmp(im.name, h.name) == 0) {
+                *h.keep = *im.real;
+                *im.real = h.guard;
+            }
+    }
+    if (!g_guard.alloc || !g_guard.free || !g_guard.size || !g_guard.realloc) {
+        fprintf(stderr, "%s: GUARDHEAP: the heap imports are not all the reference's; off\n", RHIPPER_NAME);
+        g_guard.lo = g_guard.hi = 0;
+        return;
+    }
+    fprintf(stderr, "%s: guarded heap at %llx-%llx\n", RHIPPER_NAME, static_cast<unsigned long long>(g_guard.lo),
+            static_cast<unsigned long long>(g_guard.hi));
+}
+
+}  // namespace
+
 unsigned RefEnv(const char* suffix, wchar_t* buf, unsigned size) {
     wchar_t name[96];
     swprintf_s(name, L"%hs_%hs", RHIPPER_ENV, suffix);
@@ -493,6 +619,7 @@ bool RefMapImage(const wchar_t* path) {
             fprintf(stderr, "%s: import %s!%s has no x64 export (needs an adapter of its own)\n", RHIPPER_NAME, im.dll, im.name);
         }
     }
+    GuardHeapStart();
 
     DWORD old;
     VirtualProtect(image + (g_textLo - base), g_textHi - g_textLo, PAGE_EXECUTE_READ, &old);

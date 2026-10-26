@@ -772,8 +772,9 @@ def returned_only(c: str) -> set[str]:
                 if not re.search(r"\b" + n + r"\b", line):
                     continue
                 s = line.strip()
-                if re.fullmatch(r"(?:undefined\d?|uint|int|ulonglong|longlong|u?int\d*|byte|char|bool|u?short|ushort)\s+"
-                                + n + r";", s):
+                # (of any type the decompiler gave it: `LPCRITICAL_SECTION extraout_EAX;`, what
+                # LeaveCriticalSection left in eax, returned by a sound heap's create, 2026-10-26)
+                if re.fullmatch(r"[A-Za-z_][\w ]*?[\s*]+" + n + r";", s):
                     continue                                    # its declaration
                 if re.match(r"return\b", s):
                     continue
