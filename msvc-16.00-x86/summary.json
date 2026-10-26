@@ -9,7 +9,7 @@
    "translated": 266
   },
   "status": "PASS",
-  "when": "2026-10-26 17:38"
+  "when": "2026-10-26 19:09"
  },
  "calls-O2": {
   "fidelity": {
@@ -21,7 +21,7 @@
    "translated": 267
   },
   "status": "PASS",
-  "when": "2026-10-26 17:38"
+  "when": "2026-10-26 19:09"
  },
  "calls-Od": {
   "fidelity": {
@@ -33,31 +33,15 @@
    "translated": 272
   },
   "status": "PASS",
-  "when": "2026-10-26 17:38"
+  "when": "2026-10-26 19:09"
  },
  "core-O2": {
-  "fidelity": {
-   "by_size": 0.971,
-   "functions": 288,
-   "mean": 0.98,
-   "perfect": 258,
-   "stubs": 3,
-   "translated": 285
-  },
-  "status": "PASS",
-  "when": "2026-10-26 17:38"
+  "status": "FAIL",
+  "when": "2026-10-26 19:09"
  },
  "core-Od": {
-  "fidelity": {
-   "by_size": 0.973,
-   "functions": 293,
-   "mean": 0.981,
-   "perfect": 265,
-   "stubs": 3,
-   "translated": 290
-  },
-  "status": "PASS",
-  "when": "2026-10-26 17:38"
+  "status": "FAIL",
+  "when": "2026-10-26 19:09"
  },
  "cpp-O2": {
   "fidelity": {
@@ -69,7 +53,7 @@
    "translated": 389
   },
   "status": "FAIL",
-  "when": "2026-10-26 17:38"
+  "when": "2026-10-26 19:09"
  },
  "cpp-Od": {
   "fidelity": {
@@ -81,7 +65,7 @@
    "translated": 483
   },
   "status": "PASS",
-  "when": "2026-10-26 17:38"
+  "when": "2026-10-26 19:09"
  },
  "crt-O2": {
   "fidelity": {
@@ -93,7 +77,7 @@
    "translated": 351
   },
   "status": "PASS",
-  "when": "2026-10-26 17:38"
+  "when": "2026-10-26 19:09"
  },
  "crt-Od": {
   "fidelity": {
@@ -105,7 +89,7 @@
    "translated": 362
   },
   "status": "PASS",
-  "when": "2026-10-26 17:38"
+  "when": "2026-10-26 19:09"
  },
  "eh-O2": {
   "fidelity": {
@@ -117,7 +101,7 @@
    "translated": 337
   },
   "status": "PASS",
-  "when": "2026-10-26 17:38"
+  "when": "2026-10-26 19:09"
  },
  "eh-Od": {
   "fidelity": {
@@ -129,7 +113,7 @@
    "translated": 364
   },
   "status": "PASS",
-  "when": "2026-10-26 17:38"
+  "when": "2026-10-26 19:09"
  },
  "float-O2": {
   "fidelity": {
@@ -141,7 +125,7 @@
    "translated": 265
   },
   "status": "FAIL",
-  "when": "2026-10-26 17:38"
+  "when": "2026-10-26 19:09"
  },
  "float-Od": {
   "fidelity": {
@@ -153,7 +137,7 @@
    "translated": 281
   },
   "status": "FAIL",
-  "when": "2026-10-26 17:38"
+  "when": "2026-10-26 19:09"
  },
  "float-SSE2": {
   "fidelity": {
@@ -165,19 +149,11 @@
    "translated": 264
   },
   "status": "FAIL",
-  "when": "2026-10-26 17:38"
+  "when": "2026-10-26 19:09"
  },
  "int64-O2": {
-  "fidelity": {
-   "by_size": 0.957,
-   "functions": 209,
-   "mean": 0.976,
-   "perfect": 186,
-   "stubs": 3,
-   "translated": 206
-  },
-  "status": "PASS",
-  "when": "2026-10-26 17:38"
+  "status": "FAIL",
+  "when": "2026-10-26 19:09"
  },
  "int64-Od": {
   "fidelity": {
@@ -189,7 +165,7 @@
    "translated": 208
   },
   "status": "PASS",
-  "when": "2026-10-26 17:38"
+  "when": "2026-10-26 19:09"
  },
  "misc-O2": {
   "fidelity": {
@@ -201,7 +177,7 @@
    "translated": 307
   },
   "status": "PASS",
-  "when": "2026-10-26 17:38"
+  "when": "2026-10-26 19:09"
  },
  "misc-Od": {
   "fidelity": {
@@ -213,6 +189,6 @@
    "translated": 317
   },
   "status": "PASS",
-  "when": "2026-10-26 17:38"
+  "when": "2026-10-26 19:09"
  }
 }
