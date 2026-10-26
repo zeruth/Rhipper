@@ -399,6 +399,11 @@ static __inline unsigned long long gen_piece_set(void *p, int off, int n, unsign
 #define TRUNC(x) trunc(x)
 #define FLOOR(x) floor(x)
 #define CEIL(x) ceil(x)
+/* the copies the decompiler folds into a call of its own name: an inlined strcpy of a literal,
+   `builtin_strncpy(p, ".exh", 5)` (a file name's extension), stubbed as an undeclared name */
+#define builtin_strncpy(d, s, n) ((void)strncpy((char *)(d), (const char *)(s), (n)))
+#define builtin_memcpy(d, s, n) ((void)memcpy((void *)(d), (const void *)(s), (n)))
+#define builtin_memset(d, c, n) ((void)memset((void *)(d), (c), (n)))
 
 /* Ghidra's `(code *)swi(n)`, called: the trap the instruction raises. `int3` (swi(3)) breaks
    into a debugger; `int 0x29` (swi(0x29)) is __fastfail, which ends the process (Ghidra drops the

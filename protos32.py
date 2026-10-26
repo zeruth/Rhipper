@@ -1130,6 +1130,7 @@ def result_reads(insns, state, nxt):
             continue
         p = nxt[a]
         eax_w = edx_w = xmm0_w = st_loaded = False
+        st_depth = 0
         kind = None
         end = a + ins.size
         for _ in range(12):
@@ -1159,9 +1160,18 @@ def result_reads(insns, state, nxt):
             # it is no result of the callee's)
             if mn in X87_LOADS and not (pi.operands and pi.operands[0].type == X.X86_OP_REG):
                 st_loaded = True
+                st_depth += 1
                 p = nxt[p]
                 continue
             if st_loaded and mn.startswith("f") and not mn.startswith("fn"):
+                # (but an operand st(n), n the values loaded since the call, is the callee's result
+                # under them: a determinant's caller, `call det; fld1; fdivrp st(1)`, its 1/det. As
+                # no read, the determinant was void and its caller's extraout_ST0 a stub, 9,564
+                # calls on a VS2010 client's startup path, 2026-10-26)
+                if st_depth and any(o.type == X.X86_OP_REG and o.reg == X.X86_REG_ST0 + st_depth
+                                    for o in pi.operands):
+                    kind = kind or "d8"
+                    break
                 p = nxt[p]
                 continue
             if mn.startswith("f") and not mn.startswith("fn"):

@@ -124,6 +124,7 @@ HEADER_NAMES = {"REFG", "REFP", "GP", "PTR32", "MXCSR", "ExceptionList", "GenUni
                 "intptr_t", "uint32_t", "int32_t", "uint64_t", "int64_t", "uint16_t", "int16_t", "uint8_t",
                 "int8_t", "__ptr32", "__uptr", "_InterlockedExchange", "NAN", "INFINITY",
                 "__debugbreak", "_rotl", "_rotr", "_rotl64", "_rotr64", "fabs", "sqrt", "pow",
+                "builtin_strncpy", "builtin_memcpy", "builtin_memset",
                 "floor", "ceil", "trunc", "nearbyint", "memcpy", "memset", "rdtsc", "GEN_PIECE", "GEN_ISNAN",
                 "gen_piece_set", "gen_fl2bits", "gen_d2bits", "gen_bits2f", "gen_bits2d", "GEN_TOF", "GEN_TOD", "GEN_SLOT", "GEN_LOW",
                 "gen_ac", "GEN_LO32", "GEN_HI32",
@@ -807,6 +808,61 @@ def declared_only(c: str) -> set[str]:
     for n in set(m.group(1) for m in LOST.finditer(c)):
         uses = [l for l in c.split("\n") if re.search(r"\b" + re.escape(n) + r"\b", l)]
         if all(re.fullmatch(r"\s*[A-Za-z_][\w ]*?[\s*]*\b" + re.escape(n) + r"\s*(?:\[[^\]]*\])?;\s*", l) for l in uses):
+            out.add(n)
+    return out
+
+
+def upper_only(c: str) -> set[str]:
+    """The registers the decompiler lost whose only reads are their upper bytes, `(uint3)((uint)V >>
+    8)`, directly or through a local they are copied to (read so until it is assigned again): what
+    is left above a byte a function sets in al and pushes whole, `mov al, [p + 0x21]; push eax`, a
+    bool parameter whose callee reads the byte. The reference's bytes there are whatever eax held;
+    0 in the port. A VS2010 client's 0x513790, `pvVar5 = extraout_EAX;` after EnterCriticalSection
+    and then `uVar9 = (uint3)((uint)pvVar5 >> 8)`, 2,283 calls on its startup path."""
+    lines = c.split("\n")
+    # (`(uint3)((uint)V >> 8)` or `(int3)(V >> 8)`: the three bytes above the low one)
+    upper = lambda v: rf"\(u?int3\)\(\s*(?:\(u?int\)\s*)?{re.escape(v)}\s*>>\s*8\s*\)"
+
+    def reads_upper_only(v):
+        """every read of v in the function its upper bytes, one at least (its assignments aside)"""
+        seen = False
+        for l in lines:
+            if not re.search(rf"\b{re.escape(v)}\b", l) or re.match(rf"^\s*[\w ]+?[\s*]+{re.escape(v)}\s*;\s*$", l):
+                continue
+            rest = re.sub(rf"^\s*{re.escape(v)}\s*=(?!=)", "", l)
+            stripped = re.sub(upper(v), "", rest)
+            if re.search(rf"\b{re.escape(v)}\b", stripped):
+                return False
+            seen = seen or stripped != rest
+        return seen
+
+    def next_reads_upper(v, i):
+        """the reads of v after line i, up to its next assignment, its upper bytes, one at least"""
+        seen = False
+        for l2 in lines[i + 1:]:
+            if re.match(rf"^\s*{re.escape(v)}\s*=(?!=)", l2):
+                break
+            if re.search(rf"\b{re.escape(v)}\b", l2):
+                if re.search(rf"\b{re.escape(v)}\b", re.sub(upper(v), "", l2)):
+                    return False
+                seen = True
+        return seen
+
+    out = set()
+    for n in set(re.findall(r"\bextraout_E[A-D]X(?:_\d+)?\b", c)):
+        ok = True
+        for i, l in enumerate(lines):
+            if not re.search(rf"\b{n}\b", l) or re.match(rf"^\s*[\w ]+?[\s*]+{n}\s*;\s*$", l):
+                continue
+            m = re.fullmatch(rf"\s*([A-Za-z_]\w*)\s*=\s*(?:\([^()]*\)\s*)?{n}\s*;\s*", l)
+            if m:
+                # (copied to a local: read for its upper bytes alone, next, or anywhere it is read)
+                ok = next_reads_upper(m.group(1), i) or reads_upper_only(m.group(1))
+            elif re.search(rf"\b{n}\b", re.sub(upper(n), "", l)):
+                ok = False
+            if not ok:
+                break
+        if ok:
             out.add(n)
     return out
 
@@ -1520,6 +1576,25 @@ class Translator32:
                     value = None
                     break
                 value = call
+            # (or used further on: the name is one call's register, the decompiler numbering each
+            # call's apart, so the nearest call above its first use, back over plain statements,
+            # where nothing its argument reads is assigned after it. A determinant's caller,
+            # `FUN_004ef2d0(param_2); ... extraout_ECX[1] ... extraout_ECX[10]`, its matrix in ecx
+            # throughout, 0x4ef780 in a VS2010 client, 9,564 calls on its startup path)
+            if value is None:
+                p = uses[0] - 1
+                # (back to the nearest line with a call in it, a name and its parenthesis: casts,
+                # conditions and braces between are no call)
+                calls_in = re.compile(r"\b(?!(?:if|while|for|switch|return|sizeof)\b)[A-Za-z_]\w*\s*\(")
+                while p >= 0 and not calls_in.search(orig[p]):
+                    p -= 1
+                call = self.kept_call(orig[p], reg) if p >= 0 else None
+                if call is not None:
+                    later = "\n".join(orig[p + 1:])
+                    names_in = set(re.findall(r"[A-Za-z_]\w*", call))
+                    if not any(re.search(rf"(?<![=!<>])\b{re.escape(v)}\s*(?:[-+*/|&^]|<<|>>)?=(?!=)", later)
+                               for v in names_in):
+                        value = call
             if value is None:
                 continue
             t = decl.match(lines[dl]).group(1).strip()
@@ -1601,7 +1676,7 @@ class Translator32:
             if not re.search(rf"(?<![\w.>])\b{n}\s*(?:[-+*/|&^]|<<|>>)?=(?!=)|&\s*{n}\b|\b{n}\s*(?:\+\+|--)|(?:\+\+|--)\s*{n}\b", c):
                 return f"a register the decompiler lost ({n})"
         # (and a full xmm register as an SSE pseudo-op's destination found it: zeroed, sse_ops)
-        ok = returned_only(c) | self.noreturn_args_only(a, c) | filler_args(c) | declared_only(c) | {"in_FPUControlWord"} | \
+        ok = returned_only(c) | self.noreturn_args_only(a, c) | filler_args(c) | upper_only(c) | declared_only(c) | {"in_FPUControlWord"} | \
             set(re.findall(r"(?m)^[ \t]+undefined1\s+(in_XMM\d+)\s*\[\s*16\s*\]\s*;", c))
         m = next((m for m in LOST.finditer(c) if m.group(1) not in ok and not OUT_STACK.fullmatch(m.group(1))), None)
         if m:
@@ -2424,8 +2499,9 @@ class Translator32:
         # (the lost result registers it only returns: 0 where nothing set them, why_not. Last, as
         # the passes above read the declarations as `type name;`)
         # (and those only a call that does not return is given, noreturn_args_only)
-        for n in returned_only(c) | self.noreturn_args_only(a, c) | filler_args(c):
-            body = re.sub(r"(?m)^(\s*[A-Za-z_][\w ]*?\s+" + n + r")\s*;", r"\1 = 0;", body, count=1)
+        for n in returned_only(c) | self.noreturn_args_only(a, c) | filler_args(c) | upper_only(c):
+            # (a pointer's too, `undefined * extraout_EAX;`: as no match it stayed uninitialized)
+            body = re.sub(r"(?m)^(\s*[A-Za-z_][\w ]*?[\s*]+" + n + r")\s*;", r"\1 = 0;", body, count=1)
         # (a function that allocates on its stack, the alloca probe's injection: room below the
         # frame for it, rhtest misc stack_alloc 2026-10-24)
         alloca = "replaced with injection: alloca_probe" in self.corpus[a]["c"]

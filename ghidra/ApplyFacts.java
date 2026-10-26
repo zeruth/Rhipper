@@ -720,27 +720,53 @@ public class ApplyFacts extends GhidraScript {
     // nothing calls, jumps to or points to: removed (175, junk decoded from the middle of other
     // code). And bodies cut short after their first instruction (FUN_006c74f0 is `push ebx` alone,
     // its code running on into bytes no function has): their body flowed again.
+    // two printable UTF-16 characters as a 32-bit word: 0x00XX00YY
+    private static boolean texty(long a) {
+        int b0 = (int) (a & 0xff), b1 = (int) ((a >> 8) & 0xff), b2 = (int) ((a >> 16) & 0xff), b3 = (int) ((a >> 24) & 0xff);
+        return b1 == 0 && b3 == 0 && b0 >= 0x20 && b0 < 0x7f && b2 >= 0x20 && b2 < 0x7f;
+    }
+
+    // a reference from inside wide text: not code, and the words before and after it text too
+    private boolean fromText(Address from) {
+        try {
+            if (getInstructionContaining(from) != null) return false;
+            return texty(getInt(from.subtract(4)) & 0xffffffffL) && texty(getInt(from.add(4)) & 0xffffffffL);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     private void cleanFunctions32() throws Exception {
         int removed = 0, regrown = 0;
         List<Function> junk = new ArrayList<>(), shortened = new ArrayList<>();
         for (Function f : currentProgram.getFunctionManager().getFunctions(true)) {
             if (f.isExternal() || f.isThunk()) continue;
             long a = f.getEntryPoint().getOffset();
-            int b0 = (int) (a & 0xff), b1 = (int) ((a >> 8) & 0xff), b2 = (int) ((a >> 16) & 0xff), b3 = (int) ((a >> 24) & 0xff);
-            boolean texty = b1 == 0 && b3 == 0 && b0 >= 0x20 && b0 < 0x7f && b2 >= 0x20 && b2 < 0x7f;
-            if (texty && getReferencesTo(f.getEntryPoint()).length == 0
+            // (referenced only from inside wide text, the string's own characters read as a pointer
+            // to it: the words either side of the reference text too. vtables.py took a table of
+            // wide strings for vtables, ApplyFacts typed their "slots" as pointers, and the junk at
+            // 0x4d0050 and 0x4d0052 kept those references and cut 0x4cffd0 short, a VS2010 client)
+            boolean refd = false;
+            for (ghidra.program.model.symbol.Reference r : getReferencesTo(f.getEntryPoint())) {
+                if (!fromText(r.getFromAddress())) { refd = true; break; }
+            }
+            if (texty(a) && !refd
                     && f.getSignatureSource() != SourceType.USER_DEFINED && f.getSymbol().getSource() != SourceType.USER_DEFINED) {
                 junk.add(f);
-                continue;
             }
+        }
+        for (Function f : junk) {
+            if (currentProgram.getFunctionManager().removeFunction(f.getEntryPoint())) removed++;
+        }
+        // (the bodies cut short, looked for once the junk is gone: a function ending where a junk
+        // one began runs on now)
+        for (Function f : currentProgram.getFunctionManager().getFunctions(true)) {
+            if (f.isExternal() || f.isThunk()) continue;
             Instruction last = getInstructionContaining(f.getBody().getMaxAddress());
             if (last != null && last.getFallThrough() != null && !last.getFlowType().isCall()
                     && getFunctionContaining(last.getFallThrough()) == null && getInstructionAt(last.getFallThrough()) != null) {
                 shortened.add(f);
             }
-        }
-        for (Function f : junk) {
-            if (currentProgram.getFunctionManager().removeFunction(f.getEntryPoint())) removed++;
         }
         for (Function f : shortened) {
             CreateFunctionCmd.fixupFunctionBody(currentProgram, f, monitor);
