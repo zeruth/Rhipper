@@ -252,7 +252,14 @@ extern "C" void GenUnimplemented(unsigned int address) {
     std::lock_guard<std::mutex> guard(lock);
     if (seen.insert(address).second) {
         fprintf(stderr, "%s: not translated: %08x\n", RHIPPER_NAME, address);
+        // (and who called it: the C runtime's fault reporter, a stub, ended a run in a fail-fast
+        // the trace never recorded the way to)
+        CONTEXT c = {};
+        RtlCaptureContext(&c);
+        PrintStack(GetCurrentThread(), c);
         fflush(stderr);
+        // (and the trace written up to here: a fail-fast after it ends the process unflushed)
+        RefTraceFlush();
     }
 }
 

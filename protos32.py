@@ -2930,6 +2930,11 @@ def main() -> None:
         # own stack, `in_stack_`, and be a stub)
         if local[f].get("tail_ijmps") and f not in called_directly:
             stack = max(stack, 4 * FORWARD_WORDS)
+        # (and one a direct call reaches, with no ret of its own: what every caller pushes, handed
+        # on. A client's Exd module getter, `mov ecx, [ecx + 0x10]; jmp [vt + 8]`, took no words,
+        # and the sheet name its caller pushed reached the sheet lookup as garbage, 2026-10-26)
+        elif local[f].get("tail_ijmps") and not ret_n and passed_min.get(f, 0) > stack:
+            stack = min(passed_min[f], 4 * FORWARD_WORDS)
         regs = [n for bit, n in REG_NAMES if reg & bit]
         # (the stack ones by what reads them: a double two slots, ApplyFacts' double)
         slot_kinds = local[f].get("slots", {})
