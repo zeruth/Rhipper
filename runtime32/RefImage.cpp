@@ -241,6 +241,28 @@ LONG CALLBACK OnException(EXCEPTION_POINTERS* info) {
             }
             fflush(stderr);
         }
+    } else if (rec->ExceptionCode != 0x406D1388 && rec->ExceptionCode != 0xE06D7363 &&
+               rec->ExceptionCode != 0x40010006 && rec->ExceptionCode != 0x4001000A &&
+               rec->ExceptionCode != DBG_CONTROL_C) {
+        // (any other exception, once a code: a stack overflow's c00000fd first, the access
+        // violation after it with no stack left to report from, a run that ended unexplained)
+        static volatile LONG seen[8] = {};
+        bool fresh = true;
+        for (auto& s : seen) {
+            LONG prev = InterlockedCompareExchange(&s, static_cast<LONG>(rec->ExceptionCode), 0);
+            if (prev == 0) break;
+            if (prev == static_cast<LONG>(rec->ExceptionCode)) {
+                fresh = false;
+                break;
+            }
+        }
+        if (fresh) {
+            fprintf(stderr, "%s: exception %08lx at %p on thread %lu\n", RHIPPER_NAME, rec->ExceptionCode,
+                    rec->ExceptionAddress, GetCurrentThreadId());
+            if (rec->ExceptionCode != EXCEPTION_STACK_OVERFLOW) PrintStack(GetCurrentThread(), *info->ContextRecord);
+            fflush(stderr);
+            RefTraceFlush();
+        }
     }
     return EXCEPTION_CONTINUE_SEARCH;
 }
@@ -515,6 +537,47 @@ void GuardHeapStart() {
             static_cast<unsigned long long>(g_guard.hi));
 }
 
+// <ENV>_DUMPAFTER=<seconds>[,<seconds again>]: every other thread's stack, each suspended while
+// it is walked, after that long (and every so often after): where a hung run spins or waits
+DWORD WINAPI DumpThreads(void* arg) {
+    DWORD first = static_cast<DWORD>(reinterpret_cast<uintptr_t>(arg) & 0xffff) * 1000;
+    DWORD again = static_cast<DWORD>(reinterpret_cast<uintptr_t>(arg) >> 16) * 1000;
+    Sleep(first);
+    for (;;) {
+        DWORD me = GetCurrentThreadId(), pid = GetCurrentProcessId();
+        HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+        THREADENTRY32 te = {sizeof(te)};
+        for (BOOL ok = Thread32First(snap, &te); ok; ok = Thread32Next(snap, &te)) {
+            if (te.th32OwnerProcessID != pid || te.th32ThreadID == me) continue;
+            HANDLE t = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE,
+                                  te.th32ThreadID);
+            if (!t) continue;
+            if (SuspendThread(t) != DWORD(-1)) {
+                CONTEXT c = {};
+                c.ContextFlags = CONTEXT_FULL;
+                if (GetThreadContext(t, &c)) {
+                    fprintf(stderr, "%s: DUMPAFTER thread %lu\n", RHIPPER_NAME, te.th32ThreadID);
+                    PrintStack(t, c);
+                }
+                ResumeThread(t);
+            }
+            CloseHandle(t);
+        }
+        CloseHandle(snap);
+        fflush(stderr);
+        if (!again) return 0;
+        Sleep(again);
+    }
+}
+
+void DumpAfterStart() {
+    wchar_t v[32] = {};
+    if (RefEnv("DUMPAFTER", v, 32) == 0) return;
+    wchar_t* end = nullptr;
+    uintptr_t first = wcstoul(v, &end, 10), again = (end && *end == L',') ? wcstoul(end + 1, nullptr, 10) : 0;
+    CreateThread(nullptr, 0, DumpThreads, reinterpret_cast<void*>((again << 16) | (first & 0xffff)), 0, nullptr);
+}
+
 }  // namespace
 
 // (the stack printer for the rest of the runtime: Trace.cpp's <ENV>_STACKAT)
@@ -638,6 +701,7 @@ bool RefMapImage(const wchar_t* path) {
         }
     }
     GuardHeapStart();
+    DumpAfterStart();
 
     DWORD old;
     VirtualProtect(image + (g_textLo - base), g_textHi - g_textLo, PAGE_EXECUTE_READ, &old);

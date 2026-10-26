@@ -288,7 +288,13 @@ def analyse(root: int, ranges):
         # no read of an input. Read so, 126 functions had in_XMM1_Da)
         scalar_def = mn in SCALAR_DEFS and ops and ops[0].type == X.X86_OP_REG and ops[0].reg in XMM_BITS \
             and not (len(ops) > 1 and ops[1].type == X.X86_OP_REG and ops[1].reg == ops[0].reg)
-        if not zero_idiom and not reserve and not nop:
+        # (MemoryBarrier() on x86, `xchg [ebp - 4], eax`: a fence, the register's value thrown into a
+        # local nothing reads. Taken for a read, an XAudio2 effect's lock check took eax for an
+        # input, its every caller through the vtable too, and the effect's Process ran one
+        # argument off on XAudio2's thread, the process's end, 2026-10-26)
+        fence = mn == "xchg" and len(ops) == 2 and any(
+            o.type == X.X86_OP_MEM and o.mem.base in (X.X86_REG_EBP, X.X86_REG_ESP) for o in ops)
+        if not zero_idiom and not reserve and not nop and not fence:
             for r in reads:
                 bit = REG_BITS.get(r)
                 if scalar_def and r == ops[0].reg:

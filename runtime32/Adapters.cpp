@@ -663,7 +663,9 @@ unsigned int gen_imp_RaiseException(uint32_t code, uint32_t flags, uint32_t n, u
 // ExitProcess: the reference's program ends, on its thread (RefRun); the runtime ends the process
 // once that thread has, with its trace flushed and the port's own runtime shut down in order. A
 // static C runtime ends so, VS2010's _doexit, where a /MD one calls the host's exit
+static void ExitReport(const char* how, uint32_t code);
 unsigned int gen_imp_ExitProcess(uint32_t code) {
+    ExitReport("ExitProcess", code);
     ExitThread(code);
 }
 
@@ -783,6 +785,24 @@ unsigned int gen_imp_MessageBoxA(uint32_t hwnd, uint32_t text, uint32_t caption,
     fflush(stderr);
     if (unsigned int r = Unattended(type)) return r;
     return MessageBoxA(At<HWND__>(hwnd), At<char>(text), At<char>(caption), type);
+}
+
+// ---- the process's end, said where: an exit with an exception's code (its own crash handler's
+// TerminateProcess after catching one) left no report of the runtime's, 2026-10-26
+extern "C++" void RefPrintStack(HANDLE thread, CONTEXT c);   // RefImage.cpp
+
+static void ExitReport(const char* how, uint32_t code) {
+    fprintf(stderr, "%s: %s(%#x) on thread %lu\n", RHIPPER_NAME, how, code, GetCurrentThreadId());
+    CONTEXT c = {};
+    RtlCaptureContext(&c);
+    RefPrintStack(GetCurrentThread(), c);
+    fflush(stderr);
+    RefTraceFlush();
+}
+unsigned int gen_imp_TerminateProcess(uint32_t process, uint32_t code) {
+    HANDLE h = reinterpret_cast<HANDLE>(static_cast<intptr_t>(static_cast<int32_t>(process)));
+    if (h == GetCurrentProcess() || GetProcessId(h) == GetCurrentProcessId()) ExitReport("TerminateProcess", code);
+    return static_cast<unsigned int>(TerminateProcess(h, code));
 }
 
 // ---- messages: x86's MSG is 28 bytes (4-byte handle, wParam, lParam), x64's 48 -----------------

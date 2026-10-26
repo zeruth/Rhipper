@@ -141,9 +141,13 @@ def run_port(_jobs: int, secs: int) -> bool:
         time.sleep(min(15, max(1, secs - (time.time() - t0))))
         if p.poll() is None and r.get("screenshot"):
             img = OUT / f"run-{k}.png"
-            subprocess.run([a.format(out=str(img), root=str(ROOT)) for a in r["screenshot"]], cwd=ROOT,
-                           capture_output=True, timeout=60)
-            k += 1
+            try:
+                subprocess.run([a.format(out=str(img), root=str(ROOT)) for a in r["screenshot"]], cwd=ROOT,
+                               capture_output=True, timeout=60)
+                k += 1
+            except subprocess.TimeoutExpired:
+                # (a hung window: no picture, the run goes on)
+                print("    screenshot timed out", flush=True)
     alive = p.poll() is None
     if alive:
         subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], capture_output=True)
