@@ -811,15 +811,18 @@ def analyse(root: int, ranges):
     for a in state:
         m = insns[a].mnemonic
         if m == "ret":
+            # (back along the fall-through path, past a loop's closing jcc, `fstp [edi]; ...;
+            # jl top; pop edi; ...; ret 4`; to the entry with no x87 or call on the way, empty too)
             q, end = prv.get(a), False
-            for _ in range(32):
+            for _ in range(48):
                 if q is None or q not in insns:
+                    end = q is None
                     break
                 qm = insns[q].mnemonic
                 if qm.startswith("f") and not qm.startswith(("fn", "fwait")):
                     end = qm.endswith("p")
                     break
-                if qm == "call" or qm.startswith(("j", "loop")):
+                if qm in ("call", "jmp") or qm.startswith("loop"):
                     break
                 q = prv.get(q)
             ends.append(end)
@@ -1150,7 +1153,9 @@ def analyse(root: int, ranges):
             "handoffs": handoffs, "ecx_handoffs": ecx_hands,
             # (an indirect call's x87 result, for its call-site signature: `(float)extraout_ST0`
             # after a virtual getter of a float, 305 stubs, 2026-10-23)
-            "icall_rets": {t[1]: k for t, k in results.items() if isinstance(t, tuple) and k in ("f4", "d8")},
+            # (and its edx:eax one, i8: a sound thread's `uVar9 = (*vt[1])(..)` read edx after it
+            # into a 64-bit count, extraout_EDX, a stub, 2026-10-26)
+            "icall_rets": {t[1]: k for t, k in results.items() if isinstance(t, tuple) and k in ("f4", "d8", "i8")},
             "passes": passes, "passes_via": passes_via, "writes_ret": writes_ret, "vol_writes": vol_writes, "opaque": opaque,
             "sets_eax": sets_eax, "x87_ret_live": x87_ret_live, "x87_ret_dead": x87_ret_dead, "narrow_ret": sets_eax if sets_eax in (1, 2) and rets and rets_set == rets else 0,
             "eax_unset": root in state and eax_reaches_ret(insns, state, nxt, root, limit=256),
@@ -1692,6 +1697,10 @@ def pushed_object_vtable(insns, prv, a) -> bool:
     if ip is None or not line[ip].operands or line[ip].operands[0].type != X.X86_OP_REG \
             or line[ip].operands[0].reg != obj:
         return False
+    # (not a push that only reserves a slot the next store fills, `push ecx; fstp dword ptr
+    # [esp]`: a float argument, the object in ecx all the same, slot_overwritten)
+    if slot_overwritten(insns, line[ip].address):
+        return False
     # (the same object: obj not written between its push and its vtable's load)
     lo, hi = sorted((ip, i2))
     if any(obj in regs_access(line[i])[1] for i in range(lo + 1, hi)):
@@ -1887,6 +1896,25 @@ def reused_slots(insns, prv, nxt, a, n):
     return extra
 
 
+def slot_overwritten(insns, p) -> bool:
+    """the slot the push at p makes is stored over, `[esp]`, before the stack moves again: a push
+    that only reserves room (`push ecx; fstp dword ptr [esp]`)"""
+    q = p + insns[p].size
+    for _ in range(4):
+        ins = insns.get(q)
+        if ins is None or ins.mnemonic in ("call", "ret", "push", "pop") or ins.mnemonic.startswith("j"):
+            return False
+        ops = ins.operands
+        if ops and ops[0].type == X.X86_OP_MEM and ops[0].mem.base == X.X86_REG_ESP \
+                and not ops[0].mem.disp and not ops[0].mem.index \
+                and ins.mnemonic in ("fstp", "fst", "fistp", "fist", "mov", "movss", "movd"):
+            return True
+        if any(r == X.X86_REG_ESP for r in regs_access(ins)[1]):
+            return False
+        q += ins.size
+    return False
+
+
 def ecx_scan(insns, prv, p, budget, labels, preds, pushed, seen) -> tuple[bool, bool, int]:
     """Back from p to the previous call: (ecx written there, and not pushed after its write; ecx
     pushed on the way; steps taken). At a jump target the scan goes on along every way in, the
@@ -1910,7 +1938,11 @@ def ecx_scan(insns, prv, p, budget, labels, preds, pushed, seen) -> tuple[bool, 
         ops = ins.operands
         steps += 1
         if mn == "push":
-            if ops and ops[0].type == X.X86_OP_REG and ops[0].reg == X.X86_REG_ECX:
+            # (not one that only reserves its slot, overwritten through [esp] next: `push ecx; fstp
+            # dword ptr [esp]` passes a float. Taken for `this` pushed, a reverb's update lost
+            # its object, the sound driver's setup 2026-10-26)
+            if ops and ops[0].type == X.X86_OP_REG and ops[0].reg == X.X86_REG_ECX \
+                    and not slot_overwritten(insns, p):
                 pushed = True
         elif mn == "pop":
             if ops and ops[0].type == X.X86_OP_REG and ops[0].reg == X.X86_REG_ECX:
@@ -3164,7 +3196,7 @@ def main() -> None:
             # its job threads call 3 million times, 2026-10-26)
             k = v.get("icall_rets", {}).get(a)
             if k:
-                rets[hexa(a)] = ["f", 4] if k == "f4" else ["d", 8]
+                rets[hexa(a)] = {"f4": ["f", 4], "d8": ["d", 8], "i8": ["i", 8]}[k]
         # (a direct call to a variadic function: the words pushed for it, where more than its
         # fixed ones, analyse's call_pushes)
         for a, (t, n) in v.get("call_pushes", {}).items():

@@ -2752,6 +2752,11 @@ class Translator32:
         if floats:
             body = re.sub(r"(?m)^(\s*)(" + "|".join(sorted(map(re.escape, floats))) + r")(\s*=\s*)\(\(code \*\)",
                           r"\1\2\3((gen_fcode *)", body)
+        # (and one whose edx:eax result goes to an 8-byte integer: through gen_lcode, its rax whole)
+        longs = {n for n, t in var_types.items() if t.strip() in ("ulonglong", "longlong", "undefined8", "uint8", "int8")}
+        if longs:
+            body = re.sub(r"(?m)^(\s*)(" + "|".join(sorted(map(re.escape, longs))) + r")(\s*=\s*)\(\(code \*\)",
+                          r"\1\2\3((gen_lcode *)", body)
         return body.replace("code * PTR32", "gen_code32")
 
     @staticmethod

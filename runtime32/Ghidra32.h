@@ -80,6 +80,8 @@ typedef unsigned int gen_code32;
 /* a function called through a pointer for its x87 result: every translated function returning one
    is entered as one returning a double (jumps.c's W_ entries) */
 typedef double gen_fcode();
+/* and for its edx:eax result: a translated function returning 8 bytes returns them in rax whole */
+typedef unsigned long long gen_lcode();
 
 /* The shadow trace (shadow32.py): every translated function records its entry and first four
    arguments while the runtime has tracing on (<ENV>_TRACE), to be compared call by call with the
