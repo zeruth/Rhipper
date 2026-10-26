@@ -227,6 +227,7 @@ def analyse(root: int, ranges):
     open_ = False
     lost = 0
     indirect_jumps = []
+    table_size: dict[int, int] = {}           # a switch table's entries, by its range check
     anchor = [None]                           # ebx's entry-relative esp where it anchors the frame
     loc_store: dict[int, int] = {}            # local offset -> widest store to it
     loc_read: set[int] = set()                # local bytes read (other than by address)
@@ -603,6 +604,16 @@ def analyse(root: int, ranges):
             elif ops and ops[0].type == X.X86_OP_MEM and ops[0].mem.index and ops[0].mem.scale == 4:
                 # (a switch: its targets are found below, from its table)
                 indirect_jumps.append((mask, esp, ebp, ops[0].mem.disp & 0xFFFFFFFF))
+                # (and its size, by the range check before it, `cmp eax, 5; ja default`)
+                q = prv.get(a)
+                for _ in range(4):
+                    if q is None or q not in insns:
+                        break
+                    qi = insns[q]
+                    if qi.mnemonic == "cmp" and len(qi.operands) == 2 and qi.operands[1].type == X.X86_OP_IMM:
+                        table_size[ops[0].mem.disp & 0xFFFFFFFF] = (qi.operands[1].imm & 0xFFFFFFFF) + 1
+                        break
+                    q = prv.get(q)
             else:
                 open_ = True
                 # (a tail jump through a pointer with the frame gone: a call that returns, its
@@ -638,21 +649,37 @@ def analyse(root: int, ranges):
         # reached, which takes in the dead code after a noreturn call. llex's `call lexerror; add esp,
         # 0x40` so seeded at the switch's esp came out 0x40 high, its epilogue's cookie read as 15
         # stack parameters, and luaX_next a stub, 2026-10-25)
-        cases = []
-        for jm, je, jb, table in indirect_jumps:
-            for k in range(1024):
+        any_case = False
+        # (each table as long as its range check says, else to the next table's start: two
+        # switches' tables side by side, 0x44d2fc and 0x44d314, read the second's cases as the
+        # first's; and a switch found inside another's cases, its own in turn)
+        done = 0
+        while done < len(indirect_jumps):
+            jm, je, jb, table = indirect_jumps[done]
+            done += 1
+            starts = {tb for _m, _e, _b, tb in indirect_jumps}
+            cases = []
+            for k in range(table_size.get(table, 1024)):
+                if k and table + 4 * k in starts:
+                    break
                 try:
                     t = b.u32(table + 4 * k)
                 except Exception:  # noqa: BLE001
                     break
                 if t not in insns:
                     break
-                cases.append((t, (m, je, jb, 0)))
-        for t, s in cases:
-            if t not in state:
-                merge(t, s)
-                while work:
-                    visit(work.pop())
+                # (its own jump's registers, not every switch's in common: a handler's second
+                # switch, after `mov ebx, [ebp + 8]; mov edi, [ebp + 0x18]`, seeded with the first's
+                # read them as inputs, and its callers through a table passed its words one off,
+                # 2026-10-26)
+                cases.append((t, (jm | (m & EBP_IN), je, jb, 0)))
+            any_case = any_case or bool(cases)
+            for t, s in cases:
+                if t not in state:
+                    merge(t, s)
+                    while work:
+                        visit(work.pop())
+        cases = any_case
         if not cases:
             for a in order:
                 if a not in state:
@@ -735,10 +762,31 @@ def analyse(root: int, ranges):
     # (where esp is not known at the push either, after the frame's `and esp, -64`, the pop's offset
     # is not known: fmt_floats' `push esi` at /O2, after the alignment, counted for an eighth
     # double's word of its sprintf and read as unaff_ESI, rhtest msvc-16.00-x86 crt)
+    def overwritten_next(p):
+        """the pushed register written again, unread, before the next call or branch: a save
+        (shrink-wrapped, on one path: `push ebx; mov ebx, [ebp + 8]`)"""
+        bit = REG_BITS.get(insns[p].operands[0].reg)
+        q = nxt.get(p)
+        for _ in range(8):
+            if q is None or q not in insns:
+                return False
+            qi = insns[q]
+            if qi.mnemonic in ("call", "ret") or qi.mnemonic.startswith("j"):
+                return False
+            reads, writes = regs_access(qi)
+            if any(REG_BITS.get(r) == bit for r in reads):
+                return False
+            if any(REG_BITS.get(r) == bit for r in writes):
+                return True
+            q = nxt.get(q)
+        return False
+
     def saved(p):
         if state.get(p) is None:
             return False
         reg = insns[p].operands[0].reg
+        if overwritten_next(p):
+            return True
         if state[p][1] is None:
             return reg in restored_any
         return (reg, state[p][1] - 4) in restored or reg in restored_any
@@ -746,10 +794,18 @@ def analyse(root: int, ranges):
         if prologue(a) or saved(a):
             continue
         after, p = 0, nxt.get(a)
+        pushed_reg = insns[a].operands[0].reg
         for _ in range(10):
             if p is None or p not in insns:
                 break
             pi = insns[p]
+            # (the register written again next: the push saved it, a shrink-wrapped save on one
+            # path, `push ebx; mov ebx, [ebp + 8]; ...; push edi; mov edi, [ebp + 0x18]` in a
+            # switch's case. Taken for arguments, ebx and edi became inputs of a handler called
+            # through a table, and its stack words came one off, 2026-10-26)
+            if REG_BITS.get(pushed_reg) and any(REG_BITS.get(r) == REG_BITS[pushed_reg] for r in regs_access(pi)[1]) \
+                    and not any(REG_BITS.get(r) == REG_BITS[pushed_reg] for r in regs_access(pi)[0]):
+                break
             if pi.mnemonic == "push":
                 after += 4
             elif pi.mnemonic == "call":
@@ -1518,8 +1574,8 @@ def pushed_inputs(insns, prv, nxt, state, labels) -> int:
                     o.type == X.X86_OP_REG and o.reg == X.X86_REG_ESP for o in pi.operands):
                 break
             if mn == "push":
-                left -= 1
                 o = pi.operands[0] if pi.operands else None
+                left -= 1
                 if o is not None and o.type == X.X86_OP_REG and o.reg in FULL and p in state \
                         and not state[p][0] & FULL[o.reg] and depth not in written:
                     found |= FULL[o.reg]

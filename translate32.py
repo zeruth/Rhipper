@@ -953,41 +953,67 @@ def x87_icall_results(c: str) -> str:
     makes a call through gen_fcode (an XAudio2 effect's update, 307 functions, 2026-10-26).
     Only where nothing else is called between the call and the first read, and the variable is
     not read before the call."""
+    # (and an indirect call already assigned, `fVar2 = (**(code **)..)(..); f((float)extraout_ST0)`:
+    # its result in both, `extraout_ST0 = ..; fVar2 = extraout_ST0;`, a sound bus's update. And
+    # several read together, `x(e_01 * e_00 * e)` after three calls: Ghidra numbers them in order,
+    # extraout_ST0 the first call's, a bus's volume product, 2026-10-26)
     lines = c.split("\n")
-    for v in sorted(set(re.findall(r"\bextraout_ST0(?:_\d+)?\b", c))):
+    names = sorted(set(re.findall(r"\bextraout_ST0(?:_\d+)?\b", c)), key=lambda n: (len(n), n))
+
+    def plain(l):
+        return l.endswith(";") and not re.search(r"[{}:]|\b(?:if|while|for|switch|return|goto|do)\b", l) \
+            and not re.search(r"\b(?!(?:sizeof)\b)[A-Za-z_]\w*\s*\(", re.sub(r"\(\s*[\w ]+\s*\**\s*\)", "", l))
+
+    def call_stmt(k):
+        """(start, assigned name or None) of the indirect call statement ending on line k"""
+        if not lines[k].rstrip().endswith(");"):
+            return None
+        s = k
+        while s > k - 4 and s >= 0:
+            m = re.match(r"\s*(?:([A-Za-z_]\w*)\s*=\s*)?(\(\*.*)", lines[s])
+            if m and X87_ICALL.match(m.group(2)):
+                stmt = " ".join(l.strip() for l in lines[s:k + 1])
+                return (s, m.group(1)) if stmt.count("(") == stmt.count(")") else None
+            s -= 1
+        return None
+
+    def stmt_start(i):
+        """the first line of the statement line i is part of (a wrapped one's continuation lines)"""
+        while i > 0 and not re.search(r"[;{}:]\s*$", lines[i - 1]):
+            i -= 1
+        return i
+
+    firsts = {}
+    for v in names:
         decl = re.compile(r"^\s*float10\s+" + v + r"\s*;\s*$")
         uses = [i for i, l in enumerate(lines) if re.search(r"\b" + v + r"\b", l) and not decl.match(l)]
-        if not uses:
-            continue
-        first = uses[0]
-        # the call statement before the first read: its last line ends `);`, its first starts
-        # `(*`, with only plain statements between (no call, no branch or label: st0 unchanged)
-        k = first - 1
-        while k >= 0:
+        if uses:
+            firsts.setdefault(stmt_start(uses[0]), []).append(v)
+    for first, group in sorted(firsts.items()):
+        # back from the first read: as many indirect call statements as names, plain ones between
+        calls, k = [], first - 1
+        while k >= 0 and len(calls) < len(group):
             l = lines[k].strip()
             if not l:
                 k -= 1
                 continue
-            if l.endswith(");") and not re.match(r"[\w.\[\]*()+ -]+=", l):
-                break
-            plain = l.endswith(";") and not re.search(r"[{}:]|\b(?:if|while|for|switch|return|goto|do)\b", l) \
-                and not re.search(r"\b(?!(?:sizeof)\b)[A-Za-z_]\w*\s*\(", re.sub(r"\(\s*[\w ]+\s*\**\s*\)", "", l))
-            if not plain:
-                k = -1
+            cs = call_stmt(k)
+            if cs:
+                calls.append((cs[0], k, cs[1]))
+                k = cs[0] - 1
+                continue
+            if not plain(l):
                 break
             k -= 1
-        if k < 0 or not lines[k].rstrip().endswith(");"):
+        if len(calls) != len(group):
             continue
-        s = k
-        while s > k - 4 and s >= 0 and not lines[s].lstrip().startswith("(*"):
-            s -= 1
-        if s < 0 or not lines[s].lstrip().startswith("(*") or not X87_ICALL.match(lines[s].lstrip()):
-            continue
-        stmt = " ".join(l.strip() for l in lines[s:k + 1])
-        if stmt.count("(") != stmt.count(")"):
-            continue
-        indent = lines[s][:len(lines[s]) - len(lines[s].lstrip())]
-        lines[s] = indent + v + " = " + lines[s].lstrip()
+        for v, (s, e, assigned) in zip(group, reversed(calls)):
+            indent = lines[s][:len(lines[s]) - len(lines[s].lstrip())]
+            if assigned:
+                lines[s] = indent + v + " = " + lines[s].lstrip()[len(assigned):].lstrip()[1:].lstrip()
+                lines[e] = lines[e] + f" {assigned} = {v};"
+            else:
+                lines[s] = indent + v + " = " + lines[s].lstrip()
     return "\n".join(lines)
 
 
@@ -1420,6 +1446,8 @@ class Translator32:
         if odd:
             for r in self.corpus.values():
                 if "`" in r.get("c", ""):
+                    # (its long name wrapped by the decompiler after the quote, `'\n    ::__l2::..`)
+                    r["c"] = re.sub(r"'[ \t]*\n[ \t]*::", "'::", r["c"])
                     for n, a in odd:
                         if n in r["c"]:
                             r["c"] = r["c"].replace(n, f"DAT_{a:08x}")
@@ -3182,7 +3210,8 @@ class Translator32:
         # (and to a structure by value of an integer's size: its bytes. A class Function ID names
         # but Ghidra has no layout for is a 1-byte placeholder, and its constructor's `this[0xc] =
         # (_LocaleUpdate)0x0` stores a byte: VS2010's _LocaleUpdate, rhtest msvc-16.00-x86)
-        body = re.sub(r"\(\s*([A-Za-z_]\w*)\s*\)(?=\s*[\w(-])",
+        # (of a dereference or address too, `(RaptureAtkModule)*pcVar10`: no variable is named so)
+        body = re.sub(r"\(\s*([A-Za-z_]\w*)\s*\)(?=\s*[\w(*&!~-])",
                       lambda m: f"(undefined{self.composite_sizes[m.group(1)]})"
                       if m.group(1) not in KNOWN_TYPES and self.composite_sizes.get(m.group(1)) in (1, 2, 4, 8)
                       else m.group(0), body)
