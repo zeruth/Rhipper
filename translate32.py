@@ -604,6 +604,32 @@ def frame_index(body: str, bases: list) -> str:
     return body
 
 
+GLOBAL_ARRAY = re.compile(r"\(&REFG\([^()]*\)\)\[")
+
+
+def global_index(body: str) -> str:
+    """A global array's subscript in 32 bits too, as frame_index a frame array's: the CRT's printf
+    state table, `(&DAT_01119e88)[uVar8 * 8 + iVar17]`, a table folded one row on and indexed
+    0xfffffff8 for its first, read 4 GB on (__vsnprintf_l from a Havok loader in a VS2010 client,
+    2026-10-26)."""
+    out, i = [], 0
+    for m in GLOBAL_ARRAY.finditer(body):
+        if m.start() < i:
+            continue
+        j = m.end()
+        k, depth = j, 1
+        while k < len(body) and depth:
+            depth += {"[": 1, "]": -1}.get(body[k], 0)
+            k += 1
+        e = global_index(body[j:k - 1])
+        out.append(body[i:j])
+        out.append(e if re.fullmatch(r"\s*-?(?:0x[0-9a-fA-F]+|\d+)\s*", e) else f"(int)({e})")
+        out.append("]")
+        i = k
+    out.append(body[i:])
+    return "".join(out)
+
+
 def frame_wrap(body: str) -> str:
     """A place in the frame offset by a run-time amount, computed in 32 bits as the reference's
     is: `(gen_frame + K) + E` and `((gen_frame + K))[E]`. E is often an unsigned sum with a negative
@@ -667,6 +693,139 @@ def next_is_return(v: str, lines: list[str], at: int) -> bool:
         if re.search(r"\b" + re.escape(v) + r"\b", s):
             return re.fullmatch(r"return\s+(?:\(\w+\)\s*)?" + re.escape(v) + r"\s*;", s) is not None
     return False
+
+
+def brace_openers(lines: list[str]) -> dict[int, int]:
+    """For each line starting with `}`, the line of the `{` it closes (string and character
+    literals aside)."""
+    stack, out = [], {}
+    for j, line in enumerate(lines):
+        s = re.sub(r"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'", "", line)
+        first = True
+        for ch in s:
+            if ch == "{":
+                stack.append(j)
+            elif ch == "}" and stack:
+                o = stack.pop()
+                if first and s.lstrip().startswith("}"):
+                    out[j] = o
+                first = False
+    return out
+
+
+def reads_after_writes(v: str, lines: list[str], bad: set[str]) -> bool:
+    """Every read of local v, but in a return, comes after an assignment to it of something else
+    on each way there: a write of v at the read's own level above it, or in every branch of an
+    if/else chain above it, with no label, case or loop holding a bad write in between. Then what a
+    `v = extraout_EAX;` (a name of bad) stores reaches only returns. 0xcc74f0 in a VS2010 client,
+    a sound driver's update, `uVar1 = extraout_EAX;` after EnterCriticalSection and `uVar1 =
+    (**(code **)(*this + 0x88))(this); if ((char)uVar1 == '\\0')` in its loop, a stub every frame,
+    2026-10-26."""
+    vre = re.compile(r"\b" + re.escape(v) + r"\b")
+    badre = re.compile(r"\b(?:" + "|".join(map(re.escape, bad | {v})) + r")\b")
+    opener = brace_openers(lines)
+
+    def assign(s):
+        m = re.fullmatch(re.escape(v) + r"\s*=(?!=)\s*(.+);", s)
+        return m.group(1) if m else None
+
+    def kill(s):
+        rhs = assign(s)
+        return rhs is not None and not badre.search(rhs)
+
+    def bad_write_in(o, c):
+        return any((rhs := assign(lines[k].strip())) is not None and badre.search(rhs) for k in range(o, c + 1))
+
+    def top_kill(o, c):
+        """a write of v of something else at the top level of the block o..c, before any label"""
+        k = o + 1
+        while k < c:
+            s = lines[k].strip()
+            if s.startswith("}") or re.match(r"[A-Za-z_]\w*\s*:(?!:)|case\b|default\s*:", s):
+                return False
+            if s.endswith("{"):
+                # (a nested block: past its end)
+                ends = [e for e, op in opener.items() if op == k]
+                if not ends:
+                    return False
+                k = min(ends) + 1
+                continue
+            if kill(s):
+                return True
+            k += 1
+        return False
+
+    def chain_start(c):
+        """the close line of an if/else chain's last branch -> (its first line, every branch
+        (open, close), whether it ends in a plain else)"""
+        branches, has_else = [], False
+        while c in opener:
+            o = opener[c]
+            branches.append((o, c))
+            head = lines[o].strip()
+            if re.match(r"(?:\}\s*)?else\b(?!\s+if)", head):
+                has_else = True
+            if head.startswith("}"):
+                c = o                                   # `} else {`: the branch before closes here
+                continue
+            if head.startswith("else") and o > 0 and lines[o - 1].strip().startswith("}"):
+                c = o - 1                               # `}` / `else {` on two lines
+                continue
+            return o, branches, has_else
+        return None, branches, has_else
+
+    def dominated(i):
+        j = i - 1
+        while j >= 0:
+            s = lines[j].strip()
+            if lines[j].startswith("{") or re.match(r"[A-Za-z_]\w*\s*:(?!:)|case\b|default\s*:", s):
+                return False                            # the function's start, a label, a case
+            if s.startswith("}") and j in opener:
+                start, branches, has_else = chain_start(j)
+                if start is None:
+                    return False
+                head = lines[start].strip()
+                if re.match(r"(?:do|while|for)\b", head) or s.startswith("} while"):
+                    if bad_write_in(start, j):
+                        return False
+                elif has_else and all(top_kill(o, c) for o, c in branches):
+                    return True
+                j = start - 1
+                continue
+            if s.endswith("{"):
+                # (out of the block the read is in, upward)
+                if re.match(r"(?:do|while|for)\b", s):
+                    ends = [e for e, op in opener.items() if op == j]
+                    if not ends or bad_write_in(j, min(ends)):
+                        return False
+                elif re.match(r"(?:\}\s*)?else\b", s) or s.startswith("}"):
+                    start, _b, _e = chain_start(j - 1 if s.startswith("else") else j)
+                    if start is None:
+                        return False
+                    j = start - 1
+                    continue
+                elif re.match(r"switch\b", s):
+                    return False
+                j -= 1
+                continue
+            if kill(s):
+                return True
+            if assign(s) is not None:
+                return False                            # the bad write itself
+            j -= 1
+        return False
+
+    for i, line in enumerate(lines):
+        if not vre.search(line):
+            continue
+        s = line.strip()
+        if re.fullmatch(r"[A-Za-z_][\w ]*?[\s*]+" + re.escape(v) + r";", s) or re.match(r"return\b", s):
+            continue
+        if assign(s) is not None and not vre.search(assign(s)):
+            continue
+        if re.match(r"(?:while|for)\b", s) or not dominated(i):
+            return False
+    return True
 
 
 def returned_local(v: str, lines: list[str]) -> bool:
@@ -735,6 +894,16 @@ def array_stores(c: str) -> str:
                   r"([A-Za-z_]\w*)\s*=\s*([A-Za-z_]\w*)\s*;[ \t]*$", through, c)
 
 
+def locked_reads(c: str) -> str:
+    """An `xchg` with a global, `iVar1 = DAT_x; LOCK(); DAT_x = 1; UNLOCK();`: the decompiler reads
+    the old value before the lock, and only the write is atomic. Two threads both read 0, both
+    took the spin lock, and the job queue it guarded, 0x4a1010's in a VS2010 client, hung every
+    thread on it, 2026-10-26. The read goes inside, as it is with a pointer's (`LOCK(); iVar1 =
+    *piVar2; *piVar2 = 1; UNLOCK();`)."""
+    return re.sub(r"^([ \t]*)(\w+\s*=\s*([\w.\[\]]+)\s*;)[ \t]*\n[ \t]*LOCK\(\);[ \t]*\n(?=[ \t]*\3\s*=(?!=))",
+                  lambda m: f"{m.group(1)}LOCK();\n{m.group(1)}{m.group(2)}\n", c, flags=re.M)
+
+
 def stack_vs_const(c: str) -> str:
     """A stack address compared with a small constant is never equal: _malloca's buffer checked
     for NULL after its 8-byte header, `&stack0x00000000 != &DAT_00000020` (__crtLCMapStringA_stat,
@@ -793,6 +962,9 @@ def returned_only(c: str) -> set[str]:
                 # return uVar1;`, the COM teardown of a VS2010 client's 0xa0e240, whose one caller
                 # drops the result, 2026-10-25)
                 if m and m.group(2).strip() == n and next_is_return(m.group(1), lines, lines.index(line)):
+                    continue
+                # (or into one every other read of which a write of something else comes before)
+                if m and m.group(2).strip() == n and m.group(1) not in names and reads_after_writes(m.group(1), lines, names):
                     continue
                 ok.discard(n)
                 changed = True
@@ -1842,7 +2014,7 @@ class Translator32:
 
     # ---- one function ---------------------------------------------------------------------------
     def why_not(self, a: int) -> str | None:
-        c = self.entry_registers(a, self.kept_inputs(stack_vs_const(v16_forms(cpu_state(array_stores(strip_comments(self.corpus[a]["c"])))))))
+        c = self.entry_registers(a, self.kept_inputs(stack_vs_const(v16_forms(cpu_state(array_stores(locked_reads(strip_comments(self.corpus[a]["c"]))))))))
         if a not in self.sigs:
             return "no signature"
         # (a register as the function found it that no parameter is in, never assigned: lost)
@@ -2273,7 +2445,7 @@ class Translator32:
         sig = self.sigs[a]
         self.cur_params = sig.params              # (pointer_steps: the parameters' types)
         self.cur_gt = self.corpus[a].get("gt") or {}  # (global_lvalue: the decompiler's types of the globals)
-        c = self.entry_registers(a, self.kept_inputs(stack_vs_const(v16_forms(cpu_state(array_stores(strip_comments(self.corpus[a]["c"])))))))
+        c = self.entry_registers(a, self.kept_inputs(stack_vs_const(v16_forms(cpu_state(array_stores(locked_reads(strip_comments(self.corpus[a]["c"]))))))))
         # (a long C++ name Ghidra wraps at a `::`, `IpcChannel::\n        PacketBufferTmpl<...>::\n
         # vftable`: one name again, as the data export has it. 1,090 stubs, 2026-10-23)
         c = re.sub(r"::[ \t]*\n[ \t]*", "::", c)
@@ -2655,6 +2827,8 @@ class Translator32:
             raise ValueError("a 4-byte piece indexed as a pointer")
         # (in the code, not in a string: "ios_base::eofbit set" is text)
         code_only = re.sub(r'"(?:[^"\\\n]|\\.)*"', '""', body)
+        # (nor a character constant, `'`' < DAT_01372878`, a test for a lowercase letter)
+        code_only = re.sub(r"'(?:[^'\\\n]|\\.)'", "0", code_only)
         # (Ghidra's stack pieces, `_uStack_1c`; not a library signature's `_StackCookie`)
         # (one the function declares is a local of its own: __setmbcp_nolock's `_cpinfo _Stack_1c;`,
         # a struct the decompiler named so, 2026-10-24)
@@ -2686,6 +2860,7 @@ class Translator32:
         # object at [ebp - 0x14] and [ebp - 0x18], below the 16 bytes it did, rhtest eh 2026-10-24)
         eh = bool(EH_LINK.search(body)) or eh_prolog
         body = frame_locals(body, 0x10000 if alloca else 0, self.frames.get(a, 0) if eh else 0, eh_args)
+        body = global_index(body)
         # (a frame slot of a pointer type converted to a float, Ghidra reusing one local for both:
         # its bits, as GEN_TOF takes a pointer's)
         # (not one indexed: `(float)local_x[i]` converts the element)
@@ -3235,6 +3410,10 @@ class Translator32:
         # exception object became a `scheduler_resource_allocation_error[16]`, eh-Od)
         def opaque(m):
             word, name, count = m.group(2), m.group(3), m.group(4)
+            # (through a typedef to one, `WSADATA local_198;` of struct WSAData, WSAStartup's)
+            if word not in self.composite_sizes and self.typedefs.get(word) in self.composite_sizes \
+                    and word not in KNOWN_TYPES:
+                word = self.typedefs[word]
             if word not in self.composite_sizes or word in KNOWN_TYPES \
                     or re.search(rf"\b{name}\b\s*(?:\[[^\]]*\]\s*)?(?:\.|->)", rest):
                 return m.group(0)

@@ -354,6 +354,12 @@ def analyse(root: int, ranges):
                 else:
                     loc_read.update(range(off, off + (op.size or 4)))
             if off >= 4:
+                # (an unaligned parameter address taken, a byte's: a temporary in the dead slot of a
+                # parameter already read, to its word's end only. Havok's stream loader 0xdeb100 in a
+                # VS2010 client, `lea edx, [ebp + 0xf]` for a bool out of its second parameter's top
+                # byte, took a third, and its callers' edi went in unaffected: 2 stubs, 2026-10-26)
+                if mn == "lea" and off & 3:
+                    width = 4 - (off & 3)
                 stack_hi = max(stack_hi, off + (width or 4))
                 if mn != "lea":
                     direct_hi = max(direct_hi, off + (width or 4))
@@ -692,7 +698,7 @@ def analyse(root: int, ranges):
                     merge(a, seed)
                     while work:
                         visit(work.pop())
-    results, passes, handoffs, passes_via = result_reads(insns, state, nxt)
+    results, passes, handoffs, passes_via, st_over = result_reads(insns, state, nxt)
     ecx_hands = ecx_handoffs(insns, state, nxt)
     # (which result registers the function writes itself, anywhere: a read after a call to one
     # that writes neither is of a value the caller kept across it, /LTCG knowing the callee)
@@ -1218,7 +1224,7 @@ def analyse(root: int, ranges):
             # (and its edx:eax one, i8: a sound thread's `uVar9 = (*vt[1])(..)` read edx after it
             # into a 64-bit count, extraout_EDX, a stub, 2026-10-26)
             "icall_rets": {t[1]: k for t, k in results.items() if isinstance(t, tuple) and k in ("f4", "d8", "i8")},
-            "passes": passes, "passes_via": passes_via, "writes_ret": writes_ret, "vol_writes": vol_writes, "opaque": opaque,
+            "passes": passes, "passes_via": passes_via, "st_over": st_over, "writes_ret": writes_ret, "vol_writes": vol_writes, "opaque": opaque,
             "sets_eax": sets_eax, "x87_ret_live": x87_ret_live, "x87_ret_dead": x87_ret_dead, "narrow_ret": sets_eax if sets_eax in (1, 2) and rets and rets_set == rets else 0,
             "eax_unset": root in state and eax_reaches_ret(insns, state, nxt, root, limit=256),
             "tail_ijmps": [(j, c or bool(inputs & ECX)) for j, c in tail_ijmps]}
@@ -1249,6 +1255,7 @@ def result_reads(insns, state, nxt):
     # (callee -> the direct calls between it and a ret that leaves its eax: its result returned if
     # they leave eax and edx alone, decided in main())
     passes_via: list[tuple[int, list[int]]] = []
+    st_over: list = []
     for a, ins in insns.items():
         t = _target(ins)
         if a not in state:
@@ -1298,6 +1305,12 @@ def result_reads(insns, state, nxt):
                 # otherwise and print()'s `n = printf(...)` 0, rhtest crt-O2 2026-10-24)
                 if not eax_w:
                     passes.append(t)
+                    # (its eax, not its st0, with a value loaded over it on the way: a stream's
+                    # float read, `call read_bytes; fld dword ptr [ebp - 4]; ret`, returns its own
+                    # load, and as float the byte reader 0x105aec0 was a stub, its st0 lost, a
+                    # VS2010 client 2026-10-26)
+                    if st_loaded and t not in st_over:
+                        st_over.append(t)
                 break
             # (a load onto the x87 stack reads no st0, and the straight line goes on for eax and
             # edx: walk's V2 came back in edx:eax, read past `fld qword ptr [c]`, and as an i4 the
@@ -1412,7 +1425,7 @@ def result_reads(insns, state, nxt):
     # Taken as passed on, a bool returned in al stayed an i4 and its upper bytes extraout_EAX, a
     # VS2010 client's 0x4d14a0 on WinMain's path, 2026-10-26)
     passes = [p for p in passes if isinstance(p, tuple) or "security_check_cookie" not in _names.get(p, "")]
-    return reads, passes, handoffs, passes_via
+    return reads, passes, handoffs, passes_via, st_over
 
 
 def ecx_handoffs(insns, state, nxt) -> list[tuple[int, int]]:
@@ -2978,7 +2991,7 @@ def main() -> None:
         changed = False
         for f, v in local.items():
             for t in v.get("passes", ()):
-                if f in ret_of:
+                if f in ret_of and not (family[ret_of[f]] == "x87" and t in v.get("st_over", ())):
                     changed |= give(t, ret_of[f], f"returned by {hexa(f)}", down=True)
                 # (and the other way: a function that returns a callee's result returns one. The
                 # system allocator's Alloc, FUN_00404d60, returns _aligned_malloc's, and is called

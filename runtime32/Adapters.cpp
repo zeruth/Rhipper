@@ -1498,4 +1498,44 @@ unsigned long long gen_imp_ldiv(uint32_t n, uint32_t d) {
     return (static_cast<unsigned long long>(static_cast<uint32_t>(q.rem)) << 32) | static_cast<uint32_t>(q.quot);
 }
 
+// ---- WSAStartup: x64's WSADATA has the counts and the vendor pointer before the strings, x86's
+// after them (400 bytes: the strings at 4 and 261, the counts at 390, the pointer at 396)
+#pragma pack(push, 2)
+struct WsaData32 {
+    uint16_t wVersion, wHighVersion;
+    char szDescription[257];
+    char szSystemStatus[129];
+    uint16_t iMaxSockets, iMaxUdpDg;
+    uint16_t pad;
+    uint32_t lpVendorInfo;
+};
+#pragma pack(pop)
+static_assert(sizeof(WsaData32) == 400, "x86 WSADATA");
+unsigned int gen_imp_WSAStartup(uint32_t version, uint32_t out) {
+    // (ws2_32 loaded for it: the runtime links no winsock of its own)
+    using Startup = int(WINAPI*)(WORD, void*);
+    static Startup startup = reinterpret_cast<Startup>(GetProcAddress(LoadLibraryA("ws2_32.dll"), "WSAStartup"));
+    // (x64's own layout, as the SDK has it: version words, the counts, the vendor pointer, the
+    // strings)
+    struct {
+        WORD wVersion, wHighVersion;
+        unsigned short iMaxSockets, iMaxUdpDg;
+        char* lpVendorInfo;
+        char szDescription[257];
+        char szSystemStatus[129];
+    } d = {};
+    int r = startup(static_cast<WORD>(version), &d);
+    if (out) {
+        auto o = At<WsaData32>(out);
+        memset(o, 0, sizeof *o);
+        o->wVersion = d.wVersion;
+        o->wHighVersion = d.wHighVersion;
+        memcpy(o->szDescription, d.szDescription, sizeof o->szDescription);
+        memcpy(o->szSystemStatus, d.szSystemStatus, sizeof o->szSystemStatus);
+        o->iMaxSockets = d.iMaxSockets;
+        o->iMaxUdpDg = d.iMaxUdpDg;
+    }
+    return static_cast<unsigned int>(r);
+}
+
 }  // extern "C"
