@@ -3149,6 +3149,26 @@ def main() -> None:
             e["keeps_in"] = keeps_in
         out[hexa(f)] = e
         counts[cc] = counts.get(cc, 0) + 1
+    # (a function with no ret of its own that jumps on to another directly, taking no stack words
+    # itself, takes that one's: its callers' words are its target's. An Excel module getter,
+    # `mov ecx, [ecx + 4]; jmp 0x52fba0`, took none, and the sheet name it hands on was its
+    # in_stack_00000004, a stub on an add-on's path, 2026-10-26. Through chains of them, twice)
+    def nregs(e):
+        return {"__thiscall": 1, "__fastcall": 2}.get(e.get("cc"), len(e.get("regs", ())) if e.get("cc") == "custom" else 0)
+    for _ in range(2):
+        for f, v in local.items():
+            e = out.get(hexa(f))
+            # (no ret instruction at all: not one ending `ret` with a jump elsewhere on a path,
+            # __security_check_cookie's `jne __report_gsfailure`, which took that one's word
+            # and every function's frame checked so came out wrong)
+            if e is None or e.get("stack", 0) or v.get("ret") is not None or e.get("variadic") is not None:
+                continue
+            jt = [t for t, _m, k in v.get("calls", ()) if k == "jmp" and isinstance(t, int) and hexa(t) in out]
+            if len(jt) != 1 or not out[hexa(jt[0])].get("stack"):
+                continue
+            g = out[hexa(jt[0])]
+            e["params"] = e["params"][:nregs(e)] + g["params"][nregs(g):]
+            e["stack"] = g["stack"]
     # (a static C runtime's setjmp as the import is, `int __cdecl _setjmp3(jmp_buf, int, ...)`: read
     # off its instructions it took ebx, esi and edi and four words, the caller's locals above the
     # two pushed, and VS2010's jumps passed its volatile counter by value, kept in a register past

@@ -916,7 +916,11 @@ def filler_args(c: str) -> set[str]:
     # callee's partial SSE writes made protos32 take for its input, `FUN_00c03850(in_XMM0_Da, ...,
     # L, 1)` where the CRT's _CIpow far below merges into xmm0, a VS2010 client's 0xbb9600
     # 2026-10-25. The function sets none of them, so whatever is there reaches the callee as it would)
-    for n in set(re.findall(r"\bextraout_E[ACD]X(?:_\d+)?\b|\bin_XMM\d+_D[a-d]\b", c)):
+    # (and a callee-saved register as the function found it, only passed on whole: the slot of a
+    # parameter its caller never pushed, the stack's next word, where the prologue saved it. A
+    # string's init reads two words of one pushed, `FUN_0042cc20(local_5c, uVar1, unaff_EDI)`,
+    # a stub on an add-on's path, 2026-10-26)
+    for n in set(re.findall(r"\bextraout_E[ACD]X(?:_\d+)?\b|\bin_XMM\d+_D[a-d]\b|\bunaff_E(?:BX|SI|DI)\b", c)):
         if filler(n, [n]):
             out.add(n)
     return out
@@ -1409,6 +1413,16 @@ class Translator32:
         self.linked_jumps = {a: "longjmp" if "longjmp" in m.group(1) else "setjmp" for a, r in self.corpus.items()
                              if (m := SETJMP_NAME.fullmatch(r["name"]))}
         self.refdata, self.ref_names = load_refdata()
+        # (data named for a function's local class, `` `public: static void __cdecl X::Update(
+        # Skeleton*_const,float,..)'::__l2::SetToReferencePose::vftable ``: no name a scan can
+        # take, its quote read as a character literal's. By address, DAT_x, as data with no name)
+        odd = sorted(((n, a) for n, a in self.ref_names.items() if "`" in n), key=lambda x: -len(x[0]))
+        if odd:
+            for r in self.corpus.values():
+                if "`" in r.get("c", ""):
+                    for n, a in odd:
+                        if n in r["c"]:
+                            r["c"] = r["c"].replace(n, f"DAT_{a:08x}")
         # (each function's frame allocation, protos32.py's "frame": an EH frame's is laid out whole)
         pp = FACTS / "protos.json"
         protos = json.loads(pp.read_text())["functions"] if pp.exists() else {}
