@@ -1896,10 +1896,26 @@ class Translator32:
                 call = self.kept_call(orig[p], reg) if p >= 0 else None
                 if call is not None and any(re.search(rf"\b{re.escape(v)}\b", call) for v in assigned):
                     call = None
+                # (a call whose result replaces what it was passed, a list walk's `p = next(p);
+                # q = extraout_ECX;`: ecx is p as it was before the line, kept in the name just
+                # above it. Havok's 0xd929e0, the last node's flag, 2026-10-26)
+                if call is None and p >= 0 and len(uses) == 1 and n.startswith("extraout_") \
+                        and orig[p].rstrip().endswith(";") and lines[p] is not None \
+                        and re.fullmatch(rf"\s*\w+\s*=\s*{n};\s*", orig[u]):
+                    before = self.kept_call(orig[p], reg, lhs_ok=True)
+                    if before is not None and not assigned:
+                        t = decl.match(lines[dl]).group(1).strip()
+                        indent = re.match(r"[ \t]*", orig[p]).group(0)
+                        lines[p] = f"{indent}{n} = (({t})(uintptr_t)({before}));\n" + lines[p]
+                        done.add(n)
+                        value = None
+                        break
                 if call is None or (value is not None and call != value):
                     value = None
                     break
                 value = call
+            if n in done:
+                continue
             # (or used further on: the name is one call's register, the decompiler numbering each
             # call's apart, so the nearest call above its first use, back over plain statements,
             # where nothing its argument reads is assigned after it. A determinant's caller,
@@ -1995,9 +2011,10 @@ class Translator32:
         a2 = self.by_printed.get(m.group(1))
         return a2 is not None and reg in self.keeps.get(a2, ())
 
-    def kept_call(self, line: str, reg: str) -> str | None:
+    def kept_call(self, line: str, reg: str, lhs_ok: bool = False) -> str | None:
         """The argument a statement's one call passes in `reg`, when the callee leaves it as it
-        found it and nothing on the line assigns what it is made of (kept_inputs)."""
+        found it and nothing on the line assigns what it is made of (kept_inputs). With lhs_ok, one
+        the statement's own assignment changes too: its value before the line."""
         m = re.fullmatch(r"\s*(?:[\w.\->\[\]]+\s*=\s*)?(?:\([^()]*\))?\s*([A-Za-z_]\w*)\s*\((.*)\);\s*", line)
         if not m:
             return None
@@ -2021,7 +2038,7 @@ class Translator32:
         if re.search(r"\w\s*\(|\+\+|--|[^=!<>]=[^=]", arg):
             return None
         lhs = re.match(r"\s*([A-Za-z_]\w*)\s*=", line)
-        if lhs and re.search(rf"\b{lhs.group(1)}\b", arg):
+        if lhs and re.search(rf"\b{lhs.group(1)}\b", arg) and not lhs_ok:
             return None
         return arg
 
