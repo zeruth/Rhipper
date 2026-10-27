@@ -68,7 +68,8 @@ def facts(jobs: int) -> bool:
     stamp("ghidra.sh functions")
     if step("functions", [bash(), str(RH / "ghidra" / "ghidra.sh"), "functions"], tail=1)[0]:
         return False
-    for tool in ("toolchain", "noreturn", "vtables", "srcrefs"):
+    # (switches32: the jump tables Ghidra misreads, which ghidra.sh all overrides)
+    for tool in ("toolchain", "noreturn", "vtables", "srcrefs", "switches32"):
         stamp(tool)
         if step(tool, [py, str(RH / f"{tool}.py")], tail=2)[0]:
             return False
