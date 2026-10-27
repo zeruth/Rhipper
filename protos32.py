@@ -465,6 +465,13 @@ def analyse(root: int, ranges):
             src = ops[1]
             if mn in ("sub", "add") and src.type == X.X86_OP_IMM and esp is not None:
                 esp += -src.imm if mn == "sub" else src.imm
+                # (a `sub esp, k` past the frame's own allocation reserves arguments, as pushes do:
+                # `sub esp, 0xc; movsd [esp], xmm0; mov [esp + 8], 2; push eax; call [vt + 0x10]`
+                # passes a double and an int. Counted as the push alone, the method popped 4 of its
+                # 16 bytes and the epilogue's `pop ebx` read a local, unaff_EBX, rhtest
+                # msvc-14.51-x86 com-O2 2026-10-27)
+                if mn == "sub" and floor[0] is not None and floor[2] != a:
+                    pushed += src.imm
                 # (what was pushed before the frame's allocation, its first `sub esp, n` after
                 # `mov ebp, esp`, is frame: an EH record's state, handler and link, `push -1; push
                 # handler; push fs:[0]; sub esp, 0x2c`. As arguments, multi's virtual get() took
