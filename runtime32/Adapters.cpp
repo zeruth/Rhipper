@@ -711,8 +711,14 @@ int gen_seh_hardware(EXCEPTION_POINTERS* ep) {
     CONTEXT* c = ep->ContextRecord;
     // (as if the faulting instruction had called it: its address the return address, just below
     // the faulting frame, so a landing's longjmp unwinds through the trampoline into that frame)
-    c->Rsp -= 8;
-    *reinterpret_cast<uint64_t*>(c->Rsp) = c->Rip;
+    // (but a fault in a leaf, rsp still at its return address, `gen_swi_break: int3; ...; ret`:
+    // that return address the trampoline's, the stack as a call's entry has it. Pushed over, the
+    // trampoline ran misaligned and the landing's unwind faulted, rhtest msvc-14.51-x86 seh-O2's
+    // breakpoint 2026-10-27)
+    if ((c->Rsp & 0xF) != 8) {
+        c->Rsp -= 8;
+        *reinterpret_cast<uint64_t*>(c->Rsp) = c->Rip;
+    }
     c->Rip = reinterpret_cast<uint64_t>(&HwTrampoline);
     return 1;
 }

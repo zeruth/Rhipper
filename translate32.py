@@ -132,6 +132,15 @@ HEADER_NAMES = {"REFG", "REFP", "GP", "PTR32", "MXCSR", "ExceptionList", "GenUni
 _header_names: set[str] | None = None
 
 
+def cid(name: str) -> str:
+    """An import's name as a C identifier: itself, or a C++ import's mangled name with every
+    character C refuses spelled `_xx` in hex, `??0?$basic_ios@...` (msvcp140's, rhtest stl: as it
+    was, imports.c did not compile)."""
+    if re.fullmatch(r"[A-Za-z_]\w*", name):
+        return name
+    return "x" + re.sub(r"[^A-Za-z0-9]", lambda m: f"_{ord(m.group(0)):02x}", name)
+
+
 def header_names() -> set[str]:
     """The names the project's Ghidra32.h defines (macros, functions, typedefs, variables): read
     from the header itself, so a helper it lacks (CONCAT28, a pseudo-op) makes its user a stub
@@ -2961,7 +2970,7 @@ class Translator32:
         body = re.sub(r"\(uint\)&stack0x[0-9a-f]+", "0u", body)
         body = RAM.sub(lambda m: f"REFG({RAM_TYPES.get(m.group(1), 'undefined4')}, 0x{m.group(2)})", body)
         body = re.sub(r"\b(\w+)_exref\b",
-                      lambda m: f"((code *)gen_imp_{self.import_of(m.group(1))})" if self.import_of(m.group(1))
+                      lambda m: f"((code *)gen_imp_{cid(self.import_of(m.group(1)))})" if self.import_of(m.group(1))
                       else m.group(0), body)
         # an undefinedN value in a signed comparison as the signed type of its width (Ghidra32.h's
         # are unsigned: insertion_sort's `-1 < local_8` was never true at /Od, rhtest 2026-10-24)
@@ -3859,7 +3868,7 @@ class Translator32:
                     return f"F_{self.by_printed[ns + name]:08x}("
             imp = self.import_of(name)
             if imp is not None:
-                return f"gen_imp_{imp}("
+                return f"gen_imp_{cid(imp)}("
             if name in self.ref_names:
                 return f"((code *)REFP(0x{self.ref_names[name]:x}))("
             return m.group(0)
@@ -4099,7 +4108,7 @@ class Translator32:
              "#pragma once", '#include "Ghidra32.h"']
         h += [f"{decls[a]};" for a in sorted(decls)]
         h += [f"{MATH[n][0]} gen_imp_{n}({', '.join(math_params(n)[0])});" if n in MATH and n not in OVERRIDES
-              else f"{OVERRIDE_RET.get(n, 'unsigned int')} gen_imp_{n}();" for n in sorted(self.imports)]
+              else f"{OVERRIDE_RET.get(n, 'unsigned int')} gen_imp_{cid(n)}();" for n in sorted(self.imports)]
         write(GEN / "translated.h", "\n".join(h) + "\n")
         write(GEN / "Ghidra32.h", HEADER.read_text(encoding="utf-8"))
         files = []
@@ -4193,9 +4202,9 @@ class Translator32:
               "                                intptr_t, intptr_t, intptr_t, intptr_t, intptr_t, intptr_t, intptr_t);",
               "typedef struct { unsigned int slot; const char *dll; const char *name; void *adapter; gen_real_fn *real; } GEN_IMPORT;"]
         for n, (slot, dll) in sorted(self.imports.items()):
-            im.append(f"gen_real_fn gen_real_{n};")
+            im.append(f"gen_real_fn gen_real_{cid(n)};")
             if n in OVERRIDES:
-                im.append(f"{OVERRIDE_RET.get(n, 'unsigned int')} gen_imp_{n}();   /* the runtime's */")
+                im.append(f"{OVERRIDE_RET.get(n, 'unsigned int')} gen_imp_{cid(n)}();   /* the runtime's */")
                 continue
             if n in MATH:
                 ret, ps = MATH[n]
@@ -4203,14 +4212,16 @@ class Translator32:
                 im.append(f"{ret} gen_imp_{n}(" + ", ".join(params) + ") { "
                           f"return (({ret} (*)({', '.join(ps)}))gen_real_{n})(" + ", ".join(args) + "); }")
                 continue
-            im.append(f"unsigned int gen_imp_{n}(int a0, int a1, int a2, int a3, ...) {{ GEN_REST(a3); "
-                      f"return (unsigned int)gen_real_{n}(a0, a1, a2, a3, "
+            im.append(f"unsigned int gen_imp_{cid(n)}(int a0, int a1, int a2, int a3, ...) {{ GEN_REST(a3); "
+                      f"return (unsigned int)gen_real_{cid(n)}(a0, a1, a2, a3, "
                       + ", ".join(f"r[{k}]" for k in range(10)) + "); }")
         im.append("const GEN_IMPORT g_genImports[] = {")
         # (an adapter the runtime writes calls Windows itself: nothing to resolve for it)
         for n, (slot, dll) in sorted(self.imports.items()):
-            real = "0" if n in OVERRIDES else f"&gen_real_{n}"
-            im.append(f'  {{0x{slot:x}u, "{dll}", "{n}", (void *)gen_imp_{n}, {real}}},')
+            real = "0" if n in OVERRIDES else f"&gen_real_{cid(n)}"
+            # (the name as Windows has it, `?` escaped: no trigraph in a C++ import's mangled name)
+            raw = n.replace("?", "\\?")
+            im.append(f'  {{0x{slot:x}u, "{dll}", "{raw}", (void *)gen_imp_{cid(n)}, {real}}},')
         im += ["};", f"const unsigned int g_genImportCount = {len(self.imports)};"]
         write(GEN / "imports.c", "\n".join(im) + "\n")
         reasons = Counter(re.sub(r"\(.*", "", v).split(":")[0].strip() for v in stubbed.values())
