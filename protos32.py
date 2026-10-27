@@ -904,6 +904,12 @@ def analyse(root: int, ranges):
         elif m.endswith("p"):
             depth -= 1
     x87_ret_dead = used and depth == 0 and bool(ends) and all(ends)
+    # (the pushes and pops balancing along each way to a ret, not summed over the function: Horner's
+    # loop, `fldz; ...; js done; fld x; loop: ...; fstp st(1); ret` and `done: ret`, balances to 0
+    # summed but reaches each ret with its result loaded. Typed void by the sum, its caller's
+    # extraout_ST0 was a stub, rhtest msvc-14.51-x86 float-IA32)
+    if x87_ret_dead:
+        x87_ret_dead = x87_depth_at_rets(insns, nxt, state) == {0}
     for a in state:
         if insns[a].mnemonic != "ret":
             continue
@@ -2029,8 +2035,12 @@ def ecx_scan(insns, prv, p, budget, labels, preds, pushed, seen) -> tuple[bool, 
             # (not one that only reserves its slot, overwritten through [esp] next: `push ecx; fstp
             # dword ptr [esp]` passes a float. Taken for `this` pushed, a reverb's update lost
             # its object, the sound driver's setup 2026-10-26)
+            # (nor the prologue's, `push ebp; mov ebp, esp; push ecx`: a 4-byte local reserved.
+            # Taken for `this` passed, a resource handle's slot 9 called its own slot 4 with no
+            # object, `mov esi, ecx; mov eax, [esi]; call [eax + 0x10]`, and 0xcccccccc read, a
+            # VS2010 client's 0x50144d 2026-10-26)
             if ops and ops[0].type == X.X86_OP_REG and ops[0].reg == X.X86_REG_ECX \
-                    and not slot_overwritten(insns, p):
+                    and not slot_overwritten(insns, p) and not in_prologue(insns, prv, p):
                 pushed = True
         elif mn == "pop":
             if ops and ops[0].type == X.X86_OP_REG and ops[0].reg == X.X86_REG_ECX:
@@ -2042,6 +2052,66 @@ def ecx_scan(insns, prv, p, budget, labels, preds, pushed, seen) -> tuple[bool, 
             return s_set, s_pushed, steps + s_steps
         p = prv[p]
     return False, pushed, steps
+
+
+def x87_depth_at_rets(insns, nxt, state) -> set:
+    """The x87 stack depths each ret is reached with, along every way from the entry (falling
+    through and jumping): loads push one, a popping instruction pops one (fcompp two). A call on a
+    way makes the depth there unknown (None), its result in st0 or not."""
+    entry = min(state) if state else None
+    depth: dict[int, object] = {}
+    work = [(entry, 0)] if entry is not None else []
+    out = set()
+    while work:
+        a, d = work.pop()
+        if a is None or a not in insns:
+            continue
+        if a in depth and (depth[a] == d or depth[a] is None):
+            continue
+        # (two ways in with different depths: unknown, and so on from it)
+        d = None if a in depth else d
+        depth[a] = d
+        ins = insns[a]
+        m = ins.mnemonic
+        if m == "ret":
+            out.add(d)
+            continue
+        if d is not None:
+            if m == "call":
+                d = None
+            elif m.startswith(("fld", "fild", "fbld")) and m not in ("fldcw", "fldenv"):
+                d += 1
+            elif m in ("fcompp", "fucompp"):
+                d -= 2
+            elif m.startswith("f") and m.endswith("p") and not m.startswith(("fn", "fwait")):
+                d -= 1
+        t = _target(ins)
+        if (m.startswith("j") or m.startswith("loop")) and t is not None:
+            work.append((t, d))
+        if m != "jmp":
+            work.append((nxt.get(a), d))
+    return out
+
+
+def in_prologue(insns, prv, p) -> bool:
+    """Whether only a frame's setup comes before p, back to the function's entry: `push ebp`,
+    `mov ebp, esp`, `sub esp, k`, `and esp, k` and register pushes."""
+    q = prv.get(p)
+    for _ in range(12):
+        if q is None or q not in insns:
+            return True
+        ins = insns[q]
+        ops = ins.operands
+        if ins.mnemonic == "push" and ops and ops[0].type == X.X86_OP_REG:
+            pass
+        elif ins.mnemonic == "mov" and ins.op_str == "ebp, esp":
+            pass
+        elif ins.mnemonic in ("sub", "and") and ops and ops[0].type == X.X86_OP_REG and ops[0].reg == X.X86_REG_ESP:
+            pass
+        else:
+            return False
+        q = prv.get(q)
+    return False
 
 
 def reaches(insns, start, goal, limit=4096) -> bool:
@@ -2582,6 +2652,28 @@ def untyped_cleanup(local: dict, untyped: dict[int, int]) -> dict[int, int]:
     return out
 
 
+def cleans_later(after: list[tuple[str, str]]) -> bool:
+    """Whether the instructions after a call, (mnemonic, operands) in a straight line, clean up
+    its words: the compiler folding several calls' cleanups into one, /O2's `push ..; call
+    [strtol]; push ..; call [strtoul]; ...; add esp, 0x24`. An `add esp, k` larger than what was
+    pushed since the call pops the call's words too; one that pops only the later ones leaves them
+    to the callee. Seen only right after, the CRT's conversions popped their own, a caller's locals
+    read as its parameters and its caller's saved ebx passed for one (rhtest msvc-14.51-x86 crt-O2,
+    tests/unit/test_protos32.py)."""
+    pushed = 0
+    for mn, ops in after:
+        if mn == "push":
+            pushed += 4
+        elif mn == "add" and ops.startswith("esp, "):
+            try:
+                return int(ops.split(", ")[1], 0) > pushed
+            except ValueError:
+                return False
+        elif mn == "ret" or mn.startswith("j"):
+            return False
+    return False
+
+
 def stdcall_import_cleanup(b: Binary, ranges, funcs, imp_cleanup: dict[int, int],
                            imp_params: dict[int, int]) -> dict[int, int]:
     """The bytes an import its type library calls __cdecl pops when it is __stdcall: its
@@ -2620,6 +2712,8 @@ def stdcall_import_cleanup(b: Binary, ranges, funcs, imp_cleanup: dict[int, int]
                         break
                     if mn2 in ("call", "ret", "push") or mn2.startswith("j"):
                         break
+                if slot not in cleaned and cleans_later([(mn2, ops2) for _a2, _s2, mn2, ops2 in got[k + 1:k + 40]]):
+                    cleaned.add(slot)
     return {slot: imp_params[slot] for slot in called - cleaned}
 
 
