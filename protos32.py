@@ -3041,6 +3041,28 @@ def main() -> None:
             if n in ("CIsqrt", "CIsin", "CIcos", "CIpow", "sqrt") and int(k, 16) in inputs:
                 inputs[int(k, 16)] &= ST0
                 math_helpers.add(int(k, 16))
+    # (and the rest of that library, the same dispatch: each opens with the test of the flag the
+    # identified ones test, `cmp dword ptr [__use_sse2_mathfcns], 0`, x87 path or SSE2. Exp, log,
+    # atan and the rest, which no run identifies (Unicorn's x87 is exact for none of them): the
+    # SSE2 branch of a VS2010 client's 0xc4d440 made a camera's update read in_XMM2_Da, a stub on
+    # its frame path, 2026-10-27)
+    md1 = disassembler()
+
+    def first_cmp_flag(f: int):
+        try:
+            code = bytes(b.image[b.off(f):b.off(f) + 7])
+        except Exception:
+            return None
+        for _a, _s, mn, ops in md1.disasm_lite(code, f, 1):
+            m = re.fullmatch(r"dword ptr \[(0x[0-9a-f]+)\], 0", ops)
+            return int(m.group(1), 16) if mn == "cmp" and m else None
+        return None
+    flags = {first_cmp_flag(f) for f in math_helpers} - {None}
+    if flags:
+        for f in local:
+            if f not in math_helpers and first_cmp_flag(f) in flags:
+                inputs[f] &= ST0
+                math_helpers.add(f)
     changed = True
     while changed:
         changed = False
