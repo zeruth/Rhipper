@@ -59,6 +59,8 @@ a failure.
 | crt | O2, Od | the `/MD` ucrt: `printf`'s family and a `va_list` handed to it, scanning, conversions, `qsort`/`bsearch` calling a translated comparator, the allocator, strings and memory, ctype, stdout |
 | cpp | O2, Od | `__thiscall`, constructors and destructors, virtual dispatch, multiple and virtual inheritance (thunks, vbtables), templates, operator overloading, values by value, statics built and torn down by the CRT, references, placement new |
 | misc | O2, Od | thread-local storage (`__declspec(thread)` and `TlsAlloc`), intrinsics, bitfields, `alloca`, `setjmp`/`longjmp` |
+| win | O2, Od | the Win32 where x86 and x64 part: a window procedure handed WINDOWPOS, NCCALCSIZE_PARAMS and CREATESTRUCT that changes them and hands them on to DefWindowProc, the thread queue's MSG, WSADATA, a spin lock on a global by `xchg` shared by four threads, TLS through an import kept in a register across branches, a job queue's critical section and events |
+| engine | O2, Od, GL | a game engine's C++: a stream's `s << a << b` chain with virtual getters among the operands pushed ahead, a method with a reserved local (`push ecx`) calling its own virtual slot, `getter()->f()->g(0, &a, &b, n)`, a float read through a byte-swapping reader, a reference count and a member spin lock shared with worker threads |
 | eh | O2, Od | C++ exceptions (`/EHsc`): catch by type, rethrow, nested, across frames, unwinding destructors, a throwing constructor; C's `__try`/`__except`/`__finally` with `RaiseException` |
 
 Status as of 2026-10-25: every project passes on both toolsets from a fresh import (18 on

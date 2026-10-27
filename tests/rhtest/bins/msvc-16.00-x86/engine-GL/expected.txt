@@ -1,0 +1,13 @@
+stream len = 51 (0x00000033)
+stream hash = -1763984990 (0x96dbb9a2)
+stream tail = 93 (0x0000005d)
+own slot acc = 1255145753 (0x4ad00119)
+own slot loads = 17 (0x00000011)
+getter chain = 340455 (0x000531e7)
+getter total = 389797 (0x0005f2a5)
+reader sum x16 = 1920 (0x00000780)
+reader pos = 12 (0x0000000c)
+shared value = 376364 (0x0005be2c)
+shared refs = 0 (0x00000000)
+checksum = 0x93c339ef
+exit = 111

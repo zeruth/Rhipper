@@ -96,6 +96,8 @@ PROGRAMS = {
     "cpp": (["cpp.cpp"], ["O2", "Od"]),
     "misc": (["misc.c"], ["O2", "Od"]),
     "eh": (["eh.cpp"], ["O2", "Od"]),
+    "win": (["win.c"], ["O2", "Od"]),
+    "engine": (["engine.cpp"], ["O2", "Od", "GL"]),
 }
 STEPS = ["ref", "import", "facts", "ghidra", "translate", "port", "run", "fidelity"]
 # workers for the tools that take them (protos32.py, translate32.py, the port's MSBuild): serial
