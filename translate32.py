@@ -749,14 +749,60 @@ def next_is_return(v: str, lines: list[str], at: int) -> bool:
     this one, the epilogue's `LAB_0064116d: __security_check_cookie(...); return uVar8;`: this
     path's value still reaches only the return. Refused there, a VS2010 client's
     StarRenderer::vf2 was a stub on its frame path, 2026-10-27)"""
-    for line in lines[at + 1:]:
-        s = line.strip()
-        if re.match(r"goto\b", s) or re.match(r"(?:do|while|for)\b", s) \
-                or s.startswith("} while"):
-            return False
-        if re.search(r"\b" + re.escape(v) + r"\b", s):
-            return re.fullmatch(r"return\s+(?:\(\w+\)\s*)?" + re.escape(v) + r"\s*;", s) is not None
-    return False
+    # (and the way it really goes: a `break;` out of the switch past the cases after it, the end of
+    # an if's block past its else block, `uVar7 = extraout_EAX; break; case 5: ...; uVar7 = x; break;
+    # } ... return uVar7;`, a client's AgentLobby::vf5, a stub on the way to its lobby 2026-10-27)
+    # (every way on is walked, a goto both taken and passed (a superset of the paths, never fewer):
+    # each must reach `return v;` or a write of v that reads none of it, the value then dead, before
+    # anything reads it; a loop still refuses. After the switch, `if (..) goto LAB_00904df1; ...
+    # uVar7 = FUN_008844c0();`, AgentLobby::vf5)
+    labels = {}
+    for k, l in enumerate(lines):
+        mm = re.match(r"\s*([A-Za-z_]\w*)\s*:(?!:)", l)
+        if mm and not mm.group(1) in ("case", "default"):
+            labels[mm.group(1)] = k
+    seen: set[int] = set()
+
+    def skip_out(j: int, below: int) -> int:
+        """The line after the one where the depth falls below `below`, from j."""
+        d = 0
+        while j < len(lines):
+            s2 = re.sub(r"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'", "", lines[j])
+            d += s2.count("{") - s2.count("}")
+            j += 1
+            if d < below:
+                return j
+        return j
+    def walk(j: int) -> bool:
+        while j < len(lines):
+            if j in seen:
+                return True                              # (walked from here already)
+            seen.add(j)
+            s = lines[j].strip()
+            if re.match(r"(?:do|while|for)\b", s) or s.startswith("} while"):
+                return False
+            g = re.search(r"\bgoto\s+([A-Za-z_]\w*)\s*;", s)
+            if re.search(r"\b" + re.escape(v) + r"\b", s):
+                if re.fullmatch(r"return\s+(?:\(\w+\)\s*)?" + re.escape(v) + r"\s*;", s):
+                    return True
+                w = re.fullmatch(re.escape(v) + r"\s*=(?!=)\s*(.+);", s)
+                return w is not None and not re.search(r"\b" + re.escape(v) + r"\b", w.group(1))
+            # (a goto taken, and the lines past it walked too: inside an if's block, the way that
+            # skips the block goes on there. A return the same: not the end of every way)
+            if g and (g.group(1) not in labels or not walk(labels[g.group(1)])):
+                return False
+            if s == "break;":
+                j = skip_out(j + 1, 0)                   # (past the switch's closing brace)
+                continue
+            if re.fullmatch(r"\}\s*else\s*\{", s) or re.fullmatch(r"\}\s*else\s+if\b.*\{", s):
+                j = skip_out(j + 1, 0)                   # (past the else's blocks)
+                continue
+            if s == "}" and j + 1 < len(lines) and re.fullmatch(r"else\s*\{", lines[j + 1].strip()):
+                j = skip_out(j + 2, 0)
+                continue
+            j += 1
+        return False
+    return walk(at + 1)
 
 
 def brace_openers(lines: list[str]) -> dict[int, int]:
