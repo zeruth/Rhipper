@@ -122,7 +122,8 @@ C_WORDS = {"if", "else", "while", "for", "do", "switch", "case", "default", "bre
 HEADER_NAMES = {"REFG", "REFP", "GP", "PTR32", "MXCSR", "ExceptionList", "GenUnimplemented", "POPCOUNT", "ABS",
                 "SQRT", "ROUND", "TRUNC", "FLOOR", "CEIL", "HeapCompatibilityInformation", "uintptr_t",
                 "intptr_t", "uint32_t", "int32_t", "uint64_t", "int64_t", "uint16_t", "int16_t", "uint8_t",
-                "int8_t", "__ptr32", "__uptr", "_InterlockedExchange", "NAN", "INFINITY",
+                "int8_t", "__ptr32", "__uptr", "_InterlockedExchange", "_InterlockedExchangeAdd",
+                "_InterlockedCompareExchange", "NAN", "INFINITY",
                 "__debugbreak", "_rotl", "_rotr", "_rotl64", "_rotr64", "fabs", "sqrt", "pow", "atan2", "fsin", "fcos",
                 "builtin_strncpy", "builtin_memcpy", "builtin_memset",
                 "floor", "ceil", "trunc", "nearbyint", "memcpy", "memset", "rdtsc", "GEN_PIECE", "GEN_ISNAN",
@@ -1015,6 +1016,105 @@ def array_stores(c: str) -> str:
         return f"{m.group(1)}*(undefined{n} *)({m.group(4)}) = *(undefined{n} *){m.group(5)};"
     return re.sub(r"(?m)^([ \t]+)\*\s*\(\s*([A-Za-z_]\w*)\s*\(\s*\*\s*\)\s*\[\s*((?:0x)?[0-9a-f]+)\s*\]\s*\)\s*"
                   r"([A-Za-z_]\w*)\s*=\s*([A-Za-z_]\w*)\s*;[ \t]*$", through, c)
+
+
+WORD4 = r"(?:undefined4|uint|int|ulong|long|LONG|DWORD|UINT)"
+
+
+def interlocked(c: str) -> str:
+    """A `lock`-prefixed read-modify-write on a 4-byte word, Ghidra's `LOCK(); ...; UNLOCK();`, as
+    the intrinsic it is: `lock xadd` an _InterlockedExchangeAdd, `xchg` an _InterlockedExchange, a
+    locked read (`lock or [p], 0`, `V = *p; *p = *p;`) an _InterlockedCompareExchange(p, 0, 0).
+    Under Ghidra32.h's one process-wide lock it was atomic only against other LOCK() sections, not
+    the runtime's own interlocked calls, and slower; and the reference's x86 is the instruction
+    (bytes32.py, 1,152 sections in a client, 2026-10-27). Any other shape keeps the lock."""
+    if "LOCK();" not in c:
+        return c
+    ptr4 = set(re.findall(r"(?m)^[ \t]+" + WORD4 + r"\s*\*\s*(?:PTR32\s+)?([A-Za-z_]\w*)\s*;", c))
+
+    def addr(lv: str) -> str | None:
+        """the address of a 4-byte lvalue, or None"""
+        lv = lv.strip()
+        m = re.fullmatch(r"REFG\(\s*" + WORD4 + r"\s*,\s*0x[0-9a-f]+\s*\)", lv)
+        if m:
+            return f"&{lv}"
+        if not lv.startswith("*"):
+            return None
+        inner = lv[1:].strip()
+        if inner in ptr4:
+            return inner
+        # `*(uint *)((int)this + 0x18)` and `*((int *)GEN_TOP(...))`: a cast to a 4-byte pointer
+        m = re.fullmatch(r"\(\s*\(\s*" + WORD4 + r"\s*\*\s*\)\s*(.+)\)", inner, re.S) or \
+            re.fullmatch(r"\(\s*" + WORD4 + r"\s*\*\s*\)\s*(.+)", inner, re.S)
+        if m and (m.group(1).count("(") == m.group(1).count(")")):
+            return f"({inner[1:-1] if inner.startswith('((') else inner})"
+        return None
+
+    def same(a: str, b: str) -> bool:
+        return re.sub(r"\s+", "", a) == re.sub(r"\s+", "", b)
+
+    def rewrite(stmts: list[str]) -> str | None:
+        # (`lock cmpxchg`: `V = *p; if (C == V) { *p = X; V = C; }`, the old value either way)
+        if len(stmts) in (4, 5) and stmts[-1] == "}":
+            m0 = re.fullmatch(r"([A-Za-z_]\w*)\s*=\s*(.+);", stmts[0])
+            m1 = re.fullmatch(r"if \((.+?) == (.+?)\) \{", stmts[1])
+            m2 = re.fullmatch(r"(.+?)\s*=(?!=)\s*(.+);", stmts[2])
+            if m0 and m1 and m2 and same(m2.group(1), m0.group(2)):
+                v, lv = m0.group(1), m0.group(2)
+                cmp = m1.group(1) if m1.group(2).strip() == v else m1.group(2) if m1.group(1).strip() == v else None
+                a = addr(lv)
+                ok_tail = len(stmts) == 4 or re.fullmatch(re.escape(v) + r"\s*=\s*" + re.escape(cmp or "~") + r"\s*;",
+                                                           stmts[3])
+                if cmp is not None and a is not None and ok_tail and lv.strip() not in m2.group(2) + cmp:
+                    return (f"{v} = _InterlockedCompareExchange((volatile long *)({a}), (long)({m2.group(2)}), "
+                            f"(long)({cmp}));")
+        # (each `name = expr;` split at the first top-level `=`)
+        parts = []
+        for s in stmts:
+            m = re.fullmatch(r"(.+?)\s*=(?!=)\s*(.+);", s)
+            if not m:
+                return None
+            parts.append((m.group(1), m.group(2)))
+        if len(parts) == 1:
+            lv, rhs = parts[0]
+            a = addr(lv)
+            if a is None:
+                return None
+            m = re.fullmatch(re.escape(lv) + r"\s*\+\s*(.+)", rhs) if not same(lv, rhs) else None
+            if m:
+                return f"_InterlockedExchangeAdd((volatile long *)({a}), (long)({m.group(1)}));"
+            if re.search(re.escape(lv.strip()), rhs):
+                return None
+            return f"_InterlockedExchange((volatile long *)({a}), (long)({rhs}));"
+        if len(parts) == 2:
+            (v, lv), (lv2, rhs) = parts
+            a = addr(lv)
+            if a is None or not same(lv, lv2) or not re.fullmatch(r"[A-Za-z_]\w*", v.strip()):
+                return None
+            if same(rhs, lv):
+                return f"{v} = _InterlockedCompareExchange((volatile long *)({a}), 0, 0);"
+            m = re.fullmatch(re.escape(lv) + r"\s*\+\s*(.+)", rhs)
+            if m:
+                return f"{v} = _InterlockedExchangeAdd((volatile long *)({a}), (long)({m.group(1)}));"
+            if lv.strip() in rhs or re.search(r"\b" + re.escape(v.strip()) + r"\b", rhs):
+                return None
+            return f"{v} = _InterlockedExchange((volatile long *)({a}), (long)({rhs}));"
+        return None
+
+    lines = c.split("\n")
+    out, i = [], 0
+    while i < len(lines):
+        if lines[i].strip() == "LOCK();":
+            j = next((k for k in range(i + 1, min(i + 8, len(lines))) if lines[k].strip() == "UNLOCK();"), None)
+            if j is not None:
+                rep = rewrite([l.strip() for l in lines[i + 1:j]])
+                if rep is not None:
+                    out.append(re.match(r"[ \t]*", lines[i]).group(0) + rep)
+                    i = j + 1
+                    continue
+        out.append(lines[i])
+        i += 1
+    return "\n".join(out)
 
 
 def locked_reads(c: str) -> str:
@@ -3156,6 +3256,7 @@ class Translator32:
         parts = self.sigs[a].name.split("::")[:-1]
         self.cur_call_ns = ["::".join(parts[:k]) + "::" for k in range(len(parts), 0, -1)]
         body = self.names(body)
+        body = interlocked(body)
         body = jump_calls(body, self.linked_jumps)
         body = CC.sub("", body)
         body = re.sub(r"\(uint\)&stack0x[0-9a-f]+", "0u", body)
