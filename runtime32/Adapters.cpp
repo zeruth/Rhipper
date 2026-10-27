@@ -338,6 +338,17 @@ uint32_t ScopeTableOf(uint32_t node) {
     uint32_t st = U(node + 8) ^ Cookie();
     int32_t level = I(node + 0xC);
     if (!InImage(st) || level < kTryNone || level > 0x400) return 0;
+    // (and each record from the try level down sound, as ScopeTable3Of's: an EH3 node's plain
+    // table address, xored with the cookie, landed in the image on some runs' cookies, its
+    // records read as EH4's and a filter of 0xcccccccc called, Havok's SetThreadName raising
+    // 0x406D1388 at startup, 2026-10-27)
+    for (int32_t l = level; l != kTryNone;) {
+        uint32_t rec = st + 0x10 + 12 * l;
+        if (!InImage(rec) || (U(rec + 4) && !InImage(U(rec + 4))) || !InImage(U(rec + 8))) return 0;
+        int32_t enclosing = I(rec);
+        if (enclosing >= l) return 0;
+        l = enclosing;
+    }
     return st;
 }
 
