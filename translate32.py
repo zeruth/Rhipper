@@ -2307,7 +2307,8 @@ class Translator32:
                     # (a function's name or a call through a pointer; not LOCK() / UNLOCK(), the
                     # decompiler's marks around a locked instruction, which run no code)
                     return "))(" in l.replace(" ", "") or any(
-                        m.group(1) in self.by_printed for m in re.finditer(r"\b([A-Za-z_]\w*)\s*\(", l))
+                        self.printed_addr(m.group(1)) is not None
+                        for m in re.finditer(r"(?<![\w:])((?:[A-Za-z_]\w*::)*[A-Za-z_]\w*)\s*\(", l))
                 while p >= 0:
                     if calls_in.search(orig[p]) and real_call(orig[p]):
                         call = self.kept_call(orig[p], reg)
@@ -2386,34 +2387,54 @@ class Translator32:
             lines[dl] = None
         return "\n".join(l for l in lines if l is not None)
 
+    def printed_addr(self, name: str) -> int | None:
+        """A called function by the name the decompiler printed: whole, or a qualified one relative
+        to the caller's namespace, `EventHandler::vf14` for Client::Game::Event::EventHandler::vf14,
+        when that suffix names one function alone (kept_call runs before names() knows the
+        caller's namespaces)."""
+        a = self.by_printed.get(name)
+        if a is not None or "::" not in name:
+            return a
+        if not hasattr(self, "_by_suffix"):
+            self._by_suffix: dict[str, int | None] = {}
+            for full, a2 in self.by_printed.items():
+                parts = full.split("::")
+                for k in range(1, len(parts) - 1):
+                    s = "::".join(parts[k:])
+                    self._by_suffix[s] = a2 if s not in self._by_suffix or self._by_suffix[s] == a2 else None
+        return self._by_suffix.get(name)
+
     def call_keeps(self, line: str, reg: str) -> bool:
         """Whether a statement's one call is to a function that leaves `reg` as it was, its keep
         convention (protos32's keep): the register goes on past it."""
-        m = re.fullmatch(r"\s*(?:[\w.\->\[\]]+\s*=\s*)?(?:\([^()]*\))?\s*([A-Za-z_]\w*)\s*\((.*)\);\s*", line)
+        m = re.fullmatch(r"\s*(?:[\w.\->\[\]]+\s*=\s*)?(?:\([^()]*\))?\s*((?:[A-Za-z_]\w*::)*[A-Za-z_]\w*)\s*\((.*)\);\s*", line)
         if not m or len(re.findall(r"\b(?!(?:if|while|for|switch|return|sizeof)\b)[A-Za-z_]\w*\s*\(", line)) != 1:
             return False
-        a2 = self.by_printed.get(m.group(1))
+        a2 = self.printed_addr(m.group(1))
         return a2 is not None and reg in self.keeps.get(a2, ())
 
     def kept_call(self, line: str, reg: str, lhs_ok: bool = False) -> str | None:
         """The argument a statement's one call passes in `reg`, when the callee leaves it as it
         found it and nothing on the line assigns what it is made of (kept_inputs). With lhs_ok, one
         the statement's own assignment changes too: its value before the line."""
-        m = re.fullmatch(r"\s*(?:[\w.\->\[\]]+\s*=\s*)?(?:\([^()]*\))?\s*([A-Za-z_]\w*)\s*\((.*)\);\s*", line)
+        # (a qualified name too, `bVar1 = EventHandler::vf14((EventHandler *)this,param_1);` in a
+        # quest handler's override, `this` read on through ecx: printed_addr)
+        m = re.fullmatch(r"\s*(?:[\w.\->\[\]]+\s*=\s*)?(?:\([^()]*\))?\s*((?:[A-Za-z_]\w*::)*[A-Za-z_]\w*)\s*\((.*)\);\s*", line)
         if m:
             name, inner = m.group(1), m.group(2)
         else:
             # (or the one call of a line that is more than it, a condition's: `if ((in_ecx != 0) &&
             # (uVar3 = FUN_0055a2d0(in_ecx), (char)uVar3 != '\0')) {`, its `this` read on in the
             # block, extraout_ECX; 91 stubs in a client 2026-10-27)
-            found = [mm for mm in re.finditer(r"\b([A-Za-z_]\w*)\s*\(", line) if mm.group(1) in self.by_printed]
+            found = [mm for mm in re.finditer(r"(?<![\w:])((?:[A-Za-z_]\w*::)*[A-Za-z_]\w*)\s*\(", line)
+                     if self.printed_addr(mm.group(1)) is not None]
             if len(found) != 1 or lhs_ok:
                 return None
             close = match_paren(line, found[0].end() - 1)
             if close < 0:
                 return None
             name, inner = found[0].group(1), line[found[0].end():close - 1]
-        a2 = self.by_printed.get(name)
+        a2 = self.printed_addr(name)
         idx = self.keeps_in.get(a2, {}).get(reg) if a2 is not None else None
         if idx is None:
             return None
