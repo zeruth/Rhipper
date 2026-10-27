@@ -1063,10 +1063,33 @@ def returned_only(c: str) -> set[str]:
                    or re.fullmatch(r"return (?:\(\w+\))?" + n + r";", s)
                    for s in lines_st if re.search(r"\b" + n + r"\b", s)) for n in st_left):
             entry |= {"in_ST0"} | st_left
-    names = set(RESULT_REG.findall(c)) | entry
+    # (and what a callee left in ecx or edx, where all it reaches is a store the next statement
+    # overwrites: `push ecx` reserving an argument's slot, the decompiler's `uVar6 = extraout_ECX;
+    # ... local_18 = (float *)uVar6; local_18 = (float *)*this_00;`, 0x415190 in a client, 2026-10-27)
+    left = set(re.findall(r"\bextraout_E[CD]X(?:_\d+)?\b", c))
+    names = set(RESULT_REG.findall(c)) | entry | left
     if not names:
         return set()
     lines = c.split("\n")
+    stmts = [l.strip() for l in lines if l.strip()]
+
+    def dead_store(s: str, v: str) -> bool:
+        """`L = (cast)v;` (or `L = v;`) whose next statement writes L again without reading it"""
+        m2 = re.fullmatch(r"(\w+)\s*=\s*(?:\([\w ]+\s*\**\s*\))?\s*" + v + r"\s*;", s)
+        if not m2 or s not in stmts:
+            return False
+        i = stmts.index(s)
+        if i + 1 >= len(stmts):
+            return False
+        nxt = re.fullmatch(re.escape(m2.group(1)) + r"\s*=\s*(.+);", stmts[i + 1])
+        return bool(nxt) and not re.search(r"\b" + re.escape(m2.group(1)) + r"\b", nxt.group(1))
+
+    def dead_local(v: str) -> bool:
+        """a local whose every read is a dead store of it"""
+        reads = [s for s in stmts if re.search(r"\b" + v + r"\b", s)
+                 and not re.fullmatch(r"[A-Za-z_][\w ]*?[\s*]+" + v + r";", s)
+                 and not re.fullmatch(v + r"\s*=\s*[^;]*;", s)]
+        return bool(reads) and all(dead_store(s, v) for s in reads)
     ok = set(names)
     changed = True
     while changed:
@@ -1103,6 +1126,9 @@ def returned_only(c: str) -> set[str]:
                 # there and extraout_EAX after LeaveCriticalSection, Havok's removeReference
                 # 0xd91a80; read before any write, it is the entry's and fails the same test)
                 if m and m.group(2).strip() == n and reads_after_writes(m.group(1), lines, names - {m.group(1)}):
+                    continue
+                # (or a store the next statement overwrites, or a copy into a local only so stored)
+                if dead_store(s, n) or (m and m.group(2).strip() == n and dead_local(m.group(1))):
                     continue
                 ok.discard(n)
                 changed = True
