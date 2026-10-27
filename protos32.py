@@ -1068,6 +1068,29 @@ def analyse(root: int, ranges):
             if qm.startswith("f") or qm in ("call", "jmp") or qm.startswith("j"):
                 break
             q = nxt.get(q)
+    # (and the calls with a value of its own in st0 that it reads after them, before loading
+    # anything: `fld1; ...; call FUN_00557f70; ...; fstp dword ptr [esp]`, the 1.0 kept on the x87
+    # stack across calls for the next one's argument. A callee that runs no x87 code can only have
+    # left it so (main() checks, x87_reach): kept, its callers' extraout_ST0 that value, not a
+    # stub's, a client's 0x565450 and 55 like it 2026-10-27)
+    st0_across: list[int] = []
+    for a in state if x87_use else ():
+        ins = insns[a]
+        t = _target(ins)
+        if ins.mnemonic != "call" or t is None:
+            continue
+        q = nxt.get(a)
+        for _ in range(12):
+            if q is None or q not in insns:
+                break
+            qm = insns[q].mnemonic
+            if qm in ("ret", "call", "jmp") or qm.startswith("j") or qm.startswith("loop"):
+                break
+            if qm.startswith("f") and not qm.startswith(("fn", "fwait")) and qm not in X87_CONTROL:
+                if not qm.startswith(("fld", "fild", "fbld")):
+                    st0_across.append(t)
+                break
+            q = nxt.get(q)
     # (each direct call's own pushes, back to the call before it with no jump target between: a
     # variadic callee's arguments at that call, main()'s call-site signatures. /GL folds the
     # cleanup into a later one, and the decompiler, which counts a variadic call's arguments by its
@@ -1276,7 +1299,7 @@ def analyse(root: int, ranges):
             "frame": -floor[0] if floor[0] is not None and floor[0] < 0 else None,"inputs": inputs, "in_width": in_width, "stack_hi": stack_hi, "slots": slots,
             "addr_taken": addr_taken, "calls": calls, "variadic": variadic, "call_pushes": call_pushes, "pushes_past": pushes_past,
             "untyped_pushed": untyped_pushed,
-            "x87_use": x87_use, "st0_live": st0_live,
+            "x87_use": x87_use, "st0_live": st0_live, "st0_across": st0_across,
             "open": open_, "lost": lost, "ret": ret_bytes(insns), "visited": len(state), "insns": len(insns),
             "icalls": {a: s for a, s in icalls.items() if s is not None},
             "results": {t: k for t, k in results.items() if not isinstance(t, tuple)},
@@ -3364,6 +3387,8 @@ def main() -> None:
     # (the callees a float-returning caller calls with that result live in st0, analyse's st0_live;
     # and whether a function, or anything it calls, runs x87 code: a call through a pointer might)
     keeps_st0 = {t for f, v in local.items() if ret_of.get(f) in ("f4", "d8") for t in v.get("st0_live", ())}
+    # (and the ones a caller calls with its own value in st0 that it reads after, analyse's st0_across)
+    keeps_st0 |= {t for v in local.values() for t in v.get("st0_across", ())}
 
     def x87_reach(f, seen=()):
         v = local.get(f)
