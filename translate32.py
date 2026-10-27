@@ -2226,9 +2226,25 @@ class Translator32:
             names += [(n, "ecx"), (n, "edx")]
         if not names or not self.keeps_in:
             return c
+        # (a statement the decompiler wrapped over lines on one: the call above a use is the whole
+        # statement, not its last line's tail, `uVar3 = FUN_00559f00(extraout_ECX_00,\n (float)...);`)
+        joined, buf = [], ""
+        for l in c.split("\n"):
+            s = l.strip()
+            if buf:
+                buf += " " + s
+            else:
+                buf = l.rstrip("\r")
+            if not s or s.endswith((";", "{", "}", ":", "*/")) or s.startswith(("/*", "#")):
+                joined.append(buf.rstrip("\r"))
+                buf = ""
+        if buf:
+            joined.append(buf)
+        c = "\n".join(joined)
         lines = c.split("\n")
         orig = list(lines)                        # (as written: the scan back reads them so)
         done = set()
+        resolved: dict[str, str] = {}
         for n, reg in names:
             if n in done:
                 continue
@@ -2318,6 +2334,11 @@ class Translator32:
                         continue
             if value is None:
                 continue
+            # (a value that is itself an earlier call's kept register, resolved already: that one's
+            # value, the chain `f(extraout_ECX); g(extraout_ECX_00)` through one `this`)
+            for k2, v2 in resolved.items():
+                value = re.sub(rf"\b{re.escape(k2)}\b", f"({v2})", value)
+            resolved[n] = value
             t = decl.match(lines[dl]).group(1).strip()
             for u in uses:
                 lines[u] = re.sub(rf"\b{n}\b", f"(({t})(uintptr_t)({value}))", lines[u])
@@ -2376,14 +2397,25 @@ class Translator32:
         found it and nothing on the line assigns what it is made of (kept_inputs). With lhs_ok, one
         the statement's own assignment changes too: its value before the line."""
         m = re.fullmatch(r"\s*(?:[\w.\->\[\]]+\s*=\s*)?(?:\([^()]*\))?\s*([A-Za-z_]\w*)\s*\((.*)\);\s*", line)
-        if not m:
-            return None
-        a2 = self.by_printed.get(m.group(1))
+        if m:
+            name, inner = m.group(1), m.group(2)
+        else:
+            # (or the one call of a line that is more than it, a condition's: `if ((in_ecx != 0) &&
+            # (uVar3 = FUN_0055a2d0(in_ecx), (char)uVar3 != '\0')) {`, its `this` read on in the
+            # block, extraout_ECX; 91 stubs in a client 2026-10-27)
+            found = [mm for mm in re.finditer(r"\b([A-Za-z_]\w*)\s*\(", line) if mm.group(1) in self.by_printed]
+            if len(found) != 1 or lhs_ok:
+                return None
+            close = match_paren(line, found[0].end() - 1)
+            if close < 0:
+                return None
+            name, inner = found[0].group(1), line[found[0].end():close - 1]
+        a2 = self.by_printed.get(name)
         idx = self.keeps_in.get(a2, {}).get(reg) if a2 is not None else None
         if idx is None:
             return None
         args, depth, cur = [], 0, ""
-        for ch in m.group(2):
+        for ch in inner:
             if ch == "," and depth == 0:
                 args.append(cur.strip())
                 cur = ""
