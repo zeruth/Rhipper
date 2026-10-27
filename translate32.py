@@ -975,6 +975,10 @@ def returned_only(c: str) -> set[str]:
     return ok | entry
 
 
+# the C runtime's functions that leave st0's value as it was, though their x87 code touches it
+# (kept_st0): quieting a signalling NaN
+ST0_VALUE_KEEPERS = {"__convertTOStoQNaN"}
+
 CAPTURE_SEG = re.compile(r"\bin_(?:ES|CS|SS|DS|FS|GS)\b")
 CAPTURE_FLAG = re.compile(r"\bin_(?:AF|TF|IF|NT|AC|VIF|VIP|ID|CF|PF|ZF|SF|OF|DF)\b")
 
@@ -1940,13 +1944,22 @@ class Translator32:
             if not call:
                 continue
             a2 = self.by_printed.get(call.group(1))
-            if a2 is None or a2 not in self.keeps_st0:
+            # (or one known by name to leave st0's value as it was: the CRT's __convertTOStoQNaN
+            # makes a signalling NaN in st0 a quiet one, `fadd` of a NaN, which the port's SSE does
+            # of itself; its name from Function ID or crtsigs.py)
+            named_keep = a2 is not None and self.corpus.get(a2, {}).get("name") in ST0_VALUE_KEEPERS
+            if a2 is None or (a2 not in self.keeps_st0 and not named_keep):
                 continue
-            # (only where V held st0 before: a variable the line before the call assigned or read,
-            # here an x87 value of the function's own, a float10)
-            if not re.search(rf"(?m)^[ \t]+float10\s+{re.escape(m.group(1))}\s*;|\bfloat10\s+{re.escape(m.group(1))}\b", c):
-                continue
-            lines[i] = ""
+            # (st0 before the call: the x87 value the call is handed, `FUN_0040382c(hi, in_st0);
+            # fVar2 = extraout_ST0_00;` its in_st0, or else V itself, an x87 value of the function's
+            # own that held it, `in_st0 = extraout_ST0;`)
+            float10s = set(re.findall(r"(?m)^[ \t]+float10\s+([A-Za-z_]\w*)\s*;", c)) | \
+                set(re.findall(r"\bfloat10\s+([A-Za-z_]\w*)\s*[,)]", c))
+            handed = [x for x in re.findall(r"[A-Za-z_]\w*", prev[prev.find("(") + 1:]) if x in float10s]
+            if len(set(handed)) == 1:
+                lines[i] = re.sub(r"=\s*extraout_ST0(?:_\d+)?\s*;", f"= {handed[0]};", lines[i])
+            elif m.group(1) in float10s:
+                lines[i] = ""
         return "\n".join(lines)
 
     def kept_inputs(self, c: str) -> str:
