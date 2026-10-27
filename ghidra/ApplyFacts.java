@@ -515,6 +515,10 @@ public class ApplyFacts extends GhidraScript {
         // fscale undeclared) on a client's graphics setup, 0x4c0790, 2026-10-27)
         bodies.put("CIfmod", "q:10 = ST1 f/ ST0; i:8 = trunc(q); t:10 = int2float(i); r:10 = ST1 f- (t f* ST0); ST1 = r;"
                 + pop87 + pop0);
+        // (and its arctangent of two, y in st1 and x in st0, atan2(y, x) left in st0: FPATAN's own
+        // operation, which translate32.py reads as atan2. Function ID left a client's unnamed,
+        // 0xc4d1fa, 59 callers, a graphics setup's reaching __cintrindisp2's stubs, 2026-10-27)
+        bodies.put("CIatan2", "r:10 = fpatan(ST1, ST0); ST1 = r;" + pop87 + pop0);
         // (and its sine and cosine, st0 to st0: the language's fsin and fcos, C's sin and cos in
         // Ghidra32.h)
         bodies.put("CIsin", "ST0 = fsin(ST0);" + pop0);

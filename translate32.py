@@ -1398,6 +1398,11 @@ def x87_pow(c: str) -> str:
             out.append(line)
         if ok:
             c = "\n".join(out)
+    # (and FPATAN's own operation, `fpatan(y, x)`, the C runtime's __CIatan2 by ApplyFacts' call
+    # fixup or the instruction itself: atan2. Once no from_bcd is left, which would make it one of
+    # the fixups above)
+    if "fpatan(" in c and "from_bcd(" not in c:
+        c = re.sub(r"\bfpatan\(", "atan2(", c)
     # (the operands' casts to the 10-byte type, a double's value here)
     return c.replace("(unkbyte10)", "")
 

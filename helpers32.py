@@ -106,6 +106,10 @@ SPECS: dict[str, tuple[str, list]] = {
     # for one function ID leaves unnamed. Exact values, the sign the dividend's)
     "CIfmod": ("st01", [((x, y), {"st0": f64(math.fmod(x, y))}) for x, y in ((7.5, 2.0), (-7.5, 2.0), (10.0, 3.0),
                                                                              (5.25, 0.5), (1.0e6 + 0.75, 1.0))]),
+    # (and its arctangent of two, y in st1 and x in st0: a VS2010 client's 0xc4d1fa, unnamed, 59
+    # callers. Within a few ulps, as the other transcendentals: APPROX below)
+    "CIatan2": ("st01", [((y, x), {"st0": f64(math.atan2(y, x))}) for y, x in ((7.5, 2.0), (1.0, 1.0), (2.0, 10.0),
+                                                                              (-1.0, 2.0), (0.5, -3.0))]),
     # (and the library's sqrt, a __cdecl double on the stack, its root pushed in st0: what VS2010
     # calls at /Od, `_sqrt`, which runs on into the body __CIsqrt shares and branches on the flags
     # its call to __load_CW left, a stub for in_ZF, rhtest msvc-16.00-x86 float-Od)
@@ -130,7 +134,7 @@ MATH_FUNCS = {
     "floor": (math.floor, (2.5, -2.5, 7.0, 0.25)), "ceil": (math.ceil, (2.5, -2.5, 7.0, 0.25)),
 }
 MATH_CODES = {n: k + 1 for k, n in enumerate(MATH_FUNCS)}
-APPROX = set()
+APPROX = {"CIatan2"}
 for _n, (_fn, _xs) in MATH_FUNCS.items():
     # (sin and cos as st0 helpers are __CIsin and __CIcos above, their own fixups)
     if _n not in ("sin", "cos", "floor", "ceil"):
