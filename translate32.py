@@ -1031,6 +1031,21 @@ def context_capture(c: str) -> set[str]:
     return out
 
 
+def libm_flag(c: str) -> str | None:
+    """The zero flag a VS2010 CRT math function's shared tail is entered with: its x87 entry
+    point (`__CIsqrt`: `call __checkTOS_withFB; call tail`) and its C one (`_sqrt`: `call
+    __fload_withFB`, falling into the tail) each leave ZF from `and eax, 0x7ff00000; cmp eax,
+    0x7ff00000` on the argument's high word, the double's exponent all ones (a NaN or an infinity),
+    and the tail branches on it first, `in_ZF`. As C: that test on the high word, the parameter
+    the tail masks with 0xfffff (rhtest msvc-16.00-x86 float, 4 stubs a project)."""
+    if not re.search(r"\bin_ZF\b", c):
+        return None
+    m = re.search(r"\(\s*(param_\d+)\s*&\s*0xfffff\s*\)", c)
+    if not m:
+        return None
+    return f"(({m.group(1)} & 0x7ff00000) == 0x7ff00000)"
+
+
 def declared_only(c: str) -> set[str]:
     """The lost names the decompiler declares and never uses: a parameter's other half as the
     caller's stack (`undefined2 in_stack_00000006;` beside __towlower_l's wint_t `_C`, which it
@@ -2116,7 +2131,7 @@ class Translator32:
         # (and a full xmm register as an SSE pseudo-op's destination found it: zeroed, sse_ops)
         # (and a call's x87 result made its assignment, x87_icall_results)
         ok = returned_only(c) | self.noreturn_args_only(a, c) | filler_args(c) | upper_only(c) | declared_only(c) | \
-            context_capture(c) | {"in_FPUControlWord", "in_FPUStatusWord"} | \
+            context_capture(c) | {"in_FPUControlWord", "in_FPUStatusWord"} | ({"in_ZF"} if libm_flag(c) else set()) | \
             set(re.findall(r"(?m)^\s*(extraout_ST0(?:_\d+)?) = \(\*", c)) | \
             set(re.findall(r"(?m)^[ \t]+undefined1\s+(in_XMM\d+)\s*\[\s*16\s*\]\s*;", c)) | \
             set(re.findall(r"(?m)^\s*(extraout_E[CD]X(?:_\d+)?) = \(\(.*\)\(uintptr_t\)\(", c))
@@ -2544,6 +2559,11 @@ class Translator32:
         # zeroed at the end, by names that read as no register: `in_ES` would be one)
         for n in context_capture(c):
             c = re.sub(rf"\b{n}\b", "cap_" + n.split("_", 1)[1], c)
+        # (and a CRT math tail's entry flag, libm_flag: the test it stands for)
+        flag = libm_flag(c)
+        if flag:
+            c = re.sub(r"(?m)^[ \t]*\w+\s+in_ZF\s*;[ \t]*\n", "", c)
+            c = re.sub(r"\bin_ZF\b", flag, c)
         # (a long C++ name Ghidra wraps at a `::`, `IpcChannel::\n        PacketBufferTmpl<...>::\n
         # vftable`: one name again, as the data export has it. 1,090 stubs, 2026-10-23)
         c = re.sub(r"::[ \t]*\n[ \t]*", "::", c)
