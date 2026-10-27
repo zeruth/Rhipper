@@ -1943,6 +1943,9 @@ class Translator32:
     def __init__(self):
         t0 = time.time()
         self.corpus = load_corpus()
+        # (the enums the decompiler names anywhere, `enum CV_methodprop_e`: an unexported one is an int)
+        self.enum_words = {w for r in self.corpus.values() if "enum " in r.get("c", "")
+                           for w in re.findall(r"\benum\s+([A-Za-z_]\w*)", r["c"])}
         self._pe = None                           # (truncates: the image, opened when first read)
         # (the image's own setjmp and longjmp, a static C runtime's: jump_calls)
         self.linked_jumps = {a: "longjmp" if "longjmp" in m.group(1) else "setjmp" for a, r in self.corpus.items()
@@ -3853,6 +3856,12 @@ class Translator32:
                 if tc is not None:
                     t = re.sub(r"\b" + re.escape(w) + r"\b", tc, t)
                     continue
+                # (an enum the types export left out, which the decompiler names `enum W` somewhere:
+                # an int. Function ID's debug-library names, `fVirtual(enum CV_methodprop_e)`, 6
+                # stubs in a client, 2026-10-27)
+                if w in self.enum_words:
+                    t = re.sub(r"\b" + re.escape(w) + r"\b", "int", t)
+                    continue
                 if "*" in t:
                     t = re.sub(r"\b" + re.escape(w) + r"\b", "undefined", t)
                 else:
@@ -4025,7 +4034,7 @@ class Translator32:
         w = t.replace("unsigned", "").replace("signed", "").replace("*", "").strip()
         if w in NOT_TYPES:
             return False
-        if w not in KNOWN_TYPES and self.typedef_c(w) is None:
+        if w not in KNOWN_TYPES and self.typedef_c(w) is None and w not in self.enum_words:
             raise ValueError(f"local of type {w}")
         return True
 
