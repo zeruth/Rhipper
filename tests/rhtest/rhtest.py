@@ -513,6 +513,7 @@ def main() -> None:
             if not getattr(p, f"step_{step}")():
                 print(f"[{p.name}] stopped at {step}")
                 ok, stopped = False, step
+                p.stop = (step, stop_detail(p, step))
                 break
         # (the fidelity report on every run that touched the project, whatever stopped it:
         # a failing run is when it is read. Not over a translation older than its corpus)
@@ -590,6 +591,28 @@ def main() -> None:
 REPORT = HERE / "fidelity.html"
 
 
+def stop_detail(p, step: str, lines: int = 40) -> str:
+    """What a stopped step left to read, for the report (CI's logs are an artifact only a
+    signed-in download reaches, and a project that stopped before scoring showed nothing but
+    "no report"): a run's output against the reference's, else the end of the newest log."""
+    import difflib
+    try:
+        if step == "run" and (p.build / "actual.txt").exists():
+            exp = (p.ref / "expected.txt").read_text(encoding="utf-8", errors="replace").splitlines()
+            act = (p.build / "actual.txt").read_text(encoding="utf-8", errors="replace").splitlines()
+            diff = list(difflib.unified_diff(exp, act, "expected", "actual", n=1, lineterm=""))[:lines]
+            err = (p.build / "port-stderr.txt")
+            tail = err.read_text(encoding="utf-8", errors="replace").splitlines()[-15:] if err.exists() else []
+            return "\n".join(diff + (["", "stderr:"] + tail if tail else []))
+        logs = sorted((f for f in p.build.glob("*.log") if f.is_file()), key=lambda f: f.stat().st_mtime)
+        if not logs:
+            return ""
+        text = logs[-1].read_text(encoding="utf-8", errors="replace").splitlines()
+        return f"{logs[-1].name}:\n" + "\n".join(text[-lines:])
+    except OSError as e:
+        return f"({e})"
+
+
 def write_report(results: dict, status: dict, ran_port: bool) -> None:
     """fidelity.html beside this file: every project's last result and fidelity, and per project
     what is below 1.0 and what is a stub, from each one's build/fidelity.json. A run re-scores the
@@ -611,6 +634,13 @@ def write_report(results: dict, status: dict, ran_port: bool) -> None:
         # passing says nothing of the port's output)
         if status[name] != "PASS" or ran_port:
             entry.update(status=status[name], when=now)
+            # (where a failing one stopped, and what it left: a pass has none)
+            stop = getattr(p, "stop", None)
+            if stop:
+                entry.update(stopped=stop[0], detail=stop[1])
+            else:
+                entry.pop("stopped", None)
+                entry.pop("detail", None)
         entry.setdefault("status", "-")
         entry.setdefault("when", "-")
         if p.fidelity:
@@ -638,9 +668,15 @@ def write_report(results: dict, status: dict, ran_port: bool) -> None:
                      f'<td class="num">{f["perfect"]}/{f["translated"]}</td><td class="num">{f["stubs"]}</td>')
         else:
             cells = '<td colspan="4" class="muted">no report</td>'
-        rows.append(f'<tr><td><a href="#{name}">{html.escape(name)}</a></td><td class="{cls}">{e["status"]}</td>{cells}'
+        shown = e["status"] + (f' at {e["stopped"]}' if e.get("stopped") else "")
+        rows.append(f'<tr><td><a href="#{name}">{html.escape(name)}</a></td><td class="{cls}">{html.escape(shown)}</td>{cells}'
                     f'<td class="muted">{e["when"]}</td><td class="muted">{scored_at}</td></tr>')
+        # (what the stopped step left: the run's diff against the reference, or its log's end)
+        stopped = (f'<p>stopped at {html.escape(e["stopped"])}</p><pre>{html.escape(e.get("detail", ""))}</pre>'
+                   if e.get("stopped") else "")
         if not data.exists():
+            if stopped:
+                sections.append(f'<details id="{name}" open><summary>{html.escape(name)}</summary>{stopped}</details>')
             continue
         items = [r for r in json.loads(data.read_text(encoding="utf-8")) if r["score"] < 0.999]
         items.sort(key=lambda r: (r["kind"] != "stub", r["score"], -r["size"]))
@@ -658,13 +694,14 @@ def write_report(results: dict, status: dict, ran_port: bool) -> None:
         inner = (f'<div class="wrap"><table><thead><tr><th>address</th><th>function</th><th class="num">score</th>'
                  f'<th>why</th></tr></thead><tbody>{"".join(body)}</tbody></table></div>'
                  if body else '<p class="muted">every function at 1.0</p>')
-        sections.append(f'<details id="{name}"{" open" if body else ""}><summary>{html.escape(name)} '
-                        f'<span class="muted">({len(items)} below 1.0, full report: {link})</span></summary>{inner}</details>')
+        sections.append(f'<details id="{name}"{" open" if body or stopped else ""}><summary>{html.escape(name)} '
+                        f'<span class="muted">({len(items)} below 1.0, full report: {link})</span></summary>{stopped}{inner}</details>')
     page = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>rhtest {TOOLSET}</title>
 <style>
 :root {{ --bg:#fbfbfa; --fg:#1d1d1b; --muted:#6b6b66; --line:#e4e3df; --pass:#2f9e5b; --fail:#d0503c; --link:#3f51d8;
   --s2:#7aa83a; --s1:#d49a2a; --s0:#d0503c; }}
+pre {{ overflow-x:auto; font-size:12px; border:1px solid var(--line); padding:8px; }}
 @media (prefers-color-scheme: dark) {{ :root {{ --bg:#17171a; --fg:#e9e8e4; --muted:#9a9993; --line:#2c2c31;
   --link:#8f9bff; }} }}
 body {{ background:var(--bg); color:var(--fg); font:14px/1.45 system-ui,sans-serif; margin:0; padding:24px 16px; }}
