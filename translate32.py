@@ -1055,7 +1055,11 @@ def returned_only(c: str) -> set[str]:
     if re.search(r"\bin_ST0\b", c):
         st_left = set(re.findall(r"\bextraout_ST\d(?:_\d+)?\b", c))
         lines_st = [l.strip() for l in c.split("\n")]
-        if all(all(re.fullmatch(r"in_ST0 = " + n + r";", s) or re.fullmatch(r"[A-Za-z_][\w ]*?\s+" + n + r";", s)
+        # (the copy anywhere, a condition's comma expression too: `(uVar2 = FUN_00b6afa0(), in_ST0 =
+        # extraout_ST0_00, uVar2 != 0)`, a scheduler clip's vf30 and 0xaef6e0, 2026-10-27)
+        def only_copied(s, n):
+            return not re.search(r"\b" + n + r"\b", re.sub(r"\bin_ST0 = " + n + r"(?=\s*[,;)])", "", s))
+        if all(all(only_copied(s, n) or re.fullmatch(r"[A-Za-z_][\w ]*?\s+" + n + r";", s)
                    or re.fullmatch(r"return (?:\(\w+\))?" + n + r";", s)
                    for s in lines_st if re.search(r"\b" + n + r"\b", s)) for n in st_left):
             entry |= {"in_ST0"} | st_left
