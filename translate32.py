@@ -1050,10 +1050,13 @@ def returned_only(c: str) -> set[str]:
     # typed float by its callers' reads that returns whatever st0 held on the paths that compute
     # nothing, `return in_ST0;`, 0 as the others. protos32.py gives a real st0 input a parameter.
     # A client's weather sound update 0x4af7c0, a stub on its frame path 2026-10-27)
+    # (or returned itself, `return (float)extraout_ST1;`: what a callee left one below st0, never
+    # popped into place, a client's font size analyzer 0x5584e0 on its startup 2026-10-27)
     if re.search(r"\bin_ST0\b", c):
         st_left = set(re.findall(r"\bextraout_ST\d(?:_\d+)?\b", c))
         lines_st = [l.strip() for l in c.split("\n")]
         if all(all(re.fullmatch(r"in_ST0 = " + n + r";", s) or re.fullmatch(r"[A-Za-z_][\w ]*?\s+" + n + r";", s)
+                   or re.fullmatch(r"return (?:\(\w+\))?" + n + r";", s)
                    for s in lines_st if re.search(r"\b" + n + r"\b", s)) for n in st_left):
             entry |= {"in_ST0"} | st_left
     names = set(RESULT_REG.findall(c)) | entry
