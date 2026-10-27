@@ -1280,13 +1280,39 @@ def x87_pow(c: str) -> str:
     decompiler through a 10-byte temporary, `unkbyte10 Var1; Var1 = from_bcd((unkbyte10)x); ...
     fscale(Var1,(unkbyte10)y)`, which no C type holds (a Lua number formatter's 0xc03850)."""
     c = c.replace("fscale(from_bcd(", "pow((")
-    for m in list(re.finditer(r"(?m)^[ \t]*(\w+) = from_bcd\((.*)\);[ \t]*\n", c)):
-        var, x = m.group(1), m.group(2)
-        rest = c.replace(m.group(0), "", 1)
-        new = re.sub(r"\bfscale\(\s*" + re.escape(var) + r"\s*,", f"pow({x},", rest)
-        if new != rest and not re.search(r"\b" + re.escape(var) + r"\b(?!\s*;)", re.sub(
-                r"(?m)^[ \t]*unkbyte10\s+" + re.escape(var) + r"\s*;[ \t]*\n", "", new)):
-            c = re.sub(r"(?m)^[ \t]*unkbyte10\s+" + re.escape(var) + r"\s*;[ \t]*\n", "", new)
+    # (each temporary's uses by the assignment before them, in order, while still inside that
+    # assignment's block: one temporary can be assigned again for a second power, `Var7 =
+    # from_bcd(a); ... fscale(Var7, b) ... Var7 = from_bcd(c); ... fscale(Var7, d)`, a client's
+    # camera update 0x4b1ed0, a stub on its frame path 2026-10-27)
+    # (an assignment the decompiler wrapped over lines, `Var4 = from_bcd((unkbyte10)\n x);`, on one)
+    c = re.sub(r"(?m)^([ \t]*\w+ = from_bcd\()([^;]*?)\);",
+               lambda m: m.group(1) + " ".join(m.group(2).split()) + ");", c)
+    for var in set(re.findall(r"(?m)^[ \t]*unkbyte10\s+(\w+)\s*;", c)):
+        lines = c.split("\n")
+        cur, depth, at_depth, ok = None, 0, 0, True
+        out = []
+        for line in lines:
+            m = re.fullmatch(r"[ \t]*" + re.escape(var) + r" = from_bcd\((.*)\);[ \t]*", line)
+            if m:
+                cur, at_depth = m.group(1), depth
+                depth += line.count("{") - line.count("}")
+                continue
+            if re.fullmatch(r"[ \t]*unkbyte10\s+" + re.escape(var) + r"\s*;[ \t]*", line):
+                continue
+            if re.search(r"\b" + re.escape(var) + r"\b", line):
+                if cur is None:
+                    ok = False
+                    break
+                line = re.sub(r"\bfscale\(\s*" + re.escape(var) + r"\s*,", f"pow({cur},", line)
+                if re.search(r"\b" + re.escape(var) + r"\b", line):
+                    ok = False
+                    break
+            depth += line.count("{") - line.count("}")
+            if cur is not None and depth < at_depth:
+                cur = None                              # (its block closed: no later use is its)
+            out.append(line)
+        if ok:
+            c = "\n".join(out)
     # (the operands' casts to the 10-byte type, a double's value here)
     return c.replace("(unkbyte10)", "")
 
