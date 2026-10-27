@@ -3521,6 +3521,12 @@ class Translator32:
                     if abi in ("float", "double"):
                         if k not in ("float", "int"):
                             x = f"{'GEN_TOF' if abi == 'float' else 'GEN_TOD'}({x.strip()})"
+                        # (an integer for a float parameter is its 4 bytes: the decompiler converts
+                        # in words of its own, `(float)x`. Converted by value, a pointer the callee
+                        # typed float, the stack address 0x910f9a0, came back 0x4d110f9a and was
+                        # read through, a client's 0x6452c0 2026-10-27)
+                        elif k == "int" and abi == "float":
+                            x = f"gen_bits2f((unsigned int)({x.strip()}))"
                     elif abi == "unsigned int" and k == "float":
                         x = f"(unsigned int)gen_fl2bits((float)({x.strip()}))"
                     new_args.append(x)
