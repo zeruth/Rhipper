@@ -61,6 +61,11 @@ a failure.
 | misc | O2, Od | thread-local storage (`__declspec(thread)` and `TlsAlloc`), intrinsics, bitfields, `alloca`, `setjmp`/`longjmp` |
 | win | O2, Od | the Win32 where x86 and x64 part: a window procedure handed WINDOWPOS, NCCALCSIZE_PARAMS and CREATESTRUCT that changes them and hands them on to DefWindowProc, the thread queue's MSG, WSADATA, a spin lock on a global by `xchg` shared by four threads, TLS through an import kept in a register across branches, a job queue's critical section and events |
 | engine | O2, Od, GL | a game engine's C++: a stream's `s << a << b` chain with virtual getters among the operands pushed ahead, a method with a reserved local (`push ecx`) calling its own virtual slot, `getter()->f()->g(0, &a, &b, n)`, a float read through a byte-swapping reader, a reference count and a member spin lock shared with worker threads |
+| sys | O2, Od | kernel32's structures that differ on x64 or that the system calls back into: OVERLAPPED file I/O, WIN32_FIND_DATA, BY_HANDLE_FILE_INFORMATION, MEMORY_BASIC_INFORMATION and VirtualProtect, SYSTEM_INFO's address range, private heaps, the interlocked SList, InitOnceExecuteOnce, the timer queue, QueueUserWorkItem, a TIMERPROC, FLS callbacks at a thread's exit, functions from GetProcAddress called through their pointers |
+| com | O2, Od | COM both ways: the program's objects behind several interfaces (adjustor thunks, `__stdcall` methods, reference counts) and the system's: an IStream on an HGLOBAL, IMalloc, BSTRs and VARIANTs, a SAFEARRAY, GUID strings, CoCreateInstance of the shell link and its IPersist |
+| stl | O2, Od | the MSVC C++ library: strings, vectors, map and unordered_map, sort and stable_sort with a functor and a lambda, std::function and bind, shared_ptr and weak_ptr, unique_ptr with a deleter, dynamic_cast and typeid, list splicing, string streams |
+| fpenv | O2, Od, IA32 | the floating-point environment: `_controlfp` precision (Direct3D 9's 24 bits) and rounding control under conversions, the masked exceptions' flags, the CRT's math, conversions at the edges |
+| seh | O2, Od | hardware exceptions in `__try`: access violations reading and writing (their ExceptionInformation), integer division by zero and overflow, a breakpoint, a privileged instruction, a filter making a page readable and continuing, RaiseException's parameters, a vectored handler, `__finally` on every way out |
 | eh | O2, Od | C++ exceptions (`/EHsc`): catch by type, rethrow, nested, across frames, unwinding destructors, a throwing constructor; C's `__try`/`__except`/`__finally` with `RaiseException` |
 
 Status as of 2026-10-25: every project passes on both toolsets from a fresh import (18 on
@@ -81,7 +86,11 @@ toolset that proves its facts. A fix made for one project has to keep every tool
 | toolset | compiler | runtime, target | variants | for |
 |---|---|---|---|---|
 | `msvc-14.51-x86` | MSVC 14.51 (Visual Studio 2026), from vswhere | `/MD` (ucrt), Vista+ | O2, Od, IA32, GL | current code |
-| `msvc-16.00-x86` | Visual Studio 2010 SP1, cl 16.00.40219 | `/MT` (the CRT linked in and translated), Windows XP | O2, Od, SSE2, GL | VS2010 /MT clients |
+| `msvc-16.00-x86` | Visual Studio 2010 SP1, cl 16.00.40219 | `/MT` (the CRT linked in and translated), Windows XP | O2, Od, SSE2, GL, client | VS2010 /MT clients |
+
+Every program is also built `client` on `msvc-16.00-x86`: `/O2 /Oy- /GL /arch:SSE` and `/LTCG`, the
+flags a VS2010 game client's binary shows (whole-program conventions, frame pointers kept, floats in
+SSE and doubles on the x87 unit), so each test runs against the code such a client is made of.
 
 VS2010's floats are x87 unless asked, so the program the newer toolset builds `/arch:IA32` it
 builds `/arch:SSE2`. The sources build with both: `src/rhtest.h` fills in what VS2010 lacks

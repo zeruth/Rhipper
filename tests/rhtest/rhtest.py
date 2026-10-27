@@ -71,6 +71,11 @@ VARIANTS = {
     "GL": (["/O2", "/GL"], ["/LTCG"]),
     # SSE2 floats where a toolset's default is x87 (VS2010: no /arch:IA32, x87 unless asked)
     "SSE2": (["/O2", "/arch:SSE2"], []),
+    # a VS2010 game client's own build, as its binary shows it: whole-program optimization (its
+    # custom register conventions), frame pointers kept (46,389 of 47,792 functions open `push ebp;
+    # mov ebp, esp`), floats in SSE and doubles on the x87 unit (/arch:SSE: 45,124 scalar `ss`
+    # instructions to 376 `sd`), the C runtime linked in
+    "client": (["/O2", "/Oy-", "/GL", "/arch:SSE"], ["/LTCG"]),
 }
 # the toolsets: how each builds a reference. vs: which Visual Studio's tools ("latest", vswhere's,
 # or "2010", RHTEST_VS2010's); cl: the compiler version it must be; crt and subsystem: the runtime
@@ -79,8 +84,9 @@ TOOLSETS = {
     "msvc-14.51-x86": {"vs": "latest", "cl": "19.51.", "crt": "/MD", "subsystem": "CONSOLE", "variants": {}},
     # (a /MT client's: VS2010 SP1, cl 16.00.40219, the C runtime linked in, for Windows XP. Its
     # floats are x87 by default, so the program built /arch:IA32 elsewhere is the SSE2 one here)
+    # (and every program built as the client was too, "extra")
     "msvc-16.00-x86": {"vs": "2010", "cl": "16.00.40219", "crt": "/MT", "subsystem": "CONSOLE,5.01",
-                       "variants": {"IA32": "SSE2"}},
+                       "variants": {"IA32": "SSE2"}, "extra": ["client"]},
 }
 DEFAULT_TOOLSET = "msvc-14.51-x86"
 # the toolset this run builds and tests (--toolset, --bins)
@@ -98,6 +104,11 @@ PROGRAMS = {
     "eh": (["eh.cpp"], ["O2", "Od"]),
     "win": (["win.c"], ["O2", "Od"]),
     "engine": (["engine.cpp"], ["O2", "Od", "GL"]),
+    "sys": (["sys.c"], ["O2", "Od"]),
+    "com": (["com.cpp"], ["O2", "Od"]),
+    "stl": (["stl.cpp"], ["O2", "Od"]),
+    "fpenv": (["fpenv.c"], ["O2", "Od", "IA32"]),
+    "seh": (["seh.c"], ["O2", "Od"]),
 }
 STEPS = ["ref", "import", "facts", "ghidra", "translate", "port", "run", "fidelity"]
 # workers for the tools that take them (protos32.py, translate32.py, the port's MSBuild): serial
@@ -165,7 +176,8 @@ def ghidra_prefix(toolset: str) -> str:
 def variants_of(program: str) -> list[str]:
     """A program's variants as the toolset builds them."""
     swap = TOOLSETS[TOOLSET]["variants"]
-    return [swap.get(v, v) for v in PROGRAMS[program][1] if swap.get(v, v)]
+    own = [swap.get(v, v) for v in PROGRAMS[program][1] if swap.get(v, v)]
+    return own + [v for v in TOOLSETS[TOOLSET].get("extra", []) if v not in own]
 
 
 def run(cmd: list[str], cwd: Path, env: dict | None, log: Path, tail: int = 0) -> int:
