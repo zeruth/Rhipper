@@ -26,14 +26,30 @@ public class ExportFunctions extends GhidraScript {
     // first two instructions: its `mov ebx, ecx` unseen, a __stdcall with ecx lost, a stub on a
     // loader's path, 88 such in a VS2010 client (2026-10-26). Removed, and the function it cut
     // given its whole body again.
+    // a relocation anywhere in the code unit a reference is from: `push offset fn`'s is at its
+    // operand, not the instruction's start
+    private boolean relocatedWithin(ghidra.program.model.reloc.RelocationTable relocs,
+                                    ghidra.program.model.address.Address from) {
+        ghidra.program.model.listing.CodeUnit cu = currentProgram.getListing().getCodeUnitContaining(from);
+        if (cu == null) return relocs.hasRelocation(from);
+        for (ghidra.program.model.address.Address a = cu.getMinAddress(); a.compareTo(cu.getMaxAddress()) <= 0; a = a.next())
+            if (relocs.hasRelocation(a)) return true;
+        return false;
+    }
+
     private int removeFallInFunctions() throws Exception {
         java.util.List<Function> cut = new java.util.ArrayList<>();
         ghidra.program.model.reloc.RelocationTable relocs = currentProgram.getRelocationTable();
+        // (an image without relocations cannot tell a pointer from bytes that look like one: there
+        // every reference keeps the function)
+        boolean relocated = relocs.getSize() > 0;
+        ghidra.program.model.symbol.SymbolTable symbols = currentProgram.getSymbolTable();
         FunctionIterator it = currentProgram.getFunctionManager().getFunctions(true);
         while (it.hasNext() && !monitor.isCancelled()) {
             Function f = it.next();
             if (f.isThunk() || f.isExternal()) continue;
             ghidra.program.model.address.Address entry = f.getEntryPoint();
+            if (symbols.isExternalEntryPoint(entry)) continue;              // (an entry point, an export)
             ghidra.program.model.listing.Instruction before = getInstructionBefore(entry);
             if (before == null || before.getFallThrough() == null || !before.getFallThrough().equals(entry)) continue;
             Function host = getFunctionContaining(before.getAddress());
@@ -43,7 +59,7 @@ public class ExportFunctions extends GhidraScript {
                 ghidra.program.model.address.Address from = r.getFromAddress();
                 if (f.getBody().contains(from)) continue;              // (its own loop's)
                 ghidra.program.model.symbol.RefType t = r.getReferenceType();
-                if (t.isCall() || t.isJump() || relocs.hasRelocation(from)) {
+                if (t.isCall() || t.isJump() || !relocated || relocatedWithin(relocs, from)) {
                     wanted = true;
                     break;
                 }
