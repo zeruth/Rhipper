@@ -1704,6 +1704,8 @@ class Translator32:
         self.keeps_in = {int(k, 16): v["keeps_in"] for k, v in protos.items() if v.get("keeps_in")}
         # (and those that clear the x87 exception flags, fnclex: the status word read then cleared)
         self.fpu_clear = {int(k, 16) for k, v in protos.items() if v.get("fpu_clear")}
+        # (and those that leave the x87 stack alone, kept_st0)
+        self.keeps_st0 = {int(k, 16) for k, v in protos.items() if v.get("keeps_st0")}
         self.keeps = {int(k, 16): set(v["keep"]) for k, v in protos.items() if v.get("keep")}
         # (and the registers each takes its parameters in, entry_registers)
         self.param_regs = {}
@@ -1920,6 +1922,33 @@ class Translator32:
                 out.add(n)
         return out
 
+    def kept_st0(self, c: str) -> str:
+        """`V = extraout_ST0;` right after a call to a function that leaves the x87 stack alone
+        (protos32's keeps_st0): st0 is what it was before the call, which the decompiler, told
+        the call may load it, lost. Its st0 holder there is V itself, `FUN_00403815(cw); in_st0 =
+        extraout_ST0;` (__load_CW between a VS2010 CRT math tail's argument and its use): the
+        statement goes, V keeping its value (rhtest msvc-16.00-x86 float)."""
+        if "extraout_ST0" not in c or not self.keeps_st0:
+            return c
+        lines = c.split("\n")
+        for i in range(1, len(lines)):
+            m = re.fullmatch(r"\s*([A-Za-z_]\w*)\s*=\s*(extraout_ST0(?:_\d+)?)\s*;\s*", lines[i])
+            if not m:
+                continue
+            prev = lines[i - 1]
+            call = re.fullmatch(r"\s*(?:[\w.\->\[\]]+\s*=\s*)?(?:\([^()]*\))?\s*([A-Za-z_]\w*)\s*\(.*\);\s*", prev)
+            if not call:
+                continue
+            a2 = self.by_printed.get(call.group(1))
+            if a2 is None or a2 not in self.keeps_st0:
+                continue
+            # (only where V held st0 before: a variable the line before the call assigned or read,
+            # here an x87 value of the function's own, a float10)
+            if not re.search(rf"(?m)^[ \t]+float10\s+{re.escape(m.group(1))}\s*;|\bfloat10\s+{re.escape(m.group(1))}\b", c):
+                continue
+            lines[i] = ""
+        return "\n".join(lines)
+
     def kept_inputs(self, c: str) -> str:
         """`extraout_ECX` (or EDX) read in the statement right after a call to a function that
         leaves that register input as it found it (protos32's keeps_in): what the call was passed
@@ -2121,7 +2150,7 @@ class Translator32:
 
     # ---- one function ---------------------------------------------------------------------------
     def why_not(self, a: int) -> str | None:
-        c = self.entry_registers(a, self.kept_inputs(stack_vs_const(v16_forms(cpu_state(array_stores(locked_reads(strip_comments(self.corpus[a]["c"]))))))))
+        c = self.entry_registers(a, self.kept_inputs(self.kept_st0(stack_vs_const(v16_forms(cpu_state(array_stores(locked_reads(strip_comments(self.corpus[a]["c"])))))))))
         if a not in self.sigs:
             return "no signature"
         # (a register as the function found it that no parameter is in, never assigned: lost)
@@ -2554,7 +2583,7 @@ class Translator32:
         sig = self.sigs[a]
         self.cur_params = sig.params              # (pointer_steps: the parameters' types)
         self.cur_gt = self.corpus[a].get("gt") or {}  # (global_lvalue: the decompiler's types of the globals)
-        c = self.entry_registers(a, self.kept_inputs(stack_vs_const(v16_forms(cpu_state(array_stores(locked_reads(strip_comments(self.corpus[a]["c"]))))))))
+        c = self.entry_registers(a, self.kept_inputs(self.kept_st0(stack_vs_const(v16_forms(cpu_state(array_stores(locked_reads(strip_comments(self.corpus[a]["c"])))))))))
         # (the registers a failure reporter only records, context_capture: locals of their own,
         # zeroed at the end, by names that read as no register: `in_ES` would be one)
         for n in context_capture(c):

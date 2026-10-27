@@ -62,6 +62,9 @@ ST0 = 1 << 16
 # (and ebp, read before set: the parent's frame an EH funclet runs on)
 EBP_IN = 1 << 17
 X87_LOADS = ("fld", "fild", "fldz", "fld1", "fldpi", "fldl2e", "fldl2t", "fldlg2", "fldln2", "fbld")
+# the x87 instructions that touch only the control and status words, never the stack
+X87_CONTROL = {"fldcw", "fnstcw", "fstcw", "fnstsw", "fstsw", "fnclex", "fclex", "fwait", "wait", "fninit",
+               "fnstenv", "fstenv", "fldenv"}
 X87_READS = ("fst", "fstp", "fist", "fistp", "fisttp", "fadd", "fsub", "fsubr", "fmul", "fdiv", "fdivr",
              "faddp", "fsubp", "fsubrp", "fmulp", "fdivp", "fdivrp", "fcom", "fcomp", "fcompp", "fucom",
              "fucomp", "fucompp", "fcomi", "fcomip", "fucomi", "fucomip", "fxch", "fchs", "fabs", "fsqrt",
@@ -1227,7 +1230,11 @@ def analyse(root: int, ranges):
     # (and one that clears the x87 exception flags, `fnclex`: translate32 clears them after its
     # status word's read, which the decompiler keeps and the clear it drops, __clrfp)
     fpu_clear = any(insns[a].mnemonic in ("fnclex", "fclex") for a in state)
-    return {"fpu_clear": fpu_clear, "local_block": block, "passed": passed, "tail_jumps": tail_jumps, "eh_imms": eh_imms,
+    # (and whether it leaves the x87 stack alone: no x87 instruction but the control and status
+    # words' (fldcw, fnstsw, ...), and no call through a pointer; its direct callees decided in main)
+    x87_data = any(insns[a].mnemonic.startswith("f") and insns[a].mnemonic not in X87_CONTROL for a in state) \
+        or any(insns[a].mnemonic == "call" and _target(insns[a]) is None for a in state)
+    return {"fpu_clear": fpu_clear, "x87_data": x87_data, "local_block": block, "passed": passed, "tail_jumps": tail_jumps, "eh_imms": eh_imms,
             "frame": -floor[0] if floor[0] is not None and floor[0] < 0 else None,"inputs": inputs, "in_width": in_width, "stack_hi": stack_hi, "slots": slots,
             "addr_taken": addr_taken, "calls": calls, "variadic": variadic, "call_pushes": call_pushes, "pushes_past": pushes_past,
             "untyped_pushed": untyped_pushed,
@@ -3239,6 +3246,19 @@ def main() -> None:
     for v in local.values():
         for t, k in v.get("passed", {}).items():
             passed_min[t] = min(passed_min.get(t, k), k)
+    # (the functions that leave the x87 stack as they found it, their callees too: st0 is the
+    # caller's across a call to one, translate32's kept st0. The CRT's __load_CW, `fldcw [esp+4]`,
+    # between a math tail's argument and its use: as a call that may load st0, `in_st0 =
+    # extraout_ST0`, a stub, rhtest msvc-16.00-x86 float)
+    keeps_st0 = {f for f, v in local.items() if "error" not in v and not v.get("x87_data", True)}
+    changed = True
+    while changed:
+        changed = False
+        for f in list(keeps_st0):
+            if any(not isinstance(t, tuple) and t not in keeps_st0 and t not in noreturn
+                   for t, _m, _k in local[f].get("calls", ())):
+                keeps_st0.discard(f)
+                changed = True
     out = {}
     counts: dict[str, int] = {}
     for f, v in sorted(local.items()):
@@ -3316,6 +3336,8 @@ def main() -> None:
         e = {"cc": cc, "params": params, "stack": stack}
         if v.get("fpu_clear"):
             e["fpu_clear"] = True
+        if f in keeps_st0:
+            e["keeps_st0"] = True
         # (the bytes below its entry its frame allocation reaches: translate32.py lays out that much
         # of a function that links an EH frame, whose funclets reach into it through ebp)
         if v.get("frame"):
