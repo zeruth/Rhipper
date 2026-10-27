@@ -123,7 +123,7 @@ HEADER_NAMES = {"REFG", "REFP", "GP", "PTR32", "MXCSR", "ExceptionList", "GenUni
                 "SQRT", "ROUND", "TRUNC", "FLOOR", "CEIL", "HeapCompatibilityInformation", "uintptr_t",
                 "intptr_t", "uint32_t", "int32_t", "uint64_t", "int64_t", "uint16_t", "int16_t", "uint8_t",
                 "int8_t", "__ptr32", "__uptr", "_InterlockedExchange", "NAN", "INFINITY",
-                "__debugbreak", "_rotl", "_rotr", "_rotl64", "_rotr64", "fabs", "sqrt", "pow", "fsin", "fcos",
+                "__debugbreak", "_rotl", "_rotr", "_rotl64", "_rotr64", "fabs", "sqrt", "pow", "atan2", "fsin", "fcos",
                 "builtin_strncpy", "builtin_memcpy", "builtin_memset",
                 "floor", "ceil", "trunc", "nearbyint", "memcpy", "memset", "rdtsc", "GEN_PIECE", "GEN_ISNAN",
                 "gen_piece_set", "gen_fl2bits", "gen_d2bits", "gen_bits2f", "gen_bits2d", "GEN_TOF", "GEN_TOD", "GEN_SLOT", "GEN_LOW",
@@ -1399,10 +1399,10 @@ def x87_pow(c: str) -> str:
         if ok:
             c = "\n".join(out)
     # (and FPATAN's own operation, `fpatan(y, x)`, the C runtime's __CIatan2 by ApplyFacts' call
-    # fixup or the instruction itself: atan2. Once no from_bcd is left, which would make it one of
-    # the fixups above)
-    if "fpatan(" in c and "from_bcd(" not in c:
-        c = re.sub(r"\bfpatan\(", "atan2(", c)
+    # fixup or the instruction itself: atan2. Every fpatan the fixups above made is gone by now; one
+    # on a from_bcd still is one of theirs left, not an atan2. Gated on no from_bcd at all, the 43
+    # functions that also called another of the library's math kept a bare fpatan, 2026-10-27)
+    c = re.sub(r"\bfpatan\((?!\s*from_bcd\()", "atan2(", c)
     # (the operands' casts to the 10-byte type, a double's value here)
     return c.replace("(unkbyte10)", "")
 
@@ -1520,7 +1520,8 @@ def load_corpus() -> dict[int, dict]:
             r["c"] = r.get("c", "").replace("\r\n", "\n").replace("\r", "\n")
             # (the CRT's x87 power, as ApplyFacts' call fixup writes it: `fscale(from_bcd(x), y)`,
             # p-code having no pow, is pow(x, y))
-            if "from_bcd(" in r["c"]:
+            # (and __CIatan2's, a bare fpatan(y, x), with no from_bcd of its own)
+            if "from_bcd(" in r["c"] or "fpatan(" in r["c"]:
                 r["c"] = x87_pow(r["c"])
             # (a cast to the 10-byte type around an x87 operation's operand, `fsin((unkbyte10)x)`
             # from the __CIsin fixup: a double's value here, no C type of its own)
