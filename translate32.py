@@ -527,6 +527,45 @@ def eh_landing(body: str, ret: str) -> str:
                   r"ExceptionList)\s*=\s*&([^;\n]+);[ \t]*$", land, body)
 
 
+def idiv32(body: str) -> str:
+    """`cdq; idiv r32` as the decompiler prints it, `(int)(A / (longlong)(int)(B))` of a 32-bit A: a
+    32-bit division, gen_idiv32 (Ghidra32.h), so INT_MIN / -1 traps as the reference's idiv does,
+    EXCEPTION_INT_OVERFLOW. In 64 bits it was 0x80000000 and no fault, and the reference's __except
+    never ran (rhtest msvc-14.51-x86 seh-O2, 2026-10-27)."""
+    out, i = [], 0
+    pat = re.compile(r"\(int\)\(\s*(-?(?:0x[0-9a-f]+|\d+)|\(\(int\)0x[0-9a-f]+\)|\(int\)0x[0-9a-f]+|[A-Za-z_]\w*)"
+                     r"\s*([/%])\s*\(longlong\)\(int\)\(")
+    for m in pat.finditer(body):
+        if m.start() < i:
+            continue
+        end = match_paren(body, m.end() - 1)          # just past the divisor's group
+        if end <= 0 or end >= len(body) or body[end] != ")":
+            continue
+        divisor = body[m.end():end - 1]
+        fn = "gen_idiv32" if m.group(2) == "/" else "gen_irem32"
+        out.append(body[i:m.start()])
+        out.append(f"{fn}((int)({m.group(1)}), (int)({divisor}))")
+        i = end + 1
+    out.append(body[i:])
+    return "".join(out)
+
+
+def eh_state_volatile(body: str) -> str:
+    """An EH frame's state word, volatile: the C++ frame's state at node + 8 and the SEH frame's try
+    level at node + 0xc, the words the runtime's dispatcher reads when the function faults. The
+    host compiler sees only stores nothing reads before the next one, `try level = 0; r = 100 / x;
+    try level = -2`, the faulting division no side effect to it, and dropped the first: the
+    dispatcher found no __try around the division (rhtest msvc-14.51-x86 seh-O2, 2026-10-27)."""
+    offs = set()
+    for m in re.finditer(r"gen_eh_landing\([^;]*?\(gen_frame \+ 0x([0-9a-f]+)\)", body):
+        node = int(m.group(1), 16)
+        offs |= {node + 8, node + 0xC}
+    for off in offs:
+        body = re.sub(r"\(\*\(\s*((?:unsigned\s+)?[A-Za-z_]\w*(?:\s*\*\s*PTR32)?)\s*\*\s*\)\(gen_frame \+ 0x" + f"{off:x}" + r"\)\)",
+                      lambda m: f"(*(volatile {m.group(1)} *)(gen_frame + 0x{off:x}))", body)
+    return body
+
+
 def frame_locals(body: str, reserve: int = 0, minimum: int = 0, args: list[str] | None = None) -> str:
     """The reference's frame, where its code takes a local's address or uses a local array: every
     `local_N` and `*Stack_N` a slot of one buffer at its offset in the x86 frame (N, below the
@@ -3125,6 +3164,7 @@ class Translator32:
         eh = bool(EH_LINK.search(body)) or eh_prolog
         body = frame_locals(body, 0x10000 if alloca else 0, self.frames.get(a, 0) if eh else 0, eh_args)
         body = global_index(body)
+        body = idiv32(body)
         # (a frame slot of a pointer type converted to a float, Ghidra reusing one local for both:
         # its bits, as GEN_TOF takes a pointer's)
         # (not one indexed: `(float)local_x[i]` converts the element)
@@ -3138,6 +3178,7 @@ class Translator32:
         body = re.sub(r"(?m)^([ \t]+undefined1\s+in_XMM\d+\s*\[\s*16\s*\])\s*;", r"\1 = {0};", body)
         if eh:
             body = eh_landing(body, ret)
+            body = eh_state_volatile(body)
         decl = f"{ret} F_{a:08x}({', '.join(params) or 'void'})"
         # (the shadow trace's record of the call, first: its address and first four integer
         # arguments, as shadow32.py records the reference's: its words, a float's bits and an

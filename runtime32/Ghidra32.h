@@ -104,6 +104,11 @@ void gen_set_x87_cw(unsigned short cw);
 /* and its status word, `fnstsw`: the host's floating-point exception flags as x87 bits (IE 1,
    DE 2, ZE 4, OE 8, UE 0x10, PE 0x20), cleared after the read when `clear` (fnclex) */
 unsigned short gen_fpusw(int clear);
+/* `cdq; idiv r32`: a 32-bit signed division, as the reference's, faulting where it faults (a zero
+   divisor, EXCEPTION_INT_DIVIDE_BY_ZERO; INT_MIN / -1, EXCEPTION_INT_OVERFLOW), the divisor read
+   through a volatile so the host compiler neither folds nor reorders the instruction away */
+static __inline int gen_idiv32(int a, int b) { volatile int d = b; return a / d; }
+static __inline int gen_irem32(int a, int b) { volatile int d = b; return a % d; }
 /* an SSE register's 16 bytes, as Ghidra writes one (`undefined1 [16]`): an array, so a pointer
    to one steps 16 and indexes its bytes as the reference does. An array is not assignable: a
    value stored into one (`*p = (undefined1 [16])0x0`) is GEN_V16_SET's, zero-extended */
