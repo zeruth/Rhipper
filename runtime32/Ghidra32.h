@@ -437,6 +437,19 @@ static __inline unsigned long long gen_piece_set(void *p, int off, int n, unsign
 #define ABS(x) ((x) < 0 ? -(x) : (x))
 #include <math.h>
 #define SQRT(x) sqrt(x)
+/* the C runtime's x87 math as ApplyFacts' call fixups write it, `fpatan(from_bcd(x), K)`: K the
+   function, helpers32.py's MATH_CODES (exp, log, log10, tan, atan, asin, acos, sinh, cosh, tanh,
+   sin, cos, floor, ceil) */
+static __inline double gen_x87math(double x, int k) {
+    switch (k) {
+    case 1: return exp(x);   case 2: return log(x);   case 3: return log10(x); case 4: return tan(x);
+    case 5: return atan(x);  case 6: return asin(x);  case 7: return acos(x);  case 8: return sinh(x);
+    case 9: return cosh(x);  case 10: return tanh(x); case 11: return sin(x);  case 12: return cos(x);
+    case 13: return floor(x); case 14: return ceil(x);
+    default: return x;
+    }
+}
+#define GEN_X87MATH(x, k) gen_x87math((double)(x), (int)(k))
 #define ROUND(x) nearbyint(x)
 #define TRUNC(x) trunc(x)
 #define FLOOR(x) floor(x)

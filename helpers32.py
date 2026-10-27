@@ -109,6 +109,39 @@ SPECS: dict[str, tuple[str, list]] = {
     # iteration, `newton`, matched the squares)
     "sqrt": ("stackd", [((d,), {"st0": f64(math.sqrt(d))}) for d in (2.25, 4.0, 1.0e10, 0.0625, 2.0, 3.0, 0.1)]),
 }
+# (and the rest of the library's x87 math, st0 to st0 (`__CIexp`) or a __cdecl double on the stack
+# (`_exp`), each the value within a few ulps: Unicorn's x87 transcendentals are not the hardware's to
+# the last bit, so APPROX, compared at 1e-12. Their SSE2 branches' internals unidentified, a client's
+# camera update reached a dozen stubs through them, 2026-10-27. MATH_CODES numbers each for the call
+# fixup ApplyFacts writes, `fpatan(from_bcd(x), K)`, which translate32.py reads back)
+# (the same inputs where the domains allow, each run once per function, Runner's cache: every small
+# __cdecl function of a double is a candidate)
+_X = (0.25, 0.5, 0.75, -0.3)
+_P = (0.25, 0.5, 0.75, 7.5)
+MATH_FUNCS = {
+    "exp": (math.exp, _X), "log": (math.log, _P), "log10": (math.log10, _P),
+    "tan": (math.tan, _X), "atan": (math.atan, _X), "asin": (math.asin, _X), "acos": (math.acos, _X),
+    "sinh": (math.sinh, _X), "cosh": (math.cosh, _X), "tanh": (math.tanh, _X),
+    "sin": (math.sin, _X), "cos": (math.cos, _X),
+    "floor": (math.floor, (2.5, -2.5, 7.0, 0.25)), "ceil": (math.ceil, (2.5, -2.5, 7.0, 0.25)),
+}
+MATH_CODES = {n: k + 1 for k, n in enumerate(MATH_FUNCS)}
+APPROX = set()
+for _n, (_fn, _xs) in MATH_FUNCS.items():
+    # (sin and cos as st0 helpers are __CIsin and __CIcos above, their own fixups)
+    if _n not in ("sin", "cos", "floor", "ceil"):
+        SPECS["CI" + _n] = ("st0", [((x,), {"st0": f64(float(_fn(x)))}) for x in _xs])
+        APPROX.add("CI" + _n)
+    SPECS["m_" + _n] = ("stackd", [((x,), {"st0": f64(float(_fn(x)))}) for x in _xs])
+    APPROX.add("m_" + _n)
+
+
+def close(got: int, want: int) -> bool:
+    """Two doubles' bits within 1e-12 of each other (relative)."""
+    a, b = struct.unpack("<d", struct.pack("<Q", got & M64))[0], struct.unpack("<d", struct.pack("<Q", want & M64))[0]
+    if math.isnan(a) or math.isnan(b):
+        return False
+    return abs(a - b) <= 1e-12 * max(1.0, abs(b))
 # the instruction a helper's result comes from, which it has to run: the square roots' fsqrt. A
 # program's own Newton iteration (rhtest float's `newton`) matches every value at the x87's
 # precision, and was taken for the CRT's sqrt
@@ -278,6 +311,7 @@ def main() -> None:
              for f in json.loads((FACTS / "functions.json").read_text())["functions"] if not f.get("thunk")}
     runner = Runner(b)
     found = {}
+    memo: dict = {}
     for k, e in protos.items():
         a = int(k, 16)
         if sizes.get(a, 0x10000) > 0x400:
@@ -288,8 +322,13 @@ def main() -> None:
                 continue
             ok = True
             for inputs, want in cases:
-                got = runner.run(a, shape, inputs)
-                if got is None or any(got[reg] != (v & M64) for reg, v in want.items()):
+                key = (a, shape, inputs)
+                if key not in memo:
+                    memo[key] = runner.run(a, shape, inputs)
+                got = memo[key]
+                if got is None or any(got[reg] is None or
+                                      (not close(got[reg], v) if name in APPROX else got[reg] != (v & M64))
+                                      for reg, v in want.items()):
                     ok = False
                     break
             if ok and name in NEEDS and not runner.runs(a, shape, cases[0][0], NEEDS[name]):

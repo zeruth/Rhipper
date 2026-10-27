@@ -518,6 +518,20 @@ public class ApplyFacts extends GhidraScript {
         String push87 = " ST7 = ST6; ST6 = ST5; ST5 = ST4; ST4 = ST3; ST3 = ST2; ST2 = ST1; ST1 = ST0;";
         bodies.put("sqrt", "p:4 = ESP + 4; d:8 = *:8 p; r:8 = sqrt(d);" + push87 + " ST0 = float2float(r);" + pop0);
         bodies.put("libm_sse2_sqrt_precise", "XMM0_Qa = sqrt(XMM0_Qa);" + pop0);
+        // (and the rest of its x87 math, helpers32.py's CIexp... (st0 to st0) and m_exp... (a __cdecl
+        // double on the stack): p-code has none of them, so the pair nothing else writes together,
+        // `fpatan(from_bcd(x), K)`, K the function by helpers32.py's MATH_CODES, which translate32.py
+        // reads back as Ghidra32.h's gen_x87math. As calls, their SSE2 branches' internals were
+        // stubs on a client's camera path, 2026-10-27)
+        String[] math = { "exp", "log", "log10", "tan", "atan", "asin", "acos", "sinh", "cosh", "tanh", "sin", "cos",
+                "floor", "ceil" };
+        for (int i = 0; i < math.length; i++) {
+            int k = i + 1;
+            if (!math[i].equals("sin") && !math[i].equals("cos") && !math[i].equals("floor") && !math[i].equals("ceil"))
+                bodies.put("CI" + math[i], "t:10 = from_bcd(ST0); ST0 = fpatan(t, " + k + ":4);" + pop0);
+            bodies.put("m_" + math[i], "p:4 = ESP + 4; d:8 = *:8 p; t:8 = from_bcd(d); r:8 = fpatan(t, " + k + ":4);"
+                    + push87 + " ST0 = float2float(r);" + pop0);
+        }
         Class<?> se = Function.class.getClassLoader().loadClass("ghidra.program.database.SpecExtension");
         Object ext = se.getConstructor(ghidra.program.model.listing.Program.class).newInstance(currentProgram);
         java.lang.reflect.Method add = se.getMethod("addReplaceCompilerSpecExtension", String.class,

@@ -3058,10 +3058,24 @@ def main() -> None:
             return int(m.group(1), 16) if mn == "cmp" and m else None
         return None
     flags = {first_cmp_flag(f) for f in math_helpers} - {None}
+
+    def reads_stack(f: int, depth: int = 3) -> bool:
+        """It, or a function it jumps on to, reads a stack argument: `_cos(double)`, whose x87 path
+        is a jump to the code that loads [esp + 4]."""
+        v = local.get(f)
+        if v is None:
+            return False
+        if v.get("stack_hi", 0) > 4:
+            return True
+        return depth > 0 and any(kind == "jmp" and reads_stack(t, depth - 1)
+                                 for t, _u, kind in v.get("calls", ()) if not isinstance(t, tuple))
     if flags:
         for f in local:
             if f not in math_helpers and first_cmp_flag(f) in flags:
-                inputs[f] &= ST0
+                # (st0 its argument, whether it reads it itself or hands it to the routine it
+                # dispatches to, `_CIexp`'s: masked to what it read, 0xc4d24c lost its st0 and read
+                # in_ST0, a stub; not the library's own `_cos(double)`, its argument on the stack)
+                inputs[f] = 0 if reads_stack(f) else ST0
                 math_helpers.add(f)
     changed = True
     while changed:

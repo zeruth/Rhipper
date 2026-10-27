@@ -1280,6 +1280,9 @@ def x87_pow(c: str) -> str:
     decompiler through a 10-byte temporary, `unkbyte10 Var1; Var1 = from_bcd((unkbyte10)x); ...
     fscale(Var1,(unkbyte10)y)`, which no C type holds (a Lua number formatter's 0xc03850)."""
     c = c.replace("fscale(from_bcd(", "pow((")
+    # (and the rest of the library's x87 math, `fpatan(from_bcd(x), K)`: Ghidra32.h's gen_x87math,
+    # K the function, ApplyFacts' call fixups by helpers32.py's MATH_CODES)
+    c = c.replace("fpatan(from_bcd(", "GEN_X87MATH((")
     # (each temporary's uses by the assignment before them, in order, while still inside that
     # assignment's block: one temporary can be assigned again for a second power, `Var7 =
     # from_bcd(a); ... fscale(Var7, b) ... Var7 = from_bcd(c); ... fscale(Var7, d)`, a client's
@@ -1304,6 +1307,7 @@ def x87_pow(c: str) -> str:
                     ok = False
                     break
                 line = re.sub(r"\bfscale\(\s*" + re.escape(var) + r"\s*,", f"pow({cur},", line)
+                line = re.sub(r"\bfpatan\(\s*" + re.escape(var) + r"\s*,", f"GEN_X87MATH({cur},", line)
                 if re.search(r"\b" + re.escape(var) + r"\b", line):
                     ok = False
                     break
