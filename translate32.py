@@ -2776,10 +2776,27 @@ class Translator32:
         for args in re.findall(r"\bgen_(?:" + "|".join(SSE_INT_OPS) + r")\(([^;]*)\);", body):
             lanes -= set(re.findall(r"&\(\s*([A-Za-z_]\w*)\s*\)", args))
 
+        # (a 4-byte piece the body dereferences or indexes holds a pointer, as the reference stores
+        # one: a double's stack slot reused for a buffer's address, `local_2f0._4_4_ = (undefined4
+        # *)uVar9; *local_2f0._4_4_ = local_60[0]; local_2f0._4_4_[1] = local_50;`. As undefined4,
+        # C refused the dereference and a VS2010 client's WeatherRenderer::vf2 was a stub on its
+        # frame path, 2026-10-27)
+        # (its element type the one the body assigns it as, `= (undefined4 *)`: with none, the
+        # element's size is unknown and the function stays a stub)
+        used = set(re.findall(r"(?:^|[=(,;{}!?:]|\breturn)\s*\*\s*([A-Za-z_]\w*\._\d+_4_)(?![\w.\[])", body, re.M))
+        used |= set(re.findall(r"(?<![.\w>])\b([A-Za-z_]\w*\._\d+_4_)\s*\[", body))
+        ptr_pieces = {}
+        for p in used:
+            ts = set(re.findall(r"(?<![.\w>])\b" + re.escape(p) + r"\s*=(?!=)\s*\(\s*((?:unsigned\s+)?[A-Za-z_]\w*)\s*\*\s*\)", body))
+            if len(ts) == 1 and next(iter(ts)) in KNOWN_TYPES:
+                ptr_pieces[p] = next(iter(ts))
+
         def piece(m):
             name, off, size, tag = m.group(1), m.group(2), m.group(3), m.group(4)
             if size not in ("1", "2", "4", "8"):
                 return f"GEN_PIECE(&{name}, {off}, {size})"
+            if not tag and size == "4" and f"{name}._{off}_4_" in ptr_pieces:
+                return f"(*({ptr_pieces[f'{name}._{off}_4_']} * PTR32 *)((char *)&{name} + {off}))"
             # (the decompiler's float tag, `_4_4f_` (patch/printc.cc): a piece it types as a float,
             # and an untagged one its bits. The guess before the tag, every 4-byte piece of a
             # 16-byte register a float lane, made /O2's packed doubles' halves floats: horner's
@@ -3061,7 +3078,8 @@ class Translator32:
         body = "".join(out)
         # (and a piece of a local indexed as a pointer, `local_28._4_4_[0x30]`: an element of no
         # type the code says)
-        if re.search(r"\._\d+_4_\s*\[", c):
+        # (one typed by its assignment is translated as that pointer, pieces above)
+        if re.search(r"\._\d+_4_\s*\[", body):
             raise ValueError("a 4-byte piece indexed as a pointer")
         # (in the code, not in a string: "ios_base::eofbit set" is text)
         code_only = re.sub(r'"(?:[^"\\\n]|\\.)*"', '""', body)
