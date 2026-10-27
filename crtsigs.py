@@ -164,6 +164,7 @@ def apply() -> None:
     img = Image(Path(project.EXE))
     fns = json.loads((FACTS / "functions.json").read_text())["functions"]
     named, ambiguous = {}, 0
+    opening: dict[int, bytes] = {}
     for f in fns:
         a = int(f["entry"], 16)
         # (only a function nothing named: Function ID's and the RTTI's names stand, an alias's
@@ -174,10 +175,22 @@ def apply() -> None:
             continue
         b = masked(img, a, SCAN)
         hits = set()
+        # (the window's calls disassembled once, each with where its instruction ends, and each
+        # callee's opening bytes masked once: signature()'s, for every length, without its
+        # disassembly per length, ultrareview 2026-10-27)
+        calls = [(ins.address + ins.size - a, ins.operands[0].imm & 0xffffffff)
+                 for ins in _md.disasm(img.read(a, len(b)), a) if ins.mnemonic == "call" and ins.bytes[0] == 0xe8]
         for n in lens:
             if n > len(b):
                 break
-            names = by_len[n].get(signature(img, a, b[:n]))
+            parts = [b[:n]]
+            for end, t in calls:
+                if end > n:
+                    break
+                if t not in opening:
+                    opening[t] = masked(img, t, 64)[:2 * MIN_LEN]
+                parts.append(opening[t])
+            names = by_len[n].get(digest(b"\0".join(parts)))
             if names:
                 hits.update(names)
                 best = (n, names)
