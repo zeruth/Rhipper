@@ -1344,7 +1344,7 @@ def result_reads(insns, state, nxt):
         if ins.mnemonic != "call" or t in _noreturn:
             continue
         p = nxt[a]
-        eax_w = edx_w = xmm0_w = st_loaded = False
+        eax_w = edx_w = xmm0_w = st_loaded = past_jcc = False
         st_depth = 0
         kind = None
         end = a + ins.size
@@ -1362,6 +1362,8 @@ def result_reads(insns, state, nxt):
                 break
             pi = insns[p]
             mn = pi.mnemonic
+            if past_jcc and (mn.startswith("f") or mn == "ret"):
+                break                                    # (past a jcc: eax and edx only, below)
             if mn == "ret":
                 # (an import's or an indirect call's result returned as it is counts too, by the
                 # call site: the CRT's printf wrapper returns __stdio_common_vfprintf's count, void
@@ -1423,6 +1425,16 @@ def result_reads(insns, state, nxt):
             # through it, a VS2010 client 2026-10-24)
             if mn == "jmp" and _target(pi) is not None and _target(pi) in insns:
                 p = end = _target(pi)
+                continue
+            # (a conditional jump: on along its fall-through, a read there one of the result all the
+            # same: a 64-bit id compared half by half, `cmp [esi + 0x10], eax; jne x; cmp [esi +
+            # 0x14], edx`. Stopped at the jne, the call was an i4 and AgentCursor::vf5 a stub for
+            # extraout_EDX, a client 2026-10-27)
+            # (the integer registers only, past it: an x87 instruction there more likely works on the
+            # caller's own value than the callee's st0)
+            if mn.startswith("j") and mn != "jmp" and not mn.startswith("jcxz") and not mn.startswith("jecxz"):
+                past_jcc = True
+                p = nxt[p]
                 continue
             if mn in ("call", "jmp") or mn.startswith("j") or mn.startswith("loop"):
                 t2 = _target(pi)
