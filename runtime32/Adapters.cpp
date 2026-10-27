@@ -1411,6 +1411,32 @@ unsigned int gen_imp_PostQueuedCompletionStatus(uint32_t port, uint32_t n, uint3
     // (the reference's OVERLAPPED posted as its x86 address: handed back as it was)
     return PostQueuedCompletionStatus(H64(port), n, key, reinterpret_cast<OVERLAPPED*>(static_cast<uintptr_t>(ov)));
 }
+// ---- waits on an array of handles: x86's 4 bytes each, x64's 8. Handed through, Windows read two
+// x86 handles as one, the wait failed at once, and the threads it was to wait for still ran
+// (rhtest win and engine, 2026-10-27)
+struct Handles64 {
+    HANDLE h[MAXIMUM_WAIT_OBJECTS];
+    Handles64(uint32_t n, uint32_t p) {
+        for (uint32_t k = 0; k < n && k < MAXIMUM_WAIT_OBJECTS; k++) h[k] = H64(At<uint32_t>(p)[k]);
+    }
+};
+unsigned int gen_imp_WaitForMultipleObjects(uint32_t n, uint32_t p, uint32_t all, uint32_t ms) {
+    Handles64 hs(n, p);
+    return WaitForMultipleObjects(n, hs.h, all, ms);
+}
+unsigned int gen_imp_WaitForMultipleObjectsEx(uint32_t n, uint32_t p, uint32_t all, uint32_t ms, uint32_t alertable) {
+    Handles64 hs(n, p);
+    return WaitForMultipleObjectsEx(n, hs.h, all, ms, alertable);
+}
+unsigned int gen_imp_MsgWaitForMultipleObjects(uint32_t n, uint32_t p, uint32_t all, uint32_t ms, uint32_t mask) {
+    Handles64 hs(n, p);
+    return MsgWaitForMultipleObjects(n, p ? hs.h : nullptr, all, ms, mask);
+}
+unsigned int gen_imp_MsgWaitForMultipleObjectsEx(uint32_t n, uint32_t p, uint32_t ms, uint32_t mask, uint32_t flags) {
+    Handles64 hs(n, p);
+    return MsgWaitForMultipleObjectsEx(n, p ? hs.h : nullptr, ms, mask, flags);
+}
+
 // ---- the interlocked singly linked list: x86's header is 8 bytes (the first entry, a 16-bit
 // depth, a 16-bit sequence) and its entries 4, x64's 16 and 16, aligned so. Handed x64's
 // functions, the reference's 8-aligned header crashed them (rhtest sys, 2026-10-27). x86's own
