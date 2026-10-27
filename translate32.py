@@ -1040,6 +1040,17 @@ def returned_only(c: str) -> set[str]:
     # (and the upper bytes of eax a byte or word result came with, `CONCAT31(extraout_var, bVar3)`:
     # its callers read al, a bool's, and what the callee left above it is nothing they use)
     entry |= set(re.findall(r"\bextraout_var(?:_\d+)?\b", c))
+    # (and st0 as the function found it, Ghidra's in_ST0 reused as the x87 result's variable, with
+    # the x87 values calls left that are only copied into it, `in_ST0 = extraout_ST0;`: a function
+    # typed float by its callers' reads that returns whatever st0 held on the paths that compute
+    # nothing, `return in_ST0;`, 0 as the others. protos32.py gives a real st0 input a parameter.
+    # A client's weather sound update 0x4af7c0, a stub on its frame path 2026-10-27)
+    if re.search(r"\bin_ST0\b", c):
+        st_left = set(re.findall(r"\bextraout_ST\d(?:_\d+)?\b", c))
+        lines_st = [l.strip() for l in c.split("\n")]
+        if all(all(re.fullmatch(r"in_ST0 = " + n + r";", s) or re.fullmatch(r"[A-Za-z_][\w ]*?\s+" + n + r";", s)
+                   for s in lines_st if re.search(r"\b" + n + r"\b", s)) for n in st_left):
+            entry |= {"in_ST0"} | st_left
     names = set(RESULT_REG.findall(c)) | entry
     if not names:
         return set()
@@ -3261,7 +3272,7 @@ class Translator32:
         # (Ghidra's stack pieces, `_uStack_1c`; not a library signature's `_StackCookie`)
         # (one the function declares is a local of its own: __setmbcp_nolock's `_cpinfo _Stack_1c;`,
         # a struct the decompiler named so, 2026-10-24)
-        left = next((m for m in re.finditer(r"::|`|\bregister0x|\b_(?:local|param|[a-z]*Stack(?![A-Za-z])|auStack)\w*|\bin_(?!E[ACD]X\b|E[ACD]X_\d+\b|A[LX]\b|A[LX]_\d+\b|XMM\d+\b|XMM\d+_D[a-d]\b)[A-Z]", code_only)
+        left = next((m for m in re.finditer(r"::|`|\bregister0x|\b_(?:local|param|[a-z]*Stack(?![A-Za-z])|auStack)\w*|\bin_(?!E[ACD]X\b|E[ACD]X_\d+\b|[ACD][LX]\b|[ACD][LX]_\d+\b|XMM\d+\b|XMM\d+_D[a-d]\b|ST0\b)[A-Z]", code_only)
                      if not (m.group(0).startswith("_") and re.search(
                          rf"^[ \t]+[\w ]+?[\s*]{re.escape(m.group(0))}(?:\s*\[\w+\])?;", code_only, re.M))), None)
         if left:
