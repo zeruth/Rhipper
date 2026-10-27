@@ -156,8 +156,24 @@ def regs_access(ins) -> tuple[tuple[int, ...], tuple[int, ...]]:
     r = ins._ra
     if r is None:
         reads, writes = _regs_access(ins)
+        # (a padding no-op writes nothing: `lea ecx, [ecx]` aligning a loop, `mov edi, edi`. As a
+        # write of ecx it made a byte swapper, 0x105df60 in a client, kill the pointer it is handed
+        # there and leaves alone, and 31 callers reading it after lost it, extraout_ECX, 2026-10-27)
+        if self_move(ins):
+            writes = [w for w in writes if w != ins.operands[0].reg]
         r = ins._ra = (tuple(reads), tuple(writes))
     return r
+
+
+def self_move(ins) -> bool:
+    """`lea r32, [r32]` or `mov r32, r32`: a register written with its own value."""
+    if ins.mnemonic not in ("lea", "mov") or len(ins.operands) != 2 or ins.operands[0].type != X.X86_OP_REG:
+        return False
+    dst, src = ins.operands
+    if ins.mnemonic == "mov":
+        return src.type == X.X86_OP_REG and src.reg == dst.reg and dst.size == 4
+    m = src.mem
+    return src.type == X.X86_OP_MEM and m.base == dst.reg and m.index == 0 and m.disp == 0 and m.segment == 0
 
 
 def decode(b: Binary, root: int, ranges, md):
