@@ -1676,6 +1676,31 @@ unsigned int gen_imp_WSAStartup(uint32_t version, uint32_t out) {
     return static_cast<unsigned int>(r);
 }
 
+// ---- the x87 unit's control and status words (Ghidra32.h) ----------------------------------
+__declspec(thread) unsigned short gen_x87_cw = 0x27f;
+
+// `fldcw`: the word kept for `fnstcw` to read back, and its rounding control the host's too, the
+// SSE unit the port computes in (precision control has no SSE counterpart)
+void gen_set_x87_cw(unsigned short cw) {
+    gen_x87_cw = cw;
+    static const unsigned int rc[4] = {_RC_NEAR, _RC_DOWN, _RC_UP, _RC_CHOP};
+    unsigned int old;
+    _controlfp_s(&old, rc[(cw >> 10) & 3], _MCW_RC);
+}
+
+unsigned short gen_fpusw(int clear) {
+    unsigned int s = _statusfp();
+    unsigned short w = 0;
+    if (s & _SW_INVALID) w |= 0x01;
+    if (s & _SW_DENORMAL) w |= 0x02;
+    if (s & _SW_ZERODIVIDE) w |= 0x04;
+    if (s & _SW_OVERFLOW) w |= 0x08;
+    if (s & _SW_UNDERFLOW) w |= 0x10;
+    if (s & _SW_INEXACT) w |= 0x20;
+    if (clear) _clearfp();
+    return w;
+}
+
 // ---- DefWindowProc: the x86 structures GenWndProc handed the reference's window procedure
 unsigned int gen_imp_DefWindowProcA(uint32_t hwnd, uint32_t msg, uint32_t wp, uint32_t lp) {
     return static_cast<unsigned int>(DefWindowProc32(false, hwnd, msg, wp, lp));

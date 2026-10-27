@@ -1687,6 +1687,8 @@ class Translator32:
         self.frames = {int(k, 16): v["frame"] for k, v in protos.items() if v.get("frame")}
         # (and the register inputs each leaves as it found them, kept_inputs)
         self.keeps_in = {int(k, 16): v["keeps_in"] for k, v in protos.items() if v.get("keeps_in")}
+        # (and those that clear the x87 exception flags, fnclex: the status word read then cleared)
+        self.fpu_clear = {int(k, 16) for k, v in protos.items() if v.get("fpu_clear")}
         self.keeps = {int(k, 16): set(v["keep"]) for k, v in protos.items() if v.get("keep")}
         # (and the registers each takes its parameters in, entry_registers)
         self.param_regs = {}
@@ -2114,7 +2116,7 @@ class Translator32:
         # (and a full xmm register as an SSE pseudo-op's destination found it: zeroed, sse_ops)
         # (and a call's x87 result made its assignment, x87_icall_results)
         ok = returned_only(c) | self.noreturn_args_only(a, c) | filler_args(c) | upper_only(c) | declared_only(c) | \
-            context_capture(c) | {"in_FPUControlWord"} | \
+            context_capture(c) | {"in_FPUControlWord", "in_FPUStatusWord"} | \
             set(re.findall(r"(?m)^\s*(extraout_ST0(?:_\d+)?) = \(\*", c)) | \
             set(re.findall(r"(?m)^[ \t]+undefined1\s+(in_XMM\d+)\s*\[\s*16\s*\]\s*;", c)) | \
             set(re.findall(r"(?m)^\s*(extraout_E[CD]X(?:_\d+)?) = \(\(.*\)\(uintptr_t\)\(", c))
@@ -2589,14 +2591,20 @@ class Translator32:
         if has_frame(body):
             body = re.sub(r"&\s*stack0x00000000\b", "GEN_SLOT(0x0)", body)
             body = re.sub(r"\(\s*(u?int)\s*\)\s*GEN_SLOT\(0x0\)", r"(\1)(uintptr_t)GEN_SLOT(0x0)", body)
-        # (the x87 control word an `fnstcw` stores, which Ghidra reads as an input and never writes:
-        # MSVC's default, 53-bit precision and every exception masked; the conversions it is set
-        # for (`| 0xc00`, truncation) are C's own here)
+        # (the x87 control word, `fnstcw` read and `fldcw` written: the runtime's per-thread
+        # virtual one, gen_x87_cw, MSVC's default 0x27f until the program or Direct3D sets it. As
+        # the constant 0x27f, the CRT's math took its 53-bit path where the reference, its precision
+        # 24 bits since Direct3D's CreateDevice, took the other, a client's shadow trace parting in
+        # its tan, 2026-10-26. The conversions it is set for, `| 0xc00`, are C's own casts here)
         body = re.sub(r"(?m)^\s*[A-Za-z_]\w*\s+in_FPUControlWord\s*;\s*\n", "", body)
-        # (and its restore after the conversion, `in_FPUControlWord = uStack_43a;`: nothing to
-        # put back, FUN_00c19500 in a VS2010 client 2026-10-25)
-        body = re.sub(r"(?m)^[ \t]*in_FPUControlWord\s*=[^;\n]*;[ \t]*\n", "", body)
-        body = re.sub(r"\bin_FPUControlWord\b", "((undefined2)0x27f)", body)
+        body = re.sub(r"(?m)^([ \t]*)in_FPUControlWord\s*=\s*([^;\n]*);",
+                      r"\1gen_set_x87_cw((unsigned short)(\2));", body)
+        body = re.sub(r"\bin_FPUControlWord\b", "gen_x87_cw", body)
+        # (and the status word, `fnstsw`: the host's floating-point flags as x87 bits; cleared after
+        # the read where the function runs fnclex, which the decompiler drops, protos32's fpu_clear:
+        # __clrfp, rhtest msvc-16.00-x86 float)
+        body = re.sub(r"(?m)^\s*[A-Za-z_]\w*\s+in_FPUStatusWord\s*;\s*\n", "", body)
+        body = re.sub(r"\bin_FPUStatusWord\b", f"gen_fpusw({1 if a in self.fpu_clear else 0})", body)
         if "ROUND(" in body and self.truncates(a):
             body = re.sub(r"\bROUND\(", "TRUNC(", body)
         # a jump table's address (switchD_00403f1a::switchdataD_00403f30), and the labels Ghidra

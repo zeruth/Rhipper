@@ -94,6 +94,16 @@ void gen_trace_enter(unsigned int addr, unsigned int a0, unsigned int a1, unsign
    its value converted, pi/4 recorded as 0 parted a client's runs at a sincos, 2026-10-26) */
 static __inline unsigned int gen_trace_f(float f) { union { float f; unsigned int u; } v; v.f = f; return v.u; }
 static __inline unsigned long long gen_trace_d(double d) { union { double d; unsigned long long u; } v; v.d = d; return v.u; }
+/* the x87 unit's control word, per thread as the hardware's is: what `fnstcw` reads and `fldcw`
+   writes in the translation (MSVC's default 0x27f; Direct3D's CreateDevice sets 24-bit
+   precision, Com32.cpp). The port computes in SSE whatever it says: the code that reads it, the
+   CRT's math choosing its paths by the precision, takes the reference's way */
+extern __declspec(thread) unsigned short gen_x87_cw;
+/* (`fldcw`'s write: the word, and its rounding control applied to the host's SSE rounding) */
+void gen_set_x87_cw(unsigned short cw);
+/* and its status word, `fnstsw`: the host's floating-point exception flags as x87 bits (IE 1,
+   DE 2, ZE 4, OE 8, UE 0x10, PE 0x20), cleared after the read when `clear` (fnclex) */
+unsigned short gen_fpusw(int clear);
 /* an SSE register's 16 bytes, as Ghidra writes one (`undefined1 [16]`): an array, so a pointer
    to one steps 16 and indexes its bytes as the reference does. An array is not assignable: a
    value stored into one (`*p = (undefined1 [16])0x0`) is GEN_V16_SET's, zero-extended */

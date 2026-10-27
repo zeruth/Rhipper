@@ -1224,7 +1224,10 @@ def analyse(root: int, ranges):
     if any(insns[a].mnemonic == "mov" and len(insns[a].operands) == 2 and insns[a].operands[0].type == X.X86_OP_MEM
            and insns[a].operands[1].type == X.X86_OP_REG and insns[a].operands[1].reg in seg for a in state):
         inputs = 0
-    return {"local_block": block, "passed": passed, "tail_jumps": tail_jumps, "eh_imms": eh_imms,
+    # (and one that clears the x87 exception flags, `fnclex`: translate32 clears them after its
+    # status word's read, which the decompiler keeps and the clear it drops, __clrfp)
+    fpu_clear = any(insns[a].mnemonic in ("fnclex", "fclex") for a in state)
+    return {"fpu_clear": fpu_clear, "local_block": block, "passed": passed, "tail_jumps": tail_jumps, "eh_imms": eh_imms,
             "frame": -floor[0] if floor[0] is not None and floor[0] < 0 else None,"inputs": inputs, "in_width": in_width, "stack_hi": stack_hi, "slots": slots,
             "addr_taken": addr_taken, "calls": calls, "variadic": variadic, "call_pushes": call_pushes, "pushes_past": pushes_past,
             "untyped_pushed": untyped_pushed,
@@ -3311,6 +3314,8 @@ def main() -> None:
             off += 4
         params = [["i", 4]] * len(regs) + stack_params
         e = {"cc": cc, "params": params, "stack": stack}
+        if v.get("fpu_clear"):
+            e["fpu_clear"] = True
         # (the bytes below its entry its frame allocation reaches: translate32.py lays out that much
         # of a function that links an EH frame, whose funclets reach into it through ebp)
         if v.get("frame"):

@@ -18,6 +18,8 @@
 #include "RefImage.hpp"
 
 extern "C" uint32_t gen_ref_base;   // RefImage.cpp
+extern "C" __declspec(thread) unsigned short gen_x87_cw;   // Adapters.cpp
+extern "C" void gen_set_x87_cw(unsigned short cw);
 
 namespace com32 {
 
@@ -202,6 +204,10 @@ unsigned int S_IDirect3D9_CreateDevice(uint32_t self, uint32_t adapter, uint32_t
                                    &n, &dev);
     Back(n, *At<PresentParams32>(pp));
     if (out) *At<uint32_t>(out) = Wrap(dev, &IDirect3DDevice9_32);
+    // (Direct3D 9 sets the creating thread's x87 unit to 24-bit precision, every exception masked
+    // and rounding to nearest, unless the caller asks it to keep its own: an x86 client computes in
+    // single precision from here on, and its CRT's math reads the control word to choose its paths)
+    if (SUCCEEDED(hr) && !(flags & D3DCREATE_FPU_PRESERVE)) gen_set_x87_cw(static_cast<unsigned short>(0x007f));
     return static_cast<unsigned int>(hr);
 }
 
