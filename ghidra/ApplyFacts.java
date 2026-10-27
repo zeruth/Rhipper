@@ -87,6 +87,7 @@ public class ApplyFacts extends GhidraScript {
         if (rc.exists()) applyRetcheck(read(rc));
         File nr = new File(dir, "noreturn.json");
         if (nr.exists()) applyNoReturn(read(nr));
+        applyAtomicVolatile();
         File va = new File(dir, "varargs.json");
         if (va.exists()) applyVarargs(read(va));
         // after the varargs (which keep their own fixed count)
@@ -1449,6 +1450,73 @@ public class ApplyFacts extends GhidraScript {
     // noreturn.json: functions that never return (tools/noreturn.py). The decompiler reads
     // the flag at decompile time, so callers stop showing code after these calls.
     private int noreturnSet;
+
+    // The words atomic instructions work on (`xchg [m], r`, `lock cmpxchg`, `lock xadd`, any `lock`
+    // op) at fixed addresses, volatile: another thread changes them. Not so, the decompiler folds a
+    // spin lock's retry, `mov eax, 1; xchg [g], eax; test eax, eax; jne`, as if this thread were the
+    // only one: it wrote 1 on the first try, so the exchange "reads 1" forever, `do { LOCK();
+    // UNLOCK(); } while (true);`, and the waiter never took the lock (rhtest msvc-14.51-x86 win-O2's
+    // spinners, 2026-10-27). The address from the instruction's references, or a `mov r, imm` just
+    // before it for `[r]`.
+    private void applyAtomicVolatile() throws Exception {
+        java.util.Set<Address> targets = new java.util.TreeSet<>();
+        InstructionIterator it = currentProgram.getListing().getInstructions(true);
+        while (it.hasNext() && !monitor.isCancelled()) {
+            Instruction ins = it.next();
+            String m = ins.getMnemonicString().toUpperCase();
+            boolean atomic = m.startsWith("XCHG") || m.contains("LOCK") || m.startsWith("CMPXCHG") || m.startsWith("XADD");
+            if (!atomic) continue;
+            int memOp = -1;
+            for (int i = 0; i < ins.getNumOperands(); i++) {
+                int t = ins.getOperandType(i);
+                if ((t & ghidra.program.model.lang.OperandType.ADDRESS) != 0 || (t & ghidra.program.model.lang.OperandType.DYNAMIC) != 0) {
+                    memOp = i;
+                    break;
+                }
+            }
+            if (memOp < 0) continue;                       // (xchg of two registers)
+            Address found = null;
+            for (Reference r : ins.getOperandReferences(memOp)) {
+                if (r.getToAddress().isMemoryAddress()) { found = r.getToAddress(); break; }
+            }
+            if (found == null) {
+                // (`[ecx]` with `mov ecx, imm` a few instructions before, nothing between writing ecx)
+                Object[] objs = ins.getOpObjects(memOp);
+                if (objs.length == 1 && objs[0] instanceof ghidra.program.model.lang.Register) {
+                    ghidra.program.model.lang.Register reg = (ghidra.program.model.lang.Register) objs[0];
+                    Instruction p = ins.getPrevious();
+                    for (int k = 0; k < 4 && p != null; k++, p = p.getPrevious()) {
+                        Object[] res = p.getResultObjects();
+                        boolean writes = false;
+                        for (Object o : res) if (o instanceof ghidra.program.model.lang.Register
+                                && ((ghidra.program.model.lang.Register) o).getBaseRegister().equals(reg.getBaseRegister())) writes = true;
+                        if (!writes) continue;
+                        if (p.getMnemonicString().equalsIgnoreCase("MOV") && p.getScalar(1) != null) {
+                            Address a = toAddr(p.getScalar(1).getUnsignedValue());
+                            if (currentProgram.getMemory().contains(a)) found = a;
+                        }
+                        break;
+                    }
+                }
+            }
+            if (found != null && !currentProgram.getMemory().getBlock(found).isExecute()) targets.add(found);
+        }
+        int marked = 0;
+        for (Address a : targets) {
+            Data d = getDataAt(a);
+            if (d == null && getDataContaining(a) == null) {
+                try {
+                    d = createData(a, ghidra.program.model.data.DWordDataType.dataType);
+                } catch (Exception e) {
+                    d = null;
+                }
+            }
+            if (d == null) continue;
+            MutabilitySettingsDefinition.DEF.setChoice(d, MutabilitySettingsDefinition.VOLATILE);
+            marked++;
+        }
+        println("ApplyFacts: words atomic instructions work on made volatile " + marked + " of " + targets.size());
+    }
 
     private void applyNoReturn(JsonObject root) throws Exception {
         java.util.Set<Address> listed = new java.util.HashSet<>();
