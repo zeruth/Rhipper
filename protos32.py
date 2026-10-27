@@ -1080,10 +1080,18 @@ def analyse(root: int, ranges):
         if ins.mnemonic != "call" or t is None:
             continue
         q = nxt.get(a)
-        for _ in range(12):
+        for _ in range(32):
             if q is None or q not in insns:
                 break
             qm = insns[q].mnemonic
+            # (on along a conditional jump's fall-through, and through an unconditional one: the
+            # arguments' pointers chosen between the calls, `cmp cx, ax; jb ..; xor ecx, ecx; jmp ..`)
+            if qm == "jmp" and _target(insns[q]) in insns:
+                q = _target(insns[q])
+                continue
+            if qm.startswith("j") and qm != "jmp" and not qm.startswith(("jcxz", "jecxz")):
+                q = nxt.get(q)
+                continue
             if qm in ("ret", "call", "jmp") or qm.startswith("j") or qm.startswith("loop"):
                 break
             if qm.startswith("f") and not qm.startswith(("fn", "fwait")) and qm not in X87_CONTROL:
