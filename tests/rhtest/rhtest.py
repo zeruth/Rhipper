@@ -608,7 +608,21 @@ def stop_detail(p, step: str, lines: int = 40) -> str:
         if not logs:
             return ""
         text = logs[-1].read_text(encoding="utf-8", errors="replace").splitlines()
-        return f"{logs[-1].name}:\n" + "\n".join(text[-lines:])
+        out = f"{logs[-1].name}:\n" + "\n".join(text[-lines:])
+        # (and the generated lines a compile error points at, quoted: the log names only a line
+        # number in a file the run's artifact alone has)
+        quoted, seen = [], set()
+        for line in text:
+            m = re.search(r"([A-Za-z]:[^()]*?\.(?:c|h|cpp))\((\d+)(?:,\d+)?\)\s*:\s*error", line)
+            if not m or (m.group(1), m.group(2)) in seen or len(seen) >= 4:
+                continue
+            seen.add((m.group(1), m.group(2)))
+            try:
+                src = Path(m.group(1)).read_text(encoding="utf-8", errors="replace").splitlines()
+                quoted.append(f"{Path(m.group(1)).name}:{m.group(2)}: {src[int(m.group(2)) - 1][:300]}")
+            except (OSError, IndexError):
+                pass
+        return out + ("\n\nat:\n" + "\n".join(quoted) if quoted else "")
     except OSError as e:
         return f"({e})"
 
