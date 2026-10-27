@@ -82,10 +82,7 @@ bool ReadFile(const wchar_t* path, std::vector<uint8_t>* out) {
     return ok && got == out->size();
 }
 
-// A thread's stack from a context, symbolized from the port's PDB (F_<address> names the
-// reference function)
-void PrintStack(HANDLE thread, CONTEXT c) {
-    HANDLE self = GetCurrentProcess();
+void InitSymbols() {
     static bool symbols = false;
     if (!symbols) {
         symbols = true;
@@ -94,8 +91,59 @@ void PrintStack(HANDLE thread, CONTEXT c) {
         char dir[MAX_PATH] = {};
         GetModuleFileNameA(nullptr, dir, MAX_PATH);
         if (char* slash = strrchr(dir, '\\')) *slash = 0;
-        SymInitialize(self, dir, TRUE);
+        SymInitialize(GetCurrentProcess(), dir, TRUE);
     }
+}
+
+// a suspended thread's return addresses, by the images' unwind tables alone: no DbgHelp, no heap,
+// no stdio, whose locks the thread may hold (the frames' stack memory read while it cannot move)
+void UnwindLoop(CONTEXT& c, DWORD64* out, int max, int& n) {
+    while (n < max && c.Rip) {
+        out[n++] = c.Rip;
+        DWORD64 base = 0;
+        PRUNTIME_FUNCTION fn = RtlLookupFunctionEntry(c.Rip, &base, nullptr);
+        if (!fn) {
+            // (a leaf: its return address at rsp)
+            c.Rip = *reinterpret_cast<DWORD64*>(c.Rsp);
+            c.Rsp += 8;
+            continue;
+        }
+        void* handler = nullptr;
+        DWORD64 frame = 0;
+        RtlVirtualUnwind(UNW_FLAG_NHANDLER, base, c.Rip, fn, &c, &handler, &frame, nullptr);
+    }
+}
+
+int UnwindPcs(CONTEXT c, DWORD64* out, int max) {
+    int n = 0;
+    __try {
+        UnwindLoop(c, out, max, n);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        // (a stack it could not read further: what it had)
+    }
+    return n;
+}
+
+// return addresses symbolized from the port's PDB
+void PrintPcs(const DWORD64* pcs, int n) {
+    InitSymbols();
+    for (int k = 0; k < n; k++) {
+        char buf[sizeof(SYMBOL_INFO) + 256] = {};
+        auto sym = reinterpret_cast<SYMBOL_INFO*>(buf);
+        sym->SizeOfStruct = sizeof(SYMBOL_INFO);
+        sym->MaxNameLen = 255;
+        DWORD64 disp = 0;
+        const char* name = SymFromAddr(GetCurrentProcess(), pcs[k], &disp, sym) ? sym->Name : "?";
+        fprintf(stderr, "  %2d  %016llx  %s+0x%llx\n", k, pcs[k], name, disp);
+    }
+    fflush(stderr);
+}
+
+// A thread's stack from a context, symbolized from the port's PDB (F_<address> names the
+// reference function)
+void PrintStack(HANDLE thread, CONTEXT c) {
+    HANDLE self = GetCurrentProcess();
+    InitSymbols();
     STACKFRAME64 f = {};
     f.AddrPC.Offset = c.Rip;
     f.AddrPC.Mode = AddrModeFlat;
@@ -337,9 +385,13 @@ extern "C" jmp_buf* gen_jmpbuf(unsigned int ref) {
 // thread a zeroed block below 2 GB with the fields 32-bit Windows sets: the SEH chain head (empty),
 // the stack's bounds, itself, the process and thread ids, the TLS array, the PEB. The PEB, one per
 // process, holds the image base and the process heap.
+static thread_local uint8_t* t_teb32 = nullptr;
+// (whether this thread has one yet, without making it: an exception handler's question, which
+// must not allocate)
+extern "C" int gen_teb32_made(void) { return t_teb32 != nullptr; }
 extern "C" unsigned int gen_teb32(void) {
     static uint8_t* peb = nullptr;
-    static thread_local uint8_t* teb = nullptr;
+    uint8_t*& teb = t_teb32;
     if (teb == nullptr) {
         if (peb == nullptr) {
             auto p = static_cast<uint8_t*>(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, 0x1000));
@@ -556,14 +608,18 @@ DWORD WINAPI DumpThreads(void* arg) {
             HANDLE t = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE,
                                   te.th32ThreadID);
             if (!t) continue;
+            // (the stack taken while the thread is suspended, printed once it runs again: it may
+            // hold stderr's, the heap's or DbgHelp's lock, ultrareview 2026-10-27)
             if (SuspendThread(t) != DWORD(-1)) {
                 CONTEXT c = {};
                 c.ContextFlags = CONTEXT_FULL;
-                if (GetThreadContext(t, &c)) {
-                    fprintf(stderr, "%s: DUMPAFTER thread %lu\n", RHIPPER_NAME, te.th32ThreadID);
-                    PrintStack(t, c);
-                }
+                DWORD64 pcs[64];
+                int n = GetThreadContext(t, &c) ? UnwindPcs(c, pcs, 64) : -1;
                 ResumeThread(t);
+                if (n >= 0) {
+                    fprintf(stderr, "%s: DUMPAFTER thread %lu\n", RHIPPER_NAME, te.th32ThreadID);
+                    PrintPcs(pcs, n);
+                }
             }
             CloseHandle(t);
         }

@@ -23,6 +23,7 @@
 extern "C" uint32_t gen_ref_base;   // RefImage.cpp
 const wchar_t* RefImagePath();       // RefImage.cpp
 extern "C" unsigned int gen_teb32(void);
+extern "C" int gen_teb32_made(void);
 extern "C" const unsigned int g_genEhFuncInfo[];   // gen/jumps.c
 extern "C" {
 struct GEN_JUMP {
@@ -695,6 +696,9 @@ int gen_seh_hardware(EXCEPTION_POINTERS* ep) {
     // (only the translation's own faults, and only with a reference frame to take them: a system
     // DLL's, handled by its own frames, and one no __try covers stay the host's)
     if (!InPortImage(reinterpret_cast<uint64_t>(r->ExceptionAddress))) return 0;
+    // (a thread the reference's code never ran on has no chain; asking would make its TEB, an
+    // allocation in an exception handler)
+    if (!gen_teb32_made()) return 0;
     uint32_t head = eh::Head();
     if (head == eh::kEndOfChain || head == 0) return 0;
     HwFault& f = t_fault;
@@ -858,6 +862,9 @@ unsigned int gen_imp_MessageBoxA(uint32_t hwnd, uint32_t text, uint32_t caption,
 extern "C++" void RefPrintStack(HANDLE thread, CONTEXT c);   // RefImage.cpp
 
 static void ExitReport(const char* how, uint32_t code) {
+    // (a clean exit says nothing: its stack pushed the run's own last lines out of the logs' tails,
+    // ultrareview 2026-10-27)
+    if (code == 0) return;
     fprintf(stderr, "%s: %s(%#x) on thread %lu\n", RHIPPER_NAME, how, code, GetCurrentThreadId());
     CONTEXT c = {};
     RtlCaptureContext(&c);
@@ -1077,14 +1084,13 @@ LRESULT CALLBACK GenWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     return call(static_cast<uint32_t>(lp));
 }
 
-// DefWindowProc from the reference's window procedure, handed the x86 copy GenWndProc made: a
-// native structure for Windows again, what it changes copied back
-LRESULT DefWindowProc32(bool wide, uint32_t hwnd32, uint32_t msg, uint32_t wp, uint32_t lp) {
+// A native procedure (DefWindowProc, DefDlgProc, CallWindowProc's ...) from the reference's window
+// procedure, handed the x86 copy GenWndProc made: a native structure for Windows again, what it
+// changes copied back. `native(hwnd, lparam)` makes the call
+template <typename F>
+LRESULT Native32(uint32_t hwnd32, uint32_t msg, uint32_t wp, uint32_t lp, F native) {
     HWND hwnd = reinterpret_cast<HWND>(static_cast<intptr_t>(static_cast<int32_t>(hwnd32)));
-    auto def = [&](LPARAM l) {
-        return wide ? DefWindowProcW(hwnd, msg, static_cast<WPARAM>(wp), l)
-                    : DefWindowProcA(hwnd, msg, static_cast<WPARAM>(wp), l);
-    };
+    auto def = [&](LPARAM l) { return native(hwnd, l); };
     if (lp && (msg == WM_WINDOWPOSCHANGING || msg == WM_WINDOWPOSCHANGED)) {
         auto& o = *At<WindowPos32>(lp);
         WINDOWPOS p = {};
@@ -1127,6 +1133,12 @@ LRESULT DefWindowProc32(bool wide, uint32_t hwnd32, uint32_t msg, uint32_t wp, u
         return def(reinterpret_cast<LPARAM>(&c));
     }
     return def(static_cast<LPARAM>(static_cast<intptr_t>(static_cast<int32_t>(lp))));
+}
+
+LRESULT DefWindowProc32(bool wide, uint32_t hwnd32, uint32_t msg, uint32_t wp, uint32_t lp) {
+    return Native32(hwnd32, msg, wp, lp, [&](HWND h, LPARAM l) {
+        return wide ? DefWindowProcW(h, msg, static_cast<WPARAM>(wp), l) : DefWindowProcA(h, msg, static_cast<WPARAM>(wp), l);
+    });
 }
 
 // a name or a resource number (below 0x10000, MAKEINTRESOURCE)
@@ -1779,6 +1791,56 @@ unsigned int gen_imp_DefWindowProcA(uint32_t hwnd, uint32_t msg, uint32_t wp, ui
 }
 unsigned int gen_imp_DefWindowProcW(uint32_t hwnd, uint32_t msg, uint32_t wp, uint32_t lp) {
     return static_cast<unsigned int>(DefWindowProc32(true, hwnd, msg, wp, lp));
+}
+// (and the other native procedures a window procedure passes its message on to: given the x86
+// copy as it is, they read garbage and write past it, ultrareview 2026-10-27)
+// (each written out: translate32 finds the adapters by their definitions)
+extern "C++" {
+template <typename P>
+static unsigned int Native4(P proc, uint32_t hwnd, uint32_t msg, uint32_t wp, uint32_t lp) {
+    return static_cast<unsigned int>(Native32(hwnd, msg, wp, lp, [&](HWND h, LPARAM l) {
+        return proc(h, msg, static_cast<WPARAM>(wp), l); }));
+}
+}  // extern "C++"
+unsigned int gen_imp_DefDlgProcA(uint32_t hwnd, uint32_t msg, uint32_t wp, uint32_t lp) {
+    return Native4(DefDlgProcA, hwnd, msg, wp, lp);
+}
+unsigned int gen_imp_DefDlgProcW(uint32_t hwnd, uint32_t msg, uint32_t wp, uint32_t lp) {
+    return Native4(DefDlgProcW, hwnd, msg, wp, lp);
+}
+unsigned int gen_imp_DefMDIChildProcA(uint32_t hwnd, uint32_t msg, uint32_t wp, uint32_t lp) {
+    return Native4(DefMDIChildProcA, hwnd, msg, wp, lp);
+}
+unsigned int gen_imp_DefMDIChildProcW(uint32_t hwnd, uint32_t msg, uint32_t wp, uint32_t lp) {
+    return Native4(DefMDIChildProcW, hwnd, msg, wp, lp);
+}
+static HWND Hwnd64(uint32_t h) { return reinterpret_cast<HWND>(static_cast<intptr_t>(static_cast<int32_t>(h))); }
+unsigned int gen_imp_DefFrameProcA(uint32_t hwnd, uint32_t client, uint32_t msg, uint32_t wp, uint32_t lp) {
+    return static_cast<unsigned int>(Native32(hwnd, msg, wp, lp, [&](HWND h, LPARAM l) {
+        return DefFrameProcA(h, Hwnd64(client), msg, static_cast<WPARAM>(wp), l); }));
+}
+unsigned int gen_imp_DefFrameProcW(uint32_t hwnd, uint32_t client, uint32_t msg, uint32_t wp, uint32_t lp) {
+    return static_cast<unsigned int>(Native32(hwnd, msg, wp, lp, [&](HWND h, LPARAM l) {
+        return DefFrameProcW(h, Hwnd64(client), msg, static_cast<WPARAM>(wp), l); }));
+}
+// CallWindowProc: a reference procedure (its address in the image, as GetWindowLong handed it)
+// called as it is, the x86 copy its own; a native one given a native structure
+static unsigned int CallWindowProc32(bool wide, uint32_t proc, uint32_t hwnd, uint32_t msg, uint32_t wp, uint32_t lp) {
+    if (eh::InImage(proc)) {
+        using Proc = unsigned int (*)(uint32_t, uint32_t, uint32_t, uint32_t);
+        return reinterpret_cast<Proc>(static_cast<uintptr_t>(proc))(hwnd, msg, wp, lp);
+    }
+    auto native = reinterpret_cast<WNDPROC>(static_cast<intptr_t>(static_cast<int32_t>(proc)));
+    return static_cast<unsigned int>(Native32(hwnd, msg, wp, lp, [&](HWND h, LPARAM l) {
+        return wide ? CallWindowProcW(native, h, msg, static_cast<WPARAM>(wp), l)
+                    : CallWindowProcA(native, h, msg, static_cast<WPARAM>(wp), l);
+    }));
+}
+unsigned int gen_imp_CallWindowProcA(uint32_t proc, uint32_t hwnd, uint32_t msg, uint32_t wp, uint32_t lp) {
+    return CallWindowProc32(false, proc, hwnd, msg, wp, lp);
+}
+unsigned int gen_imp_CallWindowProcW(uint32_t proc, uint32_t hwnd, uint32_t msg, uint32_t wp, uint32_t lp) {
+    return CallWindowProc32(true, proc, hwnd, msg, wp, lp);
 }
 
 }  // extern "C"
