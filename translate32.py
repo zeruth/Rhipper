@@ -1934,6 +1934,16 @@ class Translator32:
                     if not any(re.search(rf"(?<![=!<>])\b{re.escape(v)}\s*(?:[-+*/|&^]|<<|>>)?=(?!=)", later)
                                for v in names_in):
                         value = call
+                    # (what it is made of assigned further on, a list walk's `this = *(void **)(this
+                    # + 4)` past it: the value as it was after the call, kept in the name itself.
+                    # Havok's array chunk lookup 0xd92800, `FUN_00d927e0(this)` and then ecx, its
+                    # first chunk, read after the walk; a stub, its null a crash, 2026-10-26)
+                    elif orig[p].rstrip().endswith(";") and lines[p] is not None and n.startswith("extraout_"):
+                        t = decl.match(lines[dl]).group(1).strip()
+                        indent = re.match(r"[ \t]*", orig[p]).group(0)
+                        lines[p] = lines[p] + f"\n{indent}{n} = (({t})(uintptr_t)({call}));"
+                        done.add(n)
+                        continue
             if value is None:
                 continue
             t = decl.match(lines[dl]).group(1).strip()
@@ -2028,7 +2038,8 @@ class Translator32:
         # (and a call's x87 result made its assignment, x87_icall_results)
         ok = returned_only(c) | self.noreturn_args_only(a, c) | filler_args(c) | upper_only(c) | declared_only(c) | {"in_FPUControlWord"} | \
             set(re.findall(r"(?m)^\s*(extraout_ST0(?:_\d+)?) = \(\*", c)) | \
-            set(re.findall(r"(?m)^[ \t]+undefined1\s+(in_XMM\d+)\s*\[\s*16\s*\]\s*;", c))
+            set(re.findall(r"(?m)^[ \t]+undefined1\s+(in_XMM\d+)\s*\[\s*16\s*\]\s*;", c)) | \
+            set(re.findall(r"(?m)^\s*(extraout_E[CD]X(?:_\d+)?) = \(\(.*\)\(uintptr_t\)\(", c))
         m = next((m for m in LOST.finditer(c) if m.group(1) not in ok and not OUT_STACK.fullmatch(m.group(1))), None)
         if m:
             return f"a register the decompiler lost ({m.group(1)})"

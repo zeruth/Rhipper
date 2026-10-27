@@ -2421,22 +2421,33 @@ def next_call_deficit(insns, prv, nxt, a) -> int:
                 take = later_cleanup(insns, nxt, p)
             if not take and t is not None:
                 take = _cdecl_args.get(t)
+            # (what a call through a pointer takes, unknown here, is no count to go on past)
+            known = t is not None or bool(take)
             # (a call through a pointer after the first: what it takes is not known here, so the
             # count stops there, as before)
             if calls_seen and t is None:
                 return deficit
             take = take or 0
+            # (a chain of calls each on the last one's result, `mov ecx, eax` right after: a
+            # stream's `s << a << b << c`, every operand pushed before the first, the latest
+            # words its. Havok's error report in 0xe0e030 pushes five around a virtual getter's
+            # call, and the getter took the third's string, a stub, 2026-10-26)
+            q = nxt.get(p)
+            chained = known and q in insns and insns[q].mnemonic == "mov" and insns[q].op_str == "ecx, eax"
             # (on only while each call is short: calls nested in each other's arguments, the
             # later's words pushed first. One with its own words all pushed ends it: past it a
             # later call's shortfall is someone else's, `push 7; call [vt + 0xc]; push eax; push
-            # fmt; push 0x40; push ecx; call fmt_s` gave the getter's 7 to a call two on)
+            # fmt; push 0x40; push ecx; call fmt_s` gave the getter's 7 to a call two on. Not in a
+            # chain, whose next takes the words left over first)
             if take > after:
                 deficit += take - after
                 after = 0
+            elif chained:
+                after -= take
             else:
                 return deficit
             calls_seen += 1
-            if calls_seen >= 3:
+            if calls_seen >= (12 if chained else 3):
                 return deficit
         p = nxt[p]
     return deficit
