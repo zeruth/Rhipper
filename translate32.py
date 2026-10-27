@@ -696,11 +696,14 @@ RESULT_REG = re.compile(r"\b(?:in|extraout)_(?:E[AD]X|AL|AX)(?:_\d+)?\b")
 
 
 def next_is_return(v: str, lines: list[str], at: int) -> bool:
-    """The next line after `at` that mentions v is `return v;`, and no label or goto on the way: what
-    the line at `at` stores in v reaches only that return."""
+    """The next line after `at` that mentions v is `return v;`, and no goto or loop on the way: what
+    the line at `at` stores in v reaches only that return. (A label passed is other paths joining
+    this one, the epilogue's `LAB_0064116d: __security_check_cookie(...); return uVar8;`: this
+    path's value still reaches only the return. Refused there, a VS2010 client's
+    StarRenderer::vf2 was a stub on its frame path, 2026-10-27)"""
     for line in lines[at + 1:]:
         s = line.strip()
-        if re.match(r"(?:goto\b|[A-Za-z_]\w*\s*:(?!:))", s) or re.match(r"(?:do|while|for)\b", s) \
+        if re.match(r"goto\b", s) or re.match(r"(?:do|while|for)\b", s) \
                 or s.startswith("} while"):
             return False
         if re.search(r"\b" + re.escape(v) + r"\b", s):
