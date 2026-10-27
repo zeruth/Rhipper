@@ -20,9 +20,55 @@ public class ExportFunctions extends GhidraScript {
         return s.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
+    // A function whose entry another one's code falls into, that nothing calls, jumps to or points
+    // to by a relocated pointer: no function, a cut in that one. Ghidra made them of wide strings'
+    // characters taken for code addresses, `S\0u\0` 0x750053 inside 0x750050, which it cut to its
+    // first two instructions: its `mov ebx, ecx` unseen, a __stdcall with ecx lost, a stub on a
+    // loader's path, 88 such in a VS2010 client (2026-10-26). Removed, and the function it cut
+    // given its whole body again.
+    private int removeFallInFunctions() throws Exception {
+        java.util.List<Function> cut = new java.util.ArrayList<>();
+        ghidra.program.model.reloc.RelocationTable relocs = currentProgram.getRelocationTable();
+        FunctionIterator it = currentProgram.getFunctionManager().getFunctions(true);
+        while (it.hasNext() && !monitor.isCancelled()) {
+            Function f = it.next();
+            if (f.isThunk() || f.isExternal()) continue;
+            ghidra.program.model.address.Address entry = f.getEntryPoint();
+            ghidra.program.model.listing.Instruction before = getInstructionBefore(entry);
+            if (before == null || before.getFallThrough() == null || !before.getFallThrough().equals(entry)) continue;
+            Function host = getFunctionContaining(before.getAddress());
+            if (host == null || host.equals(f)) continue;
+            boolean wanted = false;
+            for (ghidra.program.model.symbol.Reference r : getReferencesTo(entry)) {
+                ghidra.program.model.address.Address from = r.getFromAddress();
+                if (f.getBody().contains(from)) continue;              // (its own loop's)
+                ghidra.program.model.symbol.RefType t = r.getReferenceType();
+                if (t.isCall() || t.isJump() || relocs.hasRelocation(from)) {
+                    wanted = true;
+                    break;
+                }
+            }
+            if (!wanted) cut.add(f);
+        }
+        java.util.Set<Function> hosts = new java.util.HashSet<>();
+        for (Function f : cut) {
+            ghidra.program.model.listing.Instruction before = getInstructionBefore(f.getEntryPoint());
+            Function host = before != null ? getFunctionContaining(before.getAddress()) : null;
+            println("ExportFunctions: " + f.getName() + " is " + (host != null ? host.getName() : "?")
+                    + "'s code fallen into, no function: removed");
+            currentProgram.getFunctionManager().removeFunction(f.getEntryPoint());
+            if (host != null) hosts.add(host);
+        }
+        for (Function h : hosts)
+            ghidra.app.cmd.function.CreateFunctionCmd.fixupFunctionBody(currentProgram, h, monitor);
+        return cut.size();
+    }
+
     @Override
     public void run() throws Exception {
         String out = getScriptArgs()[0];
+        int removed = removeFallInFunctions();
+        if (removed > 0) println("ExportFunctions: functions fallen into removed " + removed);
         int count = 0, imports = 0;
         try (PrintWriter w = new PrintWriter(new FileWriter(out))) {
             w.println("{\"functions\": [");

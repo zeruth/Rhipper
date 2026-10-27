@@ -1978,7 +1978,10 @@ class Translator32:
         across the call before) to FUN_00dc07b0 and returns it; translated as a local of its own,
         it was garbage, and 683 functions declare one (a VS2010 client, 2026-10-24). One no parameter
         is in is a register the decompiler lost (why_not)."""
-        names = set(re.findall(r"(?m)^[ \t]+(?!return\b)[A-Za-z_][\w ]*?[ \t*]+(in_[a-z]{2,3})[ \t]*;", c))
+        # (numbered too, `in_ecx_00`: the entry's register again, read past calls that keep it, the
+        # decompiler naming each read apart. Havok's 0xda6030 reads its `this` so after 0xda5ff0;
+        # as locals of their own they were 0, a crash, 2026-10-26)
+        names = set(re.findall(r"(?m)^[ \t]+(?!return\b)[A-Za-z_][\w ]*?[ \t*]+(in_[a-z]{2,3}(?:_\d+)?)[ \t]*;", c))
         if not names:
             return c
         sig = self.sigs.get(a)
@@ -1987,7 +1990,8 @@ class Translator32:
         for n in sorted(names):
             if re.search(rf"(?<![\w.>])\b{n}\s*(?:[-+*/|&^]|<<|>>)?=(?!=)|&\s*{n}\b|\b{n}\s*(?:\+\+|--)|(?:\+\+|--)\s*{n}\b", c):
                 continue                          # (assigned: a local like any other)
-            reg = NARROW_FULL.get(n[3:], n[3:])
+            base = re.sub(r"_\d+$", "", n[3:])
+            reg = NARROW_FULL.get(base, base)
             if sig is None or reg not in regs or regs.index(reg) >= len(sig.params):
                 continue                          # (lost: why_not says so)
             decl = re.compile(rf"^[ \t]+([A-Za-z_][\w ]*?[\s*]*?)\s*\b{n};\s*$")
