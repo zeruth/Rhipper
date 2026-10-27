@@ -436,6 +436,10 @@ def sse_ops(c: str, arrays: set[str], v16) -> str:
             return t
         if re.fullmatch(r"0x[0-9a-f]+|\d+", e):
             return f"(&(unsigned long long[2]){{{e}, 0}})"
+        # (a value widened to the 16 bytes, `maxps(ZEXT816(0),auVar10)`: its low 8 bytes, the rest 0)
+        m = re.fullmatch(r"ZEXT(?:[1248])16\((0x[0-9a-f]+|\d+)\)", e)
+        if m:
+            return f"(&(unsigned long long[2]){{{m.group(1)}, 0}})"
         # (16 bytes read through an address, `*(undefined1 (*) [16])(&stack0xffffffe8 + i * 4)`: the
         # address, rhtest misc-O2's vpsllvd over an alloca'd buffer)
         m = re.fullmatch(r"\*\s*\(\s*(?:undefined1\s*\(\s*\*\s*\)\s*\[\s*16\s*\]|gen_v16\s*\*)\s*\)\s*(\(.*\))", e, re.S)
@@ -472,6 +476,11 @@ def sse_ops(c: str, arrays: set[str], v16) -> str:
                 break
             line = line[:mm.start()] + rep + line[close:]
         sm = re.fullmatch(r"([ \t]*)(.+?)\s*=\s*(" + "|".join(SSE_OPS) + r")\((.*)\);[ \t]*", line)
+        # (one whose result nothing keeps, `rsqrtps(in_XMM2,*param_1);`: the op has no other
+        # effect, so nothing to do; the lost destination register goes with it)
+        if not sm and re.fullmatch(r"[ \t]*(?:" + "|".join(SSE_OPS) + r")\(.*\);[ \t]*", line):
+            line = ind + ";"
+            sm = None
         if sm:
             args = split_top(sm.group(4))
             dst = operand(sm.group(2), pre)
