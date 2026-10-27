@@ -329,6 +329,12 @@ def v16_forms(c: str) -> str:
     a `gen_v16 *` (a pointer to the 16-byte array, stepping 16 and indexing its bytes), and a
     value stored into one, `*p = (undefined1 [16])0x0;`, GEN_V16_SET. __VEC_memzero, the CRT
     memset's path for large zero fills, is written so (2026-10-23)."""
+    # (and a pointer to one stored, `*(undefined1 (**) [16])((int)this + 0x10)`: the stored pointer
+    # 4 bytes, as the reference stores one. Read as a host pointer, 8 bytes, the memset of a VS2010
+    # client's 0xb16250 wrote through its neighbour's bits above 4 GB, 2026-10-27)
+    c = re.sub(r"\bundefined1\s*\(\s*\*\s*\*\s*([A-Za-z_]\w*)\s*\)\s*\[\s*(" + V_SIZES + r")\s*\]",
+               r"gen_v\2 * PTR32 * \1", c)
+    c = re.sub(r"\(\s*undefined1\s*\(\s*\*\s*\*\s*\)\s*\[\s*(" + V_SIZES + r")\s*\]\s*\)", r"(gen_v\1 * PTR32 *)", c)
     c = re.sub(r"\bundefined1\s*\(\s*\*\s*([A-Za-z_]\w*)\s*\)\s*\[\s*(" + V_SIZES + r")\s*\]", r"gen_v\2 * \1", c)
     c = re.sub(r"\(\s*undefined1\s*\(\s*\*\s*\)\s*\[\s*(" + V_SIZES + r")\s*\]\s*\)", r"(gen_v\1 *)", c)
     c = re.sub(r"(?m)^([ \t]*)([^=;\n{}]+?)\s*=\s*\(\s*undefined1\s*\[\s*16\s*\]\s*\)\s*([^;\n]+);[ \t]*$",
