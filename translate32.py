@@ -1282,6 +1282,10 @@ def x87_pow(c: str) -> str:
     c = c.replace("fscale(from_bcd(", "pow((")
     # (and the rest of the library's x87 math, `fpatan(from_bcd(x), K)`: Ghidra32.h's gen_x87math,
     # K the function, ApplyFacts' call fixups by helpers32.py's MATH_CODES)
+    # (the __cdecl double ones through their bits, `uVar3 = from_bcd((undefined8)gen_d2bits(x)); d =
+    # gen_bits2d(fpatan(uVar3,0xd));`: the double itself in, the value out)
+    c = re.sub(r"from_bcd\(\s*\((?:undefined8|ulonglong|longlong)\)\s*gen_d2bits\(", "from_bcd((", c)
+    c = c.replace("gen_bits2d(fpatan(", "(fpatan(")
     c = c.replace("fpatan(from_bcd(", "GEN_X87MATH((")
     # (each temporary's uses by the assignment before them, in order, while still inside that
     # assignment's block: one temporary can be assigned again for a second power, `Var7 =
@@ -1290,7 +1294,7 @@ def x87_pow(c: str) -> str:
     # (an assignment the decompiler wrapped over lines, `Var4 = from_bcd((unkbyte10)\n x);`, on one)
     c = re.sub(r"(?m)^([ \t]*\w+ = from_bcd\()([^;]*?)\);",
                lambda m: m.group(1) + " ".join(m.group(2).split()) + ");", c)
-    for var in set(re.findall(r"(?m)^[ \t]*unkbyte10\s+(\w+)\s*;", c)):
+    for var in set(re.findall(r"(?m)^[ \t]*(\w+) = from_bcd\(", c)):
         lines = c.split("\n")
         cur, depth, at_depth, ok = None, 0, 0, True
         out = []
@@ -1300,7 +1304,8 @@ def x87_pow(c: str) -> str:
                 cur, at_depth = m.group(1), depth
                 depth += line.count("{") - line.count("}")
                 continue
-            if re.fullmatch(r"[ \t]*unkbyte10\s+" + re.escape(var) + r"\s*;[ \t]*", line):
+            if re.fullmatch(r"[ \t]*(?:unkbyte10|undefined8|ulonglong|longlong|double|float10)\s+" + re.escape(var)
+                            + r"\s*;[ \t]*", line):
                 continue
             if re.search(r"\b" + re.escape(var) + r"\b", line):
                 if cur is None:
