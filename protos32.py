@@ -912,7 +912,7 @@ def analyse(root: int, ranges):
     # summed but reaches each ret with its result loaded. Typed void by the sum, its caller's
     # extraout_ST0 was a stub, rhtest msvc-14.51-x86 float-IA32)
     if x87_ret_dead:
-        x87_ret_dead = x87_depth_at_rets(insns, nxt, state) == {0}
+        x87_ret_dead = x87_depth_at_rets(insns, nxt, state, root) == {0}
     # (and an x87 result of its own: every ret reached with one value on the stack, the last x87
     # instruction before each a load from memory of one width, `call f; fstp [m]; fld [m]; ret`,
     # a float rounded and returned. Typed only through the callee it seemed to pass on, the
@@ -1263,7 +1263,8 @@ def analyse(root: int, ranges):
     # (and whether it leaves the x87 stack alone: no x87 instruction but the control and status
     # words' (fldcw, fnstsw, ...), and no call through a pointer; its direct callees decided in main)
     x87_data = any(insns[a].mnemonic.startswith("f") and insns[a].mnemonic not in X87_CONTROL for a in state) \
-        or any(insns[a].mnemonic == "call" and _target(insns[a]) is None for a in state)
+        or any(insns[a].mnemonic == "call" and _target(insns[a]) is None for a in state) \
+        or any(indirect_tail_jump(insns[a]) for a in state)
     return {"fpu_clear": fpu_clear, "x87_data": x87_data, "x87_own_ret": x87_own_ret, "local_block": block, "passed": passed, "tail_jumps": tail_jumps, "eh_imms": eh_imms,
             "frame": -floor[0] if floor[0] is not None and floor[0] < 0 else None,"inputs": inputs, "in_width": in_width, "stack_hi": stack_hi, "slots": slots,
             "addr_taken": addr_taken, "calls": calls, "variadic": variadic, "call_pushes": call_pushes, "pushes_past": pushes_past,
@@ -2114,11 +2115,25 @@ def ecx_scan(insns, prv, p, budget, labels, preds, pushed, seen) -> tuple[bool, 
     return False, pushed, steps
 
 
-def x87_depth_at_rets(insns, nxt, state) -> set:
+def indirect_tail_jump(ins) -> bool:
+    """A jump through a pointer that is no switch table's: `jmp [eax + 8]`, `jmp eax`, a forwarder
+    to whatever the pointer holds (which may load st0), not `jmp [eax*4 + table]`. Taken for a
+    function leaving the x87 stack alone, a forwarder's callers kept a stale st0 (ultrareview,
+    2026-10-27)"""
+    if ins.mnemonic != "jmp" or _target(ins) is not None or not ins.operands:
+        return False
+    op = ins.operands[0]
+    return not (op.type == X.X86_OP_MEM and op.mem.index != 0)
+
+
+def x87_depth_at_rets(insns, nxt, state, root=None) -> set:
     """The x87 stack depths each ret is reached with, along every way from the entry (falling
     through and jumping): loads push one, a popping instruction pops one (fcompp two). A call on a
-    way makes the depth there unknown (None), its result in st0 or not."""
-    entry = min(state) if state else None
+    way leaves the stack as a callee leaves it, empty or its result in st0: depth 0 after it, and a
+    pop of the result left at 0 (`call g; fstp [m]; fld [m]; fstp [n]; ret`, dead at its ret, as
+    the return-path check before it said; unknown from any call on, it lost that, ultrareview
+    2026-10-27). From the function's entry, not its lowest address (a chunk below it)."""
+    entry = root if root is not None else (min(state) if state else None)
     depth: dict[int, object] = {}
     work = [(entry, 0)] if entry is not None else []
     out = set()
@@ -2138,13 +2153,15 @@ def x87_depth_at_rets(insns, nxt, state) -> set:
             continue
         if d is not None:
             if m == "call":
-                d = None
+                d = 0
             elif m.startswith(("fld", "fild", "fbld")) and m not in ("fldcw", "fldenv"):
                 d += 1
             elif m in ("fcompp", "fucompp"):
                 d -= 2
             elif m.startswith("f") and m.endswith("p") and not m.startswith(("fn", "fwait")):
                 d -= 1
+            # (popping a value it did not load: a callee's result, or one it was handed)
+            d = max(d, 0)
         t = _target(ins)
         if (m.startswith("j") or m.startswith("loop")) and t is not None:
             work.append((t, d))
@@ -2719,23 +2736,33 @@ def untyped_cleanup(local: dict, untyped: dict[int, int]) -> dict[int, int]:
     return out
 
 
-def cleans_later(after: list[tuple[str, str]]) -> bool:
+def cleans_later(after: list[tuple[str, str]], own: int = 0) -> bool:
     """Whether the instructions after a call, (mnemonic, operands) in a straight line, clean up
     its words: the compiler folding several calls' cleanups into one, /O2's `push ..; call
     [strtol]; push ..; call [strtoul]; ...; add esp, 0x24`. An `add esp, k` larger than what was
     pushed since the call pops the call's words too; one that pops only the later ones leaves them
     to the callee. Seen only right after, the CRT's conversions popped their own, a caller's locals
     read as its parameters and its caller's saved ebx passed for one (rhtest msvc-14.51-x86 crt-O2,
-    tests/unit/test_protos32.py)."""
+    tests/unit/test_protos32.py). Given the call's own parameter bytes, the `add` must pop at
+    least those and the later pushes (`sub esp, k` a push of k, `sub esp, 8; fstp qword ptr
+    [esp]`). One that pops more may also be covering earlier calls' deferred words, so a site is
+    only a vote (stdcall_import_cleanup; ultrareview 2026-10-27, a stdcall import otherwise taken
+    for __cdecl everywhere by one site)."""
     pushed = 0
     for mn, ops in after:
         if mn == "push":
             pushed += 4
-        elif mn == "add" and ops.startswith("esp, "):
+        elif mn == "sub" and ops.startswith("esp, "):
             try:
-                return int(ops.split(", ")[1], 0) > pushed
+                pushed += int(ops.split(", ")[1], 0)
             except ValueError:
                 return False
+        elif mn == "add" and ops.startswith("esp, "):
+            try:
+                k = int(ops.split(", ")[1], 0)
+            except ValueError:
+                return False
+            return k >= pushed + own if own else k > pushed
         elif mn == "ret" or mn.startswith("j"):
             return False
     return False
@@ -2754,6 +2781,8 @@ def stdcall_import_cleanup(b: Binary, ranges, funcs, imp_cleanup: dict[int, int]
     md = disassembler()
     called: set[int] = set()
     cleaned: set[int] = set()
+    sites: dict[int, int] = {}
+    later: dict[int, int] = {}
     for root, rs in ranges.items():
         if root in thunk_slot:
             continue
@@ -2779,8 +2808,13 @@ def stdcall_import_cleanup(b: Binary, ranges, funcs, imp_cleanup: dict[int, int]
                         break
                     if mn2 in ("call", "ret", "push") or mn2.startswith("j"):
                         break
-                if slot not in cleaned and cleans_later([(mn2, ops2) for _a2, _s2, mn2, ops2 in got[k + 1:k + 40]]):
-                    cleaned.add(slot)
+                if slot not in cleaned:
+                    sites[slot] = sites.get(slot, 0) + 1
+                    if cleans_later([(mn2, ops2) for _a2, _s2, mn2, ops2 in got[k + 1:k + 40]], imp_params[slot]):
+                        later[slot] = later.get(slot, 0) + 1
+    # (a folded cleanup at a site of its own is no proof alone: at least half its sites so, one
+    # misread site does not take a stdcall import for __cdecl program-wide)
+    cleaned |= {slot for slot, n in later.items() if n * 2 >= sites[slot]}
     return {slot: imp_params[slot] for slot in called - cleaned}
 
 
