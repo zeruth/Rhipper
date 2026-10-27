@@ -975,6 +975,62 @@ def returned_only(c: str) -> set[str]:
     return ok | entry
 
 
+CAPTURE_SEG = re.compile(r"\bin_(?:ES|CS|SS|DS|FS|GS)\b")
+CAPTURE_FLAG = re.compile(r"\bin_(?:AF|TF|IF|NT|AC|VIF|VIP|ID|CF|PF|ZF|SF|OF|DF)\b")
+
+
+def context_capture(c: str) -> set[str]:
+    """The registers a function records and nothing more: the CRT's failure reporters fill a CONTEXT
+    with the segment registers, the flags, ebp and the return address (__report_gsfailure,
+    __call_reportfault, `*(undefined2 *)&DAT_x = in_ES;`) for a crash report. The port has no x86
+    machine state to record; 0 is what it records. Only segment registers and flags, and ebp and the
+    return address in a function that records a segment register too, and each only stored into
+    memory (an assignment's right side, a flags word or-ed together), never read otherwise."""
+    # (ebp and the return address alone, stored into a global and nowhere else: __NLG_Notify's
+    # record of the frame unwinding passes through, for a debugger, the same thing)
+    if not CAPTURE_SEG.search(c):
+        names = set(re.findall(r"\bunaff_(?:EBP|retaddr)\b", c))
+        return {n for n in names if all(
+            re.fullmatch(rf"\s*(?:[A-Za-z_][\w ]*?[\s*]+{n};|(?:\*\s*\([^()]*\)\s*&?)?DAT_\w+\s*=\s*{n};)\s*", l)
+            for l in c.split("\n") if re.search(rf"\b{n}\b", l))}
+    names = set(CAPTURE_SEG.findall(c)) | set(CAPTURE_FLAG.findall(c))
+    # (and the general registers the CONTEXT records beside them, protos32 giving such a function
+    # no register inputs: unaff_ESI and its kin)
+    names |= set(re.findall(r"\bunaff_(?:EBP|retaddr|E[A-D]X|ESI|EDI)\b", c))
+    lines = c.split("\n")
+    out = set()
+    for n in names:
+        ok = True
+        for i, line in enumerate(lines):
+            if not re.search(rf"\b{n}\b", line):
+                continue
+            s = line.strip()
+            if re.fullmatch(rf"[A-Za-z_][\w ]*?[\s*]+{n};", s):
+                continue                                # its declaration
+            # (the statement this line is part of: Ghidra wraps a long one, the flags word's)
+            j = i
+            while j > 0 and not re.search(r"[;{}]\s*$", lines[j - 1].strip()):
+                j -= 1
+            stmt = " ".join(l.strip() for l in lines[j:i + 1]).strip()
+            m = re.match(r"(.+?)\s*=(?!=)\s*(.*)", stmt)
+            # (stored somewhere: a global, through a pointer, or a local CONTEXT of the reporter's
+            # own, __call_reportfault's, handed whole to UnhandledExceptionFilter)
+            if not m or re.search(rf"\b{n}\b", m.group(1)):
+                ok = False
+                break
+            rhs = m.group(2)
+            # (nor as an address, cast to a pointer or subscripted, nor a call's argument; a product
+            # in the flags word, `(in_AF & 1) * 0x10`, is no dereference)
+            # (a flag is one bit, only ever or-ed into the word: no address, no argument)
+            if not CAPTURE_FLAG.fullmatch(n) and re.search(
+                    rf"\*\s*\)\s*\(?\s*{n}\b|\b{n}\s*\[|\[[^\]]*\b{n}\b|[A-Za-z_]\w*\s*\([^()]*\b{n}\b", rhs):
+                ok = False
+                break
+        if ok:
+            out.add(n)
+    return out
+
+
 def declared_only(c: str) -> set[str]:
     """The lost names the decompiler declares and never uses: a parameter's other half as the
     caller's stack (`undefined2 in_stack_00000006;` beside __towlower_l's wint_t `_C`, which it
@@ -2057,7 +2113,8 @@ class Translator32:
                 return f"a register the decompiler lost ({n})"
         # (and a full xmm register as an SSE pseudo-op's destination found it: zeroed, sse_ops)
         # (and a call's x87 result made its assignment, x87_icall_results)
-        ok = returned_only(c) | self.noreturn_args_only(a, c) | filler_args(c) | upper_only(c) | declared_only(c) | {"in_FPUControlWord"} | \
+        ok = returned_only(c) | self.noreturn_args_only(a, c) | filler_args(c) | upper_only(c) | declared_only(c) | \
+            context_capture(c) | {"in_FPUControlWord"} | \
             set(re.findall(r"(?m)^\s*(extraout_ST0(?:_\d+)?) = \(\*", c)) | \
             set(re.findall(r"(?m)^[ \t]+undefined1\s+(in_XMM\d+)\s*\[\s*16\s*\]\s*;", c)) | \
             set(re.findall(r"(?m)^\s*(extraout_E[CD]X(?:_\d+)?) = \(\(.*\)\(uintptr_t\)\(", c))
@@ -2481,6 +2538,10 @@ class Translator32:
         self.cur_params = sig.params              # (pointer_steps: the parameters' types)
         self.cur_gt = self.corpus[a].get("gt") or {}  # (global_lvalue: the decompiler's types of the globals)
         c = self.entry_registers(a, self.kept_inputs(stack_vs_const(v16_forms(cpu_state(array_stores(locked_reads(strip_comments(self.corpus[a]["c"]))))))))
+        # (the registers a failure reporter only records, context_capture: locals of their own,
+        # zeroed at the end, by names that read as no register: `in_ES` would be one)
+        for n in context_capture(c):
+            c = re.sub(rf"\b{n}\b", "cap_" + n.split("_", 1)[1], c)
         # (a long C++ name Ghidra wraps at a `::`, `IpcChannel::\n        PacketBufferTmpl<...>::\n
         # vftable`: one name again, as the data export has it. 1,090 stubs, 2026-10-23)
         c = re.sub(r"::[ \t]*\n[ \t]*", "::", c)
@@ -2884,9 +2945,10 @@ class Translator32:
         # (the lost result registers it only returns: 0 where nothing set them, why_not. Last, as
         # the passes above read the declarations as `type name;`)
         # (and those only a call that does not return is given, noreturn_args_only)
-        for n in returned_only(c) | self.noreturn_args_only(a, c) | filler_args(c) | upper_only(c):
+        for n in returned_only(c) | self.noreturn_args_only(a, c) | filler_args(c) | upper_only(c) | context_capture(c):
             # (a pointer's too, `undefined * extraout_EAX;`: as no match it stayed uninitialized)
             body = re.sub(r"(?m)^(\s*[A-Za-z_][\w ]*?[\s*]+" + n + r")\s*;", r"\1 = 0;", body, count=1)
+        body = re.sub(r"(?m)^([ \t]*[A-Za-z_][\w ]*?[ \t*]+cap_(?:[A-Z]{2,3}|EBP|retaddr))\s*;", r"\1 = 0;", body)
         # (a function that allocates on its stack, the alloca probe's injection: room below the
         # frame for it, rhtest misc stack_alloc 2026-10-24)
         alloca = "replaced with injection: alloca_probe" in self.corpus[a]["c"]

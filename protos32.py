@@ -1216,6 +1216,14 @@ def analyse(root: int, ranges):
                       or (insns[a].mnemonic == "mov" and len(insns[a].operands) == 2
                           and insns[a].operands[0].type == X.X86_OP_REG and insns[a].operands[0].reg == X.X86_REG_EAX
                           and insns[a].operands[1].type == X.X86_OP_IMM)})
+    # (a function that stores the segment registers records the machine's state, a CONTEXT for a
+    # crash report: the general registers it stores beside them are recorded, not passed to it.
+    # Taken for inputs, the CRT's __call_reportfault took esi and edi, and through _abort every
+    # caller of abort passed its own, unaff_ESI, a stub, rhtest msvc-16.00-x86)
+    seg = (X.X86_REG_ES, X.X86_REG_CS, X.X86_REG_SS, X.X86_REG_DS, X.X86_REG_FS, X.X86_REG_GS)
+    if any(insns[a].mnemonic == "mov" and len(insns[a].operands) == 2 and insns[a].operands[0].type == X.X86_OP_MEM
+           and insns[a].operands[1].type == X.X86_OP_REG and insns[a].operands[1].reg in seg for a in state):
+        inputs = 0
     return {"local_block": block, "passed": passed, "tail_jumps": tail_jumps, "eh_imms": eh_imms,
             "frame": -floor[0] if floor[0] is not None and floor[0] < 0 else None,"inputs": inputs, "in_width": in_width, "stack_hi": stack_hi, "slots": slots,
             "addr_taken": addr_taken, "calls": calls, "variadic": variadic, "call_pushes": call_pushes, "pushes_past": pushes_past,
