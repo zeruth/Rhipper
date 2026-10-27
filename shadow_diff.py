@@ -143,6 +143,10 @@ def main():
     ap.add_argument("--start", type=lambda s: int(s, 16), metavar="ADDR",
                     help="walk each thread from its first call of ADDR in both runs (a point the two are "
                          "known to reach alike, past a stretch where worker threads' timing parts them)")
+    ap.add_argument("--pair-by-calls", action="store_true",
+                    help="pair each reference thread with the port's that calls the most of the same functions in "
+                         "its first 200 calls, not by the order they appear: worker threads start in another "
+                         "order run to run, and a render thread was 22 in one and 24 in the other")
     ap.add_argument("--skip", nargs="*", default=[], metavar="ADDR",
                     help="more functions to leave out of both runs (an unnamed exception handler)")
     a = ap.parse_args()
@@ -165,6 +169,26 @@ def main():
             nwords[int(k, 16)] = min(len(e.get("params", [])), 4)
     ref, port = (by_thread(load(a.ref), skip, helpers, inner),
                  by_thread(load(a.port), skip, helpers, inner))
+    if a.pair_by_calls:
+        # (the port's threads renumbered to the reference's index of the thread with the same
+        # first call, in order among those; the startup thread stays 0)
+        # (by the functions their first 200 calls reach, the unused port thread sharing the most,
+        # half at least: every CRT thread starts in __threadstartex's prologue, so no first few
+        # calls tell a render thread from a job worker)
+        def head(seq):
+            return {c[0] for c in seq[:200]}
+        free = {t: head(port[t]) for t in port if t and port[t]}
+        paired = {0: port.get(0, [])}
+        for t in sorted(ref):
+            if not t or not ref[t] or not free:
+                continue
+            h = head(ref[t])
+            best = max(free, key=lambda u: (len(h & free[u]) / max(1, len(h | free[u])), -u))
+            if len(h & free[best]) / max(1, len(h | free[best])) >= 0.5:
+                paired[t] = port[best]
+                del free[best]
+        port = paired
+        print(f"threads paired by what they call: {len(paired) - 1} of {len(ref) - 1}")
     if inner:
         print(f"the helpers' own callees, left out after a helper: {', '.join(name(nm, x) for x in sorted(inner))}")
     print(f"reference: {len(ref)} threads, {sum(len(v) for v in ref.values())} calls; "
