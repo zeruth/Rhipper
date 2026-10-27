@@ -1034,7 +1034,9 @@ def returned_only(c: str) -> set[str]:
     # protos32.py gives a parameter of its own, `in_eax`, but what a path that sets nothing returns,
     # the decompiler's name for a scratch register it merged with that, or the garbage a `push
     # ecx` reserving a local starts it with, `local_5 = (undefined1)((uint)in_ECX >> 0x18)`: 0)
-    entry = set(re.findall(r"\bin_E[ACD]X(?:_\d+)?\b", c))
+    # (and their low parts, `in_AL` a byte function's result on the path that set none, `if (*this
+    # == 0) return in_AL;`, a client's 0xa6feb0 on its frame path 2026-10-27)
+    entry = set(re.findall(r"\bin_(?:E[ACD]X|[ACD][LX])(?:_\d+)?\b", c))
     # (and the upper bytes of eax a byte or word result came with, `CONCAT31(extraout_var, bVar3)`:
     # its callers read al, a bool's, and what the callee left above it is nothing they use)
     entry |= set(re.findall(r"\bextraout_var(?:_\d+)?\b", c))
