@@ -146,6 +146,17 @@ static __inline void gen_vpsllvd_avx2(void *r, const void *a, const void *n) {
     for (int k = 0; k < 4; k++) x[k] = c[k] > 31 ? 0 : x[k] << c[k];
     memcpy(r, x, 16);
 }
+/* (AVX-512VL's float to 64-bit integer conversion, truncating, the 128-bit form: its two low
+   floats, behind __isa_available as MSVC 14.51 converts a float to u64. In C, the hardware's
+   0x8000000000000000 for a NaN or one out of range, so the port needs no AVX-512 of its own) */
+static __inline void gen_vcvttps2qq_avx512vl(void *r, const void *a) {
+    float f[4]; long long q[2];
+    memcpy(f, a, 16);
+    for (int k = 0; k < 2; k++)
+        q[k] = (f[k] != f[k] || f[k] >= 9223372036854775808.0f || f[k] < -9223372036854775808.0f)
+            ? (long long)0x8000000000000000ull : (long long)f[k];
+    memcpy(r, q, 16);
+}
 static __inline void gen_v16_or(void *r, const void *a, const void *b) { gen_sti(r, _mm_or_si128(gen_ldi(a), gen_ldi(b))); }
 static __inline void gen_v16_and(void *r, const void *a, const void *b) { gen_sti(r, _mm_and_si128(gen_ldi(a), gen_ldi(b))); }
 static __inline void gen_v16_xor(void *r, const void *a, const void *b) { gen_sti(r, _mm_xor_si128(gen_ldi(a), gen_ldi(b))); }

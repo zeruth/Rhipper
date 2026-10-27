@@ -358,10 +358,14 @@ def v16_forms(c: str) -> str:
     return sse_ops(c, arrays, v16)
 
 
-SSE_OPS = {"minps", "maxps", "divps", "rsqrtps", "rcpps", "sqrtps", "packssdw", "psllw", "pmulld", "vpsllvd_avx2"}
+SSE_OPS = {"minps", "maxps", "divps", "rsqrtps", "rcpps", "sqrtps", "packssdw", "psllw", "pmulld", "vpsllvd_avx2",
+           # (MSVC 14.51's float to u64, AVX-512VL behind __isa_available, rhtest msvc-14.51-x86 fpenv)
+           "vcvttps2qq_avx512vl"}
 SSE_BITS = {"|": "or", "&": "and", "^": "xor"}
 # (the ones on integer lanes)
-SSE_INT_OPS = {"packssdw", "psllw", "pmulld", "vpsllvd_avx2"}
+SSE_INT_OPS = {"packssdw", "psllw", "pmulld", "vpsllvd_avx2", "vcvttps2qq_avx512vl"}
+# (the ones whose helper takes the source alone, gen_x(r, a))
+SSE_UNARY = {"vcvttps2qq_avx512vl"}
 
 
 def sse_ops(c: str, arrays: set[str], v16) -> str:
@@ -453,7 +457,10 @@ def sse_ops(c: str, arrays: set[str], v16) -> str:
             args = split_top(sm.group(4))
             dst = operand(sm.group(2), pre)
             ops = [operand(x, pre) for x in args]
-            if dst is not None and len(ops) == 2 and None not in ops:
+            if sm.group(3) in SSE_UNARY and dst is not None and ops and None not in ops:
+                # (a conversion of its source alone, whatever destination the decompiler adds)
+                line = f"{sm.group(1)}gen_{sm.group(3)}({dst}, {ops[-1]});"
+            elif dst is not None and len(ops) == 2 and None not in ops:
                 line = f"{sm.group(1)}gen_{sm.group(3)}({dst}, {ops[0]}, {ops[1]});"
         else:
             bm = re.fullmatch(r"([ \t]*)([A-Za-z_]\w*)\s*=\s*(.+);[ \t]*", line)
@@ -973,6 +980,51 @@ def returned_only(c: str) -> set[str]:
                 changed = True
                 break
     return ok | entry
+
+
+def math_words(body: str) -> str:
+    """A typed math import called with each double argument as the two words its caller pushed:
+    the decompiler, given no prototype for an import it does not know (the ucrt's lrint at /Od),
+    passes what was pushed, `lrint(uVar1, uVar2)`, and the typed adapter took one double, C2197
+    (rhtest msvc-14.51-x86 fpenv-Od). Each double's pair, low word first, joined back."""
+    out, i = [], 0
+    for m in re.finditer(r"\bgen_imp_(\w+)\(", body):
+        n = m.group(1)
+        if m.start() < i or n not in MATH or "double" not in MATH[n][1]:
+            continue
+        j, depth, args, cur = m.end(), 1, [], ""
+        while j < len(body) and depth:
+            ch = body[j]
+            if ch in "([":
+                depth += 1
+            elif ch in ")]":
+                depth -= 1
+                if depth == 0:
+                    break
+            if ch == "," and depth == 1:
+                args.append(cur)
+                cur = ""
+            else:
+                cur += ch
+            j += 1
+        args.append(cur)
+        want = MATH[n][1]
+        if len(args) != len(want) + want.count("double"):
+            continue
+        joined, k = [], 0
+        for p in want:
+            if p == "double":
+                joined.append(f"gen_bits2d_(((unsigned long long)(unsigned int)({args[k + 1].strip()}) << 32) | "
+                              f"(unsigned int)({args[k].strip()}))")
+                k += 2
+            else:
+                joined.append(args[k].strip())
+                k += 1
+        out.append(body[i:m.end()])
+        out.append(", ".join(joined))
+        i = j
+    out.append(body[i:])
+    return "".join(out)
 
 
 # the C runtime's functions that leave st0's value as it was, though their x87 code touches it
@@ -3656,6 +3708,7 @@ class Translator32:
                 return f"((code *)REFP(0x{self.ref_names[name]:x}))("
             return m.group(0)
         body = re.sub(r"(?<![\w$:])(" + IDENT + r")\s*\(", call, body)
+        body = math_words(body)
 
         # (a label's address is an address; the label itself, `LAB_x:` and `goto LAB_x`, stays)
         body = re.sub(r"&\s*(LAB_([0-9a-f]{8}))\b", lambda m: f"REFP(0x{m.group(2)})", body)
