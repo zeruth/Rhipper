@@ -2324,6 +2324,15 @@ class Translator32:
             n = esize[m.group(1)] * int(m.group(3))
             if n in ints:
                 small[m.group(2)] = n
+        # (the ones assigned a value whole through an array cast, `local_cc = (undefined1 [4])this;`,
+        # and never addressed: value holders, small_arrays below)
+        # (array_set has made that `{ unsigned int gen_ac = (unsigned int)(this); memcpy(&local_cc,
+        # &gen_ac, 4); }` by now: its own `&` no address the code takes)
+        # (or array_stores' `*(undefined4 *)local_cc = this;`)
+        whole_set = r"memcpy\(&{0}, &gen_ac, {1}\)|\*\(undefined{1} \*\){0}(?= = )"
+        held_whole = {name: bool(re.search(whole_set.format(name, n), rest))
+                      and not re.search(rf"&\s*{name}\b|\b{name}\s*\[", re.sub(whole_set.format(name, n), "", rest))
+                      for name, n in small.items()}
         for name, n in small.items():
             t = ints[n]
 
@@ -2347,6 +2356,20 @@ class Translator32:
                 casts = r"char|uchar|byte|ushort|short|uint3|ulonglong|longlong|undefined[128]?"
                 after = r"(?!\s*[\[.+-])"
             rest = re.sub(rf"(\(\s*(?:unsigned\s+)?(?:{casts})\s*\)\s*){name}\b{after}", rf"\1{whole}", rest)
+            # (and a stack one cast to an int with a constant past its own bytes added, `*(int *)((int)
+            # local_cc + 0x172c)`: no address inside the array, its value, the object pointer the
+            # slot holds. As its address, a VS2010 client's 0x6835d0 wrote 6 KB past its own frame,
+            # a crash on its frame path, 2026-10-27)
+            # (or any pointer-sized cast of one assigned a value whole, `local_cc = (undefined1 [4])
+            # this;`: a register's worth spilled, never an address the code takes, so `(int)local_cc +
+            # (i + k * 3) * 4 + 0x14cc` indexes the object it holds, the same function)
+            if not name.startswith("auVar"):
+                if held_whole.get(name):
+                    rest = re.sub(rf"\(\s*(?:unsigned\s+)?(?:int|uint)\s*\)\s*{name}\b(?!\s*[\[.])",
+                                  f"(int){whole}", rest)
+                rest = re.sub(rf"\(\s*(?:unsigned\s+)?(?:int|uint)\s*\)\s*{name}\b(\s*\+\s*)(0x[0-9a-f]+|\d+)\b",
+                              lambda mm: f"(int){whole}{mm.group(1)}{mm.group(2)}" if int(mm.group(2), 0) >= int(n)
+                              else mm.group(0), rest)
             rest = re.sub(rf"(\bCONCAT\d\d\((?:[^(),]|\([^()]*\))*,\s*){name}\s*\)", rf"\1{whole})", rest)
             rest = re.sub(rf"(\bCONCAT\d\d\(\s*){name}\s*,", rf"\1{whole},", rest)
         return decls + rest
@@ -3058,11 +3081,18 @@ class Translator32:
         # into a pointer slot): the value into a float, the bits into anything else
         def flt_to(m):
             lhs, rhs = m.group(2), m.group(3)
-            # (a plain local by its declared type: the bits into a pointer, the value otherwise)
+            # (a plain local by its declared type: the value into a float, the bits into a pointer or
+            # an integer. A decompiler's assignment across types is a copy of the bytes, a conversion
+            # it prints as one, `(int)x`: `uVar8 = DAT_01087f04;` of 1.0f is 0x3f800000, which C made 1)
             if re.fullmatch(r"[A-Za-z_]\w*", lhs) and lhs in var_types:
                 t = var_types[lhs].strip()
-                if "*" not in t or "[" in t:
+                if "[" in t or t in FLOATS:
                     return m.group(0)
+                if "*" not in t:
+                    if t not in KNOWN_TYPES:
+                        return m.group(0)
+                    bits = "gen_d2bits((double)(" if rhs.startswith("REFG(double") else "gen_fl2bits((float)("
+                    return f"{m.group(1)}{lhs} = ({t}){bits}{rhs}))"
                 return f"{m.group(1)}{lhs} = ({t})(uintptr_t)gen_fl2bits((float)({rhs}))"
             return f"{m.group(1)}{lhs} = GEN_FLT_TO({lhs}, {rhs})"
         # (or through a cast, `*(int * PTR32 *)&REFG(undefined, 0x14882cc) = REFG(float, ...)`, a
@@ -3072,6 +3102,11 @@ class Translator32:
                       r"|\*\s*\(\s*[A-Za-z_][\w\s*]*\)\s*(?:&\s*REFG\([\w ,]+\)|\([^;=()]*(?:\([^;=()]*\)[^;=()]*)*\)))\s*=(?!=)\s*"
                       r"(REFG\((?:float|double), 0x[0-9a-f]+\)|\(&REFG\((?:float|double), 0x[0-9a-f]+\)\)\[[^\]\[]*\])"
                       r"(?=\s*[;,)])", flt_to, body)
+        # (a statement of its own storing one through a dereference nested any deeper, `*(undefined4
+        # *)((int)(*(unsigned int *)(gen_frame + 0x34)) + 0x1738) = REFG(float, ...);`: the line's
+        # left side whole)
+        body = re.sub(r"(?m)^([ \t]*)(\*\s*\(.+?)\s*=(?!=)\s*(REFG\((?:float|double), 0x[0-9a-f]+\))\s*;[ \t]*$",
+                      lambda m: f"{m.group(1)}{m.group(2)} = GEN_FLT_TO({m.group(2)}, {m.group(3)});", body)
         # (unary: `a * (*(undefined4 *)(...))` is a multiplication)
         if re.search(r"(?:^|[^\w)\]\s])\s*\*\s*\(\*\(undefined4 \*\)\(\(char \*\)&", body, re.M):
             raise ValueError("a 4-byte piece dereferenced as a pointer")
