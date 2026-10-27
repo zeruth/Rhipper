@@ -1570,6 +1570,70 @@ unsigned int gen_imp_CreatePipe(uint32_t read, uint32_t write, uint32_t sa, uint
     return ok;
 }
 
+// ---- the other handles Windows returns through a pointer, PHANDLE, into the reference's 4-byte
+// slot: written as 8 bytes, CreateTimerQueueTimer's handle overwrote the local beside it and the
+// work item after it was never waited for (rhtest sys, 2026-10-27). A reference callback (a timer's,
+// a wait's) is its address, called as the port's function, its arguments 32-bit values
+static void PutHandle(uint32_t slot, HANDLE h) {
+    if (slot) *At<uint32_t>(slot) = Low(h);
+}
+unsigned int gen_imp_CreateTimerQueue(void) {
+    return Low(CreateTimerQueue());
+}
+unsigned int gen_imp_CreateTimerQueueTimer(uint32_t out, uint32_t queue, uint32_t fn, uint32_t param, uint32_t due,
+                                           uint32_t period, uint32_t flags) {
+    HANDLE t = nullptr;
+    BOOL ok = CreateTimerQueueTimer(&t, H64(queue), reinterpret_cast<WAITORTIMERCALLBACK>(static_cast<uintptr_t>(fn)),
+                                    reinterpret_cast<PVOID>(static_cast<uintptr_t>(param)), due, period, flags);
+    if (ok) PutHandle(out, t);
+    return ok;
+}
+unsigned int gen_imp_ChangeTimerQueueTimer(uint32_t queue, uint32_t timer, uint32_t due, uint32_t period) {
+    return ChangeTimerQueueTimer(H64(queue), H64(timer), due, period);
+}
+unsigned int gen_imp_DeleteTimerQueueTimer(uint32_t queue, uint32_t timer, uint32_t done) {
+    return DeleteTimerQueueTimer(H64(queue), H64(timer), H64(done));
+}
+unsigned int gen_imp_DeleteTimerQueueEx(uint32_t queue, uint32_t done) {
+    return DeleteTimerQueueEx(H64(queue), H64(done));
+}
+unsigned int gen_imp_DeleteTimerQueue(uint32_t queue) {
+    return DeleteTimerQueueEx(H64(queue), nullptr);
+}
+unsigned int gen_imp_RegisterWaitForSingleObject(uint32_t out, uint32_t object, uint32_t fn, uint32_t param, uint32_t ms,
+                                                 uint32_t flags) {
+    HANDLE w = nullptr;
+    BOOL ok = RegisterWaitForSingleObject(&w, H64(object), reinterpret_cast<WAITORTIMERCALLBACK>(static_cast<uintptr_t>(fn)),
+                                          reinterpret_cast<PVOID>(static_cast<uintptr_t>(param)), ms, flags);
+    if (ok) PutHandle(out, w);
+    return ok;
+}
+unsigned int gen_imp_UnregisterWait(uint32_t wait) {
+    return UnregisterWait(H64(wait));
+}
+unsigned int gen_imp_UnregisterWaitEx(uint32_t wait, uint32_t done) {
+    return UnregisterWaitEx(H64(wait), H64(done));
+}
+unsigned int gen_imp_DuplicateHandle(uint32_t fromProcess, uint32_t from, uint32_t toProcess, uint32_t out, uint32_t access,
+                                     uint32_t inherit, uint32_t options) {
+    HANDLE h = nullptr;
+    BOOL ok = DuplicateHandle(H64(fromProcess), H64(from), H64(toProcess), out ? &h : nullptr, access, inherit, options);
+    if (ok) PutHandle(out, h);
+    return ok;
+}
+unsigned int gen_imp_OpenProcessToken(uint32_t process, uint32_t access, uint32_t out) {
+    HANDLE h = nullptr;
+    BOOL ok = OpenProcessToken(H64(process), access, &h);
+    if (ok) PutHandle(out, h);
+    return ok;
+}
+unsigned int gen_imp_OpenThreadToken(uint32_t thread, uint32_t access, uint32_t self, uint32_t out) {
+    HANDLE h = nullptr;
+    BOOL ok = OpenThreadToken(H64(thread), access, self, &h);
+    if (ok) PutHandle(out, h);
+    return ok;
+}
+
 // ---- the processors: x86's SYSTEM_LOGICAL_PROCESSOR_INFORMATION is 24 bytes (a 4-byte mask), x64's
 // 32, and affinity masks are 4 bytes. Handed the x64 entries, Havok's thread pool counted one core
 // and started 1 job thread for the reference's 10, a VS2010 client 2026-10-25 ------------------------
