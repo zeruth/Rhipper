@@ -474,7 +474,8 @@ def main() -> None:
                 out.add("imp:" + t.lstrip("_"))
         return out
     # the functions the decompiler injects as p-code (call fixups), by the warnings it leaves
-    fixed_up = {x for e in cor.values() for x in injections(e["c"]) if isinstance(x, int)}
+    # (one the decompiler failed on has an "error" and no C: none injected there)
+    fixed_up = {x for e in cor.values() for x in injections(e.get("c", "")) if isinstance(x, int)}
     # each translation's C, by its reference address (gen/translated_*.c, `/* ref: */` headed)
     translations: dict[int, str] = {}
     for path in sorted(gen.glob("translated_*.c")):
