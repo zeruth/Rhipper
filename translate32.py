@@ -2076,6 +2076,25 @@ class Translator32:
                 return True
         return False
 
+    def hlt_loops(self, a: int, body: str) -> str:
+        """`hlt`, which the language models as a jump to itself: the decompiler's "Do nothing block
+        with infinite loop", `do { } while( true );`. In user mode the instruction faults, a
+        privileged instruction the reference's __except catches (__halt() under __try, rhtest
+        msvc-14.51-x86 seh): Ghidra32.h's gen_hlt, the host's own, where the function's bytes hold
+        one; a real spin (`jmp $`) stays the loop it is."""
+        if "Do nothing block with infinite loop" not in self.corpus[a]["c"]:
+            return body
+        import capstone
+        import pefile
+        if self._pe is None:
+            self._pe = pefile.PE(str(project.EXE), fast_load=True)
+        base = self._pe.OPTIONAL_HEADER.ImageBase
+        code = self._pe.get_data(a - base, self.corpus[a].get("size") or 0)
+        md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+        if not any(m == "hlt" for _ad, _s, m, _o in md.disasm_lite(code, a)):
+            return body
+        return re.sub(r"do\s*\{\s*(?:/\*[^*]*\*/\s*)?\}\s*while\(\s*true\s*\);", "gen_hlt();", body)
+
     def eh_funcinfos(self) -> dict[int, int]:
         """handler -> FuncInfo for each function whose first instructions load a FuncInfo into eax
         (`mov eax, 0x4037d8`, its magic 0x1993052x there) before jumping on to __CxxFrameHandler3."""
@@ -3303,6 +3322,7 @@ class Translator32:
         body = frame_locals(body, 0x10000 if alloca else 0, self.frames.get(a, 0) if eh else 0, eh_args)
         body = global_index(body)
         body = idiv32(body)
+        body = self.hlt_loops(a, body)
         # (a frame slot of a pointer type converted to a float, Ghidra reusing one local for both:
         # its bits, as GEN_TOF takes a pointer's)
         # (not one indexed: `(float)local_x[i]` converts the element)
@@ -3705,6 +3725,10 @@ class Translator32:
 
     def type_text(self, t: str) -> str:
         t = CC.sub("", t).strip()
+        # (a pointer to an array, `undefined1 (*) [32]`, a function's return or parameter: a pointer
+        # to its bytes. As the words it was, translated.h declared `undefined1 (  ) [32] *`, rhtest stl)
+        if re.search(r"\(\s*\*+\s*\)\s*\[", t):
+            return "undefined *"
         t = alias_types(t)
         t = re.sub(r"\b_func_\w+\b", "code", t)
         # a C++ type (templates, scopes): bytes under a pointer, nothing C can hold otherwise

@@ -469,6 +469,9 @@ static __inline double gen_x87math(double x, int k) {
    code in ecx: a generic one, 7). MSVC's /GS range checks end in one (Ghidra64.h's, 2026-10-23) */
 static unsigned int gen_swi_break(void) { __debugbreak(); return 0; }
 static unsigned int gen_swi_fastfail(void) { __fastfail(7); return 0; }
+/* `hlt`, a privileged instruction in user mode: it faults as the reference's does (translate32.py
+   hlt_loops) */
+static void gen_hlt(void) { __halt(); }
 #define swi(n) ((n) == 0x29 ? gen_swi_fastfail : gen_swi_break)
 /* `ud2`, which Ghidra spells `(code *)invalidInstructionException()` and calls */
 static unsigned int gen_ud2(void) { __ud2(); return 0; }
