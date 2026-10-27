@@ -102,6 +102,10 @@ SPECS: dict[str, tuple[str, list]] = {
     "CIcos": ("st0", [((x,), {"st0": f64(math.cos(x))}) for x in (0.5, 1.0, 3.0, 0.25)]),
     "CIpow": ("st01", [((x, y), {"st0": f64(x ** y)}) for x, y in ((2.0, 10.0), (4.0, 0.5), (2.0, -2.0),
                                                                     (16.0, 0.25), (0.5, 3.0))]),
+    # (and its remainder, the same shape, fmod(x, y) in st0: ApplyFacts' rh_CIfmod by name, this
+    # for one function ID leaves unnamed. Exact values, the sign the dividend's)
+    "CIfmod": ("st01", [((x, y), {"st0": f64(math.fmod(x, y))}) for x, y in ((7.5, 2.0), (-7.5, 2.0), (10.0, 3.0),
+                                                                             (5.25, 0.5), (1.0e6 + 0.75, 1.0))]),
     # (and the library's sqrt, a __cdecl double on the stack, its root pushed in st0: what VS2010
     # calls at /Od, `_sqrt`, which runs on into the body __CIsqrt shares and branches on the flags
     # its call to __load_CW left, a stub for in_ZF, rhtest msvc-16.00-x86 float-Od)

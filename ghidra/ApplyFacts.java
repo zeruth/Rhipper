@@ -509,6 +509,12 @@ public class ApplyFacts extends GhidraScript {
         // the language's operations nothing else writes together, `fscale(from_bcd(x), y)`, which
         // translate32.py reads as pow(x, y). FBLD's from_bcd never wraps an fscale's operand)
         bodies.put("CIpow", "b:10 = from_bcd(ST1); r:10 = fscale(b, ST0); ST1 = r;" + pop87 + pop0);
+        // (and its remainder, x in st1 and y in st0, fmod(x, y) left in st0: FPREM's own p-code, the
+        // quotient truncated through 64 bits, which the decompiler writes as plain C. As a call it
+        // took st0 alone, x lost, and its dispatch __cintrindisp2 ran into two stubs (in_ST1 lost,
+        // fscale undeclared) on a client's graphics setup, 0x4c0790, 2026-10-27)
+        bodies.put("CIfmod", "q:10 = ST1 f/ ST0; i:8 = trunc(q); t:10 = int2float(i); r:10 = ST1 f- (t f* ST0); ST1 = r;"
+                + pop87 + pop0);
         // (and its sine and cosine, st0 to st0: the language's fsin and fcos, C's sin and cos in
         // Ghidra32.h)
         bodies.put("CIsin", "ST0 = fsin(ST0);" + pop0);
