@@ -2575,7 +2575,15 @@ def next_call_deficit(insns, prv, nxt, a, depth=0) -> int:
             # two. As unknown, the first call kept edx and f took its caller's saved edi, a stub
             # on a VS2010 client's frame path, 0x46d690 2026-10-26)
             if t is None and not take and calls_seen == 0 and depth < 3:
-                take = max(0, after - next_call_deficit(insns, prv, nxt, p, depth + 1))
+                inner = next_call_deficit(insns, prv, nxt, p, depth + 1)
+                # (and what the calls past it still want beyond the words pushed between is wanted
+                # from before `a` too, whatever comes of the call's result: a stream's `s << name()
+                # << n + size() << name()`, each getter's result pushed, not chained, the words of
+                # the `<<`s pushed first. Ending at the unchained getter, the first took two of
+                # them, and the function lost ebp, rhtest msvc-14.51-x86 engine-Od 2026-10-27)
+                if inner > after:
+                    return deficit + inner - after
+                take = after - inner
             known = t is not None or bool(take) or (t is None and calls_seen == 0 and depth < 3)
             # (a call through a pointer after the first: what it takes is not known here, so the
             # count stops there, as before)
