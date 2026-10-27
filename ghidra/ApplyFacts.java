@@ -1465,6 +1465,7 @@ public class ApplyFacts extends GhidraScript {
         // `repz ret` had been missed, it was marked, and stayed so after the fix, cutting off what
         // follows each of its 8,878 calls)
         int cleared = 0;
+        java.util.List<Function> unmarked = new java.util.ArrayList<>();
         if (currentProgram.getDefaultPointerSize() == 4) {
             for (Function f : currentProgram.getFunctionManager().getFunctions(true)) {
                 if (!f.hasNoReturn() || listed.contains(f.getEntryPoint()) || f.isThunk()) continue;
@@ -1486,10 +1487,47 @@ public class ApplyFacts extends GhidraScript {
                 if (returns) {
                     f.setNoReturn(false);
                     cleared++;
+                    unmarked.add(f);
                 }
             }
         }
-        println("ApplyFacts: marked " + noreturnSet + " functions noreturn (" + cleared + " that return unmarked)");
+        // (and the bodies its callers were cut to at those calls given back: the flow goes on past
+        // them now, but a body only grows when fixed up. A VS2010 client's 0x67fb80 stopped at its
+        // call to 0x6761f0, Ghidra's analysis having marked it noreturn: its other 12 KB analysed by
+        // no fact, decompiled whole, and an AddRef there called with no `this`, 2026-10-27)
+        java.util.Set<Function> refit = new java.util.HashSet<>();
+        for (Function f : unmarked) {
+            for (ghidra.program.model.symbol.Reference r : getReferencesTo(f.getEntryPoint())) {
+                if (!r.getReferenceType().isCall()) continue;
+                Function caller = getFunctionContaining(r.getFromAddress());
+                if (caller != null) refit.add(caller);
+            }
+        }
+        // (and any body that ends at a call to a function that returns, the code after it no
+        // function's: cut by a flag cleared in an earlier session, before callers were refit)
+        if (currentProgram.getDefaultPointerSize() == 4) {
+            for (Function f : currentProgram.getFunctionManager().getFunctions(true)) {
+                if (f.isThunk() || f.isExternal()) continue;
+                for (ghidra.program.model.address.AddressRange r : f.getBody()) {
+                    Instruction last = getInstructionContaining(r.getMaxAddress());
+                    if (last == null || !last.getFlowType().isCall()) continue;
+                    Address next = last.getMaxAddress().add(1);
+                    if (f.getBody().contains(next) || getFunctionContaining(next) != null) continue;
+                    boolean returns = true;
+                    for (Address t : last.getFlows()) {
+                        Function callee = getFunctionAt(t);
+                        if (callee == null || callee.hasNoReturn()) returns = false;
+                    }
+                    if (returns && last.getFlows().length > 0) {
+                        refit.add(f);
+                        break;
+                    }
+                }
+            }
+        }
+        for (Function caller : refit) CreateFunctionCmd.fixupFunctionBody(currentProgram, caller, monitor);
+        println("ApplyFacts: marked " + noreturnSet + " functions noreturn (" + cleared + " that return unmarked, "
+                + refit.size() + " callers' bodies refit)");
     }
 
     // varargs.json: variadic functions and their fixed parameter count (tools/varargs.py).
