@@ -28,6 +28,14 @@ def main() -> None:
     q = struct.unpack_from(f"<{n}{PTR[1]}", d)
     # any pointer into .text: leaf stubs (ret, xor eax,eax; ret) have no .pdata entry
     is_fp = [b.is_code(v) for v in q]
+    # (and, in an image with relocations, relocated: a pointer is, data that only looks like
+    # one is not. Six words of 0x00626f6a after a real vtable's three slots, unrelocated, were
+    # read as six one-slot vtables: a function made at 0x626f6a inside 0x626610 cut its body,
+    # its last calls' signatures fell to the other function and lost `this`, a crash on a VS2010
+    # client's frame path 2026-10-27)
+    relocated = set(b.relocs())
+    if relocated:
+        is_fp = [fp and s + PS * i in relocated for i, fp in enumerate(is_fp)]
 
     # (not the import address table: on disk its slots hold name RVAs, and with a 32-bit image's
     # base of 0x400000 an RVA such as 0x00c7e5a2 is also an address in .text. Taken for vtables,
@@ -74,7 +82,7 @@ def main() -> None:
         ds, dd = b.bytes_of(sec)
         for j in range(0, len(dd) - PS + 1, PS):
             t = struct.unpack_from(PTR, dd, j)[0]
-            if slot(t) and not covered(t):
+            if slot(t) and not covered(t) and (not relocated or ds + j in relocated):
                 holders[t].add(ds + j)
     starts = sorted(set(takers) | set(holders))
 
