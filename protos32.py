@@ -2446,7 +2446,7 @@ def edx_argument(insns, prv, a) -> bool:
     return False
 
 
-def next_call_deficit(insns, prv, nxt, a) -> int:
+def next_call_deficit(insns, prv, nxt, a, depth=0) -> int:
     """The bytes the next call after `a` (in a straight line) takes beyond what is pushed between
     the two: arguments pushed for an outer call before an inner one is made. `push 2; push 0xcf;
     call [vt + 0x3c]; mov ecx, eax; call FUN_0043c920` (ret 8) is `FUN_0043c920(getter(), 0xcf, 2)`:
@@ -2491,8 +2491,15 @@ def next_call_deficit(insns, prv, nxt, a) -> int:
                 take = later_cleanup(insns, nxt, p)
             if not take and t is not None:
                 take = _cdecl_args.get(t)
-            # (what a call through a pointer takes, unknown here, is no count to go on past)
-            known = t is not None or bool(take)
+            # (what a call through a pointer takes, unknown here, is no count to go on past; but
+            # the words pushed for it are, less what the calls after it still need of them, the
+            # same count from there: `push edx; call [vt + 0x50]; push eax; call [vt + 0x1c];
+            # mov ecx, eax; call f (ret 8)` is f(getter(), a(), edx), the getter's 0 words and f's
+            # two. As unknown, the first call kept edx and f took its caller's saved edi, a stub
+            # on a VS2010 client's frame path, 0x46d690 2026-10-26)
+            if t is None and not take and calls_seen == 0 and depth < 3:
+                take = max(0, after - next_call_deficit(insns, prv, nxt, p, depth + 1))
+            known = t is not None or bool(take) or (t is None and calls_seen == 0 and depth < 3)
             # (a call through a pointer after the first: what it takes is not known here, so the
             # count stops there, as before)
             if calls_seen and t is None:
@@ -3258,6 +3265,12 @@ def main() -> None:
         # target's, and typed its own the CRT's stack check failed fast at entry)
         elif not callee_cleans and passed_min.get(f, 0) > stack and not v.get("tail_jumps"):
             stack = passed_min[f]
+        # (a __cdecl import's thunk, `jmp [__imp__set_fmode]`, reads nothing itself: its import's
+        # prototype's parameters. Typed so only while the import was taken for one popping its
+        # own; once its callers' folded cleanup made it __cdecl, _set_fmode took none, rhtest
+        # msvc-14.51-x86 int64-Od)
+        if not callee_cleans and t_slots.get(f) in typed_params:
+            stack = max(stack, typed_params[t_slots[f]])
         # (at most what the language's models place: x86win.cspec's stack entry is 500 bytes, and
         # FUN_00b2f1e0's 520, assigned whole, failed its decompilation, "Cannot assign parameter
         # address")
