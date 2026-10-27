@@ -1885,11 +1885,12 @@ unsigned int gen_imp__get_initial_narrow_environment(void) {
 }
 // x87 precision and infinity control have no x64 counterpart (the translation computes in
 // doubles): the x86 CRT's _PC_53 at startup, without them, or the call is an invalid parameter
+// (the precision control kept in the x87 control word, as _controlfp's, X87Control below)
+static unsigned int X87Control(uint32_t value, uint32_t mask);
 unsigned int gen_imp__controlfp_s(uint32_t current, uint32_t value, uint32_t mask) {
-    unsigned int now = 0;
-    errno_t r = _controlfp_s(&now, value, mask & ~(_MCW_PC | _MCW_IC));
+    unsigned int now = X87Control(value, mask);
     if (current) *At<uint32_t>(current) = now;
-    return static_cast<unsigned int>(r);
+    return 0;
 }
 // vcruntime's x86 SEH handler: x64 has none, and the reference's exceptions are the runtime's
 unsigned int gen_imp__except_handler4_common(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t) {
@@ -2072,6 +2073,33 @@ void gen_set_x87_cw(unsigned short cw) {
     static const unsigned int rc[4] = {_RC_NEAR, _RC_DOWN, _RC_UP, _RC_CHOP};
     unsigned int old;
     _controlfp_s(&old, rc[(cw >> 10) & 3], _MCW_RC);
+}
+
+// _controlfp and _control87 as an x86 CRT has them: the precision control (and rounding) the x87
+// unit's, kept in its control word, gen_x87_cw, which the host's SSE has none of. Read back as 0
+// (_PC_64), the reference's _PC_53 default came out wrong (rhtest msvc-14.51-x86 fpenv)
+static unsigned int X87Control(uint32_t value, uint32_t mask) {
+    unsigned int now = 0;
+    _controlfp_s(&now, value & mask & ~(_MCW_PC | _MCW_IC), mask & ~(_MCW_PC | _MCW_IC));
+    unsigned short cw = gen_x87_cw;
+    if (mask & _MCW_PC) {
+        uint32_t pc = value & _MCW_PC;
+        cw = static_cast<unsigned short>((cw & ~0x300) | ((pc == _PC_24 ? 0 : pc == _PC_53 ? 2 : 3) << 8));
+    }
+    if (mask & _MCW_RC) {
+        uint32_t rc = value & _MCW_RC;
+        cw = static_cast<unsigned short>((cw & ~0xC00) |
+                                         ((rc == _RC_DOWN ? 1 : rc == _RC_UP ? 2 : rc == _RC_CHOP ? 3 : 0) << 10));
+    }
+    gen_x87_cw = cw;
+    static const unsigned int pcs[4] = {_PC_24, _PC_64, _PC_53, _PC_64};
+    return (now & ~_MCW_PC) | pcs[(cw >> 8) & 3];
+}
+unsigned int gen_imp__controlfp(uint32_t value, uint32_t mask) {
+    return X87Control(value, mask);
+}
+unsigned int gen_imp__control87(uint32_t value, uint32_t mask) {
+    return X87Control(value, mask);
 }
 
 unsigned short gen_fpusw(int clear) {
