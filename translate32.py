@@ -2074,6 +2074,8 @@ class Translator32:
         # (and those that leave the x87 stack alone, kept_st0)
         self.keeps_st0 = {int(k, 16) for k, v in protos.items() if v.get("keeps_st0")}
         self.keeps = {int(k, 16): set(v["keep"]) for k, v in protos.items() if v.get("keep")}
+        # (the functions no caller reads a result of: protos32's "v")
+        self.ret_void = {int(k, 16) for k, v in protos.items() if v.get("ret") == "v"}
         # (and the registers each takes its parameters in, entry_registers)
         self.param_regs = {}
         for k, v in protos.items():
@@ -3515,7 +3517,12 @@ class Translator32:
             raise ValueError(f"a name C cannot take ({left.group(0)}: {around[:80]})")
         self.undeclared(body, var_types)
         ret = self.ret_type(sig.ret)
-        if sig.ret.strip() == "void":
+        # (a void function's return: nothing in eax, as the reference's bare `ret` leaves it, where
+        # no caller reads it (protos32's "v"; C4033 off, the port's return type stays unsigned
+        # int for the calls through pointers); 0 where Ghidra saw a caller use it all the same,
+        # `uVar4 = FUN_004308f0(...)`. A void function was `xor eax, eax; ret` against the
+        # reference's `ret`, bytes32's smallest functions, 2026-10-27)
+        if sig.ret.strip() == "void" and a not in self.ret_void:
             body = re.sub(r"\breturn\s*;", "return 0;", body)
         if not balanced(body):
             raise ValueError("unbalanced braces")
@@ -4428,7 +4435,8 @@ class Translator32:
             # (4717, recursive on all paths: a function whose other path ends in a call that does not
             # return, which the port's declarations do not say. VS2010's /MT dive() bottoms out in
             # the CRT's translated longjmp, rhtest msvc-16.00-x86 misc)
-            text = ['#include "translated.h"', "#pragma warning(disable: 4024 4047 4133 4244 4305 4311 4312 4700 4715 4716 4717 4022 4028 4090 4146 4554)"]
+            # (4033: a void function's valueless return in the port's unsigned int one, ret_void)
+            text = ['#include "translated.h"', "#pragma warning(disable: 4024 4047 4133 4244 4305 4311 4312 4700 4715 4716 4717 4022 4028 4090 4146 4554 4033)"]
             for a, t in chunk:
                 text.append(t)
             write(path, "\n".join(text) + "\n")

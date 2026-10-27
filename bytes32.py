@@ -167,10 +167,118 @@ def tokens(md, code: bytes, base: int, masked: set[int], lo: int, hi: int) -> tu
             s = ins.mnemonic + (" L" if re.fullmatch(r"0x[0-9a-f]+", ins.op_str) else " " + ins.op_str)
         if any(off <= r < off + ins.size for r in masked):
             s = re.sub(r"0x[0-9a-f]{5,}", "A", s)
+        # (`ret 0` is `ret`: the newest cl's c2 00 00 for a function that only returns, VS2010's c3)
+        if s.strip() == "ret 0":
+            s = "ret "
         toks.append(s)
         if ins.mnemonic in ("ret", "retn") and ins.address + ins.size >= hi:
             break
     return toks, bytes(mb)
+
+
+POOL = BUILD / "x86pool"
+
+
+def run_pool(a) -> None:
+    """A small pool of functions, built and compared in seconds: the N smallest by reference size
+    (from --min-size up), kept in build/x86pool/pool.json so each iteration measures the same ones; with
+    --fresh translated by translate32 as it is now, not read from the gen, so a translator change
+    is scored before any pipeline. The run's scores are compared with the pool's last run."""
+    POOL.mkdir(parents=True, exist_ok=True)
+    funcs = json.load(open(FACTS / "functions.json"))["functions"]
+    stubs = json.load(open(GEN / "manifest.json"))["stubs"]
+    sizes = {}
+    for f in funcs:
+        ent = int(f["entry"], 16)
+        rng = next(((int(lo, 16), int(hi, 16)) for lo, hi in f.get("ranges", []) if int(lo, 16) <= ent < int(hi, 16)), None)
+        if rng and not f.get("thunk") and f"{ent:08x}" not in stubs:
+            sizes[ent] = (rng, f["name"])
+    pj = POOL / "pool.json"
+    if a.addrs_pool:
+        addrs = [int(x, 16) for x in a.addrs_pool]
+    elif pj.exists() and not a.new_pool:
+        addrs = json.loads(pj.read_text())["addrs"]
+    else:
+        # (the smallest first, from --min-size up: a tier at a time, larger once those match)
+        cands = sorted((hi - lo, x) for x, ((lo, hi), _n) in sizes.items() if hi - lo >= a.min_size)
+        addrs = sorted(x for _s, x in cands[:a.pool])
+    pj.write_text(json.dumps({"addrs": addrs}), encoding="utf-8")
+    # the pool's C: translate32's now (--fresh) or the gen's
+    if a.fresh:
+        import translate32
+        t = translate32.Translator32()
+        texts = {}
+        for x in addrs:
+            _x, ok, text = t.translate_one(x)
+            if ok:
+                texts[x] = text
+    else:
+        from gendiff import functions
+        g = functions(None)
+        texts = {x: g[x] for x in addrs if x in g}
+    # (the gen's header with the pool's own prototypes taken from their definitions, which a
+    # translator change may have changed; the runtime's Ghidra32.h as it is now)
+    protos = {}
+    for x, text in texts.items():
+        m = re.search(r"^([^\n/][^\n]*\bF_" + f"{x:08x}" + r"\([^\n]*\))\s*$", text, re.M)
+        if m:
+            protos[x] = m.group(1) + ";"
+    hdr = []
+    for line in (GEN / "translated.h").read_text(encoding="utf-8", errors="replace").split("\n"):
+        m = re.search(r"\bF_([0-9a-f]{8})\(", line)
+        hdr.append(protos.get(int(m.group(1), 16), line) if m and int(m.group(1), 16) in protos else line)
+    (POOL / "translated.h").write_text("\n".join(hdr), encoding="utf-8")
+    (POOL / "Ghidra32.h").write_bytes((HERE / "runtime32" / "Ghidra32.h").read_bytes())
+    head = (GEN / "translated_000.c").read_text(encoding="utf-8").split("\n")[:2]
+    # (and the warnings translate32 disables now, which the gen's may not yet)
+    if " 4033" not in head[1]:
+        head[1] = head[1].rstrip(")") + " 4033)"
+    (POOL / "pool.c").write_text("\n".join(head) + "\n" + "\n".join(texts[x] for x in addrs if x in texts),
+                                 encoding="utf-8")
+    env = cl_env()
+    import shutil
+    cl = shutil.which("cl", path=env.get("Path") or env.get("PATH"))
+    obj = POOL / "pool.obj"
+    if obj.exists():
+        obj.unlink()
+    r = subprocess.run([cl, "/nologo", "/c", "/O2", "/Gy", "/arch:IA32", "/std:c17", "/w", "/DGEN_FIDELITY",
+                        f"/I{POOL}", f"/Fo{obj}", str(POOL / "pool.c")], cwd=POOL, env=env,
+                       capture_output=True, text=True, errors="replace")
+    if r.returncode or not obj.exists():
+        sys.exit("bytes32: the pool did not build:\n" + "\n".join(l for l in r.stdout.splitlines() if "error" in l)[:3000])
+    port = coff_functions(obj)
+    b = Binary()
+    relocs = {va + k for va in b.relocs() for k in range(4)}
+    show = {int(s, 16) for s in a.show}
+    rows = []
+    for x in addrs:
+        (lo, hi), name = sizes.get(x, ((x, x), "?"))
+        row = {"addr": x, "name": name, "ref_size": hi - lo}
+        if x not in port:
+            row.update(kind="absent", sim=0.0, same=False, size=0.0)
+            rows.append(row)
+            continue
+        rcode = bytes(b.image[b.off(lo):b.off(hi)])
+        row, shown = compare((row, rcode, lo, hi, {va - lo for va in range(lo, hi) if va in relocs}, *port[x], x in show))
+        rows.append(row)
+        if shown:
+            print(shown)
+    last_p = POOL / "last.json"
+    last = {r["addr"]: r for r in json.loads(last_p.read_text())} if last_p.exists() and not a.new_pool else {}
+    n = len(rows)
+    mean = sum(r["sim"] for r in rows) / max(1, n)
+    same = sum(r["same"] for r in rows)
+    lmean = sum(r["sim"] for r in last.values()) / max(1, len(last)) if last else None
+    print(f"pool: {n} functions ({len(texts)} translated), {same} byte-identical, mean similarity {mean:.4f}"
+          + (f" (was {lmean:.4f})" if lmean is not None else ""))
+    moved = sorted(((r["sim"] - last[r["addr"]]["sim"], r) for r in rows if r["addr"] in last
+                    and abs(r["sim"] - last[r["addr"]]["sim"]) > 1e-4), key=lambda t: t[0])
+    for d, r in moved[:8] + (moved[-8:] if len(moved) > 8 else []):
+        print(f"  {r['addr']:08x} {last[r['addr']]['sim']:.3f} -> {r['sim']:.3f}  {r['name'][:50]}")
+    if a.list:
+        for r in sorted(rows, key=lambda r: r["sim"]):
+            print(f"  {r['addr']:08x} sim {r['sim']:.3f} size {r.get('size', 0):5.2f} {r['ref_size']:5d}B {r['name'][:50]}")
+    last_p.write_text(json.dumps(rows), encoding="utf-8")
 
 
 _MD = None
@@ -210,7 +318,18 @@ def main() -> None:
     ap.add_argument("--jobs", type=int, default=4)
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--no-build", action="store_true", help="compare the objects already built")
+    ap.add_argument("--pool", type=int, default=0, metavar="N",
+                    help="a pool of N functions instead of everything (kept in build/x86pool/pool.json)")
+    ap.add_argument("--pool-addrs", dest="addrs_pool", nargs="*", default=[], help="the pool's functions, given")
+    ap.add_argument("--min-size", type=int, default=1, metavar="BYTES",
+                    help="the pool's smallest reference size: the N smallest from here up")
+    ap.add_argument("--new-pool", action="store_true", help="pick the pool again")
+    ap.add_argument("--fresh", action="store_true", help="the pool as translate32 translates it now")
+    ap.add_argument("--list", action="store_true", help="every pool function's scores")
     a = ap.parse_args()
+    if a.pool or a.addrs_pool:
+        run_pool(a)
+        return
     objs = (sorted(o for o in OBJ.glob("translated_*.obj") if o.stat().st_size >= 20) if a.no_build
             else build(a.jobs))
     port: dict[int, tuple[bytes, set[int]]] = {}
