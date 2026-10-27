@@ -13,7 +13,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 #include <corecrt_startup.h>
 #include <float.h>
@@ -1289,6 +1291,215 @@ unsigned int gen_imp_CreateFileW(uint32_t name, uint32_t access, uint32_t share,
     return Low(CreateFileW(At<wchar_t>(name), access, share, Sa64(sa, &s), disposition, flags,
                            reinterpret_cast<HANDLE>(static_cast<uintptr_t>(tmpl))));
 }
+// ---- OVERLAPPED: 20 bytes on x86 (Internal, InternalHigh, Offset, OffsetHigh, hEvent), 32 on
+// x64. Handed through, Windows took the x86 Offset for InternalHigh's upper half and the event from
+// past the end: every positioned ReadFile and WriteFile failed (rhtest sys, 2026-10-27). Each x86
+// OVERLAPPED gets a native one of its own, kept while it may still be in flight (an asynchronous
+// handle's operation finishes after the call): the offsets and event copied in at each call, the
+// status and count copied back after it and at GetOverlappedResult, where the reference's
+// HasOverlappedIoCompleted reads them
+struct Ov32 {
+    uint32_t internal, internalHigh, offset, offsetHigh, event;
+};
+static HANDLE H64(uint32_t h) { return reinterpret_cast<HANDLE>(static_cast<intptr_t>(static_cast<int32_t>(h))); }
+static std::mutex g_ovLock;
+static std::unordered_map<uint32_t, OVERLAPPED*> g_ovMade;
+static std::unordered_map<const OVERLAPPED*, uint32_t> g_ovOf;     // (a completion port's, back)
+static OVERLAPPED* Ov64(uint32_t p) {
+    if (p == 0) return nullptr;
+    OVERLAPPED* o;
+    {
+        std::lock_guard<std::mutex> hold(g_ovLock);
+        auto& slot = g_ovMade[p];
+        if (!slot) {
+            slot = static_cast<OVERLAPPED*>(calloc(1, sizeof(OVERLAPPED)));
+            g_ovOf[slot] = p;
+        }
+        o = slot;
+    }
+    const Ov32* s = At<Ov32>(p);
+    o->Internal = s->internal;
+    o->InternalHigh = s->internalHigh;
+    o->Offset = s->offset;
+    o->OffsetHigh = s->offsetHigh;
+    o->hEvent = H64(s->event);
+    return o;
+}
+static void OvBack(uint32_t p, const OVERLAPPED* o) {
+    if (p == 0 || o == nullptr) return;
+    Ov32* s = At<Ov32>(p);
+    s->internal = static_cast<uint32_t>(o->Internal);
+    s->internalHigh = static_cast<uint32_t>(o->InternalHigh);
+}
+unsigned int gen_imp_ReadFile(uint32_t h, uint32_t buf, uint32_t n, uint32_t got, uint32_t ov) {
+    OVERLAPPED* o = Ov64(ov);
+    BOOL r = ReadFile(H64(h), At<void>(buf), n, got ? At<DWORD>(got) : nullptr, o);
+    DWORD e = GetLastError();
+    OvBack(ov, o);
+    SetLastError(e);
+    return r;
+}
+unsigned int gen_imp_WriteFile(uint32_t h, uint32_t buf, uint32_t n, uint32_t put, uint32_t ov) {
+    OVERLAPPED* o = Ov64(ov);
+    BOOL r = WriteFile(H64(h), At<void>(buf), n, put ? At<DWORD>(put) : nullptr, o);
+    DWORD e = GetLastError();
+    OvBack(ov, o);
+    SetLastError(e);
+    return r;
+}
+unsigned int gen_imp_GetOverlappedResult(uint32_t h, uint32_t ov, uint32_t got, uint32_t wait) {
+    OVERLAPPED* o = Ov64(ov);
+    BOOL r = GetOverlappedResult(H64(h), o, At<DWORD>(got), wait);
+    DWORD e = GetLastError();
+    OvBack(ov, o);
+    SetLastError(e);
+    return r;
+}
+unsigned int gen_imp_DeviceIoControl(uint32_t h, uint32_t code, uint32_t in, uint32_t inSize, uint32_t out,
+                                     uint32_t outSize, uint32_t got, uint32_t ov) {
+    OVERLAPPED* o = Ov64(ov);
+    BOOL r = DeviceIoControl(H64(h), code, in ? At<void>(in) : nullptr, inSize, out ? At<void>(out) : nullptr, outSize,
+                             got ? At<DWORD>(got) : nullptr, o);
+    DWORD e = GetLastError();
+    OvBack(ov, o);
+    SetLastError(e);
+    return r;
+}
+unsigned int gen_imp_LockFileEx(uint32_t h, uint32_t flags, uint32_t reserved, uint32_t lo, uint32_t hi, uint32_t ov) {
+    OVERLAPPED* o = Ov64(ov);
+    BOOL r = LockFileEx(H64(h), flags, reserved, lo, hi, o);
+    DWORD e = GetLastError();
+    OvBack(ov, o);
+    SetLastError(e);
+    return r;
+}
+unsigned int gen_imp_UnlockFileEx(uint32_t h, uint32_t reserved, uint32_t lo, uint32_t hi, uint32_t ov) {
+    OVERLAPPED* o = Ov64(ov);
+    BOOL r = UnlockFileEx(H64(h), reserved, lo, hi, o);
+    DWORD e = GetLastError();
+    OvBack(ov, o);
+    SetLastError(e);
+    return r;
+}
+unsigned int gen_imp_CancelIoEx(uint32_t h, uint32_t ov) {
+    return CancelIoEx(H64(h), ov ? Ov64(ov) : nullptr);
+}
+// a completion port hands back the native OVERLAPPED: the reference's own, its status copied in
+// (and a key or an OVERLAPPED posted by PostQueuedCompletionStatus, an x86 value, as it is)
+unsigned int gen_imp_GetQueuedCompletionStatus(uint32_t port, uint32_t got, uint32_t key, uint32_t ov, uint32_t ms) {
+    DWORD n = 0;
+    ULONG_PTR k = 0;
+    OVERLAPPED* o = nullptr;
+    BOOL r = GetQueuedCompletionStatus(H64(port), &n, &k, &o, ms);
+    DWORD e = GetLastError();
+    uint32_t back = 0;
+    bool ours = false;
+    if (o) {
+        std::lock_guard<std::mutex> hold(g_ovLock);
+        auto it = g_ovOf.find(o);
+        ours = it != g_ovOf.end();
+        back = ours ? it->second : static_cast<uint32_t>(reinterpret_cast<uintptr_t>(o));
+    }
+    if (ours) OvBack(back, o);
+    if (got) *At<DWORD>(got) = n;
+    if (key) *At<uint32_t>(key) = static_cast<uint32_t>(k);
+    if (ov) *At<uint32_t>(ov) = back;
+    SetLastError(e);
+    return r;
+}
+unsigned int gen_imp_PostQueuedCompletionStatus(uint32_t port, uint32_t n, uint32_t key, uint32_t ov) {
+    // (the reference's OVERLAPPED posted as its x86 address: handed back as it was)
+    return PostQueuedCompletionStatus(H64(port), n, key, reinterpret_cast<OVERLAPPED*>(static_cast<uintptr_t>(ov)));
+}
+// ---- the interlocked singly linked list: x86's header is 8 bytes (the first entry, a 16-bit
+// depth, a 16-bit sequence) and its entries 4, x64's 16 and 16, aligned so. Handed x64's
+// functions, the reference's 8-aligned header crashed them (rhtest sys, 2026-10-27). x86's own
+// algorithm: a compare-exchange of the whole header, the sequence counted up at each push against a
+// pop's ABA
+static volatile LONG64* SlHead(uint32_t h) { return reinterpret_cast<volatile LONG64*>(At<uint8_t>(h)); }
+static LONG64 SlMake(uint32_t first, uint32_t depth, uint32_t seq) {
+    return static_cast<LONG64>(static_cast<uint64_t>(first) | (static_cast<uint64_t>(depth & 0xFFFF) << 32) |
+                               (static_cast<uint64_t>(seq & 0xFFFF) << 48));
+}
+// (the CRT's type_info list head among them)
+unsigned int gen_imp_InitializeSListHead(uint32_t h) {
+    *SlHead(h) = 0;
+    return 0;
+}
+
+// ---- one-time initialization: x86's INIT_ONCE is one 4-byte word, its context 4 bytes, x64's 8
+// and 8: Windows' wrote past the reference's static INIT_ONCE and its callback's context (rhtest
+// sys, 2026-10-27). x86's state kept in the word: 0 not begun, 1 running, the context | 2 done
+unsigned int gen_imp_InitOnceInitialize(uint32_t once) {
+    *At<uint32_t>(once) = 0;
+    return 0;
+}
+unsigned int gen_imp_InitOnceExecuteOnce(uint32_t once, uint32_t fn, uint32_t param, uint32_t ctx) {
+    auto w = reinterpret_cast<volatile LONG*>(At<uint32_t>(once));
+    for (;;) {
+        LONG v = *w;
+        if ((v & 3) == 2) {
+            if (ctx) *At<uint32_t>(ctx) = static_cast<uint32_t>(v) & ~3u;
+            return 1;
+        }
+        if ((v & 3) == 1 || InterlockedCompareExchange(w, 1, 0) != 0) {
+            Sleep(0);
+            continue;
+        }
+        // (the reference's callback, its context in a word of the stack: low, as the x86 code's)
+        uint32_t made = 0;
+        using Fn = unsigned int (*)(uint32_t, uint32_t, uint32_t);
+        unsigned int ok = reinterpret_cast<Fn>(static_cast<uintptr_t>(fn))(
+            once, param, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(&made)));
+        if (!ok) {
+            InterlockedExchange(w, 0);
+            return 0;
+        }
+        InterlockedExchange(w, static_cast<LONG>((made & ~3u) | 2));
+        if (ctx) *At<uint32_t>(ctx) = made & ~3u;
+        return 1;
+    }
+}
+unsigned int gen_imp_InterlockedPushEntrySList(uint32_t h, uint32_t e) {
+    for (;;) {
+        LONG64 old = *SlHead(h);
+        uint32_t first = static_cast<uint32_t>(old);
+        *At<uint32_t>(e) = first;
+        LONG64 now = SlMake(e, static_cast<uint32_t>(old >> 32) + 1, static_cast<uint32_t>(old >> 48) + 1);
+        if (InterlockedCompareExchange64(SlHead(h), now, old) == old) return first;
+    }
+}
+unsigned int gen_imp_InterlockedPopEntrySList(uint32_t h) {
+    for (;;) {
+        LONG64 old = *SlHead(h);
+        uint32_t first = static_cast<uint32_t>(old);
+        if (first == 0) return 0;
+        LONG64 now = SlMake(*At<uint32_t>(first), static_cast<uint32_t>(old >> 32) - 1, static_cast<uint32_t>(old >> 48));
+        if (InterlockedCompareExchange64(SlHead(h), now, old) == old) return first;
+    }
+}
+unsigned int gen_imp_InterlockedFlushSList(uint32_t h) {
+    for (;;) {
+        LONG64 old = *SlHead(h);
+        uint32_t first = static_cast<uint32_t>(old);
+        if (first == 0) return 0;
+        if (InterlockedCompareExchange64(SlHead(h), SlMake(0, 0, static_cast<uint32_t>(old >> 48)), old) == old)
+            return first;
+    }
+}
+unsigned int gen_imp_QueryDepthSList(uint32_t h) {
+    return static_cast<unsigned int>((*SlHead(h) >> 32) & 0xFFFF);
+}
+// (a chain of entries, first to last, pushed at once: count of them)
+unsigned int gen_imp_InterlockedPushListSListEx(uint32_t h, uint32_t first, uint32_t last, uint32_t count) {
+    for (;;) {
+        LONG64 old = *SlHead(h);
+        uint32_t was = static_cast<uint32_t>(old);
+        *At<uint32_t>(last) = was;
+        LONG64 now = SlMake(first, static_cast<uint32_t>(old >> 32) + count, static_cast<uint32_t>(old >> 48) + 1);
+        if (InterlockedCompareExchange64(SlHead(h), now, old) == old) return was;
+    }
+}
 unsigned int gen_imp_CreateDirectoryW(uint32_t path, uint32_t sa) {
     SECURITY_ATTRIBUTES s;
     return CreateDirectoryW(At<wchar_t>(path), Sa64(sa, &s));
@@ -1502,11 +1713,6 @@ unsigned int gen_imp_GetModuleFileNameA(uint32_t module, uint32_t buf, uint32_t 
     return RefNameCopied(len, n);
 }
 
-// An x86 SLIST_HEADER is 8 bytes; x64's is 16 and 16-aligned (the CRT's type_info list head)
-unsigned int gen_imp_InitializeSListHead(uint32_t head) {
-    memset(At<void>(head), 0, 8);
-    return 0;
-}
 // An x86 filter, which Windows would call with x64 EXCEPTION_POINTERS: not installed (a crash is
 // the runtime's to report)
 unsigned int gen_imp_SetUnhandledExceptionFilter(uint32_t) {
