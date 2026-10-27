@@ -2010,9 +2010,23 @@ class Translator32:
             handed = [x for x in re.findall(r"[A-Za-z_]\w*", prev[prev.find("(") + 1:]) if x in float10s]
             if len(set(handed)) == 1:
                 lines[i] = re.sub(r"=\s*extraout_ST0(?:_\d+)?\s*;", f"= {handed[0]};", lines[i])
-            elif m.group(1) in float10s:
+            # (V only where it held st0 before the call: a parameter, or assigned before it. A
+            # fresh float10 the line first assigns would be read uninitialized, ultrareview
+            # 2026-10-27; that one stays as it is)
+            elif m.group(1) in float10s and self.held_before(lines, i - 1, m.group(1)):
                 lines[i] = ""
         return "\n".join(lines)
+
+    @staticmethod
+    def held_before(lines: list[str], end: int, v: str) -> bool:
+        """Whether v holds a value before line `end`: a parameter of the function's signature, or
+        assigned (not just declared) in a line before it."""
+        head = "\n".join(lines[:end])
+        sig, _, body = head.partition("{")
+        # (an input register's local, in_ST0 or its renaming in_st0, holds what the function was handed)
+        if v.lower().startswith("in_st") or re.search(rf"\b{re.escape(v)}\s*[,)]", sig):
+            return True
+        return re.search(rf"(?<![\w.>])\b{re.escape(v)}\s*(?:[-+*/]?=)(?!=)", body) is not None
 
     def kept_inputs(self, c: str) -> str:
         """`extraout_ECX` (or EDX) read in the statement right after a call to a function that
