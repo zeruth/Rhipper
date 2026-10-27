@@ -88,8 +88,13 @@ typedef unsigned long long gen_lcode();
    reference's own run. Off, the cost is a flag test */
 extern int gen_trace_on;
 void gen_trace_enter(unsigned int addr, unsigned int a0, unsigned int a1, unsigned int a2, unsigned int a3);
+/* (GEN_FIDELITY: nothing, bytes32.py's x86 build, compared byte for byte with the reference) */
+#ifdef GEN_FIDELITY
+#define GEN_ENTER(addr, a0, a1, a2, a3) ((void)0)
+#else
 #define GEN_ENTER(addr, a0, a1, a2, a3) \
     do { if (gen_trace_on) gen_trace_enter((addr), (a0), (a1), (a2), (a3)); } while (0)
+#endif
 /* (a float or 8-byte argument's stack words, as the reference's record holds them: its bits, not
    its value converted, pi/4 recorded as 0 parted a client's runs at a sincos, 2026-10-26) */
 static __inline unsigned int gen_trace_f(float f) { union { float f; unsigned int u; } v; v.f = f; return v.u; }
