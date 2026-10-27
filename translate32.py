@@ -327,6 +327,10 @@ def cpu_state(c: str) -> str:
     """Processor state Ghidra reads as a lost register that the host has as an intrinsic: XCR0
     (xgetbv, ecx = 0; the CRT's __isa_available_init, whose result picks /O2's vector paths),
     without AVX-512's state, as Ghidra32.h's gen_cpuid reports none."""
+    # (and an SSE value's low 12 bytes zeroed, `auVar9._0_12_ = ZEXT812(0);`, the upper lane
+    # set apart: no C type is 12 bytes, so their bytes. Havok's vector code in a client, 10
+    # functions, 2026-10-27)
+    c = re.sub(r"(?m)^([ \t]*)(\w+)\._0_12_\s*=\s*ZEXT812\(0\);", r"\1memset(&\2, 0, 12);", c)
     if "in_XCR0" not in c:
         return c
     c = re.sub(r"(?m)^[ \t]*\w+ in_XCR0;\n", "", c)
