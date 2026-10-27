@@ -645,6 +645,72 @@ unsigned long long gen_eh_resume(void) {
 unsigned int gen_imp__CxxThrowException(uint32_t object, uint32_t info) {
     CxxThrow(0x19930520u, object, info);
 }
+// ---- a hardware fault in translated code, dispatched as the reference's SEH would -------------
+// An access violation, a division by zero, a breakpoint or a privileged instruction inside a
+// `__try`: the reference's filter and __except run, as for RaiseException. The exception handler
+// cannot land there itself (Windows is mid-dispatch), so it sends the faulting thread to
+// HwTrampoline, which dispatches on the thread's own stack as if the fault were a call to
+// RaiseException; where a filter says to continue execution, the fault's context is restored and
+// the instruction runs again (rhtest seh, 2026-10-27)
+namespace {
+struct HwFault {
+    CONTEXT ctx;
+    uint32_t code, n, a[4];
+};
+thread_local HwFault t_fault;
+
+[[noreturn]] void HwTrampoline() {
+    HwFault& f = t_fault;
+    eh::Thrown t{f.code, 0, 0, eh::Pointers(f.code, 0, f.n, f.a), false};
+    eh::Dispatch(t);
+    RtlRestoreContext(&f.ctx, nullptr);
+    for (;;) {}
+}
+
+bool InPortImage(uint64_t at) {
+    static uint64_t lo = 0, hi = 0;
+    if (!lo) {
+        auto base = reinterpret_cast<const uint8_t*>(GetModuleHandleW(nullptr));
+        auto nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(base + reinterpret_cast<const IMAGE_DOS_HEADER*>(base)->e_lfanew);
+        lo = reinterpret_cast<uint64_t>(base);
+        hi = lo + nt->OptionalHeader.SizeOfImage;
+    }
+    return at >= lo && at < hi;
+}
+}  // namespace
+
+// (RefImage.cpp's exception handler: true where the fault is sent to the reference's handlers)
+int gen_seh_hardware(EXCEPTION_POINTERS* ep) {
+    auto r = ep->ExceptionRecord;
+    switch (r->ExceptionCode) {
+    case EXCEPTION_ACCESS_VIOLATION: case EXCEPTION_INT_DIVIDE_BY_ZERO: case EXCEPTION_INT_OVERFLOW:
+    case EXCEPTION_BREAKPOINT: case EXCEPTION_PRIV_INSTRUCTION: case EXCEPTION_ILLEGAL_INSTRUCTION:
+    case EXCEPTION_FLT_DIVIDE_BY_ZERO: case EXCEPTION_FLT_INVALID_OPERATION: case EXCEPTION_FLT_OVERFLOW:
+    case EXCEPTION_FLT_UNDERFLOW: case EXCEPTION_FLT_INEXACT_RESULT: case EXCEPTION_FLT_STACK_CHECK:
+    case EXCEPTION_FLT_DENORMAL_OPERAND: case EXCEPTION_ARRAY_BOUNDS_EXCEEDED:
+        break;
+    default:
+        return 0;
+    }
+    // (only the translation's own faults, and only with a reference frame to take them: a system
+    // DLL's, handled by its own frames, and one no __try covers stay the host's)
+    if (!InPortImage(reinterpret_cast<uint64_t>(r->ExceptionAddress))) return 0;
+    uint32_t head = eh::Head();
+    if (head == eh::kEndOfChain || head == 0) return 0;
+    HwFault& f = t_fault;
+    f.ctx = *ep->ContextRecord;
+    f.code = static_cast<uint32_t>(r->ExceptionCode);
+    f.n = r->NumberParameters < 4 ? r->NumberParameters : 4;
+    for (uint32_t k = 0; k < f.n; k++) f.a[k] = static_cast<uint32_t>(r->ExceptionInformation[k]);
+    CONTEXT* c = ep->ContextRecord;
+    // (as if the faulting instruction had called it: its address the return address, just below
+    // the faulting frame, so a landing's longjmp unwinds through the trampoline into that frame)
+    c->Rsp -= 8;
+    *reinterpret_cast<uint64_t*>(c->Rsp) = c->Rip;
+    c->Rip = reinterpret_cast<uint64_t>(&HwTrampoline);
+    return 1;
+}
+
 // RaiseException: dispatched as the reference's; returns where a filter continues execution.
 // (a C++ throw too where the C runtime is the reference's own: VS2010's /MT _CxxThrowException is
 // translated, and raises 0xE06D7363 with {magic, object, ThrowInfo}. Taken as an SEH exception,
@@ -1514,6 +1580,12 @@ unsigned int gen_imp__controlfp_s(uint32_t current, uint32_t value, uint32_t mas
 // vcruntime's x86 SEH handler: x64 has none, and the reference's exceptions are the runtime's
 unsigned int gen_imp__except_handler4_common(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t) {
     return ExceptionContinueSearch;
+}
+// vcruntime's EH4 __finally runner, called where a __try is left by a jump (`__leave`, a return,
+// a goto out of it): the frame's termination handlers down to the try level given (rhtest seh)
+unsigned int gen_imp__local_unwind4(uint32_t /*cookie*/, uint32_t node, uint32_t level) {
+    if (uint32_t st = eh::ScopeTableOf(node)) eh::LocalUnwind4(node, st, static_cast<int32_t>(level));
+    return 0;
 }
 // an x86 exception filter's EXCEPTION_POINTERS, which x64 ucrt would read as its own
 unsigned int gen_imp__seh_filter_exe(uint32_t, uint32_t) {

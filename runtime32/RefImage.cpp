@@ -41,6 +41,8 @@ uint32_t gen_ref_base = 0x400000;
 // MXCSR as the reference reads and writes it (Ghidra32.h): its default
 __declspec(thread) unsigned int gen_MXCSR = 0x1f80;
 void GenUnimplemented(unsigned int address);
+// a fault in translated code sent to the reference's SEH (Adapters.cpp)
+int gen_seh_hardware(EXCEPTION_POINTERS* ep);
 }
 
 namespace {
@@ -206,6 +208,8 @@ LONG CALLBACK OnException(EXCEPTION_POINTERS* info) {
         c->Rax = 0;
         return EXCEPTION_CONTINUE_EXECUTION;
     }
+    // (a fault in translated code inside a reference __try: its filter's, Adapters.cpp)
+    if (gen_seh_hardware(info)) return EXCEPTION_CONTINUE_EXECUTION;
     if (rec->ExceptionCode == EXCEPTION_ACCESS_VIOLATION || rec->ExceptionCode == EXCEPTION_ILLEGAL_INSTRUCTION) {
         fprintf(stderr, "%s: exception %08lx at %p (%s %p)\n", RHIPPER_NAME, rec->ExceptionCode, rec->ExceptionAddress,
                 rec->NumberParameters >= 2 ? (rec->ExceptionInformation[0] ? "writing" : "reading") : "",
