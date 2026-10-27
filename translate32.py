@@ -1037,6 +1037,11 @@ def returned_only(c: str) -> set[str]:
     # (and their low parts, `in_AL` a byte function's result on the path that set none, `if (*this
     # == 0) return in_AL;`, a client's 0xa6feb0 on its frame path 2026-10-27)
     entry = set(re.findall(r"\bin_(?:E[ACD]X|[ACD][LX])(?:_\d+)?\b", c))
+    # (and a scratch register a keep convention leaves "unaffected", read only as the slot a `push
+    # ecx` reserved: `mov al, [ebp - 1]` of a function returning its uninitialized bool, the
+    # decompiler's `(byte)((uint)unaff_ECX >> 0x18)`, 276 stubs in a client 2026-10-27. protos32.py
+    # gives a scratch register the function really reads a parameter of its own)
+    entry |= set(re.findall(r"\bunaff_E[ACD]X(?:_\d+)?\b", c))
     # (and the upper bytes of eax a byte or word result came with, `CONCAT31(extraout_var, bVar3)`:
     # its callers read al, a bool's, and what the callee left above it is nothing they use)
     entry |= set(re.findall(r"\bextraout_var(?:_\d+)?\b", c))
