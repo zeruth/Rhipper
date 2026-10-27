@@ -3026,7 +3026,11 @@ class Translator32:
                     return m.group(0)
                 return f"{m.group(1)}{lhs} = ({t})(uintptr_t)gen_fl2bits((float)({rhs}))"
             return f"{m.group(1)}{lhs} = GEN_FLT_TO({lhs}, {rhs})"
-        body = re.sub(r"(?m)((?:^|[;{(,])\s*)((?:\*\s*)*[A-Za-z_]\w*(?:\s*\[[^\]\[]*\])*)\s*=(?!=)\s*"
+        # (or through a cast, `*(int * PTR32 *)&REFG(undefined, 0x14882cc) = REFG(float, ...)`, a
+        # global Ghidra typed a pointer that a float is stored in: C2440, a VS2010 client's camera
+        # update demoted on its frame path, 2026-10-27)
+        body = re.sub(r"(?m)((?:^|[;{(,])\s*)((?:\*\s*)*[A-Za-z_]\w*(?:\s*\[[^\]\[]*\])*"
+                      r"|\*\s*\(\s*[A-Za-z_][\w\s*]*\)\s*(?:&\s*REFG\([\w ,]+\)|\([^;=()]*(?:\([^;=()]*\)[^;=()]*)*\)))\s*=(?!=)\s*"
                       r"(REFG\((?:float|double), 0x[0-9a-f]+\)|\(&REFG\((?:float|double), 0x[0-9a-f]+\)\)\[[^\]\[]*\])"
                       r"(?=\s*[;,)])", flt_to, body)
         # (unary: `a * (*(undefined4 *)(...))` is a multiplication)
