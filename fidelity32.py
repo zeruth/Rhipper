@@ -286,7 +286,10 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
                         if mn == "lea" and img.cstr(t):
                             f.consts["s:" + img.cstr(t)] += 1
                         elif FLOAT_MNEMONIC.search(mn) and op.size in (4, 8):
-                            f.consts[F.float_text(img.read(t, op.size))] += 1
+                            # (not one past the image's end: no bytes to read there)
+                            raw = img.read(t, op.size)
+                            if len(raw) == op.size:
+                                f.consts[F.float_text(raw)] += 1
                         continue
                     k = global_or_const(disp & 0xFFFFFFFF, mn, op.size)
                     if k is not None and disp > 0x10000:
