@@ -913,6 +913,36 @@ def analyse(root: int, ranges):
     # extraout_ST0 was a stub, rhtest msvc-14.51-x86 float-IA32)
     if x87_ret_dead:
         x87_ret_dead = x87_depth_at_rets(insns, nxt, state) == {0}
+    # (and an x87 result of its own: every ret reached with one value on the stack, the last x87
+    # instruction before each a load from memory of one width, `call f; fstp [m]; fld [m]; ret`,
+    # a float rounded and returned. Typed only through the callee it seemed to pass on, the
+    # caller's st0 popped before the ret, such wrappers lost their float, 2026-10-27)
+    x87_own_ret = None
+    # (the last x87 instruction before each ret its load, nothing called after it: what is in st0
+    # there is that load, whatever a call before it left deeper)
+    if any(insns[q].mnemonic.startswith("f") for q in state) and not x87_ret_dead:
+        widths = set()
+        for a in state:
+            if insns[a].mnemonic != "ret":
+                continue
+            q = prv.get(a)
+            for _ in range(16):
+                if q is None or q not in insns:
+                    break
+                qi = insns[q]
+                if qi.mnemonic.startswith("f") and qi.mnemonic not in X87_CONTROL:
+                    ops = qi.operands
+                    if qi.mnemonic == "fld" and ops and ops[0].type == X.X86_OP_MEM:
+                        widths.add(ops[0].size)
+                    else:
+                        widths.add(None)
+                    break
+                if qi.mnemonic in ("call", "jmp") or qi.mnemonic.startswith("j"):
+                    widths.add(None)
+                    break
+                q = prv.get(q)
+        if widths in ({4}, {8}):
+            x87_own_ret = "f4" if widths == {4} else "d8"
     for a in state:
         if insns[a].mnemonic != "ret":
             continue
@@ -1234,7 +1264,7 @@ def analyse(root: int, ranges):
     # words' (fldcw, fnstsw, ...), and no call through a pointer; its direct callees decided in main)
     x87_data = any(insns[a].mnemonic.startswith("f") and insns[a].mnemonic not in X87_CONTROL for a in state) \
         or any(insns[a].mnemonic == "call" and _target(insns[a]) is None for a in state)
-    return {"fpu_clear": fpu_clear, "x87_data": x87_data, "local_block": block, "passed": passed, "tail_jumps": tail_jumps, "eh_imms": eh_imms,
+    return {"fpu_clear": fpu_clear, "x87_data": x87_data, "x87_own_ret": x87_own_ret, "local_block": block, "passed": passed, "tail_jumps": tail_jumps, "eh_imms": eh_imms,
             "frame": -floor[0] if floor[0] is not None and floor[0] < 0 else None,"inputs": inputs, "in_width": in_width, "stack_hi": stack_hi, "slots": slots,
             "addr_taken": addr_taken, "calls": calls, "variadic": variadic, "call_pushes": call_pushes, "pushes_past": pushes_past,
             "untyped_pushed": untyped_pushed,
@@ -1280,6 +1310,7 @@ def result_reads(insns, state, nxt):
     # they leave eax and edx alone, decided in main())
     passes_via: list[tuple[int, list[int]]] = []
     st_over: list = []
+    st_clean: set = set()           # (callees some site hands to the ret with st0 untouched)
     for a, ins in insns.items():
         t = _target(ins)
         if a not in state:
@@ -1335,6 +1366,8 @@ def result_reads(insns, state, nxt):
                     # VS2010 client 2026-10-26)
                     if st_loaded and t not in st_over:
                         st_over.append(t)
+                    elif not st_loaded:
+                        st_clean.add(t)
                 break
             # (a load onto the x87 stack reads no st0, and the straight line goes on for eax and
             # edx: walk's V2 came back in edx:eax, read past `fld qword ptr [c]`, and as an i4 the
@@ -1369,6 +1402,12 @@ def result_reads(insns, state, nxt):
                           "faddp", "fmulp", "fsubp", "fsubrp", "fdivp", "fdivrp", "fcompp", "fucompp", "ftst"):
                     width = pi.operands[0].size if pi.operands and pi.operands[0].type == X.X86_OP_MEM else 8
                     kind = kind or ("f4" if width == 4 else "d8")
+                    # (and one that pops it, `call f; fstp [esi + 0xfc]; ... ret`: the callee's st0
+                    # is the caller's to store, not to return, whatever eax reaches the ret. Taken
+                    # for passed on, a camera update returned a float, its decompilation failed
+                    # "Forced merge caused intersection", a VS2010 client's 0xb75490 2026-10-27)
+                    if (mn.endswith("p") or mn in ("fcompp", "fucompp")) and t not in st_over:
+                        st_over.append(t)
                 break
             # (an unconditional jump within the function goes on there: `call ctor; jmp join` with
             # `join: mov [g], eax`, the other path's `xor eax, eax`. Stopped at the jump, the
@@ -1449,6 +1488,9 @@ def result_reads(insns, state, nxt):
     # Taken as passed on, a bool returned in al stayed an i4 and its upper bytes extraout_EAX, a
     # VS2010 client's 0x4d14a0 on WinMain's path, 2026-10-26)
     passes = [p for p in passes if isinstance(p, tuple) or "security_check_cookie" not in _names.get(p, "")]
+    # (per site: a callee whose st0 one site pops and another hands to the ret untouched, `call f;
+    # pop edi; ...; ret 4`, is passed on all the same, 0x539e30 in a VS2010 client)
+    st_over = [t for t in st_over if t not in st_clean]
     return reads, passes, handoffs, passes_via, st_over
 
 
@@ -3120,6 +3162,10 @@ def main() -> None:
         give(g, "i4", "an EH funclet's result")
     # (and one that sets eax itself just before its ret, read by no caller it can see: a virtual
     # one's result, analyse's sets_eax)
+    # (and one that loads its own x87 result before each ret, analyse's x87_own_ret)
+    for f, v in local.items():
+        if v.get("x87_own_ret") and f not in ret_of:
+            give(f, v["x87_own_ret"], "loads st0 before its ret")
     for f, v in local.items():
         if v.get("sets_eax") and f not in ret_of:
             give(f, f"i{v['sets_eax']}", "sets eax before its ret")
@@ -3136,7 +3182,9 @@ def main() -> None:
                 # manager's every allocation came back 0, 2026-10-23)
                 # (eax only: memcpy and memset show as edx:eax ones, and every function that ends
                 # in one became one too)
-                if t in ret_of:
+                # (an x87 one not where the callee's st0 was popped or loaded over before the ret,
+                # st_over: the caller's own, stored, b75490's)
+                if t in ret_of and not (family[ret_of[t]] == "x87" and t in v.get("st_over", ())):
                     changed |= give(f, "i4" if ret_of[t] == "i8" else ret_of[t], f"returns {hexa(t)}'s")
                 # (one that leaves eax alone, the result is the caller's own: `mov eax, r; ...; call
                 # __security_check_cookie; ret`. 4,830 functions had theirs only through the cookie
@@ -3250,14 +3298,14 @@ def main() -> None:
     # caller's across a call to one, translate32's kept st0. The CRT's __load_CW, `fldcw [esp+4]`,
     # between a math tail's argument and its use: as a call that may load st0, `in_st0 =
     # extraout_ST0`, a stub, rhtest msvc-16.00-x86 float)
-    keeps_st0 = {f for f, v in local.items() if "error" not in v and not v.get("x87_data", True)}
+    leaves_x87 = {f for f, v in local.items() if "error" not in v and not v.get("x87_data", True)}
     changed = True
     while changed:
         changed = False
-        for f in list(keeps_st0):
-            if any(not isinstance(t, tuple) and t not in keeps_st0 and t not in noreturn
+        for f in list(leaves_x87):
+            if any(not isinstance(t, tuple) and t not in leaves_x87 and t not in noreturn
                    for t, _m, _k in local[f].get("calls", ())):
-                keeps_st0.discard(f)
+                leaves_x87.discard(f)
                 changed = True
     out = {}
     counts: dict[str, int] = {}
@@ -3336,7 +3384,7 @@ def main() -> None:
         e = {"cc": cc, "params": params, "stack": stack}
         if v.get("fpu_clear"):
             e["fpu_clear"] = True
-        if f in keeps_st0:
+        if f in leaves_x87:
             e["keeps_st0"] = True
         # (the bytes below its entry its frame allocation reaches: translate32.py lays out that much
         # of a function that links an EH frame, whose funclets reach into it through ebp)
