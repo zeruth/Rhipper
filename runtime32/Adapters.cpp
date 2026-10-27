@@ -916,13 +916,151 @@ uint32_t ClassProc(ATOM atom) {
     return fn;
 }
 
+// The messages whose lParam points to a structure holding handles or pointers, 8 bytes each on
+// x64: the reference's window procedure reads x86's layout, so it gets an x86 copy, and what it
+// writes back goes into Windows' own. Passed as they were, a client's WM_WINDOWPOSCHANGING read
+// x64's second handle for its x and wrote its clamped size over the native y and cx: its window
+// opened off the screen's bottom right and was moved and sized again on every frame (2026-10-26).
+#pragma pack(push, 4)
+struct WindowPos32 {
+    uint32_t hwnd, hwndInsertAfter;
+    int32_t x, y, cx, cy;
+    uint32_t flags;
+};
+static_assert(sizeof(WindowPos32) == 28, "WINDOWPOS, x86");
+struct NcCalcSize32 {
+    RECT rgrc[3];
+    uint32_t lppos;
+};
+static_assert(sizeof(NcCalcSize32) == 52, "NCCALCSIZE_PARAMS, x86");
+struct CreateStruct32 {
+    uint32_t lpCreateParams, hInstance, hMenu, hwndParent;
+    int32_t cy, cx, y, x;
+    int32_t style;
+    uint32_t lpszName, lpszClass;
+    uint32_t dwExStyle;
+};
+static_assert(sizeof(CreateStruct32) == 48, "CREATESTRUCT, x86");
+#pragma pack(pop)
+
+void PosTo32(const WINDOWPOS& p, WindowPos32& o) {
+    o.hwnd = Low(p.hwnd);
+    o.hwndInsertAfter = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(p.hwndInsertAfter));
+    o.x = p.x;
+    o.y = p.y;
+    o.cx = p.cx;
+    o.cy = p.cy;
+    o.flags = p.flags;
+}
+void PosFrom32(const WindowPos32& o, WINDOWPOS& p) {
+    // (HWND_TOP 0, HWND_BOTTOM 1, HWND_TOPMOST -1, HWND_NOTOPMOST -2: sign-extended, as handles are)
+    p.hwndInsertAfter = reinterpret_cast<HWND>(static_cast<intptr_t>(static_cast<int32_t>(o.hwndInsertAfter)));
+    p.x = o.x;
+    p.y = o.y;
+    p.cx = o.cx;
+    p.cy = o.cy;
+    p.flags = o.flags;
+}
+
 LRESULT CALLBACK GenWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     uint32_t fn = ClassProc(static_cast<ATOM>(GetClassWord(hwnd, GCW_ATOM)));
     if (!fn) return IsWindowUnicode(hwnd) ? DefWindowProcW(hwnd, msg, wp, lp) : DefWindowProcA(hwnd, msg, wp, lp);
     using Proc = unsigned int (*)(uint32_t, uint32_t, uint32_t, uint32_t);
-    unsigned int r = reinterpret_cast<Proc>(static_cast<uintptr_t>(fn))(
-        Low(hwnd), msg, static_cast<uint32_t>(wp), static_cast<uint32_t>(lp));
-    return static_cast<LRESULT>(static_cast<int32_t>(r));
+    auto call = [&](uint32_t lp32) {
+        unsigned int r = reinterpret_cast<Proc>(static_cast<uintptr_t>(fn))(Low(hwnd), msg, static_cast<uint32_t>(wp), lp32);
+        return static_cast<LRESULT>(static_cast<int32_t>(r));
+    };
+    if (lp && (msg == WM_WINDOWPOSCHANGING || msg == WM_WINDOWPOSCHANGED)) {
+        auto& p = *reinterpret_cast<WINDOWPOS*>(lp);
+        WindowPos32 o;
+        PosTo32(p, o);
+        LRESULT r = call(static_cast<uint32_t>(reinterpret_cast<uintptr_t>(&o)));
+        PosFrom32(o, p);
+        return r;
+    }
+    if (lp && msg == WM_NCCALCSIZE && wp) {
+        auto& n = *reinterpret_cast<NCCALCSIZE_PARAMS*>(lp);
+        WindowPos32 o = {};
+        NcCalcSize32 n32;
+        memcpy(n32.rgrc, n.rgrc, sizeof n32.rgrc);
+        if (n.lppos) PosTo32(*n.lppos, o);
+        n32.lppos = n.lppos ? static_cast<uint32_t>(reinterpret_cast<uintptr_t>(&o)) : 0;
+        LRESULT r = call(static_cast<uint32_t>(reinterpret_cast<uintptr_t>(&n32)));
+        memcpy(n.rgrc, n32.rgrc, sizeof n32.rgrc);
+        if (n.lppos) PosFrom32(o, *n.lppos);
+        return r;
+    }
+    if (lp && (msg == WM_CREATE || msg == WM_NCCREATE)) {
+        // (the A and W structures alike: the same fields, the strings' type apart)
+        auto& c = *reinterpret_cast<CREATESTRUCTA*>(lp);
+        CreateStruct32 c32;
+        c32.lpCreateParams = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(c.lpCreateParams));
+        c32.hInstance = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(c.hInstance));
+        c32.hMenu = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(c.hMenu));
+        c32.hwndParent = Low(c.hwndParent);
+        c32.cy = c.cy;
+        c32.cx = c.cx;
+        c32.y = c.y;
+        c32.x = c.x;
+        c32.style = c.style;
+        c32.lpszName = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(c.lpszName));
+        c32.lpszClass = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(c.lpszClass));
+        c32.dwExStyle = c.dwExStyle;
+        return call(static_cast<uint32_t>(reinterpret_cast<uintptr_t>(&c32)));
+    }
+    return call(static_cast<uint32_t>(lp));
+}
+
+// DefWindowProc from the reference's window procedure, handed the x86 copy GenWndProc made: a
+// native structure for Windows again, what it changes copied back
+LRESULT DefWindowProc32(bool wide, uint32_t hwnd32, uint32_t msg, uint32_t wp, uint32_t lp) {
+    HWND hwnd = reinterpret_cast<HWND>(static_cast<intptr_t>(static_cast<int32_t>(hwnd32)));
+    auto def = [&](LPARAM l) {
+        return wide ? DefWindowProcW(hwnd, msg, static_cast<WPARAM>(wp), l)
+                    : DefWindowProcA(hwnd, msg, static_cast<WPARAM>(wp), l);
+    };
+    if (lp && (msg == WM_WINDOWPOSCHANGING || msg == WM_WINDOWPOSCHANGED)) {
+        auto& o = *At<WindowPos32>(lp);
+        WINDOWPOS p = {};
+        p.hwnd = hwnd;
+        PosFrom32(o, p);
+        LRESULT r = def(reinterpret_cast<LPARAM>(&p));
+        PosTo32(p, o);
+        return r;
+    }
+    if (lp && msg == WM_NCCALCSIZE && wp) {
+        auto& n32 = *At<NcCalcSize32>(lp);
+        NCCALCSIZE_PARAMS n = {};
+        WINDOWPOS p = {};
+        memcpy(n.rgrc, n32.rgrc, sizeof n.rgrc);
+        if (n32.lppos) {
+            p.hwnd = hwnd;
+            PosFrom32(*At<WindowPos32>(n32.lppos), p);
+            n.lppos = &p;
+        }
+        LRESULT r = def(reinterpret_cast<LPARAM>(&n));
+        memcpy(n32.rgrc, n.rgrc, sizeof n32.rgrc);
+        if (n32.lppos) PosTo32(p, *At<WindowPos32>(n32.lppos));
+        return r;
+    }
+    if (lp && (msg == WM_CREATE || msg == WM_NCCREATE)) {
+        auto& c32 = *At<CreateStruct32>(lp);
+        CREATESTRUCTA c = {};
+        c.lpCreateParams = reinterpret_cast<LPVOID>(static_cast<uintptr_t>(c32.lpCreateParams));
+        c.hInstance = reinterpret_cast<HINSTANCE>(static_cast<uintptr_t>(c32.hInstance));
+        c.hMenu = reinterpret_cast<HMENU>(static_cast<intptr_t>(static_cast<int32_t>(c32.hMenu)));
+        c.hwndParent = reinterpret_cast<HWND>(static_cast<intptr_t>(static_cast<int32_t>(c32.hwndParent)));
+        c.cy = c32.cy;
+        c.cx = c32.cx;
+        c.y = c32.y;
+        c.x = c32.x;
+        c.style = c32.style;
+        c.lpszName = reinterpret_cast<LPCSTR>(static_cast<uintptr_t>(c32.lpszName));
+        c.lpszClass = reinterpret_cast<LPCSTR>(static_cast<uintptr_t>(c32.lpszClass));
+        c.dwExStyle = c32.dwExStyle;
+        return def(reinterpret_cast<LPARAM>(&c));
+    }
+    return def(static_cast<LPARAM>(static_cast<intptr_t>(static_cast<int32_t>(lp))));
 }
 
 // a name or a resource number (below 0x10000, MAKEINTRESOURCE)
@@ -1536,6 +1674,14 @@ unsigned int gen_imp_WSAStartup(uint32_t version, uint32_t out) {
         o->iMaxUdpDg = d.iMaxUdpDg;
     }
     return static_cast<unsigned int>(r);
+}
+
+// ---- DefWindowProc: the x86 structures GenWndProc handed the reference's window procedure
+unsigned int gen_imp_DefWindowProcA(uint32_t hwnd, uint32_t msg, uint32_t wp, uint32_t lp) {
+    return static_cast<unsigned int>(DefWindowProc32(false, hwnd, msg, wp, lp));
+}
+unsigned int gen_imp_DefWindowProcW(uint32_t hwnd, uint32_t msg, uint32_t wp, uint32_t lp) {
+    return static_cast<unsigned int>(DefWindowProc32(true, hwnd, msg, wp, lp));
 }
 
 }  // extern "C"
