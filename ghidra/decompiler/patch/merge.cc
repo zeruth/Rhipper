@@ -319,8 +319,12 @@ void Merge::mergeRangeMust(VarnodeLocSet::const_iterator startiter,VarnodeLocSet
     vn = *startiter;
     if (vn->getHigh() == high) continue;
     mergeTestMust(vn);
+    // RHIPPER: a forced merge whose covers still intersect is left unmade, the two variables apart,
+    // not the whole function's decompilation failed: a VS2010 client's camera update 0xb75490 (its
+    // x87 temporaries in one stack slot), a stub on the frame path, 2026-10-27. Only a function
+    // that would not decompile at all decompiles differently
     if (!merge(high,vn->getHigh(),false))
-      throw LowlevelError("Forced merge caused intersection");
+      continue;
   }
 }
 

@@ -36,7 +36,9 @@
 #   merge.cc    an address-tied variable is not merged with one that is not: speculatively beside
 #               it (its value printed as a store the program never made), nor as an input of a
 #               MULTIEQUAL whose output is not tied (the join's other values became the tied
-#               variable's, and a read of its storage through a pointer saw them)
+#               variable's, and a read of its storage through a pointer saw them); and a forced
+#               merge whose covers still intersect is left unmade, not the function failed
+#               ("Forced merge caused intersection": an x86 client's camera update)
 #   coreaction.cc  a LOAD is not printed past a write to an aliased stack or memory variable whose
 #               address the function takes (a COPY into it, which the release's check, STOREs
 #               only, missed): std::max through a reused temporary, `p = (b <= g) ? &g : &tmp;
