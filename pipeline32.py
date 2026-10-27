@@ -93,7 +93,12 @@ def facts(jobs: int) -> bool:
         return False
     # (virtual functions named from RTTI, once Ghidra's functions are final: ghidra.sh all applies them)
     stamp("rtti32")
-    return step("rtti32", [py, str(RH / "rtti32.py")], tail=1)[0] == 0
+    if step("rtti32", [py, str(RH / "rtti32.py")], tail=1)[0]:
+        return False
+    # (and the static C runtime's functions Function ID left unnamed, by the toolchain's own
+    # signatures: ghidra.sh all applies them, before RTTI's names)
+    stamp("crtsigs")
+    return step("crtsigs", [py, str(RH / "crtsigs.py")], tail=1)[0] == 0
 
 
 def ghidra(_jobs: int) -> bool:

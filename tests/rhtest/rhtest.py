@@ -328,7 +328,10 @@ class Project:
             log = (self.build / "protos32.log").read_text(encoding="utf-8", errors="replace")
             m = re.search(r"(\d+) code no function covers", log)
             if not m or m.group(1) == "0":
-                return True
+                # (and the static C runtime named by the toolchain's signatures, as a real
+                # project's facts step does)
+                return run([sys.executable, str(RHIPPER / "crtsigs.py")], self.root, self.env,
+                           self.build / "crtsigs.log") == 0
             print(f"    {m.group(1)} code no function covers: ghidra.sh apply, functions")
             if not self.ghidra_sh("apply-functions", log="ghidra-apply.log", tail=0):
                 return False

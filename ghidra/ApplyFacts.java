@@ -140,6 +140,10 @@ public class ApplyFacts extends GhidraScript {
         }
         File cs = new File(dir, "callsites.json");
         if (cs.exists()) applyCallsites(read(cs));
+        // (the static C runtime's functions by their bytes, crtsigs.py: first, RTTI's and the hand
+        // names after them winning)
+        File crt = new File(dir, "names_crt.json");
+        if (crt.exists()) applyNames(read(crt));
         // (an x86 binary's virtual functions by their RTTI classes, rtti32.py: before the hand
         // names, which win)
         File rtti = new File(dir, "names_rtti.json");
