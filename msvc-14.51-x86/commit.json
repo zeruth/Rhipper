@@ -1,1 +1,1 @@
-{"sha": "33422b1a754b6aec0c1ee638b6691b166eb2ff52", "date": "2026-10-28T16:54:09-04:00", "subject": "fix(runtime32): SetClassLongA with a handle's index through SetClassLongPtrA"}
+{"sha": "e93c80b89d12ca557330d6810f5101f18d3dd801", "date": "2026-10-28T17:11:15-04:00", "subject": "fix(translate32): an indirect call's x87 result read past later calls, found back through them"}
