@@ -982,5 +982,17 @@
   "stubs": 172,
   "perfect": 4360,
   "translated": 4427
+ },
+ {
+  "sha": "b6db34a894475e630b6cfb5b1a680ceaff6b5dcc",
+  "date": "2026-10-28T07:24:13-04:00",
+  "subject": "fix(translate32, protos32): float parameters reached through a pointer; observed sites reconciled with the calls before",
+  "run": "2026-10-28 12:12 UTC",
+  "file": "b6db34a894475e630b6cfb5b1a680ceaff6b5dcc.json",
+  "passing": 21,
+  "projects": 34,
+  "stubs": 172,
+  "perfect": 4360,
+  "translated": 4427
  }
 ]

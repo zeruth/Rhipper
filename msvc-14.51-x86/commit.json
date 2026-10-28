@@ -1,1 +1,1 @@
-{"sha": "2fc2f9160a5c38e9eef7bef0e13cb95d4a75b802", "date": "2026-10-28T06:54:56-04:00", "subject": "feat(shadow32, protos32, runtime32): indirect calls sized by the callees a reference run reached"}
+{"sha": "b6db34a894475e630b6cfb5b1a680ceaff6b5dcc", "date": "2026-10-28T07:24:13-04:00", "subject": "fix(translate32, protos32): float parameters reached through a pointer; observed sites reconciled with the calls before"}
