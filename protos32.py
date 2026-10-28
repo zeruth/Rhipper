@@ -1340,6 +1340,13 @@ def analyse(root: int, ranges):
             # theirs is no x87 result, st0_dropped)
             # ((callee, "call" | "ret", the calls the paths end at) for each; "ret": its st0 goes on
             # to this function's own ret untouched, no x87 result if this function's is none)
+            # (member-function pointers: the functions stored into object fields, by displacement,
+            # and the calls through one in this method with its own ecx still there, (site,
+            # displacement): __thiscall in main where every function stored at it is one)
+            "field_stores": {d: sorted(s) for d, s in field_stores(insns, state).items()},
+            "field_calls": {a: d for a in state if insns[a].mnemonic == "call" and _target(insns[a]) is None
+                            and inputs & ECX and not state[a][0] & ECX
+                            and (d := field_call_disp(insns, prv, a)) is not None},
             # (its first x87 instruction from the entry, in address order, reads the stack rather
             # than loading: it takes st0, __ftol2's `fstp`/`fistp`, whatever inputs makes of it)
             "st0_entry": st0_at_entry(insns, root),
@@ -1983,6 +1990,49 @@ def method_table_call(insns, prv, a) -> bool:
     except Exception:
         return False
     return all(s in _names for s in slots)
+
+
+def field_call_disp(insns, prv, a) -> int | None:
+    """`call [r + K]`, or `call r2` of `mov r2, [r + K]`, through an object's own field (no index,
+    no vtable: r not itself loaded from memory): the field's displacement K, else None. A
+    member-function pointer kept in the object, `mov eax, [esi + 0x1ec]; call eax`."""
+    op = insns[a].operands[0] if insns[a].operands else None
+    if op is None or virtual_call(insns, prv, a):
+        return None
+    mem = None
+    if op.type == X.X86_OP_MEM:
+        mem = op.mem
+    elif op.type == X.X86_OP_REG:
+        # (/O2 loads the pointer early, its arguments' x87 work between: 0x98bb60's `mov edx,
+        # [ecx + 0x2b4]` twenty instructions before its `call edx`)
+        p = prv.get(a)
+        for _ in range(40):
+            if p is None or p not in insns or insns[p].mnemonic in ("call", "jmp", "ret"):
+                return None
+            ins = insns[p]
+            if op.reg in regs_access(ins)[1]:
+                ops = ins.operands
+                if ins.mnemonic == "mov" and len(ops) == 2 and ops[1].type == X.X86_OP_MEM:
+                    mem = ops[1].mem
+                break
+            p = prv.get(p)
+    if mem is None or not mem.base or mem.index or mem.base in (X.X86_REG_EBP, X.X86_REG_ESP):
+        return None
+    return mem.disp & 0xFFFFFFFF
+
+
+def field_stores(insns, state) -> dict[int, set[int]]:
+    """displacement -> the functions' addresses this one stores into an object's field as
+    constants, `mov dword ptr [esi + 0x1ec], 0x9d6e50`: a member-function pointer's targets"""
+    out: dict[int, set[int]] = {}
+    for a in state:
+        ins = insns[a]
+        ops = ins.operands
+        if ins.mnemonic == "mov" and len(ops) == 2 and ops[0].type == X.X86_OP_MEM and ops[0].mem.base \
+                and not ops[0].mem.index and ops[0].mem.base not in (X.X86_REG_EBP, X.X86_REG_ESP) \
+                and ops[1].type == X.X86_OP_IMM and (ops[1].imm & 0xFFFFFFFF) in _names:
+            out.setdefault(ops[0].mem.disp & 0xFFFFFFFF, set()).add(ops[1].imm & 0xFFFFFFFF)
+    return out
 
 
 def vtable_from_ecx(insns, prv, a) -> bool:
@@ -3842,6 +3892,28 @@ def main() -> None:
     # each indirect call's convention and arguments: ApplyFacts' call-site signatures
     calls, ccs, rets = {}, {}, {}
     jumps = []
+    # (a member-function pointer kept in an object, `mov eax, [esi + 0x1ec]; call eax` in a method
+    # with its own ecx untouched: __thiscall where every function the image stores at that
+    # displacement is one. Given nothing in ecx, a scheduler's update called its instance's
+    # stored step with no object, the step took a float for it and faulted, 0x97fad0 2026-10-28)
+    field_targets: dict[int, set[int]] = {}
+    for v in local.values():
+        for d, ts in v.get("field_stores", {}).items():
+            field_targets.setdefault(d, set()).update(ts)
+    for f, v in local.items():
+        for a, d in v.get("field_calls", {}).items():
+            ts = field_targets.get(d)
+            shape = v.get("icalls", {}).get(a)
+            if not ts or shape is None or shape[0] != "__stdcall":
+                continue
+            # (or takes nothing at all: a no-op step, `ret`, given `this` ignores it; or a custom
+            # one of ecx alone, callee-cleaned: a __thiscall the analysis keeps registers across)
+            ps = [out.get(hexa(t), {}) for t in ts]
+            this_like = lambda p: p.get("cc") == "__thiscall" or (  # noqa: E731
+                p.get("cc") == "custom" and p.get("regs") == ["ecx"] and p.get("callee_cleans"))
+            if any(this_like(p) for p in ps) and \
+                    all(this_like(p) or (not p.get("params") and not p.get("stack")) for p in ps):
+                v["icalls"][a] = ("__thiscall", shape[1])
     for f, v in local.items():
         # (an indirect tail jump: a call that returns, ApplyFacts' "jumps", given the forwarder's
         # own words, `this` first where ecx holds one)
