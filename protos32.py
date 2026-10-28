@@ -1494,9 +1494,15 @@ def result_reads(insns, state, nxt):
                 # under them: a determinant's caller, `call det; fld1; fdivrp st(1)`, its 1/det. As
                 # no read, the determinant was void and its caller's extraout_ST0 a stub, 9,564
                 # calls on a VS2010 client's startup path, 2026-10-26)
+                # (and worked on there, not handed on: a lerp's `call rand; fld [b]; fld [a]; fld
+                # st(0); fsubp st(2); fxch st(2); fmulp st(1)` leaves its own sum. Passed on through
+                # eax untouched, the lerp and the sound track's command reader 0xcd9050 that ends
+                # on it returned the random float, its st0 lost, 2026-10-28)
                 if st_depth and any(o.type == X.X86_OP_REG and o.reg == X.X86_REG_ST0 + st_depth
                                     for o in pi.operands):
                     kind = kind or "d8"
+                    if t not in st_over:
+                        st_over.append(t)
                     break
                 # (or st1 without naming it, under one load: `call powi; fld [x]; fcompp`, a sound
                 # driver's octave count compared against its integer power, 0xcefae0's 0xcf3600)
@@ -1504,6 +1510,18 @@ def result_reads(insns, state, nxt):
                         "fcompp", "fucompp", "fcomp", "fcom", "fucomp", "fucom", "faddp", "fsubp", "fsubrp",
                         "fmulp", "fdivp", "fdivrp", "fxch", "fpatan", "fyl2x", "fyl2xp1", "fscale", "fprem", "fprem1"):
                     kind = kind or "d8"
+                    if t not in st_over:
+                        st_over.append(t)
+                    break
+                # (the depth over the result as the code between moves it: a copy pushes one,
+                # `fld st(0)`, three over the lerp's random not two; a pop takes one)
+                if mn == "fld":
+                    st_depth += 1
+                elif mn in ("fcompp", "fucompp"):
+                    st_depth -= 2
+                elif mn.endswith("p"):
+                    st_depth -= 1
+                if st_depth <= 0:
                     break
                 p = nxt[p]
                 continue
@@ -1528,7 +1546,12 @@ def result_reads(insns, state, nxt):
                     # is the caller's to store, not to return, whatever eax reaches the ret. Taken
                     # for passed on, a camera update returned a float, its decompilation failed
                     # "Forced merge caused intersection", a VS2010 client's 0xb75490 2026-10-27)
-                    if (mn.endswith("p") or mn in ("fcompp", "fucompp")) and t not in st_over:
+                    # (or one that changes it in place, `call f; fadd [esi + 0x4c]; fstp [ebp - x]`:
+                    # what st0 holds after it is the caller's sum, not f's result. Passed on through
+                    # eax untouched to the ret, a void update on a client's sound path, 0xcf5f80,
+                    # returned f's float, its st0 a lost register on the way there, 2026-10-28)
+                    changes = mn not in ("fst", "fcom", "fucom", "fist", "ftst", "fxch")
+                    if (mn.endswith("p") or changes) and t not in st_over:
                         st_over.append(t)
                 break
             # (an unconditional jump within the function goes on there: `call ctor; jmp join` with
