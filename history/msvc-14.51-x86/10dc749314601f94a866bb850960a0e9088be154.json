@@ -1,0 +1,216 @@
+{
+ "sha": "10dc749314601f94a866bb850960a0e9088be154",
+ "date": "2026-10-24T18:27:38-04:00",
+ "subject": "fix(x86): CrystalCore's WinMain to its window and first file; rhtest cases",
+ "run": "2026-10-24 22:54 (backfilled)",
+ "summary": {
+  "calls-GL": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 87,
+    "mean": 1.0,
+    "perfect": 87,
+    "stubs": 0,
+    "translated": 87
+   },
+   "status": "PASS",
+   "when": "2026-10-24 22:54"
+  },
+  "calls-O2": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 89,
+    "mean": 1.0,
+    "perfect": 89,
+    "stubs": 0,
+    "translated": 89
+   },
+   "status": "PASS",
+   "when": "2026-10-24 22:54"
+  },
+  "calls-Od": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 95,
+    "mean": 1.0,
+    "perfect": 95,
+    "stubs": 0,
+    "translated": 95
+   },
+   "status": "PASS",
+   "when": "2026-10-24 22:54"
+  },
+  "core-O2": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 113,
+    "mean": 1.0,
+    "perfect": 113,
+    "stubs": 0,
+    "translated": 113
+   },
+   "status": "PASS",
+   "when": "2026-10-24 22:54"
+  },
+  "core-Od": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 118,
+    "mean": 1.0,
+    "perfect": 118,
+    "stubs": 0,
+    "translated": 118
+   },
+   "status": "PASS",
+   "when": "2026-10-24 22:54"
+  },
+  "cpp-O2": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 113,
+    "mean": 1.0,
+    "perfect": 113,
+    "stubs": 0,
+    "translated": 113
+   },
+   "status": "PASS",
+   "when": "2026-10-24 22:54"
+  },
+  "cpp-Od": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 179,
+    "mean": 0.999,
+    "perfect": 178,
+    "stubs": 0,
+    "translated": 179
+   },
+   "status": "PASS",
+   "when": "2026-10-24 22:54"
+  },
+  "crt-O2": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 72,
+    "mean": 1.0,
+    "perfect": 72,
+    "stubs": 0,
+    "translated": 72
+   },
+   "status": "PASS",
+   "when": "2026-10-24 22:54"
+  },
+  "crt-Od": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 84,
+    "mean": 1.0,
+    "perfect": 84,
+    "stubs": 0,
+    "translated": 84
+   },
+   "status": "PASS",
+   "when": "2026-10-24 22:54"
+  },
+  "eh-O2": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 112,
+    "mean": 1.0,
+    "perfect": 112,
+    "stubs": 0,
+    "translated": 112
+   },
+   "status": "PASS",
+   "when": "2026-10-24 22:54"
+  },
+  "eh-Od": {
+   "fidelity": {
+    "by_size": 0.998,
+    "functions": 133,
+    "mean": 0.992,
+    "perfect": 132,
+    "stubs": 0,
+    "translated": 133
+   },
+   "status": "PASS",
+   "when": "2026-10-24 22:54"
+  },
+  "float-IA32": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 87,
+    "mean": 1.0,
+    "perfect": 87,
+    "stubs": 0,
+    "translated": 87
+   },
+   "status": "PASS",
+   "when": "2026-10-24 22:54"
+  },
+  "float-O2": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 89,
+    "mean": 1.0,
+    "perfect": 89,
+    "stubs": 0,
+    "translated": 89
+   },
+   "status": "PASS",
+   "when": "2026-10-24 22:54"
+  },
+  "float-Od": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 100,
+    "mean": 1.0,
+    "perfect": 100,
+    "stubs": 0,
+    "translated": 100
+   },
+   "status": "PASS",
+   "when": "2026-10-24 22:54"
+  },
+  "int64-O2": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 90,
+    "mean": 1.0,
+    "perfect": 90,
+    "stubs": 0,
+    "translated": 90
+   },
+   "status": "FAIL",
+   "when": "2026-10-24 22:54"
+  },
+  "int64-Od": {
+   "status": "FAIL",
+   "when": "2026-10-24 22:54"
+  },
+  "misc-O2": {
+   "fidelity": {
+    "by_size": 0.971,
+    "functions": 72,
+    "mean": 0.972,
+    "perfect": 70,
+    "stubs": 0,
+    "translated": 72
+   },
+   "status": "PASS",
+   "when": "2026-10-24 22:54"
+  },
+  "misc-Od": {
+   "fidelity": {
+    "by_size": 0.968,
+    "functions": 78,
+    "mean": 0.979,
+    "perfect": 73,
+    "stubs": 0,
+    "translated": 78
+   },
+   "status": "PASS",
+   "when": "2026-10-24 22:54"
+  }
+ }
+}

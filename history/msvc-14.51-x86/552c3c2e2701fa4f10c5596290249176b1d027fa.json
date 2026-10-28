@@ -1,0 +1,400 @@
+{
+ "sha": "552c3c2e2701fa4f10c5596290249176b1d027fa",
+ "date": "2026-10-27T00:38:50-04:00",
+ "subject": "fix(protos32): keeps_st0 no longer overwritten; x87 results by a function's own load, not a popped callee's",
+ "run": "2026-10-27 05:36 (backfilled)",
+ "summary": {
+  "calls-GL": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 102,
+    "mean": 1.0,
+    "perfect": 102,
+    "stubs": 0,
+    "translated": 102
+   },
+   "status": "PASS",
+   "when": "2026-10-27 05:36"
+  },
+  "calls-O2": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 104,
+    "mean": 1.0,
+    "perfect": 104,
+    "stubs": 0,
+    "translated": 104
+   },
+   "status": "PASS",
+   "when": "2026-10-27 05:36"
+  },
+  "calls-Od": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 110,
+    "mean": 1.0,
+    "perfect": 110,
+    "stubs": 0,
+    "translated": 110
+   },
+   "status": "PASS",
+   "when": "2026-10-27 05:36"
+  },
+  "com-O2": {
+   "fidelity": {
+    "by_size": 0.936,
+    "functions": 81,
+    "mean": 0.987,
+    "perfect": 79,
+    "stubs": 1,
+    "translated": 80
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 05:36"
+  },
+  "com-Od": {
+   "fidelity": {
+    "by_size": 0.996,
+    "functions": 96,
+    "mean": 0.998,
+    "perfect": 93,
+    "stubs": 0,
+    "translated": 96
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 05:36"
+  },
+  "core-O2": {
+   "fidelity": {
+    "by_size": 0.991,
+    "functions": 122,
+    "mean": 0.997,
+    "perfect": 121,
+    "stubs": 0,
+    "translated": 122
+   },
+   "status": "PASS",
+   "when": "2026-10-27 05:36"
+  },
+  "core-Od": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 127,
+    "mean": 1.0,
+    "perfect": 127,
+    "stubs": 0,
+    "translated": 127
+   },
+   "status": "PASS",
+   "when": "2026-10-27 05:36"
+  },
+  "cpp-O2": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 162,
+    "mean": 1.0,
+    "perfect": 162,
+    "stubs": 0,
+    "translated": 162
+   },
+   "status": "PASS",
+   "when": "2026-10-27 05:36"
+  },
+  "cpp-Od": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 258,
+    "mean": 1.0,
+    "perfect": 258,
+    "stubs": 0,
+    "translated": 258
+   },
+   "status": "PASS",
+   "when": "2026-10-27 05:36"
+  },
+  "crt-O2": {
+   "fidelity": {
+    "by_size": 0.997,
+    "functions": 76,
+    "mean": 0.999,
+    "perfect": 75,
+    "stubs": 0,
+    "translated": 76
+   },
+   "status": "PASS",
+   "when": "2026-10-27 05:36"
+  },
+  "crt-Od": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 91,
+    "mean": 1.0,
+    "perfect": 91,
+    "stubs": 0,
+    "translated": 91
+   },
+   "status": "PASS",
+   "when": "2026-10-27 05:36"
+  },
+  "eh-O2": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 115,
+    "mean": 1.0,
+    "perfect": 115,
+    "stubs": 0,
+    "translated": 115
+   },
+   "status": "PASS",
+   "when": "2026-10-27 05:36"
+  },
+  "eh-Od": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 136,
+    "mean": 1.0,
+    "perfect": 136,
+    "stubs": 0,
+    "translated": 136
+   },
+   "status": "PASS",
+   "when": "2026-10-27 05:36"
+  },
+  "engine-GL": {
+   "fidelity": {
+    "by_size": 0.976,
+    "functions": 93,
+    "mean": 0.989,
+    "perfect": 91,
+    "stubs": 1,
+    "translated": 92
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 05:36"
+  },
+  "engine-O2": {
+   "fidelity": {
+    "by_size": 0.976,
+    "functions": 95,
+    "mean": 0.987,
+    "perfect": 93,
+    "stubs": 1,
+    "translated": 94
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 05:36"
+  },
+  "engine-Od": {
+   "fidelity": {
+    "by_size": 0.981,
+    "functions": 114,
+    "mean": 0.991,
+    "perfect": 113,
+    "stubs": 1,
+    "translated": 113
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 05:36"
+  },
+  "float-IA32": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 91,
+    "mean": 1.0,
+    "perfect": 91,
+    "stubs": 0,
+    "translated": 91
+   },
+   "status": "PASS",
+   "when": "2026-10-27 05:36"
+  },
+  "float-O2": {
+   "fidelity": {
+    "by_size": 0.955,
+    "functions": 92,
+    "mean": 0.965,
+    "perfect": 87,
+    "stubs": 1,
+    "translated": 91
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 05:36"
+  },
+  "float-Od": {
+   "fidelity": {
+    "by_size": 0.747,
+    "functions": 104,
+    "mean": 0.99,
+    "perfect": 103,
+    "stubs": 1,
+    "translated": 103
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 05:36"
+  },
+  "fpenv-IA32": {
+   "fidelity": {
+    "by_size": 0.995,
+    "functions": 63,
+    "mean": 0.999,
+    "perfect": 61,
+    "stubs": 0,
+    "translated": 63
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 05:36"
+  },
+  "fpenv-O2": {
+   "fidelity": {
+    "by_size": 0.981,
+    "functions": 65,
+    "mean": 0.984,
+    "perfect": 62,
+    "stubs": 1,
+    "translated": 64
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 05:36"
+  },
+  "fpenv-Od": {
+   "fidelity": {
+    "by_size": 0.957,
+    "functions": 71,
+    "mean": 0.971,
+    "perfect": 67,
+    "stubs": 2,
+    "translated": 69
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 05:36"
+  },
+  "int64-O2": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 92,
+    "mean": 1.0,
+    "perfect": 92,
+    "stubs": 0,
+    "translated": 92
+   },
+   "status": "PASS",
+   "when": "2026-10-27 05:36"
+  },
+  "int64-Od": {
+   "fidelity": {
+    "by_size": 0.999,
+    "functions": 95,
+    "mean": 1.0,
+    "perfect": 94,
+    "stubs": 0,
+    "translated": 95
+   },
+   "status": "PASS",
+   "when": "2026-10-27 05:36"
+  },
+  "misc-O2": {
+   "fidelity": {
+    "by_size": 0.976,
+    "functions": 83,
+    "mean": 0.975,
+    "perfect": 80,
+    "stubs": 0,
+    "translated": 83
+   },
+   "status": "PASS",
+   "when": "2026-10-27 05:36"
+  },
+  "misc-Od": {
+   "fidelity": {
+    "by_size": 0.976,
+    "functions": 89,
+    "mean": 0.982,
+    "perfect": 84,
+    "stubs": 0,
+    "translated": 89
+   },
+   "status": "PASS",
+   "when": "2026-10-27 05:36"
+  },
+  "seh-O2": {
+   "fidelity": {
+    "by_size": 0.997,
+    "functions": 94,
+    "mean": 0.994,
+    "perfect": 93,
+    "stubs": 0,
+    "translated": 94
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 05:36"
+  },
+  "seh-Od": {
+   "fidelity": {
+    "by_size": 0.997,
+    "functions": 101,
+    "mean": 0.994,
+    "perfect": 100,
+    "stubs": 0,
+    "translated": 101
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 05:36"
+  },
+  "stl-O2": {
+   "status": "FAIL",
+   "when": "2026-10-27 05:36"
+  },
+  "stl-Od": {
+   "status": "FAIL",
+   "when": "2026-10-27 05:36"
+  },
+  "sys-O2": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 68,
+    "mean": 1.0,
+    "perfect": 68,
+    "stubs": 0,
+    "translated": 68
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 05:36"
+  },
+  "sys-Od": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 73,
+    "mean": 1.0,
+    "perfect": 73,
+    "stubs": 0,
+    "translated": 73
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 05:36"
+  },
+  "win-O2": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 62,
+    "mean": 1.0,
+    "perfect": 62,
+    "stubs": 0,
+    "translated": 62
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 05:36"
+  },
+  "win-Od": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 67,
+    "mean": 1.0,
+    "perfect": 67,
+    "stubs": 0,
+    "translated": 67
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 05:36"
+  }
+ }
+}

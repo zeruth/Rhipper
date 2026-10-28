@@ -1,0 +1,200 @@
+{
+ "sha": "118aba7afb5e66aa4dfbfc179f74d9b5c35762bd",
+ "date": "2026-10-26T14:50:38-04:00",
+ "subject": "fix(runtime32): GEN_TOP's address is 32 bits, wrapping as the reference's does",
+ "run": "2026-10-26 19:09 (backfilled)",
+ "summary": {
+  "calls-GL": {
+   "fidelity": {
+    "by_size": 0.967,
+    "functions": 269,
+    "mean": 0.979,
+    "perfect": 239,
+    "stubs": 3,
+    "translated": 266
+   },
+   "status": "PASS",
+   "when": "2026-10-26 19:09"
+  },
+  "calls-O2": {
+   "fidelity": {
+    "by_size": 0.97,
+    "functions": 270,
+    "mean": 0.98,
+    "perfect": 242,
+    "stubs": 3,
+    "translated": 267
+   },
+   "status": "PASS",
+   "when": "2026-10-26 19:09"
+  },
+  "calls-Od": {
+   "fidelity": {
+    "by_size": 0.971,
+    "functions": 275,
+    "mean": 0.98,
+    "perfect": 247,
+    "stubs": 3,
+    "translated": 272
+   },
+   "status": "PASS",
+   "when": "2026-10-26 19:09"
+  },
+  "core-O2": {
+   "status": "FAIL",
+   "when": "2026-10-26 19:09"
+  },
+  "core-Od": {
+   "status": "FAIL",
+   "when": "2026-10-26 19:09"
+  },
+  "cpp-O2": {
+   "fidelity": {
+    "by_size": 0.971,
+    "functions": 393,
+    "mean": 0.98,
+    "perfect": 349,
+    "stubs": 4,
+    "translated": 389
+   },
+   "status": "FAIL",
+   "when": "2026-10-26 19:09"
+  },
+  "cpp-Od": {
+   "fidelity": {
+    "by_size": 0.974,
+    "functions": 487,
+    "mean": 0.984,
+    "perfect": 443,
+    "stubs": 4,
+    "translated": 483
+   },
+   "status": "PASS",
+   "when": "2026-10-26 19:09"
+  },
+  "crt-O2": {
+   "fidelity": {
+    "by_size": 0.978,
+    "functions": 354,
+    "mean": 0.981,
+    "perfect": 310,
+    "stubs": 3,
+    "translated": 351
+   },
+   "status": "PASS",
+   "when": "2026-10-26 19:09"
+  },
+  "crt-Od": {
+   "fidelity": {
+    "by_size": 0.967,
+    "functions": 365,
+    "mean": 0.981,
+    "perfect": 320,
+    "stubs": 3,
+    "translated": 362
+   },
+   "status": "PASS",
+   "when": "2026-10-26 19:09"
+  },
+  "eh-O2": {
+   "fidelity": {
+    "by_size": 0.97,
+    "functions": 341,
+    "mean": 0.978,
+    "perfect": 300,
+    "stubs": 4,
+    "translated": 337
+   },
+   "status": "PASS",
+   "when": "2026-10-26 19:09"
+  },
+  "eh-Od": {
+   "fidelity": {
+    "by_size": 0.97,
+    "functions": 368,
+    "mean": 0.978,
+    "perfect": 325,
+    "stubs": 4,
+    "translated": 364
+   },
+   "status": "PASS",
+   "when": "2026-10-26 19:09"
+  },
+  "float-O2": {
+   "fidelity": {
+    "by_size": 0.9,
+    "functions": 276,
+    "mean": 0.937,
+    "perfect": 235,
+    "stubs": 11,
+    "translated": 265
+   },
+   "status": "FAIL",
+   "when": "2026-10-26 19:09"
+  },
+  "float-Od": {
+   "fidelity": {
+    "by_size": 0.9,
+    "functions": 292,
+    "mean": 0.938,
+    "perfect": 249,
+    "stubs": 11,
+    "translated": 281
+   },
+   "status": "FAIL",
+   "when": "2026-10-26 19:09"
+  },
+  "float-SSE2": {
+   "fidelity": {
+    "by_size": 0.893,
+    "functions": 275,
+    "mean": 0.938,
+    "perfect": 235,
+    "stubs": 11,
+    "translated": 264
+   },
+   "status": "FAIL",
+   "when": "2026-10-26 19:09"
+  },
+  "int64-O2": {
+   "status": "FAIL",
+   "when": "2026-10-26 19:09"
+  },
+  "int64-Od": {
+   "fidelity": {
+    "by_size": 0.96,
+    "functions": 211,
+    "mean": 0.976,
+    "perfect": 188,
+    "stubs": 3,
+    "translated": 208
+   },
+   "status": "PASS",
+   "when": "2026-10-26 19:09"
+  },
+  "misc-O2": {
+   "fidelity": {
+    "by_size": 0.965,
+    "functions": 311,
+    "mean": 0.964,
+    "perfect": 269,
+    "stubs": 4,
+    "translated": 307
+   },
+   "status": "PASS",
+   "when": "2026-10-26 19:09"
+  },
+  "misc-Od": {
+   "fidelity": {
+    "by_size": 0.963,
+    "functions": 321,
+    "mean": 0.966,
+    "perfect": 276,
+    "stubs": 4,
+    "translated": 317
+   },
+   "status": "PASS",
+   "when": "2026-10-26 19:09"
+  }
+ }
+}

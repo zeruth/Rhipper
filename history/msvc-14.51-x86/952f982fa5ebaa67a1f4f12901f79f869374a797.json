@@ -1,0 +1,224 @@
+{
+ "sha": "952f982fa5ebaa67a1f4f12901f79f869374a797",
+ "date": "2026-10-26T13:18:25-04:00",
+ "subject": "fix(protos32, translate32): direct-jump forwarders, filler registers, backtick-named data",
+ "run": "2026-10-26 17:44 (backfilled)",
+ "summary": {
+  "calls-GL": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 102,
+    "mean": 1.0,
+    "perfect": 102,
+    "stubs": 0,
+    "translated": 102
+   },
+   "status": "PASS",
+   "when": "2026-10-26 17:44"
+  },
+  "calls-O2": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 104,
+    "mean": 1.0,
+    "perfect": 104,
+    "stubs": 0,
+    "translated": 104
+   },
+   "status": "PASS",
+   "when": "2026-10-26 17:44"
+  },
+  "calls-Od": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 110,
+    "mean": 1.0,
+    "perfect": 110,
+    "stubs": 0,
+    "translated": 110
+   },
+   "status": "PASS",
+   "when": "2026-10-26 17:44"
+  },
+  "core-O2": {
+   "fidelity": {
+    "by_size": 0.991,
+    "functions": 122,
+    "mean": 0.997,
+    "perfect": 121,
+    "stubs": 0,
+    "translated": 122
+   },
+   "status": "PASS",
+   "when": "2026-10-26 17:44"
+  },
+  "core-Od": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 127,
+    "mean": 1.0,
+    "perfect": 127,
+    "stubs": 0,
+    "translated": 127
+   },
+   "status": "PASS",
+   "when": "2026-10-26 17:44"
+  },
+  "cpp-O2": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 162,
+    "mean": 1.0,
+    "perfect": 162,
+    "stubs": 0,
+    "translated": 162
+   },
+   "status": "PASS",
+   "when": "2026-10-26 17:44"
+  },
+  "cpp-Od": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 258,
+    "mean": 1.0,
+    "perfect": 258,
+    "stubs": 0,
+    "translated": 258
+   },
+   "status": "PASS",
+   "when": "2026-10-26 17:44"
+  },
+  "crt-O2": {
+   "fidelity": {
+    "by_size": 0.997,
+    "functions": 76,
+    "mean": 0.999,
+    "perfect": 75,
+    "stubs": 0,
+    "translated": 76
+   },
+   "status": "FAIL",
+   "when": "2026-10-26 17:44"
+  },
+  "crt-Od": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 91,
+    "mean": 1.0,
+    "perfect": 91,
+    "stubs": 0,
+    "translated": 91
+   },
+   "status": "PASS",
+   "when": "2026-10-26 17:44"
+  },
+  "eh-O2": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 115,
+    "mean": 1.0,
+    "perfect": 115,
+    "stubs": 0,
+    "translated": 115
+   },
+   "status": "PASS",
+   "when": "2026-10-26 17:44"
+  },
+  "eh-Od": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 136,
+    "mean": 1.0,
+    "perfect": 136,
+    "stubs": 0,
+    "translated": 136
+   },
+   "status": "PASS",
+   "when": "2026-10-26 17:44"
+  },
+  "float-IA32": {
+   "fidelity": {
+    "by_size": 0.775,
+    "functions": 91,
+    "mean": 0.989,
+    "perfect": 90,
+    "stubs": 1,
+    "translated": 90
+   },
+   "status": "FAIL",
+   "when": "2026-10-26 17:44"
+  },
+  "float-O2": {
+   "fidelity": {
+    "by_size": 0.968,
+    "functions": 93,
+    "mean": 0.972,
+    "perfect": 89,
+    "stubs": 1,
+    "translated": 92
+   },
+   "status": "FAIL",
+   "when": "2026-10-26 17:44"
+  },
+  "float-Od": {
+   "fidelity": {
+    "by_size": 0.747,
+    "functions": 104,
+    "mean": 0.99,
+    "perfect": 103,
+    "stubs": 1,
+    "translated": 103
+   },
+   "status": "FAIL",
+   "when": "2026-10-26 17:44"
+  },
+  "int64-O2": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 92,
+    "mean": 1.0,
+    "perfect": 92,
+    "stubs": 0,
+    "translated": 92
+   },
+   "status": "PASS",
+   "when": "2026-10-26 17:44"
+  },
+  "int64-Od": {
+   "fidelity": {
+    "by_size": 0.999,
+    "functions": 95,
+    "mean": 1.0,
+    "perfect": 94,
+    "stubs": 0,
+    "translated": 95
+   },
+   "status": "PASS",
+   "when": "2026-10-26 17:44"
+  },
+  "misc-O2": {
+   "fidelity": {
+    "by_size": 0.976,
+    "functions": 83,
+    "mean": 0.975,
+    "perfect": 80,
+    "stubs": 0,
+    "translated": 83
+   },
+   "status": "PASS",
+   "when": "2026-10-26 17:44"
+  },
+  "misc-Od": {
+   "fidelity": {
+    "by_size": 0.976,
+    "functions": 89,
+    "mean": 0.982,
+    "perfect": 84,
+    "stubs": 0,
+    "translated": 89
+   },
+   "status": "PASS",
+   "when": "2026-10-26 17:44"
+  }
+ }
+}

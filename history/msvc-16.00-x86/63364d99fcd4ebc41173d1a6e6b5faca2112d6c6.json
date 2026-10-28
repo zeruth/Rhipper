@@ -1,0 +1,224 @@
+{
+ "sha": "63364d99fcd4ebc41173d1a6e6b5faca2112d6c6",
+ "date": "2026-10-25T13:25:51-04:00",
+ "subject": "fix(x86): VS2010 references pass in rhtest; COM calls, returns, stale state; CrystalCore's shadow run",
+ "run": "2026-10-25 17:49 (backfilled)",
+ "summary": {
+  "calls-GL": {
+   "fidelity": {
+    "by_size": 0.942,
+    "functions": 266,
+    "mean": 0.972,
+    "perfect": 236,
+    "stubs": 5,
+    "translated": 261
+   },
+   "status": "FAIL",
+   "when": "2026-10-25 17:49"
+  },
+  "calls-O2": {
+   "fidelity": {
+    "by_size": 0.969,
+    "functions": 267,
+    "mean": 0.976,
+    "perfect": 238,
+    "stubs": 4,
+    "translated": 263
+   },
+   "status": "PASS",
+   "when": "2026-10-25 17:49"
+  },
+  "calls-Od": {
+   "fidelity": {
+    "by_size": 0.97,
+    "functions": 272,
+    "mean": 0.976,
+    "perfect": 243,
+    "stubs": 4,
+    "translated": 268
+   },
+   "status": "PASS",
+   "when": "2026-10-25 17:49"
+  },
+  "core-O2": {
+   "fidelity": {
+    "by_size": 0.958,
+    "functions": 232,
+    "mean": 0.974,
+    "perfect": 208,
+    "stubs": 4,
+    "translated": 228
+   },
+   "status": "PASS",
+   "when": "2026-10-25 17:49"
+  },
+  "core-Od": {
+   "fidelity": {
+    "by_size": 0.961,
+    "functions": 237,
+    "mean": 0.975,
+    "perfect": 214,
+    "stubs": 4,
+    "translated": 233
+   },
+   "status": "PASS",
+   "when": "2026-10-25 17:49"
+  },
+  "cpp-O2": {
+   "fidelity": {
+    "by_size": 0.971,
+    "functions": 380,
+    "mean": 0.977,
+    "perfect": 335,
+    "stubs": 5,
+    "translated": 375
+   },
+   "status": "PASS",
+   "when": "2026-10-25 17:49"
+  },
+  "cpp-Od": {
+   "fidelity": {
+    "by_size": 0.974,
+    "functions": 468,
+    "mean": 0.981,
+    "perfect": 423,
+    "stubs": 5,
+    "translated": 463
+   },
+   "status": "PASS",
+   "when": "2026-10-25 17:49"
+  },
+  "crt-O2": {
+   "fidelity": {
+    "by_size": 0.978,
+    "functions": 354,
+    "mean": 0.978,
+    "perfect": 309,
+    "stubs": 4,
+    "translated": 350
+   },
+   "status": "PASS",
+   "when": "2026-10-25 17:49"
+  },
+  "crt-Od": {
+   "fidelity": {
+    "by_size": 0.967,
+    "functions": 365,
+    "mean": 0.979,
+    "perfect": 319,
+    "stubs": 4,
+    "translated": 361
+   },
+   "status": "PASS",
+   "when": "2026-10-25 17:49"
+  },
+  "eh-O2": {
+   "fidelity": {
+    "by_size": 0.97,
+    "functions": 341,
+    "mean": 0.975,
+    "perfect": 299,
+    "stubs": 5,
+    "translated": 336
+   },
+   "status": "PASS",
+   "when": "2026-10-25 17:49"
+  },
+  "eh-Od": {
+   "fidelity": {
+    "by_size": 0.969,
+    "functions": 368,
+    "mean": 0.975,
+    "perfect": 324,
+    "stubs": 5,
+    "translated": 363
+   },
+   "status": "PASS",
+   "when": "2026-10-25 17:49"
+  },
+  "float-O2": {
+   "fidelity": {
+    "by_size": 0.953,
+    "functions": 276,
+    "mean": 0.937,
+    "perfect": 235,
+    "stubs": 11,
+    "translated": 265
+   },
+   "status": "PASS",
+   "when": "2026-10-25 17:49"
+  },
+  "float-Od": {
+   "fidelity": {
+    "by_size": 0.954,
+    "functions": 292,
+    "mean": 0.941,
+    "perfect": 249,
+    "stubs": 11,
+    "translated": 281
+   },
+   "status": "PASS",
+   "when": "2026-10-25 17:49"
+  },
+  "float-SSE2": {
+   "fidelity": {
+    "by_size": 0.955,
+    "functions": 275,
+    "mean": 0.938,
+    "perfect": 235,
+    "stubs": 11,
+    "translated": 264
+   },
+   "status": "PASS",
+   "when": "2026-10-25 17:49"
+  },
+  "int64-O2": {
+   "fidelity": {
+    "by_size": 0.957,
+    "functions": 209,
+    "mean": 0.971,
+    "perfect": 186,
+    "stubs": 4,
+    "translated": 205
+   },
+   "status": "PASS",
+   "when": "2026-10-25 17:49"
+  },
+  "int64-Od": {
+   "fidelity": {
+    "by_size": 0.959,
+    "functions": 211,
+    "mean": 0.971,
+    "perfect": 187,
+    "stubs": 4,
+    "translated": 207
+   },
+   "status": "PASS",
+   "when": "2026-10-25 17:49"
+  },
+  "misc-O2": {
+   "fidelity": {
+    "by_size": 0.938,
+    "functions": 200,
+    "mean": 0.945,
+    "perfect": 171,
+    "stubs": 5,
+    "translated": 195
+   },
+   "status": "PASS",
+   "when": "2026-10-25 17:49"
+  },
+  "misc-Od": {
+   "fidelity": {
+    "by_size": 0.937,
+    "functions": 210,
+    "mean": 0.949,
+    "perfect": 178,
+    "stubs": 5,
+    "translated": 205
+   },
+   "status": "PASS",
+   "when": "2026-10-25 17:49"
+  }
+ }
+}

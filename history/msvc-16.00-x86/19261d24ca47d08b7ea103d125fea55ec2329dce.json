@@ -1,0 +1,588 @@
+{
+ "sha": "19261d24ca47d08b7ea103d125fea55ec2329dce",
+ "date": "2026-10-26T23:42:16-04:00",
+ "subject": "feat(runtime32, translate32, protos32): the x87 control and status words, Direct3D's precision",
+ "run": "2026-10-27 04:53 (backfilled)",
+ "summary": {
+  "calls-GL": {
+   "fidelity": {
+    "by_size": 0.957,
+    "functions": 269,
+    "mean": 0.987,
+    "perfect": 241,
+    "stubs": 1,
+    "translated": 268
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "calls-O2": {
+   "fidelity": {
+    "by_size": 0.986,
+    "functions": 270,
+    "mean": 0.991,
+    "perfect": 244,
+    "stubs": 0,
+    "translated": 270
+   },
+   "status": "PASS",
+   "when": "2026-10-27 04:53"
+  },
+  "calls-Od": {
+   "fidelity": {
+    "by_size": 0.986,
+    "functions": 275,
+    "mean": 0.991,
+    "perfect": 249,
+    "stubs": 0,
+    "translated": 275
+   },
+   "status": "PASS",
+   "when": "2026-10-27 04:53"
+  },
+  "calls-client": {
+   "fidelity": {
+    "by_size": 0.958,
+    "functions": 269,
+    "mean": 0.987,
+    "perfect": 241,
+    "stubs": 1,
+    "translated": 268
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "com-O2": {
+   "fidelity": {
+    "by_size": 0.971,
+    "functions": 257,
+    "mean": 0.982,
+    "perfect": 225,
+    "stubs": 1,
+    "translated": 256
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "com-Od": {
+   "fidelity": {
+    "by_size": 0.956,
+    "functions": 328,
+    "mean": 0.981,
+    "perfect": 283,
+    "stubs": 1,
+    "translated": 327
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "com-client": {
+   "fidelity": {
+    "by_size": 0.984,
+    "functions": 255,
+    "mean": 0.985,
+    "perfect": 223,
+    "stubs": 0,
+    "translated": 255
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "core-O2": {
+   "fidelity": {
+    "by_size": 0.986,
+    "functions": 288,
+    "mean": 0.991,
+    "perfect": 260,
+    "stubs": 0,
+    "translated": 288
+   },
+   "status": "PASS",
+   "when": "2026-10-27 04:53"
+  },
+  "core-Od": {
+   "fidelity": {
+    "by_size": 0.987,
+    "functions": 293,
+    "mean": 0.991,
+    "perfect": 267,
+    "stubs": 0,
+    "translated": 293
+   },
+   "status": "PASS",
+   "when": "2026-10-27 04:53"
+  },
+  "core-client": {
+   "fidelity": {
+    "by_size": 0.982,
+    "functions": 286,
+    "mean": 0.983,
+    "perfect": 255,
+    "stubs": 1,
+    "translated": 285
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "cpp-O2": {
+   "fidelity": {
+    "by_size": 0.986,
+    "functions": 393,
+    "mean": 0.99,
+    "perfect": 352,
+    "stubs": 0,
+    "translated": 393
+   },
+   "status": "PASS",
+   "when": "2026-10-27 04:53"
+  },
+  "cpp-Od": {
+   "fidelity": {
+    "by_size": 0.987,
+    "functions": 487,
+    "mean": 0.992,
+    "perfect": 446,
+    "stubs": 0,
+    "translated": 487
+   },
+   "status": "PASS",
+   "when": "2026-10-27 04:53"
+  },
+  "cpp-client": {
+   "fidelity": {
+    "by_size": 0.983,
+    "functions": 399,
+    "mean": 0.988,
+    "perfect": 356,
+    "stubs": 1,
+    "translated": 398
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "crt-O2": {
+   "fidelity": {
+    "by_size": 0.988,
+    "functions": 354,
+    "mean": 0.99,
+    "perfect": 312,
+    "stubs": 0,
+    "translated": 354
+   },
+   "status": "PASS",
+   "when": "2026-10-27 04:53"
+  },
+  "crt-Od": {
+   "fidelity": {
+    "by_size": 0.976,
+    "functions": 365,
+    "mean": 0.989,
+    "perfect": 322,
+    "stubs": 0,
+    "translated": 365
+   },
+   "status": "PASS",
+   "when": "2026-10-27 04:53"
+  },
+  "crt-client": {
+   "fidelity": {
+    "by_size": 0.981,
+    "functions": 353,
+    "mean": 0.986,
+    "perfect": 310,
+    "stubs": 1,
+    "translated": 352
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "eh-O2": {
+   "fidelity": {
+    "by_size": 0.985,
+    "functions": 341,
+    "mean": 0.987,
+    "perfect": 302,
+    "stubs": 1,
+    "translated": 340
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "eh-Od": {
+   "fidelity": {
+    "by_size": 0.983,
+    "functions": 368,
+    "mean": 0.981,
+    "perfect": 325,
+    "stubs": 3,
+    "translated": 365
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "eh-client": {
+   "fidelity": {
+    "by_size": 0.981,
+    "functions": 340,
+    "mean": 0.984,
+    "perfect": 300,
+    "stubs": 2,
+    "translated": 338
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "engine-GL": {
+   "fidelity": {
+    "by_size": 0.985,
+    "functions": 329,
+    "mean": 0.988,
+    "perfect": 289,
+    "stubs": 0,
+    "translated": 329
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "engine-O2": {
+   "fidelity": {
+    "by_size": 0.971,
+    "functions": 330,
+    "mean": 0.982,
+    "perfect": 287,
+    "stubs": 2,
+    "translated": 328
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "engine-Od": {
+   "fidelity": {
+    "by_size": 0.983,
+    "functions": 350,
+    "mean": 0.987,
+    "perfect": 311,
+    "stubs": 1,
+    "translated": 349
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "engine-client": {
+   "fidelity": {
+    "by_size": 0.985,
+    "functions": 329,
+    "mean": 0.988,
+    "perfect": 289,
+    "stubs": 0,
+    "translated": 329
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "float-O2": {
+   "fidelity": {
+    "by_size": 0.916,
+    "functions": 276,
+    "mean": 0.955,
+    "perfect": 239,
+    "stubs": 6,
+    "translated": 270
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "float-Od": {
+   "fidelity": {
+    "by_size": 0.915,
+    "functions": 292,
+    "mean": 0.955,
+    "perfect": 253,
+    "stubs": 6,
+    "translated": 286
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "float-SSE2": {
+   "fidelity": {
+    "by_size": 0.908,
+    "functions": 275,
+    "mean": 0.956,
+    "perfect": 239,
+    "stubs": 6,
+    "translated": 269
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "float-client": {
+   "fidelity": {
+    "by_size": 0.914,
+    "functions": 275,
+    "mean": 0.956,
+    "perfect": 237,
+    "stubs": 6,
+    "translated": 269
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "fpenv-O2": {
+   "fidelity": {
+    "by_size": 0.865,
+    "functions": 317,
+    "mean": 0.91,
+    "perfect": 253,
+    "stubs": 20,
+    "translated": 297
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "fpenv-Od": {
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "fpenv-SSE2": {
+   "fidelity": {
+    "by_size": 0.857,
+    "functions": 317,
+    "mean": 0.907,
+    "perfect": 253,
+    "stubs": 21,
+    "translated": 296
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "fpenv-client": {
+   "fidelity": {
+    "by_size": 0.863,
+    "functions": 315,
+    "mean": 0.909,
+    "perfect": 251,
+    "stubs": 20,
+    "translated": 295
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "int64-O2": {
+   "fidelity": {
+    "by_size": 0.985,
+    "functions": 209,
+    "mean": 0.99,
+    "perfect": 188,
+    "stubs": 0,
+    "translated": 209
+   },
+   "status": "PASS",
+   "when": "2026-10-27 04:53"
+  },
+  "int64-Od": {
+   "fidelity": {
+    "by_size": 0.987,
+    "functions": 211,
+    "mean": 0.99,
+    "perfect": 190,
+    "stubs": 0,
+    "translated": 211
+   },
+   "status": "PASS",
+   "when": "2026-10-27 04:53"
+  },
+  "int64-client": {
+   "fidelity": {
+    "by_size": 0.927,
+    "functions": 208,
+    "mean": 0.985,
+    "perfect": 187,
+    "stubs": 1,
+    "translated": 207
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "misc-O2": {
+   "fidelity": {
+    "by_size": 0.979,
+    "functions": 311,
+    "mean": 0.973,
+    "perfect": 271,
+    "stubs": 1,
+    "translated": 310
+   },
+   "status": "PASS",
+   "when": "2026-10-27 04:53"
+  },
+  "misc-Od": {
+   "fidelity": {
+    "by_size": 0.977,
+    "functions": 321,
+    "mean": 0.975,
+    "perfect": 278,
+    "stubs": 1,
+    "translated": 320
+   },
+   "status": "PASS",
+   "when": "2026-10-27 04:53"
+  },
+  "misc-client": {
+   "fidelity": {
+    "by_size": 0.968,
+    "functions": 321,
+    "mean": 0.964,
+    "perfect": 277,
+    "stubs": 3,
+    "translated": 318
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "seh-O2": {
+   "fidelity": {
+    "by_size": 0.982,
+    "functions": 212,
+    "mean": 0.983,
+    "perfect": 190,
+    "stubs": 1,
+    "translated": 211
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "seh-Od": {
+   "fidelity": {
+    "by_size": 0.982,
+    "functions": 217,
+    "mean": 0.988,
+    "perfect": 196,
+    "stubs": 0,
+    "translated": 217
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "seh-client": {
+   "fidelity": {
+    "by_size": 0.979,
+    "functions": 210,
+    "mean": 0.982,
+    "perfect": 188,
+    "stubs": 1,
+    "translated": 209
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "stl-O2": {
+   "fidelity": {
+    "by_size": 0.949,
+    "functions": 1242,
+    "mean": 0.971,
+    "perfect": 1112,
+    "stubs": 24,
+    "translated": 1218
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "stl-Od": {
+   "fidelity": {
+    "by_size": 0.873,
+    "functions": 2025,
+    "mean": 0.955,
+    "perfect": 1854,
+    "stubs": 78,
+    "translated": 1947
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "stl-client": {
+   "fidelity": {
+    "by_size": 0.934,
+    "functions": 1245,
+    "mean": 0.97,
+    "perfect": 1111,
+    "stubs": 26,
+    "translated": 1219
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "sys-O2": {
+   "fidelity": {
+    "by_size": 0.981,
+    "functions": 189,
+    "mean": 0.989,
+    "perfect": 168,
+    "stubs": 0,
+    "translated": 189
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "sys-Od": {
+   "fidelity": {
+    "by_size": 0.957,
+    "functions": 195,
+    "mean": 0.988,
+    "perfect": 173,
+    "stubs": 0,
+    "translated": 195
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "sys-client": {
+   "fidelity": {
+    "by_size": 0.981,
+    "functions": 187,
+    "mean": 0.988,
+    "perfect": 166,
+    "stubs": 0,
+    "translated": 187
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "win-O2": {
+   "fidelity": {
+    "by_size": 0.983,
+    "functions": 179,
+    "mean": 0.989,
+    "perfect": 159,
+    "stubs": 0,
+    "translated": 179
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "win-Od": {
+   "fidelity": {
+    "by_size": 0.983,
+    "functions": 184,
+    "mean": 0.989,
+    "perfect": 164,
+    "stubs": 0,
+    "translated": 184
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  },
+  "win-client": {
+   "fidelity": {
+    "by_size": 0.983,
+    "functions": 177,
+    "mean": 0.988,
+    "perfect": 156,
+    "stubs": 0,
+    "translated": 177
+   },
+   "status": "FAIL",
+   "when": "2026-10-27 04:53"
+  }
+ }
+}

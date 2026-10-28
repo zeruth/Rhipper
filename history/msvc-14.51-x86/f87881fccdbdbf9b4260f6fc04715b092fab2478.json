@@ -1,0 +1,216 @@
+{
+ "sha": "f87881fccdbdbf9b4260f6fc04715b092fab2478",
+ "date": "2026-10-26T08:22:46-04:00",
+ "subject": "fix(decompiler): a load is not printed past a write to what it may read; such writes are kept",
+ "run": "2026-10-26 12:48 (backfilled)",
+ "summary": {
+  "calls-GL": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 102,
+    "mean": 1.0,
+    "perfect": 102,
+    "stubs": 0,
+    "translated": 102
+   },
+   "status": "PASS",
+   "when": "2026-10-26 12:48"
+  },
+  "calls-O2": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 104,
+    "mean": 1.0,
+    "perfect": 104,
+    "stubs": 0,
+    "translated": 104
+   },
+   "status": "PASS",
+   "when": "2026-10-26 12:48"
+  },
+  "calls-Od": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 110,
+    "mean": 1.0,
+    "perfect": 110,
+    "stubs": 0,
+    "translated": 110
+   },
+   "status": "PASS",
+   "when": "2026-10-26 12:48"
+  },
+  "core-O2": {
+   "fidelity": {
+    "by_size": 0.991,
+    "functions": 122,
+    "mean": 0.997,
+    "perfect": 121,
+    "stubs": 0,
+    "translated": 122
+   },
+   "status": "PASS",
+   "when": "2026-10-26 12:48"
+  },
+  "core-Od": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 127,
+    "mean": 1.0,
+    "perfect": 127,
+    "stubs": 0,
+    "translated": 127
+   },
+   "status": "PASS",
+   "when": "2026-10-26 12:48"
+  },
+  "cpp-O2": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 162,
+    "mean": 1.0,
+    "perfect": 162,
+    "stubs": 0,
+    "translated": 162
+   },
+   "status": "PASS",
+   "when": "2026-10-26 12:48"
+  },
+  "cpp-Od": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 258,
+    "mean": 1.0,
+    "perfect": 258,
+    "stubs": 0,
+    "translated": 258
+   },
+   "status": "PASS",
+   "when": "2026-10-26 12:48"
+  },
+  "crt-O2": {
+   "fidelity": {
+    "by_size": 0.932,
+    "functions": 76,
+    "mean": 0.986,
+    "perfect": 74,
+    "stubs": 1,
+    "translated": 75
+   },
+   "status": "FAIL",
+   "when": "2026-10-26 12:48"
+  },
+  "crt-Od": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 91,
+    "mean": 1.0,
+    "perfect": 91,
+    "stubs": 0,
+    "translated": 91
+   },
+   "status": "PASS",
+   "when": "2026-10-26 12:48"
+  },
+  "eh-O2": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 115,
+    "mean": 1.0,
+    "perfect": 115,
+    "stubs": 0,
+    "translated": 115
+   },
+   "status": "PASS",
+   "when": "2026-10-26 12:48"
+  },
+  "eh-Od": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 136,
+    "mean": 1.0,
+    "perfect": 136,
+    "stubs": 0,
+    "translated": 136
+   },
+   "status": "PASS",
+   "when": "2026-10-26 12:48"
+  },
+  "float-IA32": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 91,
+    "mean": 1.0,
+    "perfect": 91,
+    "stubs": 0,
+    "translated": 91
+   },
+   "status": "PASS",
+   "when": "2026-10-26 12:48"
+  },
+  "float-O2": {
+   "fidelity": {
+    "by_size": 0.955,
+    "functions": 92,
+    "mean": 0.965,
+    "perfect": 87,
+    "stubs": 1,
+    "translated": 91
+   },
+   "status": "FAIL",
+   "when": "2026-10-26 12:48"
+  },
+  "float-Od": {
+   "fidelity": {
+    "by_size": 0.747,
+    "functions": 104,
+    "mean": 0.99,
+    "perfect": 103,
+    "stubs": 1,
+    "translated": 103
+   },
+   "status": "FAIL",
+   "when": "2026-10-26 12:48"
+  },
+  "int64-O2": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 92,
+    "mean": 1.0,
+    "perfect": 92,
+    "stubs": 0,
+    "translated": 92
+   },
+   "status": "PASS",
+   "when": "2026-10-26 12:48"
+  },
+  "int64-Od": {
+   "status": "FAIL",
+   "when": "2026-10-26 12:48"
+  },
+  "misc-O2": {
+   "fidelity": {
+    "by_size": 0.976,
+    "functions": 83,
+    "mean": 0.975,
+    "perfect": 80,
+    "stubs": 0,
+    "translated": 83
+   },
+   "status": "PASS",
+   "when": "2026-10-26 12:48"
+  },
+  "misc-Od": {
+   "fidelity": {
+    "by_size": 0.976,
+    "functions": 89,
+    "mean": 0.982,
+    "perfect": 84,
+    "stubs": 0,
+    "translated": 89
+   },
+   "status": "PASS",
+   "when": "2026-10-26 12:48"
+  }
+ }
+}

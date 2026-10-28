@@ -1,0 +1,224 @@
+{
+ "sha": "1758453d70e66d69516ae38caf705d646451e32f",
+ "date": "2026-10-25T02:43:24-04:00",
+ "subject": "perf(ghidra): every function's decompile time in the corpus; a decompiler crash fixed",
+ "run": "2026-10-25 06:57 (backfilled)",
+ "summary": {
+  "calls-GL": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 87,
+    "mean": 1.0,
+    "perfect": 87,
+    "stubs": 0,
+    "translated": 87
+   },
+   "status": "PASS",
+   "when": "2026-10-25 06:56"
+  },
+  "calls-O2": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 89,
+    "mean": 1.0,
+    "perfect": 89,
+    "stubs": 0,
+    "translated": 89
+   },
+   "status": "PASS",
+   "when": "2026-10-25 06:56"
+  },
+  "calls-Od": {
+   "fidelity": {
+    "by_size": 0.999,
+    "functions": 95,
+    "mean": 1.0,
+    "perfect": 94,
+    "stubs": 0,
+    "translated": 95
+   },
+   "status": "FAIL",
+   "when": "2026-10-25 06:56"
+  },
+  "core-O2": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 113,
+    "mean": 1.0,
+    "perfect": 113,
+    "stubs": 0,
+    "translated": 113
+   },
+   "status": "PASS",
+   "when": "2026-10-25 06:56"
+  },
+  "core-Od": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 118,
+    "mean": 1.0,
+    "perfect": 118,
+    "stubs": 0,
+    "translated": 118
+   },
+   "status": "PASS",
+   "when": "2026-10-25 06:56"
+  },
+  "cpp-O2": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 113,
+    "mean": 1.0,
+    "perfect": 113,
+    "stubs": 0,
+    "translated": 113
+   },
+   "status": "PASS",
+   "when": "2026-10-25 06:56"
+  },
+  "cpp-Od": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 179,
+    "mean": 0.999,
+    "perfect": 178,
+    "stubs": 0,
+    "translated": 179
+   },
+   "status": "PASS",
+   "when": "2026-10-25 06:56"
+  },
+  "crt-O2": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 72,
+    "mean": 1.0,
+    "perfect": 72,
+    "stubs": 0,
+    "translated": 72
+   },
+   "status": "FAIL",
+   "when": "2026-10-25 06:56"
+  },
+  "crt-Od": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 84,
+    "mean": 1.0,
+    "perfect": 84,
+    "stubs": 0,
+    "translated": 84
+   },
+   "status": "PASS",
+   "when": "2026-10-25 06:56"
+  },
+  "eh-O2": {
+   "fidelity": {
+    "by_size": 0.98,
+    "functions": 112,
+    "mean": 0.991,
+    "perfect": 111,
+    "stubs": 1,
+    "translated": 111
+   },
+   "status": "FAIL",
+   "when": "2026-10-25 06:56"
+  },
+  "eh-Od": {
+   "fidelity": {
+    "by_size": 0.998,
+    "functions": 133,
+    "mean": 0.992,
+    "perfect": 132,
+    "stubs": 0,
+    "translated": 133
+   },
+   "status": "PASS",
+   "when": "2026-10-25 06:56"
+  },
+  "float-IA32": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 87,
+    "mean": 1.0,
+    "perfect": 87,
+    "stubs": 0,
+    "translated": 87
+   },
+   "status": "PASS",
+   "when": "2026-10-25 06:56"
+  },
+  "float-O2": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 89,
+    "mean": 1.0,
+    "perfect": 89,
+    "stubs": 0,
+    "translated": 89
+   },
+   "status": "PASS",
+   "when": "2026-10-25 06:56"
+  },
+  "float-Od": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 100,
+    "mean": 1.0,
+    "perfect": 100,
+    "stubs": 0,
+    "translated": 100
+   },
+   "status": "PASS",
+   "when": "2026-10-25 06:56"
+  },
+  "int64-O2": {
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 90,
+    "mean": 1.0,
+    "perfect": 90,
+    "stubs": 0,
+    "translated": 90
+   },
+   "status": "PASS",
+   "when": "2026-10-25 06:56"
+  },
+  "int64-Od": {
+   "fidelity": {
+    "by_size": 0.999,
+    "functions": 93,
+    "mean": 1.0,
+    "perfect": 92,
+    "stubs": 0,
+    "translated": 93
+   },
+   "status": "PASS",
+   "when": "2026-10-25 06:56"
+  },
+  "misc-O2": {
+   "fidelity": {
+    "by_size": 0.971,
+    "functions": 72,
+    "mean": 0.972,
+    "perfect": 70,
+    "stubs": 0,
+    "translated": 72
+   },
+   "status": "PASS",
+   "when": "2026-10-25 06:56"
+  },
+  "misc-Od": {
+   "fidelity": {
+    "by_size": 0.968,
+    "functions": 78,
+    "mean": 0.979,
+    "perfect": 73,
+    "stubs": 0,
+    "translated": 78
+   },
+   "status": "PASS",
+   "when": "2026-10-25 06:56"
+  }
+ }
+}
