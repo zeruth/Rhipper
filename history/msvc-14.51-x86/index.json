@@ -754,5 +754,17 @@
   "stubs": 172,
   "perfect": 4360,
   "translated": 4427
+ },
+ {
+  "sha": "d2d2d647bb294ef9e27bd81434aece1232c54acd",
+  "date": "2026-10-28T02:05:16-04:00",
+  "subject": "fix(protos32): no x87 result for a function a caller calls on to the next call with st0 untouched",
+  "run": "2026-10-28 06:37 UTC",
+  "file": "d2d2d647bb294ef9e27bd81434aece1232c54acd.json",
+  "passing": 21,
+  "projects": 34,
+  "stubs": 172,
+  "perfect": 4360,
+  "translated": 4427
  }
 ]
