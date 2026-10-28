@@ -2790,7 +2790,11 @@ def saved_before(insns, prv, a, limit=40) -> bool:
         ops = ins.operands
         if ins.mnemonic == "mov" and ins.op_str == "ebp, esp":
             return saved
-        if ins.mnemonic in ("call", "jmp", "ret") or ins.mnemonic.startswith("j"):
+        # (past a call: no frame is allocated after one, `call [vt + 0xdc]; ...; push ecx; sub esp,
+        # 8; ...; call edx`, 0x97f440's second call given none of its three words, 2026-10-28)
+        if ins.mnemonic == "call":
+            return True
+        if ins.mnemonic in ("jmp", "ret") or ins.mnemonic.startswith("j"):
             return False
         if ins.mnemonic == "push" and ops and ops[0].type == X.X86_OP_REG \
                 and ops[0].reg in (X.X86_REG_ESI, X.X86_REG_EDI, X.X86_REG_EBX):
