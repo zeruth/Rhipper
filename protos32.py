@@ -3889,10 +3889,15 @@ def main() -> None:
         # __security_check_cookie, and the decompiler, the call killing st0, read extraout_ST0)
         if f in keeps_st0 and not x87_reach(f) and ret_of.get(f) not in ("f4", "d8"):
             keep.append("st0")
+            # (and st1: one that runs no x87 code leaves the whole stack, and /O2 keeps a loop's
+            # two constants there across it, `fld [count]; fld1; ...; call 0x4a44a0; ...; fcomi
+            # st(1)`. Only st0 kept, the decompiler read the second as extraout_ST1, and a
+            # timeline's key setup 0x4bc070 was a stub on a client's startup path, 2026-10-28)
+            keep.append("st1")
         # (on a __cdecl or __stdcall only, and never a register it takes: a keep convention is a new
         # name, which Ghidra does not treat as __thiscall, its `this` lost, and an input register
         # kept the decompiler reads as a saved one, unaff_ECX; 10,000 stubs, 2026-10-23)
-        keep = [n for n in keep if not reg & dict((nm, b) for b, nm in REG_NAMES)[n]]
+        keep = [n for n in keep if not reg & dict((nm, b) for b, nm in REG_NAMES).get(n, 0)]
         # (a register convention that keeps some: custom, its inputs named in their registers, so
         # the keep convention ApplyFacts makes on the __cdecl / __stdcall base loses no `this`.
         # __security_check_cookie takes ecx and leaves eax and edx alone: as a __thiscall its
