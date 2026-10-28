@@ -1,1 +1,1 @@
-{"sha": "bb62de89b78fe6eab9596b1609234981338cf483", "date": "2026-10-28T11:48:50-04:00", "subject": "fix(translate32): an integer call's result is no x87 one where st0 is only copied into in_ST0"}
+{"sha": "ce475fa81de780f632eb5377717278b812ec8f3f", "date": "2026-10-28T11:50:26-04:00", "subject": "feat(shadow_diff): --capped, the functions a --per-function reference run stopped recording left out"}

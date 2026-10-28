@@ -1150,5 +1150,17 @@
   "stubs": 172,
   "perfect": 4360,
   "translated": 4427
+ },
+ {
+  "sha": "ce475fa81de780f632eb5377717278b812ec8f3f",
+  "date": "2026-10-28T11:50:26-04:00",
+  "subject": "feat(shadow_diff): --capped, the functions a --per-function reference run stopped recording left out",
+  "run": "2026-10-28 16:42 UTC",
+  "file": "ce475fa81de780f632eb5377717278b812ec8f3f.json",
+  "passing": 21,
+  "projects": 34,
+  "stubs": 172,
+  "perfect": 4360,
+  "translated": 4427
  }
 ]
