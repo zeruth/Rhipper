@@ -1164,6 +1164,18 @@
   "translated": 17525
  },
  {
+  "sha": "721f5dbf811724abdc1e5336a85b2bd4dd619157",
+  "date": "2026-10-28T16:49:15-04:00",
+  "subject": "fix(translate32): a register kept across a call found past a block that never falls through",
+  "run": "2026-10-28 22:08 UTC",
+  "file": "721f5dbf811724abdc1e5336a85b2bd4dd619157.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 244,
+  "perfect": 15709,
+  "translated": 17525
+ },
+ {
   "sha": "33422b1a754b6aec0c1ee638b6691b166eb2ff52",
   "date": "2026-10-28T16:54:09-04:00",
   "subject": "fix(runtime32): SetClassLongA with a handle's index through SetClassLongPtrA",
