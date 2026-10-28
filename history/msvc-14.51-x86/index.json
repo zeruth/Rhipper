@@ -1306,5 +1306,17 @@
   "stubs": 172,
   "perfect": 4360,
   "translated": 4427
+ },
+ {
+  "sha": "fbba1297becbf9ec9dfae71001434da05af30e0f",
+  "date": "2026-10-28T16:53:00-04:00",
+  "subject": "fix(protos32): a getter after the first in a call chain counted, not the end of the count",
+  "run": "2026-10-28 21:44 UTC",
+  "file": "fbba1297becbf9ec9dfae71001434da05af30e0f.json",
+  "passing": 21,
+  "projects": 34,
+  "stubs": 172,
+  "perfect": 4360,
+  "translated": 4427
  }
 ]

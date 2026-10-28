@@ -1,1 +1,1 @@
-{"sha": "721f5dbf811724abdc1e5336a85b2bd4dd619157", "date": "2026-10-28T16:49:15-04:00", "subject": "fix(translate32): a register kept across a call found past a block that never falls through"}
+{"sha": "fbba1297becbf9ec9dfae71001434da05af30e0f", "date": "2026-10-28T16:53:00-04:00", "subject": "fix(protos32): a getter after the first in a call chain counted, not the end of the count"}
