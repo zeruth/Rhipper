@@ -766,5 +766,17 @@
   "stubs": 172,
   "perfect": 4360,
   "translated": 4427
+ },
+ {
+  "sha": "d30e77aaebdc2f1d6796174376ae2f80914d79ec",
+  "date": "2026-10-28T02:06:48-04:00",
+  "subject": "fix(pebin, ExportFunctions): facts files written beside and renamed over, never read half-written",
+  "run": "2026-10-28 06:58 UTC",
+  "file": "d30e77aaebdc2f1d6796174376ae2f80914d79ec.json",
+  "passing": 21,
+  "projects": 34,
+  "stubs": 172,
+  "perfect": 4360,
+  "translated": 4427
  }
 ]
