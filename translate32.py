@@ -4712,6 +4712,13 @@ class Translator32:
             for ns in getattr(self, "cur_ns", ()):
                 if ns + name in self.ref_names:
                     return self.global_lvalue(self.ref_names[ns + name])
+            # (and a method of the function's own class as a value, by its unqualified name: the
+            # decompiler's `this_00[7] = OnCharaSheetsLoaded;`, a waiter's continuation in the lobby
+            # client's WaitCharaSheets 0x904e60, a stub as "undeclared name". Not a field, `p->x`)
+            if m.string[max(0, m.start() - 2):m.start()] != "->":
+                for ns in getattr(self, "cur_call_ns", ()):
+                    if ns + name in self.by_printed:
+                        return f"((code *)REFP(0x{self.by_printed[ns + name]:x}))"
             return name
         body = re.sub(r"(?<![\w$:.])(" + IDENT + r")(?![\w$(:])(?!\s*\()", value, body)
         return self.pointer_globals(body)
