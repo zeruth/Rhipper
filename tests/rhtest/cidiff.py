@@ -5,6 +5,9 @@ the ones that changed marked. A project worse than before is a regression to fix
     python tests/rhtest/cidiff.py                       the last 3 publishes of msvc-14.51-x86
     python tests/rhtest/cidiff.py -n 5 --toolset msvc-16.00-x86
     python tests/rhtest/cidiff.py --changed             only the projects whose results changed
+    python tests/rhtest/cidiff.py --history [-n 30]     every run by commit (gh-pages history/), each
+                                                        total marked where it moved: what broke when
+    python tests/rhtest/cidiff.py --history --project crt-O2   one project's results commit by commit
 """
 from __future__ import annotations
 
@@ -27,13 +30,41 @@ def row(v: dict) -> str:
     return f"{v.get('status')} s={f.get('stubs')} {f.get('perfect')}/{f.get('functions')}"
 
 
+def history(a) -> None:
+    """The toolset's runs by commit date (gh-pages history/<toolset>/index.json), the last -n."""
+    base = f"origin/gh-pages:history/{a.toolset}"
+    try:
+        rows = json.loads(git("show", f"{base}/index.json"))
+    except subprocess.CalledProcessError:
+        raise SystemExit(f"cidiff: no history for {a.toolset} on gh-pages yet")
+    rows = rows[-max(a.n, 1):] if a.n != 3 else rows[-30:]
+    prev = None
+    for r in rows:
+        if a.project:
+            e = json.loads(git("show", f"{base}/{r['file']}"))["summary"].get(a.project, {})
+            cell = row(e) if e else "-"
+            mark = "  <-" if prev is not None and cell != prev else ""
+            prev = cell
+            print(f"{r['sha'][:9]} {r['date'][:16]}  {cell:28s}{mark}  {r['subject'][:60]}")
+            continue
+        cell = f"{r['passing']}/{r['projects']} pass, {r['stubs']} stubs, {r['perfect']}/{r['translated']} perfect"
+        mark = "  <-" if prev is not None and cell != prev else ""
+        prev = cell
+        print(f"{r['sha'][:9]} {r['date'][:16]}  {cell:44s}{mark}  {r['subject'][:50]}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("-n", type=int, default=3, help="publishes to compare, oldest first")
     ap.add_argument("--toolset", default="msvc-14.51-x86")
     ap.add_argument("--changed", action="store_true")
+    ap.add_argument("--history", action="store_true", help="every run by commit, from gh-pages history/")
+    ap.add_argument("--project", help="with --history, one project's row per commit")
     a = ap.parse_args()
     git("fetch", "-q", "origin", "gh-pages")
+    if a.history:
+        history(a)
+        return
     path = f"{a.toolset}/summary.json"
     pubs = git("log", "origin/gh-pages", f"-{a.n}", "--format=%h %s", "--", path).splitlines()[::-1]
     sums = [json.loads(git("show", f"{p.split()[0]}:{path}")) for p in pubs]
