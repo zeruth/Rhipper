@@ -1965,9 +1965,13 @@ def pushed_inputs(insns, prv, nxt, state, labels) -> int:
                 depth += 4
             else:
                 for i, o in enumerate(pi.operands):
+                    # (each slot the store covers: a double's `push ecx; push ecx; fstp qword ptr
+                    # [esp]` fills both. Its first counted as ecx passed, the CRT's __handle_exc took
+                    # ecx for an input, and through it __except2 and _ldexp were __thiscall ones,
+                    # _ldexp a stub for its extraout_ECX on a client's path, 2026-10-28)
                     if i == 0 and o.type == X.X86_OP_MEM and o.mem.base == X.X86_REG_ESP and not o.mem.index \
                             and mn.startswith(("mov", "fst")):
-                        written.add(depth + o.mem.disp)
+                        written.update(range(depth + o.mem.disp, depth + o.mem.disp + max(o.size, 4), 4))
             q, p = p, prv[p]
     return found
 
