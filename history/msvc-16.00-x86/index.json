@@ -874,5 +874,17 @@
   "stubs": 244,
   "perfect": 15709,
   "translated": 17527
+ },
+ {
+  "sha": "a7af4fcbaba012223e683fb202a5cf38710a69ea",
+  "date": "2026-10-28T07:40:40-04:00",
+  "subject": "feat(covdiff): the functions the reference called that the port never did, in the reference's first-call order",
+  "run": "2026-10-28 12:57 UTC",
+  "file": "a7af4fcbaba012223e683fb202a5cf38710a69ea.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 244,
+  "perfect": 15709,
+  "translated": 17527
  }
 ]
