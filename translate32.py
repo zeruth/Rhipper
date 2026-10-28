@@ -2233,7 +2233,10 @@ class Translator32:
         self.corpus = load_corpus()
         # (the enums the decompiler names anywhere, `enum CV_methodprop_e`: an unexported one is an int)
         self.enum_words = {w for r in self.corpus.values() if "enum " in r.get("c", "")
-                           for w in re.findall(r"\benum\s+([A-Za-z_]\w*)", r["c"])}
+                           # (a scoped one by its last part, as the decompiler declares it: `enum
+                           # std::ios_base::event` in a comment, `event param_1` in the signature,
+                           # std::ios_base::_Callfns a stub on a client's path, "type event")
+                           for w in re.findall(r"\benum\s+(?:[A-Za-z_]\w*::)*([A-Za-z_]\w*)", r["c"])}
         self._pe = None                           # (truncates: the image, opened when first read)
         # (the image's own setjmp and longjmp, a static C runtime's: jump_calls)
         self.linked_jumps = {a: "longjmp" if "longjmp" in m.group(1) else "setjmp" for a, r in self.corpus.items()
