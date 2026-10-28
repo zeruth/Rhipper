@@ -1,1 +1,1 @@
-{"sha": "e69c7ac25f2046c071ac02af84808e6e5e0e051f", "date": "2026-10-28T04:11:15-04:00", "subject": "fix(protos32): a callee that runs no x87 code keeps st1 as well as st0"}
+{"sha": "40cfa860914f5ac846a7d6e5a0ae63a7fdedc0d1", "date": "2026-10-28T04:41:32-04:00", "subject": "fix(translate32): float_assignments takes a float's bits, gen_fl2bits(x), for the integer it is"}

@@ -850,5 +850,17 @@
   "stubs": 172,
   "perfect": 4360,
   "translated": 4427
+ },
+ {
+  "sha": "40cfa860914f5ac846a7d6e5a0ae63a7fdedc0d1",
+  "date": "2026-10-28T04:41:32-04:00",
+  "subject": "fix(translate32): float_assignments takes a float's bits, gen_fl2bits(x), for the integer it is",
+  "run": "2026-10-28 09:27 UTC",
+  "file": "40cfa860914f5ac846a7d6e5a0ae63a7fdedc0d1.json",
+  "passing": 21,
+  "projects": 34,
+  "stubs": 172,
+  "perfect": 4360,
+  "translated": 4427
  }
 ]
