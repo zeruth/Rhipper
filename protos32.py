@@ -2507,9 +2507,12 @@ def slot_overwritten(insns, p) -> bool:
     that only reserves room (`push ecx; fstp dword ptr [esp]`). Eight instructions on: /O2 puts
     the float's computation between, `push ecx; fld ..; faddp; fxch; fstp [edi + 0x1b4]; mov edx,
     [eax*4 + T]; fstp [esp]`, and the reservation was taken for `this` pushed (a client's
-    0x98c490, its method lost its object, 2026-10-28)"""
+    0x98c490, its method lost its object, 2026-10-28). Up to the call: any store through [esp]
+    before the stack moves replaces the word pushed, and a voice's reset stores fifteen floats
+    between, `push ecx; fst [esi + 0x1d8]; ...; mov eax, [ecx]; mov edx, [eax + 4]; fstp [esp];
+    call edx`, a DynamicValue's set with no object, 1.0f's bits its `this`, 0xcd62d0)"""
     q = p + insns[p].size
-    for _ in range(8):
+    for _ in range(40):
         ins = insns.get(q)
         if ins is None or ins.mnemonic in ("call", "ret", "push", "pop") or ins.mnemonic.startswith("j"):
             return False
