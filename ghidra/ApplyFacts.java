@@ -806,7 +806,7 @@ public class ApplyFacts extends GhidraScript {
         List<Function[]> pieces = new ArrayList<>();
         for (Function f : currentProgram.getFunctionManager().getFunctions(true)) {
             if (f.isExternal() || f.isThunk() || f.getSymbol().getSource() != SourceType.DEFAULT) continue;
-            Function prev = currentProgram.getFunctionManager().getFunctionBefore(f.getEntryPoint());
+            Function prev = getFunctionBefore(f.getEntryPoint());   // (FlatProgramAPI's)
             if (prev == null || prev.isThunk()) continue;
             boolean onlyPrevJumps = false;
             for (ghidra.program.model.symbol.Reference r : getReferencesTo(f.getEntryPoint())) {
