@@ -658,5 +658,17 @@
   "stubs": 172,
   "perfect": 4360,
   "translated": 4427
+ },
+ {
+  "sha": "5408b50d57f97641ca533975007cb9a740dc31bf",
+  "date": "2026-10-27T20:35:59-04:00",
+  "subject": "feat(translate32): a 4-byte integer parameter whose address is taken as the argument's own storage",
+  "run": "2026-10-28 01:21 UTC",
+  "file": "5408b50d57f97641ca533975007cb9a740dc31bf.json",
+  "passing": 20,
+  "projects": 34,
+  "stubs": 172,
+  "perfect": 4239,
+  "translated": 4305
  }
 ]
