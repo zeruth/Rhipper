@@ -946,5 +946,17 @@
   "stubs": 172,
   "perfect": 4360,
   "translated": 4427
+ },
+ {
+  "sha": "acc6411280f770e69451a4c720a0e4533207f136",
+  "date": "2026-10-28T06:24:14-04:00",
+  "subject": "fix(protos32): a registration call's callbacks that ignore this are methods where the others read it",
+  "run": "2026-10-28 11:14 UTC",
+  "file": "acc6411280f770e69451a4c720a0e4533207f136.json",
+  "passing": 21,
+  "projects": 34,
+  "stubs": 172,
+  "perfect": 4360,
+  "translated": 4427
  }
 ]

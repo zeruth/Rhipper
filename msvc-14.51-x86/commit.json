@@ -1,1 +1,1 @@
-{"sha": "7e88a485dbfff2b390662f6b1f7e952ee0c0f26b", "date": "2026-10-28T06:10:32-04:00", "subject": "fix(protos32): a register pushed after the prologue's own pushes is an argument, the sub esp after it no frame"}
+{"sha": "acc6411280f770e69451a4c720a0e4533207f136", "date": "2026-10-28T06:24:14-04:00", "subject": "fix(protos32): a registration call's callbacks that ignore this are methods where the others read it"}
