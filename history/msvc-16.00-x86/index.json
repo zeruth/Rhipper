@@ -742,5 +742,17 @@
   "stubs": 244,
   "perfect": 15709,
   "translated": 17527
+ },
+ {
+  "sha": "2ab3ba1436669ae553b55a8acf6a8d68d5a10a3a",
+  "date": "2026-10-28T05:06:31-04:00",
+  "subject": "fix(protos32): a sub esp after the prologue's register saves reserves arguments, not the frame",
+  "run": "2026-10-28 10:05 UTC",
+  "file": "2ab3ba1436669ae553b55a8acf6a8d68d5a10a3a.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 244,
+  "perfect": 15709,
+  "translated": 17527
  }
 ]
