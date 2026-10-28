@@ -1,1 +1,1 @@
-{"sha": "101c6040fddac0dac75fb74ac273053048a97668", "date": "2026-10-28T16:09:20-04:00", "subject": "feat(gotchas): rhipper.json gotchas_reviewed, the risky imports a project found harmless as used, shown apart"}
+{"sha": "84814afc96b69c61040f4c6ded89905730b028c2", "date": "2026-10-28T16:25:24-04:00", "subject": "feat(ghidra): ProbePiece.java, the piece merge's inputs at an address (its function, the one before it, each reference and its type)"}
