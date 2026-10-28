@@ -490,5 +490,17 @@
   "stubs": 242,
   "perfect": 15711,
   "translated": 17529
+ },
+ {
+  "sha": "2bc0a0b85b5560e1bf18a59fa88a62028f2f5c2e",
+  "date": "2026-10-27T20:19:12-04:00",
+  "subject": "feat(rhtest): cidiff --history, every run by commit from gh-pages history/, moves marked",
+  "run": "2026-10-28 01:14 UTC",
+  "file": "2bc0a0b85b5560e1bf18a59fa88a62028f2f5c2e.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 242,
+  "perfect": 15711,
+  "translated": 17529
  }
 ]
