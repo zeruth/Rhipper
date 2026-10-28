@@ -1306,5 +1306,17 @@
   "stubs": 240,
   "perfect": 15706,
   "translated": 17529
+ },
+ {
+  "sha": "db293c2774b55ee0dcf4d1d79e0e963d28425d57",
+  "date": "2026-10-28T18:33:17-04:00",
+  "subject": "fix(translate32): a scoped enum's name by its last part, an int",
+  "run": "2026-10-28 23:50 UTC",
+  "file": "db293c2774b55ee0dcf4d1d79e0e963d28425d57.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 237,
+  "perfect": 15709,
+  "translated": 17532
  }
 ]
