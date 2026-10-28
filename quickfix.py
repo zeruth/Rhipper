@@ -187,13 +187,53 @@ def splice(t, addrs: list[int]) -> list[Path]:
     return sorted(touched)
 
 
+def all_jumps(t) -> None:
+    """jumps.c's wrappers and table written again for every function from translated.h's
+    prototypes (translate32.jump_wrapper's rules as they are now), its other parts kept."""
+    jpath = GEN / "jumps.c"
+    lines = jpath.read_text(encoding="utf-8").split("\n")
+    decls = {}
+    for l in (GEN / "translated.h").read_text(encoding="utf-8").split("\n"):
+        m = re.search(r"\bF_([0-9a-f]{8})\(", l)
+        if m and l.rstrip().endswith(";"):
+            decls[int(m.group(1), 16)] = l.rstrip()[:-1]
+    wrappers = {a: w for a, d in decls.items() if (w := t.jump_wrapper(a, d)) is not None}
+    out, n = [], 0
+    for l in lines:
+        if l.startswith("static ") and re.search(r"\bW_[0-9a-f]{8}\(", l):
+            continue                                   # (the old wrappers, all written again)
+        if l.startswith("const GEN_JUMP g_genJumps[]"):
+            out += [wrappers[a] for a in sorted(wrappers)]
+        m = re.match(r"  \{0x([0-9a-f]+)u, \(void \*\)[WF]_([0-9a-f]{8})\},$", l)
+        if m:
+            a, target = int(m.group(1), 16), int(m.group(2), 16)
+            l = f"  {{0x{a:x}u, (void *){'W' if target in wrappers else 'F'}_{target:08x}}},"
+            n += 1
+        out.append(l)
+    jpath.write_text("\n".join(out), encoding="utf-8")
+    print(f"quickfix: jumps.c, {len(wrappers)} wrappers, {n} entries")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("addrs", nargs="+", type=lambda s: int(s, 16))
+    ap.add_argument("addrs", nargs="*", type=lambda s: int(s, 16))
+    ap.add_argument("--jumps", action="store_true", help="every function's jumps.c wrapper written again")
     ap.add_argument("--callers", action="store_true", help="and the functions that call them")
     ap.add_argument("--no-ghidra", action="store_true", help="translate from the corpus as it is")
     ap.add_argument("--build", action="store_true", help="build the port after")
     a = ap.parse_args()
+    if a.jumps:
+        all_jumps(translate32.Translator32())
+        if not a.addrs:
+            if a.build:
+                b = json.loads((ROOT / "rhipper.json").read_text()).get("build", {})
+                r = subprocess.run(["cmake", "--build", str(ROOT / b.get("dir", "build/cmake")), "--config",
+                                    b.get("config", "Release")], capture_output=True, text=True)
+                errs = [l for l in r.stdout.splitlines() if " error " in l]
+                print("\n".join(errs[:20]) or r.stdout.strip().splitlines()[-1])
+            return
+    if not a.addrs:
+        ap.error("no functions")
     addrs = set(a.addrs)
     if a.callers:
         addrs |= callers_of(addrs)

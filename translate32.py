@@ -4755,9 +4755,18 @@ class Translator32:
         x87 one returned as a double (gen_fcode's type). quickfix.py writes them again for the
         functions it changes."""
         ret = d.split(f"F_{a:08x}")[0].strip()
+        # (the return type without the convention: `float GEN_THISCALL` read as no float since the
+        # conventions were declared, every __thiscall float getter called through a pointer without
+        # its double wrapper, a float's bits read as a double: a sound filter's frequency 16384 for
+        # 0.5, and its assert, DynamicValue::vf4 2026-10-28)
+        ret = re.sub(r"\s*\bGEN_(?:THIS|STD|FAST)CALL\b", "", ret)
         width = NARROW_RETS.get(ret)
         ps = [p.strip() for p in d[d.index("(") + 1:d.rindex(")")].split(",")]
         names = [] if ps in ([""], ["void"]) else [re.split(r"[\s*]+", p)[-1] for p in ps]
+        # (the parameter's name, not the convention macro after it: `gen_a0 GEN_EDX_PARAM`, and
+        # the dummy edx forwarded)
+        names = [(re.search(r"\bgen_a\d+\b", p).group(0) + (" GEN_EDX_FWD" if "GEN_EDX_PARAM" in p else ""))
+                 if re.search(r"\bgen_a\d+\b", p) else nm for p, nm in zip(ps, names)]
         # (and one returning an x87 value, float, double or float10, as a double: an indirect
         # caller reading it calls through gen_fcode, double's type, and a float in xmm0 read so
         # was another number, code_slots, 2026-10-26)
