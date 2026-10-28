@@ -910,5 +910,17 @@
   "stubs": 172,
   "perfect": 4360,
   "translated": 4427
+ },
+ {
+  "sha": "da908ecbb82e24b2efa2e80ed12f5bee7d3dafe1",
+  "date": "2026-10-28T05:31:47-04:00",
+  "subject": "fix(translate32): a float table's element with a bracketed index is a float for flt_to too",
+  "run": "2026-10-28 10:22 UTC",
+  "file": "da908ecbb82e24b2efa2e80ed12f5bee7d3dafe1.json",
+  "passing": 21,
+  "projects": 34,
+  "stubs": 172,
+  "perfect": 4360,
+  "translated": 4427
  }
 ]
