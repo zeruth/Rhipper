@@ -1,1 +1,1 @@
-{"sha": "101c6040fddac0dac75fb74ac273053048a97668", "date": "2026-10-28T16:09:20-04:00", "subject": "feat(gotchas): rhipper.json gotchas_reviewed, the risky imports a project found harmless as used, shown apart"}
+{"sha": "33422b1a754b6aec0c1ee638b6691b166eb2ff52", "date": "2026-10-28T16:54:09-04:00", "subject": "fix(runtime32): SetClassLongA with a handle's index through SetClassLongPtrA"}
