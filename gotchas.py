@@ -132,11 +132,17 @@ def main() -> None:
             for code, where in faults[:5]:
                 print(f"  {code} at {where}")
             problems += len(faults)
-    risky = sorted(n for n in generic_imports() if n in RISKY)
+    # (the ones a project has looked at and found harmless as used, rhipper.json "gotchas_reviewed":
+    # {name: why}, shown apart so the rest stand out)
+    reviewed = project.CONFIG.get("gotchas_reviewed", {})
+    risky = sorted(n for n in generic_imports() if n in RISKY and n not in reviewed)
     print(f"imports through the generic adapter that differ on x64: {len(risky)}")
     for n in risky:
         print(f"  {n}: {RISKY[n]}")
     problems += len(risky)
+    seen = sorted(n for n in generic_imports() if n in reviewed)
+    if seen:
+        print(f"  (and {len(seen)} reviewed as harmless here: {', '.join(seen)})")
     print(f"functions marked suspect in the gen: {len(suspect)} (uninit.py lists them)")
     print(f"{problems} things to look at")
 
