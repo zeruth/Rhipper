@@ -1344,6 +1344,7 @@ def analyse(root: int, ranges):
             # and the calls through one in this method with its own ecx still there, (site,
             # displacement): __thiscall in main where every function stored at it is one)
             "field_stores": {d: sorted(s) for d, s in field_stores(insns, state).items()},
+            "member_ptrs": member_ptrs(insns, state),
             "field_calls": {a: d for a in state if insns[a].mnemonic == "call" and _target(insns[a]) is None
                             and inputs & ECX and not state[a][0] & ECX
                             and (d := field_call_disp(insns, prv, a)) is not None},
@@ -2032,6 +2033,63 @@ def field_stores(insns, state) -> dict[int, set[int]]:
                 and not ops[0].mem.index and ops[0].mem.base not in (X.X86_REG_EBP, X.X86_REG_ESP) \
                 and ops[1].type == X.X86_OP_IMM and (ops[1].imm & 0xFFFFFFFF) in _names:
             out.setdefault(ops[0].mem.disp & 0xFFFFFFFF, set()).add(ops[1].imm & 0xFFFFFFFF)
+    return out
+
+
+def member_ptrs(insns, state) -> list[int]:
+    """The functions this one stores as C++ pointers to members in data: a function's address to an
+    absolute G and an immediate 0 (the `this` adjustment) to G + 4, both here."""
+    funcs: dict[int, int] = {}
+    zeros: set[int] = set()
+    for a in state:
+        ins = insns[a]
+        ops = ins.operands
+        if ins.mnemonic != "mov" or len(ops) != 2 or ops[0].type != X.X86_OP_MEM or ops[0].mem.base \
+                or ops[0].mem.index or ops[1].type != X.X86_OP_IMM or ops[0].size != 4:
+            continue
+        g, v = ops[0].mem.disp & 0xFFFFFFFF, ops[1].imm & 0xFFFFFFFF
+        if v in _names:
+            funcs[g] = v
+        elif v == 0:
+            zeros.add(g)
+    return sorted({f for g, f in funcs.items() if g + 4 in zeros})
+
+
+def image_member_ptrs(b: Binary, funcs: set[int]) -> set[int]:
+    """member_ptrs over the whole image, the static initializers no function covers included (the
+    C runtime calls them from its __xi table): at each `mov reg, <function>`, a short window run
+    with the registers' constants, `mov eax, 0x97bf10; xor ecx, ecx; mov [G], eax; mov [G + 4],
+    ecx`."""
+    md = disassembler()
+    md.detail = True
+    img = bytes(b.image)
+    out: set[int] = set()
+    for k in range(len(img) - 5):
+        if 0xB8 <= img[k] <= 0xBF and int.from_bytes(img[k + 1:k + 5], "little") in funcs:
+            va = b.base + k
+            if not b.is_code(va):
+                continue
+            regs: dict[int, int] = {}
+            stores: dict[int, int] = {}
+            for ins in md.disasm(img[k:k + 64], va):
+                ops = ins.operands
+                if ins.mnemonic in ("ret", "call", "jmp") or ins.mnemonic.startswith("j"):
+                    break
+                if ins.mnemonic == "mov" and len(ops) == 2 and ops[0].type == X.X86_OP_REG and ops[1].type == X.X86_OP_IMM:
+                    regs[ops[0].reg] = ops[1].imm & 0xFFFFFFFF
+                elif ins.mnemonic == "xor" and len(ops) == 2 and ops[0].type == ops[1].type == X.X86_OP_REG \
+                        and ops[0].reg == ops[1].reg:
+                    regs[ops[0].reg] = 0
+                elif ins.mnemonic == "mov" and len(ops) == 2 and ops[0].type == X.X86_OP_MEM and not ops[0].mem.base \
+                        and not ops[0].mem.index and ops[0].size == 4:
+                    v = regs.get(ops[1].reg) if ops[1].type == X.X86_OP_REG else (
+                        ops[1].imm & 0xFFFFFFFF if ops[1].type == X.X86_OP_IMM else None)
+                    if v is not None:
+                        stores[ops[0].mem.disp & 0xFFFFFFFF] = v
+                else:
+                    for r in regs_access(Insn(ins))[1]:
+                        regs.pop(r, None)
+            out |= {v for g, v in stores.items() if v in funcs and stores.get(g + 4) == 0}
     return out
 
 
@@ -3646,6 +3704,14 @@ def main() -> None:
             cdecl_like = any(s in local and local[s].get("ret") == 0 and stack_hi.get(s, 0) > 4 for s in slots)
             if slots and not com and not cdecl_like and all(s in local for s in slots):
                 methods.update(slots)
+    # (and C++ pointers to members in data, set up by a static initializer: a function's address at
+    # G and its `this` adjustment, 0, at G + 4, `mov [0x14a0b80], 0x97bf10; mov [0x14a0b84], 0`,
+    # called `mov ecx, [eax + eax + G + 4]; add ecx, esi; call [eax + eax + G]`. A member that
+    # reads no `this` showed as a __stdcall, the call's object taken for its first argument, and a
+    # timeline curve's setter wrote through a float, 0x97bf10 2026-10-28)
+    for v in local.values():
+        methods.update(t for t in v.get("member_ptrs", ()) if t in local)
+    methods |= image_member_ptrs(b, set(local))
 
     # (the callees a float-returning caller calls with that result live in st0, analyse's st0_live;
     # and whether a function, or anything it calls, runs x87 code: a call through a pointer might)
