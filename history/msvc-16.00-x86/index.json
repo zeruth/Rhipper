@@ -1272,6 +1272,18 @@
   "translated": 17525
  },
  {
+  "sha": "1765c496b7749cd88e6f40887a6a3c286a70a5c9",
+  "date": "2026-10-28T18:22:58-04:00",
+  "subject": "fix(translate32): an indirect call another extraout_ST0 already took, passed over, not taken again",
+  "run": "2026-10-28 23:40 UTC",
+  "file": "1765c496b7749cd88e6f40887a6a3c286a70a5c9.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 244,
+  "perfect": 15709,
+  "translated": 17525
+ },
+ {
   "sha": "350e3d66d8db03ddb1edc648ba71936a7713fce2",
   "date": "2026-10-28T18:32:01-04:00",
   "subject": "fix(translate32): a method of the function's own class as a value, by its unqualified name",
