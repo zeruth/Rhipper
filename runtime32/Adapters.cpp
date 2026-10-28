@@ -2074,6 +2074,52 @@ unsigned int gen_imp_WSAStartup(uint32_t version, uint32_t out) {
     return static_cast<unsigned int>(r);
 }
 
+// ---- select and __WSAFDIsSet: an fd_set is {count; SOCKET fds[64]}, a SOCKET 4 bytes on x86 and
+// 8 on x64. Passed through, x64's select read the x86 set's sockets two to a slot, and a client's
+// lobby connection, refused, was never seen to fail: its "connecting" dialog stayed up where the
+// reference's closed for the error (2026-10-28)
+struct FdSet32 {
+    uint32_t count;
+    uint32_t fds[64];
+};
+struct FdSet64 {
+    uint32_t count;
+    uint64_t fds[64];
+};
+static FdSet64* FdIn(uint32_t a, FdSet64* n) {
+    if (a == 0) return nullptr;
+    auto s = At<FdSet32>(a);
+    n->count = s->count < 64 ? s->count : 64;
+    for (uint32_t k = 0; k < n->count; k++) n->fds[k] = s->fds[k];
+    return n;
+}
+static void FdOut(uint32_t a, const FdSet64* n) {
+    if (a == 0) return;
+    auto s = At<FdSet32>(a);
+    s->count = n->count;
+    for (uint32_t k = 0; k < n->count; k++) s->fds[k] = static_cast<uint32_t>(n->fds[k]);
+}
+unsigned int gen_imp_select(uint32_t nfds, uint32_t rd, uint32_t wr, uint32_t ex, uint32_t timeout) {
+    using Select = int(WINAPI*)(int, void*, void*, void*, const void*);
+    static Select sel = reinterpret_cast<Select>(GetProcAddress(LoadLibraryA("ws2_32.dll"), "select"));
+    FdSet64 r, w, e;
+    // (a timeval is two longs on both)
+    int n = sel(static_cast<int>(nfds), FdIn(rd, &r), FdIn(wr, &w), FdIn(ex, &e), At<void>(timeout));
+    if (n != -1) {
+        if (rd) FdOut(rd, &r);
+        if (wr) FdOut(wr, &w);
+        if (ex) FdOut(ex, &e);
+    }
+    return static_cast<unsigned int>(n);
+}
+unsigned int gen_imp___WSAFDIsSet(uint32_t sock, uint32_t set) {
+    if (set == 0) return 0;
+    auto s = At<FdSet32>(set);
+    for (uint32_t k = 0; k < s->count && k < 64; k++)
+        if (s->fds[k] == sock) return 1;
+    return 0;
+}
+
 // ---- the x87 unit's control and status words (Ghidra32.h) ----------------------------------
 __declspec(thread) unsigned short gen_x87_cw = 0x27f;
 
