@@ -1,1 +1,1 @@
-{"sha": "bd642242c17f0ee0696ee7d58dd06595b2be4121", "date": "2026-10-28T08:39:43-04:00", "subject": "feat(covdiff, runtime32): thunks left out of the coverage diff; DUMPAT through any argument"}
+{"sha": "04a372aa9a91d969fb0a72e1c6eaa3d67791e951", "date": "2026-10-28T09:32:57-04:00", "subject": "fix(translate32, runtime32): the code section's data the translation reads kept through the int3"}

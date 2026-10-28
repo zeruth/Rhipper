@@ -1042,5 +1042,17 @@
   "stubs": 172,
   "perfect": 4360,
   "translated": 4427
+ },
+ {
+  "sha": "04a372aa9a91d969fb0a72e1c6eaa3d67791e951",
+  "date": "2026-10-28T09:32:57-04:00",
+  "subject": "fix(translate32, runtime32): the code section's data the translation reads kept through the int3",
+  "run": "2026-10-28 14:21 UTC",
+  "file": "04a372aa9a91d969fb0a72e1c6eaa3d67791e951.json",
+  "passing": 21,
+  "projects": 34,
+  "stubs": 172,
+  "perfect": 4360,
+  "translated": 4427
  }
 ]
