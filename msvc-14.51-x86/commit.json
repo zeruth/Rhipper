@@ -1,1 +1,1 @@
-{"sha": "064442d1b884bf3b70bcfa0b196e642c9f7a5d78", "date": "2026-10-28T05:16:35-04:00", "subject": "fix(protos32): saved_before looks back 40 instructions for the prologue's mov ebp, esp"}
+{"sha": "3c04dd48e15b1f5ead43b0d3005520739cb456a6", "date": "2026-10-28T05:26:27-04:00", "subject": "fix(protos32): a sub esp after a call is never the frame's allocation"}

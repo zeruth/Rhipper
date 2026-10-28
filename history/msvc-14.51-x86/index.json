@@ -898,5 +898,17 @@
   "stubs": 172,
   "perfect": 4360,
   "translated": 4427
+ },
+ {
+  "sha": "3c04dd48e15b1f5ead43b0d3005520739cb456a6",
+  "date": "2026-10-28T05:26:27-04:00",
+  "subject": "fix(protos32): a sub esp after a call is never the frame's allocation",
+  "run": "2026-10-28 10:18 UTC",
+  "file": "3c04dd48e15b1f5ead43b0d3005520739cb456a6.json",
+  "passing": 21,
+  "projects": 34,
+  "stubs": 172,
+  "perfect": 4360,
+  "translated": 4427
  }
 ]
