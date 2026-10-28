@@ -1332,6 +1332,18 @@
   "translated": 4427
  },
  {
+  "sha": "c021336d57578450d8762d776e9ca0b7f70f72f9",
+  "date": "2026-10-28T17:07:11-04:00",
+  "subject": "fix(protos32): a callee's st0 worked on after its call, not handed on as the caller's result",
+  "run": "2026-10-28 21:59 UTC",
+  "file": "c021336d57578450d8762d776e9ca0b7f70f72f9.json",
+  "passing": 21,
+  "projects": 34,
+  "stubs": 172,
+  "perfect": 4360,
+  "translated": 4427
+ },
+ {
   "sha": "e93c80b89d12ca557330d6810f5101f18d3dd801",
   "date": "2026-10-28T17:11:15-04:00",
   "subject": "fix(translate32): an indirect call's x87 result read past later calls, found back through them",
