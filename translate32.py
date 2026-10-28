@@ -2196,6 +2196,17 @@ class Translator32:
         pe.close()
         return out
 
+    def func_ranges(self, a: int) -> list[tuple[int, int]]:
+        """The function's extents, functions.json's ranges (the corpus's size is the decompiler's,
+        short of the last instruction at times: d74e00's 82 bytes cut its loop's `test [esi + 4]`)."""
+        if getattr(self, "_ranges", None) is None:
+            self._ranges = {}
+            path = FACTS / "functions.json"
+            if path.exists():
+                for f in json.loads(path.read_text())["functions"]:
+                    self._ranges[int(f["entry"], 16)] = [(int(x, 16), int(y, 16)) for x, y in f.get("ranges", [])]
+        return self._ranges.get(a) or [(a, a + (self.corpus[a].get("size") or 0))]
+
     def local_thunks(self) -> dict[str, tuple[int, int]]:
         """name -> (thunk, target) for each `jmp` thunk Ghidra made a function of in the
         image's own code (functions.json "thunk", not an import's): the corpus leaves thunks out,
@@ -2309,23 +2320,32 @@ class Translator32:
             s = m.end()
         stored: dict[str, tuple] = {}   # key -> (type, displacement, statement start)
         found: dict[tuple, list] = {}   # (key, store start) -> [read starts]
+        # (the fields read on this straight line so far, the store's own right side included: the
+        # decompiler's temporary is a value of the field read before the store, so the field is
+        # read there too. `p[1] = f(); g(p[1])` reads only the new value, its own result kept in
+        # a register: the pass took it for a stale read and passed the old object to a call, a
+        # client's 0xe14a10 faulting on null, 2026-10-28)
+        read: set[str] = set()
         for s, e in stmts:
             text = body[s:e]
             if self.STALE_BREAK.search(text.strip()) or text.strip() in ("{", "}"):
-                stored = {}
+                stored, read = {}, set()
                 continue
             m = re.match(r"(\s*)(.+?)\s=(?!=)\s(.*)$", text, re.S)
             lhs, rhs, roff = (m.group(2), m.group(3), s + m.start(3)) if m else ("", text, s)
             for k, _b, _t, _d, at in keys(rhs, roff):
                 if k in stored:
                     found.setdefault((k, stored[k][2]), []).append(at)
+                read.add(k)
             if m:
                 lead = s + len(m.group(1))
                 if re.fullmatch(r"[A-Za-z_]\w*", lhs.strip()):
                     # (a base reassigned: its fields are another object's)
-                    stored = {k: v for k, v in stored.items() if not re.search(r"\b" + lhs.strip() + r"\b", k)}
+                    gone = lambda k: re.search(r"\b" + lhs.strip() + r"\b", k)  # noqa: E731
+                    stored = {k: v for k, v in stored.items() if not gone(k)}
+                    read = {k for k in read if not gone(k)}
                 for k, _b, t, d, _at in keys(lhs, lead):
-                    if lhs.strip() == k and k not in stored:
+                    if lhs.strip() == k and k not in stored and k in read:
                         stored[k] = (t, d, lead)
         if not found:
             return body
@@ -2335,14 +2355,16 @@ class Translator32:
         import pefile
         if self._pe is None:
             self._pe = pefile.PE(str(project.EXE), fast_load=True)
-        code = self._pe.get_data(a - self._pe.OPTIONAL_HEADER.ImageBase, self.corpus[a].get("size") or 0)
+        base_va = self._pe.OPTIONAL_HEADER.ImageBase
         md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
         md.detail = True
+        insns = [ins for lo, hi in sorted(self.func_ranges(a))
+                 for ins in md.disasm(self._pe.get_data(lo - base_va, hi - lo), lo)]
         # (base register, displacement) -> first store; -> its loads; and where control leaves the
         # straight line (a jump or a return between a load and the store: another path's load)
         first_w, loads, breaks = {}, {}, []
         rmw = ("add", "sub", "and", "or", "xor", "inc", "dec", "neg", "not")
-        for ins in md.disasm(code, a):
+        for ins in insns:
             if ins.mnemonic.startswith(("j", "ret", "call")):
                 breaks.append(ins.address)
             for i, op in enumerate(ins.operands):
@@ -2357,14 +2379,19 @@ class Translator32:
 
         def kept(d: int) -> bool:
             """a field of displacement d loaded before its store, on the same straight line, by the
-            same base register, and never loaded after"""
+            same base register, and never loaded after by any (the C's base is no register: a
+            loop's `inc [esi + 4]; test [esi + 4], edx` reloads it, while another object's field
+            at +4 kept by edi passed, d74e00's counter read as its value before the increment)"""
+            ok = False
             for (base, dd), w in first_w.items():
                 ls = loads.get((base, dd), [])
-                if dd != d or not ls or max(ls) > w:
+                if dd != d:
                     continue
-                if not any(max(ls) < x < w for x in breaks):
-                    return True
-            return False
+                if ls and max(ls) > w:
+                    return False
+                if ls and not any(max(ls) < x < w for x in breaks):
+                    ok = True
+            return ok
         edits = []   # (position, length, replacement)
         decls = []
         for (k, at), reads in found.items():
