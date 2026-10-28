@@ -1,1 +1,1 @@
-{"sha": "c4e9eebd6a319e0541eb52769a9197f52f9f9ca4", "date": "2026-10-28T16:41:43-04:00", "subject": "fix(protos32): variadic through a pointer stepped past the last fixed parameter"}
+{"sha": "721f5dbf811724abdc1e5336a85b2bd4dd619157", "date": "2026-10-28T16:49:15-04:00", "subject": "fix(translate32): a register kept across a call found past a block that never falls through"}
