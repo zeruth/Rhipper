@@ -994,5 +994,17 @@
   "stubs": 172,
   "perfect": 4360,
   "translated": 4427
+ },
+ {
+  "sha": "e9fae3f979e540baf17a815988815c376da24b68",
+  "date": "2026-10-28T07:32:45-04:00",
+  "subject": "fix(com32gen): each COM method once; XAudio2 voices' slots right",
+  "run": "2026-10-28 12:24 UTC",
+  "file": "e9fae3f979e540baf17a815988815c376da24b68.json",
+  "passing": 21,
+  "projects": 34,
+  "stubs": 172,
+  "perfect": 4360,
+  "translated": 4427
  }
 ]
