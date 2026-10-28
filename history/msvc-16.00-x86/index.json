@@ -624,6 +624,18 @@
   "translated": 17527
  },
  {
+  "sha": "d2d2d647bb294ef9e27bd81434aece1232c54acd",
+  "date": "2026-10-28T02:05:16-04:00",
+  "subject": "fix(protos32): no x87 result for a function a caller calls on to the next call with st0 untouched",
+  "run": "2026-10-28 07:21 UTC",
+  "file": "d2d2d647bb294ef9e27bd81434aece1232c54acd.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 256,
+  "perfect": 15697,
+  "translated": 17515
+ },
+ {
   "sha": "d30e77aaebdc2f1d6796174376ae2f80914d79ec",
   "date": "2026-10-28T02:06:48-04:00",
   "subject": "fix(pebin, ExportFunctions): facts files written beside and renamed over, never read half-written",
