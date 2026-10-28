@@ -153,6 +153,30 @@ def splice(t, addrs: list[int]) -> list[Path]:
         decl = t.stub_decl(a) + ";"
         if hi is not None and header[hi] != decl:
             header[hi] = decl
+    # (and jumps.c's wrapper of each, which calls it with its parameters: a prototype changed, the
+    # old wrapper passed too few, C2198, 2026-10-28)
+    jpath = GEN / "jumps.c"
+    jumps = jpath.read_text(encoding="utf-8").split("\n")
+    for a in addrs:
+        w = t.jump_wrapper(a, t.stub_decl(a))
+        wi = next((k for k, l in enumerate(jumps) if l.startswith("static ") and f" W_{a:08x}(" in l), None)
+        ti = next((k for k, l in enumerate(jumps) if l.startswith(f"  {{0x{a:x}u, (void *)")), None)
+        if w is not None and wi is not None:
+            jumps[wi] = w
+        elif w is not None:
+            # (a wrapper it had none of: before the table, its entry through it)
+            start = next(k for k, l in enumerate(jumps) if l.startswith("const GEN_JUMP g_genJumps[]"))
+            jumps.insert(start, w)
+            if ti is not None:
+                ti += 1
+        elif wi is not None:
+            del jumps[wi]
+            if ti is not None and ti > wi:
+                ti -= 1
+        if ti is not None:
+            target = f"W_{a:08x}" if w is not None else f"F_{a:08x}"
+            jumps[ti] = f"  {{0x{a:x}u, (void *){target}}},"
+    jpath.write_text("\n".join(jumps), encoding="utf-8")
     manifest["stubbed"] = len(manifest["stubs"])
     for p in touched:
         p.write_text(texts[p], encoding="utf-8")

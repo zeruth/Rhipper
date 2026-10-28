@@ -4744,6 +4744,28 @@ class Translator32:
             ps.append("...")
         return self.conv_decl(a, ret, ps)
 
+    @staticmethod
+    def jump_wrapper(a: int, d: str) -> str | None:
+        """jumps.c's wrapper for the function declared d, W_<a>, where its entry needs one, else
+        None: a byte or word result widened to all of eax (an indirect caller reads eax whole), an
+        x87 one returned as a double (gen_fcode's type). quickfix.py writes them again for the
+        functions it changes."""
+        ret = d.split(f"F_{a:08x}")[0].strip()
+        width = NARROW_RETS.get(ret)
+        ps = [p.strip() for p in d[d.index("(") + 1:d.rindex(")")].split(",")]
+        names = [] if ps in ([""], ["void"]) else [re.split(r"[\s*]+", p)[-1] for p in ps]
+        # (and one returning an x87 value, float, double or float10, as a double: an indirect
+        # caller reading it calls through gen_fcode, double's type, and a float in xmm0 read so
+        # was another number, code_slots, 2026-10-26)
+        # (not a variadic one: no wrapper can pass its `...` on)
+        if width is None and "*" not in ret and ret.split()[-1] in FLOATS and "..." not in ps:
+            return (f"static double W_{a:08x}({', '.join(ps) or 'void'}) "
+                    f"{{ return (double)F_{a:08x}({', '.join(names)}); }}")
+        if width is None:
+            return None
+        return (f"static unsigned int W_{a:08x}({', '.join(ps) or 'void'}) "
+                f"{{ return (unsigned int)({width})F_{a:08x}({', '.join(names)}); }}")
+
     def emit(self, translated: dict[int, str], stubbed: dict[int, str]) -> list[Path]:
         GEN.mkdir(parents=True, exist_ok=True)
         decls = {a: self.stub_decl(a) for a in self.corpus}
@@ -4802,25 +4824,10 @@ class Translator32:
         # indirect caller, and the next call went there, rhtest msvc-14.51-x86 calls-GL com_calls)
         narrow = {}
         for a in sorted(self.corpus):
-            d = decls[a]
-            ret = d.split(f"F_{a:08x}")[0].strip()
-            width = NARROW_RETS.get(ret)
-            ps = [p.strip() for p in d[d.index("(") + 1:d.rindex(")")].split(",")]
-            names = [] if ps in ([""], ["void"]) else [re.split(r"[\s*]+", p)[-1] for p in ps]
-            # (and one returning an x87 value, float, double or float10, as a double: an indirect
-            # caller reading it calls through gen_fcode, double's type, and a float in xmm0 read so
-            # was another number, code_slots, 2026-10-26)
-            # (not a variadic one: no wrapper can pass its `...` on)
-            if width is None and "*" not in ret and ret.split()[-1] in FLOATS and "..." not in ps:
-                j.append(f"static double W_{a:08x}({', '.join(ps) or 'void'}) "
-                         f"{{ return (double)F_{a:08x}({', '.join(names)}); }}")
+            w = self.jump_wrapper(a, decls[a])
+            if w is not None:
+                j.append(w)
                 narrow[a] = f"W_{a:08x}"
-                continue
-            if width is None:
-                continue
-            j.append(f"static unsigned int W_{a:08x}({', '.join(ps) or 'void'}) "
-                     f"{{ return (unsigned int)({width})F_{a:08x}({', '.join(names)}); }}")
-            narrow[a] = f"W_{a:08x}"
         j += ["const GEN_JUMP g_genJumps[] = {"]
         j += [f"  {{0x{a:x}u, (void *){narrow.get(a, f'F_{a:08x}')}}}," for a in sorted(self.corpus)]
         # (and each local thunk, to its target's)
