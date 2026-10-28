@@ -1258,5 +1258,17 @@
   "stubs": 172,
   "perfect": 4360,
   "translated": 4427
+ },
+ {
+  "sha": "101c6040fddac0dac75fb74ac273053048a97668",
+  "date": "2026-10-28T16:09:20-04:00",
+  "subject": "feat(gotchas): rhipper.json gotchas_reviewed, the risky imports a project found harmless as used, shown apart",
+  "run": "2026-10-28 21:01 UTC",
+  "file": "101c6040fddac0dac75fb74ac273053048a97668.json",
+  "passing": 21,
+  "projects": 34,
+  "stubs": 172,
+  "perfect": 4360,
+  "translated": 4427
  }
 ]

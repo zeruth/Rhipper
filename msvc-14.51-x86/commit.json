@@ -1,1 +1,1 @@
-{"sha": "d7b969e21fdf0a060ee206462dfe3e546079904e", "date": "2026-10-28T16:07:57-04:00", "subject": "feat(pipeline32): the Ghidra scripts compiled first (ghidra/checkscripts.py, javac against the install's jars)"}
+{"sha": "101c6040fddac0dac75fb74ac273053048a97668", "date": "2026-10-28T16:09:20-04:00", "subject": "feat(gotchas): rhipper.json gotchas_reviewed, the risky imports a project found harmless as used, shown apart"}
