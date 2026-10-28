@@ -1575,7 +1575,11 @@ def x87_icall_results(c: str) -> str:
 
     def call_stmt(k):
         """(start, assigned name or None) of the indirect call statement ending on line k"""
-        if not lines[k].rstrip().endswith(");"):
+        # (or its `;` alone on the line after, the decompiler's wrap of a long call: a member
+        # pointer's `(**(code **)(&DAT_014a0c60 + i * 8))\n (this + adj, x)\n ;`, 0x999080's three
+        # curve evaluations, stubs on a client's startup path, 2026-10-28)
+        if not lines[k].rstrip().endswith(");") and not (
+                lines[k].strip() == ";" and k > 0 and lines[k - 1].rstrip().endswith(")")):
             return None
         s = k
         while s > k - 4 and s >= 0:
