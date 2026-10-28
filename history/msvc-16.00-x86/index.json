@@ -1140,6 +1140,18 @@
   "translated": 17525
  },
  {
+  "sha": "84814afc96b69c61040f4c6ded89905730b028c2",
+  "date": "2026-10-28T16:25:24-04:00",
+  "subject": "feat(ghidra): ProbePiece.java, the piece merge's inputs at an address (its function, the one before it, each reference and its type)",
+  "run": "2026-10-28 21:41 UTC",
+  "file": "84814afc96b69c61040f4c6ded89905730b028c2.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 244,
+  "perfect": 15709,
+  "translated": 17525
+ },
+ {
   "sha": "33422b1a754b6aec0c1ee638b6691b166eb2ff52",
   "date": "2026-10-28T16:54:09-04:00",
   "subject": "fix(runtime32): SetClassLongA with a handle's index through SetClassLongPtrA",
