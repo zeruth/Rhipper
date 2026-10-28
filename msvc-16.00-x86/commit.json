@@ -1,1 +1,1 @@
-{"sha": "2ab3ba1436669ae553b55a8acf6a8d68d5a10a3a", "date": "2026-10-28T05:06:31-04:00", "subject": "fix(protos32): a sub esp after the prologue's register saves reserves arguments, not the frame"}
+{"sha": "064442d1b884bf3b70bcfa0b196e642c9f7a5d78", "date": "2026-10-28T05:16:35-04:00", "subject": "fix(protos32): saved_before looks back 40 instructions for the prologue's mov ebp, esp"}

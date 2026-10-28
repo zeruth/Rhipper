@@ -754,5 +754,17 @@
   "stubs": 244,
   "perfect": 15709,
   "translated": 17527
+ },
+ {
+  "sha": "064442d1b884bf3b70bcfa0b196e642c9f7a5d78",
+  "date": "2026-10-28T05:16:35-04:00",
+  "subject": "fix(protos32): saved_before looks back 40 instructions for the prologue's mov ebp, esp",
+  "run": "2026-10-28 10:34 UTC",
+  "file": "064442d1b884bf3b70bcfa0b196e642c9f7a5d78.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 244,
+  "perfect": 15709,
+  "translated": 17527
  }
 ]
