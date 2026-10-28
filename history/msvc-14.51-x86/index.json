@@ -922,5 +922,17 @@
   "stubs": 172,
   "perfect": 4360,
   "translated": 4427
+ },
+ {
+  "sha": "17c106ff247ced56a61f540ba1937fa5276d1828",
+  "date": "2026-10-28T05:57:43-04:00",
+  "subject": "fix(protos32): functions stored in a field a method calls with its own ecx are methods, an ecx-ignoring one too",
+  "run": "2026-10-28 10:49 UTC",
+  "file": "17c106ff247ced56a61f540ba1937fa5276d1828.json",
+  "passing": 21,
+  "projects": 34,
+  "stubs": 172,
+  "perfect": 4360,
+  "translated": 4427
  }
 ]
