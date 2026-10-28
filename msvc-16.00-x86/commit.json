@@ -1,1 +1,1 @@
-{"sha": "c26ca1b332389d2c6d31ced7a8d8ee3b60c9d844", "date": "2026-10-28T03:06:26-04:00", "subject": "feat(quickfix): a few functions through Ghidra, translation and build in minutes"}
+{"sha": "0adbeac383a0ae6c582d838cfcd62cc0b773dd91", "date": "2026-10-28T03:36:54-04:00", "subject": "fix(protos32): a member-function pointer kept in an object, called with the method's own ecx, is __thiscall"}
