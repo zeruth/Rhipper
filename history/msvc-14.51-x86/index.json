@@ -1030,5 +1030,17 @@
   "stubs": 172,
   "perfect": 4360,
   "translated": 4427
+ },
+ {
+  "sha": "bd642242c17f0ee0696ee7d58dd06595b2be4121",
+  "date": "2026-10-28T08:39:43-04:00",
+  "subject": "feat(covdiff, runtime32): thunks left out of the coverage diff; DUMPAT through any argument",
+  "run": "2026-10-28 13:26 UTC",
+  "file": "bd642242c17f0ee0696ee7d58dd06595b2be4121.json",
+  "passing": 21,
+  "projects": 34,
+  "stubs": 172,
+  "perfect": 4360,
+  "translated": 4427
  }
 ]
