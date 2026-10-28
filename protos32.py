@@ -1836,6 +1836,39 @@ def virtual_call(insns, prv, a) -> bool:
     return loaded(vt, at, True) is not None
 
 
+def method_table_call(insns, prv, a) -> bool:
+    """`call [idx*4 + T]`, or `call r` of `mov r, [idx*4 + T]`, T a table in the image of
+    function addresses: a member function chosen by a flag (`mov edx, [eax*4 + 0x132f040]; call
+    edx`, two methods of the class, the second taking `this` and a float)."""
+    op = insns[a].operands[0] if insns[a].operands else None
+    if op is None:
+        return False
+    mem = None
+    if op.type == X.X86_OP_MEM:
+        mem = op.mem
+    elif op.type == X.X86_OP_REG:
+        p = prv[a]
+        for _ in range(16):
+            if p is None or p not in insns or insns[p].mnemonic in ("call", "jmp", "ret"):
+                return False
+            ins = insns[p]
+            _r, w = regs_access(ins)
+            if op.reg in w:
+                ops = ins.operands
+                if ins.mnemonic == "mov" and len(ops) == 2 and ops[1].type == X.X86_OP_MEM:
+                    mem = ops[1].mem
+                break
+            p = prv[p]
+    if mem is None or mem.base or not mem.index or mem.scale != 4 or _b is None:
+        return False
+    t = mem.disp & 0xFFFFFFFF
+    try:
+        slots = [int.from_bytes(bytes(_b.image[_b.off(t + 4 * k):_b.off(t + 4 * k) + 4]), "little") for k in range(2)]
+    except Exception:
+        return False
+    return all(s in _names for s in slots)
+
+
 def vtable_from_ecx(insns, prv, a) -> bool:
     """The virtual call at `a` reads its vtable from `[ecx]`, and nothing writes ecx from that load
     to the call: ecx holds the object at the call, its `this`, whatever earlier call it was set
@@ -2119,9 +2152,12 @@ def reused_slots(insns, prv, nxt, a, n):
 
 def slot_overwritten(insns, p) -> bool:
     """the slot the push at p makes is stored over, `[esp]`, before the stack moves again: a push
-    that only reserves room (`push ecx; fstp dword ptr [esp]`)"""
+    that only reserves room (`push ecx; fstp dword ptr [esp]`). Eight instructions on: /O2 puts
+    the float's computation between, `push ecx; fld ..; faddp; fxch; fstp [edi + 0x1b4]; mov edx,
+    [eax*4 + T]; fstp [esp]`, and the reservation was taken for `this` pushed (a client's
+    0x98c490, its method lost its object, 2026-10-28)"""
     q = p + insns[p].size
-    for _ in range(4):
+    for _ in range(8):
         ins = insns.get(q)
         if ins is None or ins.mnemonic in ("call", "ret", "push", "pop") or ins.mnemonic.startswith("j"):
             return False
@@ -2386,7 +2422,7 @@ def icall_shape(insns, prv, nxt, state, a, labels, own_this):
     # and the call a virtual one, through a slot of a vtable loaded from an object. `mov edi,
     # [__imp_CloseHandle]; ...; call edi` is no method's, and took `this` for its handle)
     if not ecx_set and not ecx_pushed and own_this and a in state and not state[a][0] & ECX \
-            and virtual_call(insns, prv, a):
+            and (virtual_call(insns, prv, a) or method_table_call(insns, prv, a)):
         ecx_set = True
     # (or the vtable read from `[ecx]` after an earlier call that keeps ecx: the object is ecx)
     if not ecx_set and not ecx_pushed and vtable_from_ecx(insns, prv, a):
