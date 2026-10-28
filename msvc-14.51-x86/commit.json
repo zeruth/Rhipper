@@ -1,1 +1,1 @@
-{"sha": "59f04da16d9d8291b855eaf85df5e2e8433b6f38", "date": "2026-10-28T09:59:01-04:00", "subject": "fix(translate32, covdiff): an x87 call result read past a function-static's init; covdiff --after, --by-count"}
+{"sha": "ad435690d6af84858a0643969cac563009e3e37f", "date": "2026-10-28T10:07:09-04:00", "subject": "fix(translate32): bit casts and piece macros are no calls between an x87 call and its result's read"}

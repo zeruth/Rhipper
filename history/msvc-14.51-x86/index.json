@@ -1078,5 +1078,17 @@
   "stubs": 172,
   "perfect": 4360,
   "translated": 4427
+ },
+ {
+  "sha": "ad435690d6af84858a0643969cac563009e3e37f",
+  "date": "2026-10-28T10:07:09-04:00",
+  "subject": "fix(translate32): bit casts and piece macros are no calls between an x87 call and its result's read",
+  "run": "2026-10-28 14:58 UTC",
+  "file": "ad435690d6af84858a0643969cac563009e3e37f.json",
+  "passing": 21,
+  "projects": 34,
+  "stubs": 172,
+  "perfect": 4360,
+  "translated": 4427
  }
 ]
