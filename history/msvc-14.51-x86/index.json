@@ -934,5 +934,17 @@
   "stubs": 172,
   "perfect": 4360,
   "translated": 4427
+ },
+ {
+  "sha": "7e88a485dbfff2b390662f6b1f7e952ee0c0f26b",
+  "date": "2026-10-28T06:10:32-04:00",
+  "subject": "fix(protos32): a register pushed after the prologue's own pushes is an argument, the sub esp after it no frame",
+  "run": "2026-10-28 11:02 UTC",
+  "file": "7e88a485dbfff2b390662f6b1f7e952ee0c0f26b.json",
+  "passing": 21,
+  "projects": 34,
+  "stubs": 172,
+  "perfect": 4360,
+  "translated": 4427
  }
 ]

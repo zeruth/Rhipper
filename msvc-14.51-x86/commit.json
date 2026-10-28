@@ -1,1 +1,1 @@
-{"sha": "17c106ff247ced56a61f540ba1937fa5276d1828", "date": "2026-10-28T05:57:43-04:00", "subject": "fix(protos32): functions stored in a field a method calls with its own ecx are methods, an ecx-ignoring one too"}
+{"sha": "7e88a485dbfff2b390662f6b1f7e952ee0c0f26b", "date": "2026-10-28T06:10:32-04:00", "subject": "fix(protos32): a register pushed after the prologue's own pushes is an argument, the sub esp after it no frame"}
