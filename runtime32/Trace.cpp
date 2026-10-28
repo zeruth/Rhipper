@@ -90,6 +90,7 @@ extern "C" void gen_trace_enter(unsigned int addr, unsigned int a0, unsigned int
     // reach (a sound filter's DynamicValue, 2026-10-28)
     static unsigned int dump_at = 0, dump_left = 0, dump_bytes = 0x40;
     static int dump_from = 0;                  // (,<start>: from a0 + start, a signed hex offset)
+    static int dump_arg = 0;                   // (,<arg>: which argument points to it, 0-3)
     if (first) {
         first = false;
         RefWatchStart();
@@ -103,6 +104,7 @@ extern "C" void gen_trace_enter(unsigned int addr, unsigned int a0, unsigned int
             if (end && *end == L',') dump_left = static_cast<unsigned int>(wcstoul(end + 1, &end, 10));
             if (end && *end == L',') dump_bytes = static_cast<unsigned int>(wcstoul(end + 1, &end, 16));
             if (end && *end == L',') dump_from = static_cast<int>(wcstol(end + 1, &end, 16));
+            if (end && *end == L',') dump_arg = static_cast<int>(wcstol(end + 1, &end, 10)) & 3;
         }
     }
     if (dump_left && addr == dump_at) {
@@ -110,8 +112,9 @@ extern "C" void gen_trace_enter(unsigned int addr, unsigned int a0, unsigned int
         fprintf(stderr, "%s: DUMPAT %x(%x, %x, %x, %x) on thread %lu:\n", RHIPPER_NAME, addr, a0, a1, a2, a3,
                 GetCurrentThreadId());
         MEMORY_BASIC_INFORMATION mbi;
-        auto p = reinterpret_cast<const unsigned char*>(static_cast<uintptr_t>(a0) + dump_from);
-        if (a0 && VirtualQuery(p, &mbi, sizeof mbi) && mbi.State == MEM_COMMIT) {
+        unsigned int base = dump_arg == 1 ? a1 : dump_arg == 2 ? a2 : dump_arg == 3 ? a3 : a0;
+        auto p = reinterpret_cast<const unsigned char*>(static_cast<uintptr_t>(base) + dump_from);
+        if (base && VirtualQuery(p, &mbi, sizeof mbi) && mbi.State == MEM_COMMIT) {
             for (unsigned int k = 0; k < dump_bytes; k += 16) {
                 int o = dump_from + static_cast<int>(k);
                 fprintf(stderr, "  %c%03x ", o < 0 ? '-' : '+', o < 0 ? -o : o);

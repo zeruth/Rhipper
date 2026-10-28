@@ -50,6 +50,12 @@ def main() -> None:
     hp = FACTS / "helpers32.json"
     helpers = {int(x, 16) for x in json.loads(hp.read_text())["helpers"]} if hp.exists() else set()
     skip |= helpers | set(helper_callees(frozenset(helpers)))
+    # (every function functions.json marks a thunk, named or not: the port's jump at one goes
+    # straight to its target's translation. AddonImage's vf36, `jmp 0x55dc60`, was the first UI
+    # "divergence" of a client's black screen, 2026-10-28)
+    fj = FACTS / "functions.json"
+    if fj.exists():
+        skip |= {int(f["entry"], 16) for f in json.loads(fj.read_text())["functions"] if f.get("thunk")}
     only_ref = [(int(x), int(i)) for x, i in zip(ra, rf) if int(x) not in pset and int(x) not in skip]
     print(f"reference: {len(ra)} functions, port: {len(pa)}; {len(only_ref)} only the reference called")
     for x, i in only_ref[:a.n]:
