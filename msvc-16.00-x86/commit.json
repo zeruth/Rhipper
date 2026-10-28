@@ -1,1 +1,1 @@
-{"sha": "b6db34a894475e630b6cfb5b1a680ceaff6b5dcc", "date": "2026-10-28T07:24:13-04:00", "subject": "fix(translate32, protos32): float parameters reached through a pointer; observed sites reconciled with the calls before"}
+{"sha": "e9fae3f979e540baf17a815988815c376da24b68", "date": "2026-10-28T07:32:45-04:00", "subject": "fix(com32gen): each COM method once; XAudio2 voices' slots right"}
