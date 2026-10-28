@@ -1749,6 +1749,11 @@ def load_corpus() -> dict[int, dict]:
                 r["c"] = r["c"].replace("(unkbyte10)", "")
             if "switchdataD_" in r["c"]:
                 r["c"] = switch_offset(r["c"])
+            # (a qualified name the decompiler wrapped, its class alone on a line and `::vf3(` on the
+            # next: read as an unknown type, and the lobby connection's channel manager, a
+            # two-statement setter, was a stub -- and with it the title menu's START, 2026-10-28)
+            if "\n::" in r["c"]:
+                r["c"] = re.sub(r"(?m)^([A-Za-z_][\w:]*)\n(::[A-Za-z_~]\w*\s*\()", r"\1\2", r["c"])
             if "extraout_ST0" in r["c"]:
                 r["c"] = x87_icall_results(r["c"])
             out[int(r["addr"], 16)] = r
