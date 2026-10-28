@@ -1,1 +1,1 @@
-{"sha": "3331f29a917f89bfade43332a232b9690e661b68", "date": "2026-10-28T01:39:48-04:00", "subject": "fix(translate32): stale_loads only where the C reads the field before its store too"}
+{"sha": "50e61fb3fbaac6c2c9a1a4d8c90996b2bae624ee", "date": "2026-10-28T01:45:13-04:00", "subject": "feat(stubcheck): --footprint REGEX, a pass's reach over the whole corpus before a pipeline"}
