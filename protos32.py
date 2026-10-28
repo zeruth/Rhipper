@@ -2708,6 +2708,15 @@ def next_call_deficit(insns, prv, nxt, a, depth=0) -> int:
             after -= 4
         elif pi.mnemonic in ("ret", "jmp") or pi.mnemonic.startswith("j"):
             return deficit
+        # (room made for arguments stored rather than pushed, `sub esp, 0x10` then `fstp [esp + 8]`
+        # and the like: /O2's float arguments, words as a push's. Taken for no telling, a getter's
+        # `push ecx; movss [esp], xmm0; call [vt + 4]` was given the next call's eighth argument,
+        # pushed early, and 0x99a240 read its caller's saved edi, a constructor stubbed on a
+        # client's startup path, 0x9d7230 2026-10-28)
+        elif pi.mnemonic == "sub" and len(pi.operands) == 2 and pi.operands[0].type == X.X86_OP_REG \
+                and pi.operands[0].reg == X.X86_REG_ESP and pi.operands[1].type == X.X86_OP_IMM \
+                and 0 < pi.operands[1].imm <= 0x40 and pi.operands[1].imm % 4 == 0:
+            after += pi.operands[1].imm
         elif any(o.type == X.X86_OP_REG and o.reg == X.X86_REG_ESP for o in pi.operands) and pi.mnemonic != "call":
             return deficit                             # (esp adjusted otherwise: no telling)
         elif pi.mnemonic == "call":
