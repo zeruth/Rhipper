@@ -1,1 +1,1 @@
-{"sha": "fbba1297becbf9ec9dfae71001434da05af30e0f", "date": "2026-10-28T16:53:00-04:00", "subject": "fix(protos32): a getter after the first in a call chain counted, not the end of the count"}
+{"sha": "33422b1a754b6aec0c1ee638b6691b166eb2ff52", "date": "2026-10-28T16:54:09-04:00", "subject": "fix(runtime32): SetClassLongA with a handle's index through SetClassLongPtrA"}

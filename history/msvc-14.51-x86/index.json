@@ -1318,5 +1318,17 @@
   "stubs": 172,
   "perfect": 4360,
   "translated": 4427
+ },
+ {
+  "sha": "33422b1a754b6aec0c1ee638b6691b166eb2ff52",
+  "date": "2026-10-28T16:54:09-04:00",
+  "subject": "fix(runtime32): SetClassLongA with a handle's index through SetClassLongPtrA",
+  "run": "2026-10-28 21:46 UTC",
+  "file": "33422b1a754b6aec0c1ee638b6691b166eb2ff52.json",
+  "passing": 21,
+  "projects": 34,
+  "stubs": 172,
+  "perfect": 4360,
+  "translated": 4427
  }
 ]
