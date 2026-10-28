@@ -13,6 +13,7 @@ with the shared calls just before it for context. Function names come from build
 from __future__ import annotations
 
 import argparse
+import collections
 import json
 import re
 import struct
@@ -149,6 +150,10 @@ def main():
                          "order run to run, and a render thread was 22 in one and 24 in the other")
     ap.add_argument("--skip", nargs="*", default=[], metavar="ADDR",
                     help="more functions to leave out of both runs (an unnamed exception handler)")
+    ap.add_argument("--capped", type=int, nargs="?", const=200, metavar="N",
+                    help="leave out of both runs every function the reference recorded N times or more (200 by "
+                         "default): shadow32.py --per-function stops recording one there, and the port's later calls "
+                         "of it read as calls the reference never made (a -Sites run's dialog teardown, 2026-10-28)")
     a = ap.parse_args()
     nm = names()
     # (and the reference's import thunks, `KERNEL32.DLL::GetCurrentThreadId`'s `jmp [iat]`: the
@@ -167,7 +172,13 @@ def main():
     if a.small_args is not None and pr.exists():
         for k, e in json.loads(pr.read_text())["functions"].items():
             nwords[int(k, 16)] = min(len(e.get("params", [])), 4)
-    ref, port = (by_thread(load(a.ref), skip, helpers, inner),
+    ref_recs = load(a.ref)
+    if a.capped:
+        counts = collections.Counter(r[1] for r in ref_recs)
+        capped = {f for f, n in counts.items() if n >= a.capped}
+        print(f"{len(capped)} functions the reference recorded {a.capped} times or more, left out of both")
+        skip = skip | capped
+    ref, port = (by_thread(ref_recs, skip, helpers, inner),
                  by_thread(load(a.port), skip, helpers, inner))
     if a.pair_by_calls:
         # (the port's threads renumbered to the reference's index of the thread with the same
