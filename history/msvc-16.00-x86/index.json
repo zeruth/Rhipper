@@ -1234,5 +1234,17 @@
   "stubs": 244,
   "perfect": 15709,
   "translated": 17525
+ },
+ {
+  "sha": "b5ebb041bb40ea18c2f0ecbb8ebfd430ce348136",
+  "date": "2026-10-28T18:21:18-04:00",
+  "subject": "feat(gotchas): a fault's address read by its shape, and its frames' gen lines",
+  "run": "2026-10-28 23:10 UTC",
+  "file": "b5ebb041bb40ea18c2f0ecbb8ebfd430ce348136.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 244,
+  "perfect": 15709,
+  "translated": 17525
  }
 ]

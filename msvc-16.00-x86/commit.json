@@ -1,1 +1,1 @@
-{"sha": "b104fb51d7d603e69b285cb79501e5ed64971b2e", "date": "2026-10-28T17:46:13-04:00", "subject": "fix(protos32): a push that reserves a float's slot, seen up to the call, not eight instructions on"}
+{"sha": "b5ebb041bb40ea18c2f0ecbb8ebfd430ce348136", "date": "2026-10-28T18:21:18-04:00", "subject": "feat(gotchas): a fault's address read by its shape, and its frames' gen lines"}
