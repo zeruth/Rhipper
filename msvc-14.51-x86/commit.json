@@ -1,1 +1,1 @@
-{"sha": "651757d09e3e566ab42a242a3f406bc1b7dd8963", "date": "2026-10-28T12:06:04-04:00", "subject": "fix(translate32): in_ST0's x87 values may be the calls' x87_icall_results assigned them"}
+{"sha": "bc6b8425f4e3651c760087612b6bd54bf7698cb0", "date": "2026-10-28T13:23:13-04:00", "subject": "feat: the traps that keep costing runs, caught: GEN_SUSPECT, gotchas.py, uninit.py, FREECHECK, DUMPAT_IF, WATCH_DEREF"}

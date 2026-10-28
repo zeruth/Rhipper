@@ -1174,5 +1174,17 @@
   "stubs": 172,
   "perfect": 4360,
   "translated": 4427
+ },
+ {
+  "sha": "bc6b8425f4e3651c760087612b6bd54bf7698cb0",
+  "date": "2026-10-28T13:23:13-04:00",
+  "subject": "feat: the traps that keep costing runs, caught: GEN_SUSPECT, gotchas.py, uninit.py, FREECHECK, DUMPAT_IF, WATCH_DEREF",
+  "run": "2026-10-28 17:54 UTC",
+  "file": "bc6b8425f4e3651c760087612b6bd54bf7698cb0.json",
+  "passing": 21,
+  "projects": 34,
+  "stubs": 172,
+  "perfect": 4360,
+  "translated": 4427
  }
 ]
