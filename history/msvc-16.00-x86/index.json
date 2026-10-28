@@ -924,6 +924,18 @@
   "translated": 17527
  },
  {
+  "sha": "efd22830b030f3743111b1c427836da101dd5d51",
+  "date": "2026-10-28T09:52:10-04:00",
+  "subject": "fix(protos32): x87 values kept below what the code after a call loads",
+  "run": "2026-10-28 15:05 UTC",
+  "file": "efd22830b030f3743111b1c427836da101dd5d51.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 244,
+  "perfect": 15709,
+  "translated": 17527
+ },
+ {
   "sha": "59f04da16d9d8291b855eaf85df5e2e8433b6f38",
   "date": "2026-10-28T09:59:01-04:00",
   "subject": "fix(translate32, covdiff): an x87 call result read past a function-static's init; covdiff --after, --by-count",
