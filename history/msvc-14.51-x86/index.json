@@ -1102,5 +1102,17 @@
   "stubs": 172,
   "perfect": 4360,
   "translated": 4427
+ },
+ {
+  "sha": "4586f8d2d935e785756027dee1228fb35660c519",
+  "date": "2026-10-28T10:16:50-04:00",
+  "subject": "fix(protos32): `fnstsw ax` writes eax; an operand-less fcompp under one load reads the call's st0",
+  "run": "2026-10-28 15:08 UTC",
+  "file": "4586f8d2d935e785756027dee1228fb35660c519.json",
+  "passing": 21,
+  "projects": 34,
+  "stubs": 172,
+  "perfect": 4360,
+  "translated": 4427
  }
 ]
