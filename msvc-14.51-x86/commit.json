@@ -1,1 +1,1 @@
-{"sha": "b427e220ce7024545e48bf00f222320622f64f3e", "date": "2026-10-28T01:07:40-04:00", "subject": "fix(translate32): a field the reference read before its store, kept and not re-read, is the old value"}
+{"sha": "470652bb97628e55306d8616dba71bbb75fb1530", "date": "2026-10-28T01:14:11-04:00", "subject": "fix(protos32): a method's own ecx at a call through a table of member functions is `this`"}
