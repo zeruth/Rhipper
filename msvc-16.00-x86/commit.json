@@ -1,1 +1,1 @@
-{"sha": "fe61df84c0694371fc98318e1aebddd701e1962b", "date": "2026-10-28T03:55:02-04:00", "subject": "fix(protos32): C++ pointers to members in static data are methods"}
+{"sha": "0b38575b778ef4165b2b44ac26c4e1f0b6cbf32d", "date": "2026-10-28T04:01:42-04:00", "subject": "fix(protos32): a method made __thiscall without reading ecx gets its `this` parameter"}

@@ -694,5 +694,17 @@
   "stubs": 244,
   "perfect": 15709,
   "translated": 17527
+ },
+ {
+  "sha": "0b38575b778ef4165b2b44ac26c4e1f0b6cbf32d",
+  "date": "2026-10-28T04:01:42-04:00",
+  "subject": "fix(protos32): a method made __thiscall without reading ecx gets its `this` parameter",
+  "run": "2026-10-28 09:17 UTC",
+  "file": "0b38575b778ef4165b2b44ac26c4e1f0b6cbf32d.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 244,
+  "perfect": 15709,
+  "translated": 17527
  }
 ]
