@@ -51,6 +51,19 @@ inline void* Slot(void* native, unsigned k) {
 // a method not given to the reference yet: logged, E_NOTIMPL
 unsigned int Unsupported(const char* what);
 
+// each generated method's calls, for <ENV>_COMSTATS=<seconds>: the counts printed that often, the
+// methods called since the last print first (a black window's frame: Present, but no draw)
+struct ComStat {
+    const char* name;
+    volatile long calls;
+    long printed;
+    ComStat* next;
+};
+void ComCountFirst(ComStat* s);
+inline void ComCount(ComStat* s) {
+    if (InterlockedIncrement(&s->calls) == 1) ComCountFirst(s);
+}
+
 // a float argument as the translation passes it: a double where the call's argument was a float
 // (an unprototyped call promotes it; the integer register holds it too), the float's own bits where
 // it was a 32-bit word. A promoted float's low 29 mantissa bits are 0; a 32-bit word's upper half

@@ -31,6 +31,42 @@ namespace {
 std::mutex g_lock;
 std::unordered_map<void*, Proxy32*> g_proxies;
 
+// the methods called so far (ComCount), and <ENV>_COMSTATS's printer
+ComStat* volatile g_stats = nullptr;
+std::once_flag g_statsOnce;
+
+void PrintStats(unsigned secs) {
+    for (unsigned round = 1;; round++) {
+        Sleep(secs * 1000);
+        fprintf(stderr, "%s: COMSTATS at %us (calls since the last, then in all):\n", RHIPPER_NAME, round * secs);
+        for (ComStat* s = g_stats; s; s = s->next) {
+            long now = s->calls;
+            if (now != s->printed) fprintf(stderr, "  %8ld %10ld  %s\n", now - s->printed, now, s->name);
+            s->printed = now;
+        }
+        fflush(stderr);
+    }
+}
+
+}  // namespace
+
+void ComCountFirst(ComStat* s) {
+    std::call_once(g_statsOnce, [] {
+        wchar_t v[16] = {};
+        if (RefEnv("COMSTATS", v, 16) == 0) return;
+        static unsigned secs = static_cast<unsigned>(wcstoul(v, nullptr, 10));
+        if (secs == 0) secs = 10;
+        CreateThread(nullptr, 0, [](LPVOID) -> DWORD { PrintStats(secs); return 0; }, nullptr, 0, nullptr);
+    });
+    ComStat* head;
+    do {
+        head = g_stats;
+        s->next = head;
+    } while (InterlockedCompareExchangePointer(reinterpret_cast<PVOID volatile*>(&g_stats), s, head) != head);
+}
+
+namespace {
+
 bool Derives(const Type32* t, const Type32* from) {
     for (; t; t = t->base)
         if (t == from) return true;
@@ -248,6 +284,126 @@ unsigned int S_IDirect3DSwapChain9_GetPresentParameters(uint32_t self, uint32_t 
     D3DPRESENT_PARAMETERS n = {};
     HRESULT hr = sc->GetPresentParameters(&n);
     if (SUCCEEDED(hr)) Back(n, *At<PresentParams32>(pp));
+    return static_cast<unsigned int>(hr);
+}
+
+// <ENV>_FRAMEDUMP=<every>[,<count>]: every that many presents (4 times by default), the back buffer
+// as it is before the present, written to <ENV>_FRAMEDUMP_OUT (`frame` by default) + `-<n>.bmp`,
+// its average colour and how much of it is not black printed beside the swap chain's window and
+// size. What the game drew: PrintWindow and a screen copy of a Direct3D 9 window are black for the
+// reference and the port alike, and a client at its title menu read as a black window for days
+// (2026-10-28)
+namespace {
+void DumpBackBuffer(IDirect3DSwapChain9* sc, unsigned frame) {
+    IDirect3DDevice9* dev = nullptr;
+    IDirect3DSurface9* bb = nullptr;
+    IDirect3DSurface9* sys = nullptr;
+    D3DSURFACE_DESC d = {};
+    D3DPRESENT_PARAMETERS pp = {};
+    sc->GetPresentParameters(&pp);
+    if (FAILED(sc->GetDevice(&dev)) || FAILED(sc->GetBackBuffer(0, D3DBACKBUFFER_TYPE_MONO, &bb)) ||
+        FAILED(bb->GetDesc(&d)) ||
+        FAILED(dev->CreateOffscreenPlainSurface(d.Width, d.Height, d.Format, D3DPOOL_SYSTEMMEM, &sys, nullptr)) ||
+        FAILED(dev->GetRenderTargetData(bb, sys))) {
+        fprintf(stderr, "%s: FRAMEDUMP %u: no back buffer copy (format %u, multisample %u)\n", RHIPPER_NAME, frame,
+                d.Format, d.MultiSampleType);
+    } else {
+        D3DLOCKED_RECT lr = {};
+        if (SUCCEEDED(sys->LockRect(&lr, nullptr, D3DLOCK_READONLY))) {
+            wchar_t out[MAX_PATH] = L"frame";
+            RefEnv("FRAMEDUMP_OUT", out, MAX_PATH);
+            wchar_t path[MAX_PATH + 16];
+            swprintf_s(path, L"%s-%u.bmp", out, frame);
+            uint64_t sum[3] = {}, lit = 0;
+            const bool argb = d.Format == D3DFMT_X8R8G8B8 || d.Format == D3DFMT_A8R8G8B8;
+            FILE* f = nullptr;
+            if (argb && _wfopen_s(&f, path, L"wb") == 0 && f) {
+                BITMAPFILEHEADER fh = {0x4d42, 0, 0, 0, sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER)};
+                BITMAPINFOHEADER ih = {sizeof ih, static_cast<LONG>(d.Width), -static_cast<LONG>(d.Height), 1, 32};
+                fh.bfSize = fh.bfOffBits + d.Width * d.Height * 4;
+                fwrite(&fh, sizeof fh, 1, f);
+                fwrite(&ih, sizeof ih, 1, f);
+                for (UINT y = 0; y < d.Height; y++) {
+                    auto row = static_cast<const uint8_t*>(lr.pBits) + static_cast<size_t>(y) * lr.Pitch;
+                    fwrite(row, 4, d.Width, f);
+                    for (UINT x = 0; x < d.Width; x++) {
+                        const uint8_t* p = row + x * 4;
+                        sum[0] += p[2], sum[1] += p[1], sum[2] += p[0];
+                        if (p[0] | p[1] | p[2]) lit++;
+                    }
+                }
+                fclose(f);
+            }
+            sys->UnlockRect();
+            const uint64_t px = static_cast<uint64_t>(d.Width) * d.Height;
+            fprintf(stderr, "%s: FRAMEDUMP %u: %ux%u format %u, window %p (windowed %d, swap %u), average rgb "
+                    "%.1f %.1f %.1f, %.1f%% not black -> %ls\n", RHIPPER_NAME, frame, d.Width, d.Height, d.Format,
+                    pp.hDeviceWindow, pp.Windowed, pp.SwapEffect, px ? double(sum[0]) / px : 0.0,
+                    px ? double(sum[1]) / px : 0.0, px ? double(sum[2]) / px : 0.0, px ? 100.0 * lit / px : 0.0,
+                    argb ? path : L"(not written: not X8R8G8B8)");
+        }
+    }
+    fflush(stderr);
+    if (sys) sys->Release();
+    if (bb) bb->Release();
+    if (dev) dev->Release();
+}
+}  // namespace
+
+unsigned int S_IDirect3DSwapChain9_Present(uint32_t self, uint32_t src, uint32_t dst, uint32_t wnd, uint32_t dirty,
+                                           uint32_t flags) {
+    static ComStat stat = {"IDirect3DSwapChain9::Present", 0, 0, nullptr};
+    ComCount(&stat);
+    auto sc = static_cast<IDirect3DSwapChain9*>(Unwrap(self));
+    // (<every>[,<count>]: count dumps, 4 by default)
+    static unsigned count = 4;
+    static unsigned every = [] {
+        wchar_t v[24] = {};
+        if (!RefEnv("FRAMEDUMP", v, 24)) return 0u;
+        wchar_t* end = nullptr;
+        unsigned e = static_cast<unsigned>(wcstoul(v, &end, 10));
+        if (end && *end == L',') count = static_cast<unsigned>(wcstoul(end + 1, nullptr, 10));
+        return e;
+    }();
+    static volatile long frames = 0;
+    const long n = InterlockedIncrement(&frames);
+    const bool dump = every && n % every == 0 && static_cast<unsigned>(n / every) <= count;
+    if (dump) DumpBackBuffer(sc, static_cast<unsigned>(n));
+    HRESULT hr = sc->Present(At<RECT>(src), At<RECT>(dst), static_cast<HWND>(Handle32(wnd)), At<RGNDATA>(dirty), flags);
+    if (dump) {
+        D3DPRESENT_PARAMETERS pp = {};
+        sc->GetPresentParameters(&pp);
+        HWND w = wnd ? static_cast<HWND>(Handle32(wnd)) : pp.hDeviceWindow;
+        wchar_t title[128] = {}, cls[64] = {};
+        GetWindowTextW(w, title, 128);
+        GetClassNameW(w, cls, 64);
+        RECT rc = {};
+        GetClientRect(w, &rc);
+        // (and whether it waits on a paint, its update region never validated: the class's brush
+        // erasing every blit)
+        RECT upd = {};
+        const BOOL pending = GetUpdateRect(w, &upd, FALSE);
+        // (and what GDI reads back from the window, centre and a quarter in, and its display
+        // affinity: a capture-excluded window is black to every screenshot)
+        HDC dc = GetDC(w);
+        const COLORREF c1 = GetPixel(dc, rc.right / 2, rc.bottom / 2), c2 = GetPixel(dc, rc.right / 4, rc.bottom / 4);
+        ReleaseDC(w, dc);
+        DWORD affinity = 0;
+        GetWindowDisplayAffinity(w, &affinity);
+        DWORD owner = 0;
+        const DWORD owner_tid = GetWindowThreadProcessId(w, &owner);
+        fprintf(stderr, "%s: FRAMEDUMP %ld: swap chain %p, window pixels %06lx %06lx, display affinity %lu, window "
+                "of process %lu thread %lu (this process %lu thread %lu)\n", RHIPPER_NAME, n, static_cast<void*>(sc),
+                static_cast<unsigned long>(c1), static_cast<unsigned long>(c2), affinity, owner, owner_tid,
+                GetCurrentProcessId(), GetCurrentThreadId());
+        fprintf(stderr, "%s: FRAMEDUMP %ld: Present(src %x, dst %x, window %x, dirty %x, flags %x) = %lx to %p \"%ls\" "
+                "(%ls, visible %d, client %ldx%ld, parent %p, update %d %ld,%ld-%ld,%ld, brush %llx, wndproc %llx)\n",
+                RHIPPER_NAME, n, src, dst, wnd, dirty, flags, hr, w, title, cls, IsWindowVisible(w), rc.right, rc.bottom,
+                GetParent(w), pending, upd.left, upd.top, upd.right, upd.bottom,
+                static_cast<unsigned long long>(GetClassLongPtrW(w, GCLP_HBRBACKGROUND)),
+                static_cast<unsigned long long>(GetWindowLongPtrW(w, GWLP_WNDPROC)));
+        fflush(stderr);
+    }
     return static_cast<unsigned int>(hr);
 }
 

@@ -62,7 +62,7 @@ EXTRA_IIDS = {
 SPECIAL = {
     ("IDirect3D9", "CreateDevice"), ("IDirect3DDevice9", "Reset"),
     ("IDirect3DDevice9", "CreateAdditionalSwapChain"), ("IDirect3DDevice9", "GetCreationParameters"),
-    ("IDirect3DSwapChain9", "GetPresentParameters"),
+    ("IDirect3DSwapChain9", "GetPresentParameters"), ("IDirect3DSwapChain9", "Present"),
     ("IDirect3DTexture9", "LockRect"), ("IDirect3DCubeTexture9", "LockRect"),
     ("IDirect3DSurface9", "LockRect"), ("IDirect3DVolumeTexture9", "LockBox"),
     ("IDirect3DVolume9", "LockBox"),
@@ -308,6 +308,9 @@ def generate(ifaces, iids, typedefs, callbacks):
             rtype = "void" if ret == "void" else "float" if ret in FLOATS else "uint32_t"
             fptr = f"{rtype} (STDMETHODCALLTYPE*)({', '.join(ntypes)})"
             lines.append(f"static unsigned int {fn}({', '.join(sig)}) {{")
+            # (its calls counted, Com32.h's ComStat: <ENV>_COMSTATS prints them)
+            lines.append(f'    static ComStat stat = {{"{owner}::{mname}", 0, 0, nullptr}};')
+            lines.append("    ComCount(&stat);")
             lines.append("    void* n = Unwrap(self);")
             lines += ["    " + p for p in pre]
             invoke = f"reinterpret_cast<{fptr}>(Slot(n, {k}))({', '.join(call)})"

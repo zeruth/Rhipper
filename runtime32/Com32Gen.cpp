@@ -38,6 +38,7 @@ extern "C" unsigned int S_IDirect3D9_CreateDevice(void);
 extern "C" unsigned int S_IDirect3DDevice9_GetCreationParameters(void);
 extern "C" unsigned int S_IDirect3DDevice9_CreateAdditionalSwapChain(void);
 extern "C" unsigned int S_IDirect3DDevice9_Reset(void);
+extern "C" unsigned int S_IDirect3DSwapChain9_Present(void);
 extern "C" unsigned int S_IDirect3DSwapChain9_GetPresentParameters(void);
 extern "C" unsigned int S_IDirect3DTexture9_LockRect(void);
 extern "C" unsigned int S_IDirect3DVolumeTexture9_LockBox(void);
@@ -62,6 +63,8 @@ extern "C" unsigned int S_IDxDiagContainer_GetProp(void);
 
 
 static unsigned int T_IDirect3D9_QueryInterface(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3D9::QueryInterface", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 0))(n, At<void>(a0), a1 ? &o1 : nullptr);
@@ -69,76 +72,106 @@ static unsigned int T_IDirect3D9_QueryInterface(uint32_t self, uint32_t a0, uint
     return r;
 }
 static unsigned int T_IDirect3D9_AddRef(uint32_t self) {
+    static ComStat stat = {"IDirect3D9::AddRef", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 1))(n);
     return r;
 }
 static unsigned int T_IDirect3D9_Release(uint32_t self) {
+    static ComStat stat = {"IDirect3D9::Release", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 2))(n);
     return r;
 }
 static unsigned int T_IDirect3D9_RegisterSoftwareDevice(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3D9::RegisterSoftwareDevice", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 3))(n, At<void>(a0));
     return r;
 }
 static unsigned int T_IDirect3D9_GetAdapterCount(uint32_t self) {
+    static ComStat stat = {"IDirect3D9::GetAdapterCount", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 4))(n);
     return r;
 }
 static unsigned int T_IDirect3D9_GetAdapterIdentifier(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3D9::GetAdapterIdentifier", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t, void*)>(Slot(n, 5))(n, a0, a1, At<void>(a2));
     return r;
 }
 static unsigned int T_IDirect3D9_GetAdapterModeCount(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3D9::GetAdapterModeCount", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t)>(Slot(n, 6))(n, a0, a1);
     return r;
 }
 static unsigned int T_IDirect3D9_EnumAdapterModes(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {
+    static ComStat stat = {"IDirect3D9::EnumAdapterModes", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t, uint32_t, void*)>(Slot(n, 7))(n, a0, a1, a2, At<void>(a3));
     return r;
 }
 static unsigned int T_IDirect3D9_GetAdapterDisplayMode(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3D9::GetAdapterDisplayMode", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*)>(Slot(n, 8))(n, a0, At<void>(a1));
     return r;
 }
 static unsigned int T_IDirect3D9_CheckDeviceType(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4) {
+    static ComStat stat = {"IDirect3D9::CheckDeviceType", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t)>(Slot(n, 9))(n, a0, a1, a2, a3, a4);
     return r;
 }
 static unsigned int T_IDirect3D9_CheckDeviceFormat(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5) {
+    static ComStat stat = {"IDirect3D9::CheckDeviceFormat", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t)>(Slot(n, 10))(n, a0, a1, a2, a3, a4, a5);
     return r;
 }
 static unsigned int T_IDirect3D9_CheckDeviceMultiSampleType(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5) {
+    static ComStat stat = {"IDirect3D9::CheckDeviceMultiSampleType", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, void*)>(Slot(n, 11))(n, a0, a1, a2, a3, a4, At<void>(a5));
     return r;
 }
 static unsigned int T_IDirect3D9_CheckDepthStencilMatch(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4) {
+    static ComStat stat = {"IDirect3D9::CheckDepthStencilMatch", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t)>(Slot(n, 12))(n, a0, a1, a2, a3, a4);
     return r;
 }
 static unsigned int T_IDirect3D9_CheckDeviceFormatConversion(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {
+    static ComStat stat = {"IDirect3D9::CheckDeviceFormatConversion", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t, uint32_t, uint32_t)>(Slot(n, 13))(n, a0, a1, a2, a3);
     return r;
 }
 static unsigned int T_IDirect3D9_GetDeviceCaps(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3D9::GetDeviceCaps", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t, void*)>(Slot(n, 14))(n, a0, a1, At<void>(a2));
     return r;
 }
 static unsigned int T_IDirect3D9_GetAdapterMonitor(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3D9::GetAdapterMonitor", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 15))(n, a0);
     return r;
@@ -166,6 +199,8 @@ static const GUID IDirect3D9_iid = {0x81BDCBCA, 0x64D4, 0x426D, {0xAE, 0x8D, 0xA
 Type32 IDirect3D9_32 = {"IDirect3D9", &IDirect3D9_iid, &IUnknown_32, IDirect3D9_thunks, 17, 0};
 
 static unsigned int T_IDirect3DDevice9_QueryInterface(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DDevice9::QueryInterface", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 0))(n, At<void>(a0), a1 ? &o1 : nullptr);
@@ -173,31 +208,43 @@ static unsigned int T_IDirect3DDevice9_QueryInterface(uint32_t self, uint32_t a0
     return r;
 }
 static unsigned int T_IDirect3DDevice9_AddRef(uint32_t self) {
+    static ComStat stat = {"IDirect3DDevice9::AddRef", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 1))(n);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_Release(uint32_t self) {
+    static ComStat stat = {"IDirect3DDevice9::Release", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 2))(n);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_TestCooperativeLevel(uint32_t self) {
+    static ComStat stat = {"IDirect3DDevice9::TestCooperativeLevel", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 3))(n);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetAvailableTextureMem(uint32_t self) {
+    static ComStat stat = {"IDirect3DDevice9::GetAvailableTextureMem", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 4))(n);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_EvictManagedResources(uint32_t self) {
+    static ComStat stat = {"IDirect3DDevice9::EvictManagedResources", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 5))(n);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetDirect3D(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DDevice9::GetDirect3D", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o0 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 6))(n, a0 ? &o0 : nullptr);
@@ -205,31 +252,43 @@ static unsigned int T_IDirect3DDevice9_GetDirect3D(uint32_t self, uint32_t a0) {
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetDeviceCaps(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DDevice9::GetDeviceCaps", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 7))(n, At<void>(a0));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetDisplayMode(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DDevice9::GetDisplayMode", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*)>(Slot(n, 8))(n, a0, At<void>(a1));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_SetCursorProperties(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3DDevice9::SetCursorProperties", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t, void*)>(Slot(n, 10))(n, a0, a1, Unwrap(a2));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_SetCursorPosition(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3DDevice9::SetCursorPosition", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     reinterpret_cast<void (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t, uint32_t)>(Slot(n, 11))(n, a0, a1, a2);
     return 0;
 }
 static unsigned int T_IDirect3DDevice9_ShowCursor(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DDevice9::ShowCursor", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 12))(n, a0);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetSwapChain(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DDevice9::GetSwapChain", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*)>(Slot(n, 14))(n, a0, a1 ? &o1 : nullptr);
@@ -237,16 +296,22 @@ static unsigned int T_IDirect3DDevice9_GetSwapChain(uint32_t self, uint32_t a0, 
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetNumberOfSwapChains(uint32_t self) {
+    static ComStat stat = {"IDirect3DDevice9::GetNumberOfSwapChains", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 15))(n);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_Present(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {
+    static ComStat stat = {"IDirect3DDevice9::Present", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*, void*, void*)>(Slot(n, 17))(n, At<void>(a0), At<void>(a1), Handle32(a2), At<void>(a3));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetBackBuffer(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {
+    static ComStat stat = {"IDirect3DDevice9::GetBackBuffer", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o3 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t, uint32_t, void*)>(Slot(n, 18))(n, a0, a1, a2, a3 ? &o3 : nullptr);
@@ -254,26 +319,36 @@ static unsigned int T_IDirect3DDevice9_GetBackBuffer(uint32_t self, uint32_t a0,
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetRasterStatus(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DDevice9::GetRasterStatus", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*)>(Slot(n, 19))(n, a0, At<void>(a1));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_SetDialogBoxMode(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DDevice9::SetDialogBoxMode", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 20))(n, a0);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_SetGammaRamp(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3DDevice9::SetGammaRamp", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     reinterpret_cast<void (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t, void*)>(Slot(n, 21))(n, a0, a1, At<void>(a2));
     return 0;
 }
 static unsigned int T_IDirect3DDevice9_GetGammaRamp(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DDevice9::GetGammaRamp", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     reinterpret_cast<void (STDMETHODCALLTYPE*)(void*, uint32_t, void*)>(Slot(n, 22))(n, a0, At<void>(a1));
     return 0;
 }
 static unsigned int T_IDirect3DDevice9_CreateTexture(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5, uint32_t a6, uint32_t a7) {
+    static ComStat stat = {"IDirect3DDevice9::CreateTexture", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o6 = nullptr;
     void* h7 = a7 ? Handle32(*At<uint32_t>(a7)) : nullptr;
@@ -283,6 +358,8 @@ static unsigned int T_IDirect3DDevice9_CreateTexture(uint32_t self, uint32_t a0,
     return r;
 }
 static unsigned int T_IDirect3DDevice9_CreateVolumeTexture(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5, uint32_t a6, uint32_t a7, uint32_t a8) {
+    static ComStat stat = {"IDirect3DDevice9::CreateVolumeTexture", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o7 = nullptr;
     void* h8 = a8 ? Handle32(*At<uint32_t>(a8)) : nullptr;
@@ -292,6 +369,8 @@ static unsigned int T_IDirect3DDevice9_CreateVolumeTexture(uint32_t self, uint32
     return r;
 }
 static unsigned int T_IDirect3DDevice9_CreateCubeTexture(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5, uint32_t a6) {
+    static ComStat stat = {"IDirect3DDevice9::CreateCubeTexture", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o5 = nullptr;
     void* h6 = a6 ? Handle32(*At<uint32_t>(a6)) : nullptr;
@@ -301,6 +380,8 @@ static unsigned int T_IDirect3DDevice9_CreateCubeTexture(uint32_t self, uint32_t
     return r;
 }
 static unsigned int T_IDirect3DDevice9_CreateVertexBuffer(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5) {
+    static ComStat stat = {"IDirect3DDevice9::CreateVertexBuffer", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o4 = nullptr;
     void* h5 = a5 ? Handle32(*At<uint32_t>(a5)) : nullptr;
@@ -310,6 +391,8 @@ static unsigned int T_IDirect3DDevice9_CreateVertexBuffer(uint32_t self, uint32_
     return r;
 }
 static unsigned int T_IDirect3DDevice9_CreateIndexBuffer(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5) {
+    static ComStat stat = {"IDirect3DDevice9::CreateIndexBuffer", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o4 = nullptr;
     void* h5 = a5 ? Handle32(*At<uint32_t>(a5)) : nullptr;
@@ -319,6 +402,8 @@ static unsigned int T_IDirect3DDevice9_CreateIndexBuffer(uint32_t self, uint32_t
     return r;
 }
 static unsigned int T_IDirect3DDevice9_CreateRenderTarget(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5, uint32_t a6, uint32_t a7) {
+    static ComStat stat = {"IDirect3DDevice9::CreateRenderTarget", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o6 = nullptr;
     void* h7 = a7 ? Handle32(*At<uint32_t>(a7)) : nullptr;
@@ -328,6 +413,8 @@ static unsigned int T_IDirect3DDevice9_CreateRenderTarget(uint32_t self, uint32_
     return r;
 }
 static unsigned int T_IDirect3DDevice9_CreateDepthStencilSurface(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5, uint32_t a6, uint32_t a7) {
+    static ComStat stat = {"IDirect3DDevice9::CreateDepthStencilSurface", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o6 = nullptr;
     void* h7 = a7 ? Handle32(*At<uint32_t>(a7)) : nullptr;
@@ -337,36 +424,50 @@ static unsigned int T_IDirect3DDevice9_CreateDepthStencilSurface(uint32_t self, 
     return r;
 }
 static unsigned int T_IDirect3DDevice9_UpdateSurface(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {
+    static ComStat stat = {"IDirect3DDevice9::UpdateSurface", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*, void*, void*)>(Slot(n, 30))(n, Unwrap(a0), At<void>(a1), Unwrap(a2), At<void>(a3));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_UpdateTexture(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DDevice9::UpdateTexture", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 31))(n, Unwrap(a0), Unwrap(a1));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetRenderTargetData(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DDevice9::GetRenderTargetData", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 32))(n, Unwrap(a0), Unwrap(a1));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetFrontBufferData(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DDevice9::GetFrontBufferData", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*)>(Slot(n, 33))(n, a0, Unwrap(a1));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_StretchRect(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4) {
+    static ComStat stat = {"IDirect3DDevice9::StretchRect", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*, void*, void*, uint32_t)>(Slot(n, 34))(n, Unwrap(a0), At<void>(a1), Unwrap(a2), At<void>(a3), a4);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_ColorFill(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3DDevice9::ColorFill", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*, uint32_t)>(Slot(n, 35))(n, Unwrap(a0), At<void>(a1), a2);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_CreateOffscreenPlainSurface(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5) {
+    static ComStat stat = {"IDirect3DDevice9::CreateOffscreenPlainSurface", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o4 = nullptr;
     void* h5 = a5 ? Handle32(*At<uint32_t>(a5)) : nullptr;
@@ -376,11 +477,15 @@ static unsigned int T_IDirect3DDevice9_CreateOffscreenPlainSurface(uint32_t self
     return r;
 }
 static unsigned int T_IDirect3DDevice9_SetRenderTarget(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DDevice9::SetRenderTarget", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*)>(Slot(n, 37))(n, a0, Unwrap(a1));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetRenderTarget(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DDevice9::GetRenderTarget", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*)>(Slot(n, 38))(n, a0, a1 ? &o1 : nullptr);
@@ -388,11 +493,15 @@ static unsigned int T_IDirect3DDevice9_GetRenderTarget(uint32_t self, uint32_t a
     return r;
 }
 static unsigned int T_IDirect3DDevice9_SetDepthStencilSurface(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DDevice9::SetDepthStencilSurface", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 39))(n, Unwrap(a0));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetDepthStencilSurface(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DDevice9::GetDepthStencilSurface", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o0 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 40))(n, a0 ? &o0 : nullptr);
@@ -400,96 +509,134 @@ static unsigned int T_IDirect3DDevice9_GetDepthStencilSurface(uint32_t self, uin
     return r;
 }
 static unsigned int T_IDirect3DDevice9_BeginScene(uint32_t self) {
+    static ComStat stat = {"IDirect3DDevice9::BeginScene", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 41))(n);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_EndScene(uint32_t self) {
+    static ComStat stat = {"IDirect3DDevice9::EndScene", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 42))(n);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_Clear(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint64_t a4, uint32_t a5) {
+    static ComStat stat = {"IDirect3DDevice9::Clear", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*, uint32_t, uint32_t, float, uint32_t)>(Slot(n, 43))(n, a0, At<void>(a1), a2, a3, Float32(a4), a5);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_SetTransform(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DDevice9::SetTransform", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*)>(Slot(n, 44))(n, a0, At<void>(a1));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetTransform(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DDevice9::GetTransform", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*)>(Slot(n, 45))(n, a0, At<void>(a1));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_MultiplyTransform(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DDevice9::MultiplyTransform", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*)>(Slot(n, 46))(n, a0, At<void>(a1));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_SetViewport(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DDevice9::SetViewport", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 47))(n, At<void>(a0));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetViewport(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DDevice9::GetViewport", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 48))(n, At<void>(a0));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_SetMaterial(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DDevice9::SetMaterial", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 49))(n, At<void>(a0));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetMaterial(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DDevice9::GetMaterial", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 50))(n, At<void>(a0));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_SetLight(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DDevice9::SetLight", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*)>(Slot(n, 51))(n, a0, At<void>(a1));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetLight(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DDevice9::GetLight", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*)>(Slot(n, 52))(n, a0, At<void>(a1));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_LightEnable(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DDevice9::LightEnable", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t)>(Slot(n, 53))(n, a0, a1);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetLightEnable(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DDevice9::GetLightEnable", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*)>(Slot(n, 54))(n, a0, At<void>(a1));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_SetClipPlane(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DDevice9::SetClipPlane", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*)>(Slot(n, 55))(n, a0, At<void>(a1));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetClipPlane(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DDevice9::GetClipPlane", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*)>(Slot(n, 56))(n, a0, At<void>(a1));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_SetRenderState(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DDevice9::SetRenderState", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t)>(Slot(n, 57))(n, a0, a1);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetRenderState(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DDevice9::GetRenderState", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*)>(Slot(n, 58))(n, a0, At<void>(a1));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_CreateStateBlock(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DDevice9::CreateStateBlock", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*)>(Slot(n, 59))(n, a0, a1 ? &o1 : nullptr);
@@ -497,11 +644,15 @@ static unsigned int T_IDirect3DDevice9_CreateStateBlock(uint32_t self, uint32_t 
     return r;
 }
 static unsigned int T_IDirect3DDevice9_BeginStateBlock(uint32_t self) {
+    static ComStat stat = {"IDirect3DDevice9::BeginStateBlock", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 60))(n);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_EndStateBlock(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DDevice9::EndStateBlock", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o0 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 61))(n, a0 ? &o0 : nullptr);
@@ -509,16 +660,22 @@ static unsigned int T_IDirect3DDevice9_EndStateBlock(uint32_t self, uint32_t a0)
     return r;
 }
 static unsigned int T_IDirect3DDevice9_SetClipStatus(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DDevice9::SetClipStatus", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 62))(n, At<void>(a0));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetClipStatus(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DDevice9::GetClipStatus", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 63))(n, At<void>(a0));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetTexture(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DDevice9::GetTexture", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*)>(Slot(n, 64))(n, a0, a1 ? &o1 : nullptr);
@@ -526,81 +683,113 @@ static unsigned int T_IDirect3DDevice9_GetTexture(uint32_t self, uint32_t a0, ui
     return r;
 }
 static unsigned int T_IDirect3DDevice9_SetTexture(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DDevice9::SetTexture", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*)>(Slot(n, 65))(n, a0, Unwrap(a1));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetTextureStageState(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3DDevice9::GetTextureStageState", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t, void*)>(Slot(n, 66))(n, a0, a1, At<void>(a2));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_SetTextureStageState(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3DDevice9::SetTextureStageState", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t, uint32_t)>(Slot(n, 67))(n, a0, a1, a2);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetSamplerState(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3DDevice9::GetSamplerState", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t, void*)>(Slot(n, 68))(n, a0, a1, At<void>(a2));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_SetSamplerState(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3DDevice9::SetSamplerState", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t, uint32_t)>(Slot(n, 69))(n, a0, a1, a2);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_ValidateDevice(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DDevice9::ValidateDevice", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 70))(n, At<void>(a0));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_SetPaletteEntries(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DDevice9::SetPaletteEntries", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*)>(Slot(n, 71))(n, a0, At<void>(a1));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetPaletteEntries(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DDevice9::GetPaletteEntries", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*)>(Slot(n, 72))(n, a0, At<void>(a1));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_SetCurrentTexturePalette(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DDevice9::SetCurrentTexturePalette", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 73))(n, a0);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetCurrentTexturePalette(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DDevice9::GetCurrentTexturePalette", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 74))(n, At<void>(a0));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_SetScissorRect(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DDevice9::SetScissorRect", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 75))(n, At<void>(a0));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetScissorRect(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DDevice9::GetScissorRect", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 76))(n, At<void>(a0));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_SetSoftwareVertexProcessing(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DDevice9::SetSoftwareVertexProcessing", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 77))(n, a0);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetSoftwareVertexProcessing(uint32_t self) {
+    static ComStat stat = {"IDirect3DDevice9::GetSoftwareVertexProcessing", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 78))(n);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_SetNPatchMode(uint32_t self, uint64_t a0) {
+    static ComStat stat = {"IDirect3DDevice9::SetNPatchMode", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, float)>(Slot(n, 79))(n, Float32(a0));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetNPatchMode(uint32_t self) {
+    static ComStat stat = {"IDirect3DDevice9::GetNPatchMode", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     float r = reinterpret_cast<float (STDMETHODCALLTYPE*)(void*)>(Slot(n, 80))(n);
     uint32_t bits;
@@ -608,31 +797,43 @@ static unsigned int T_IDirect3DDevice9_GetNPatchMode(uint32_t self) {
     return bits;
 }
 static unsigned int T_IDirect3DDevice9_DrawPrimitive(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3DDevice9::DrawPrimitive", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t, uint32_t)>(Slot(n, 81))(n, a0, a1, a2);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_DrawIndexedPrimitive(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5) {
+    static ComStat stat = {"IDirect3DDevice9::DrawIndexedPrimitive", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t)>(Slot(n, 82))(n, a0, a1, a2, a3, a4, a5);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_DrawPrimitiveUP(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {
+    static ComStat stat = {"IDirect3DDevice9::DrawPrimitiveUP", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t, void*, uint32_t)>(Slot(n, 83))(n, a0, a1, At<void>(a2), a3);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_DrawIndexedPrimitiveUP(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5, uint32_t a6, uint32_t a7) {
+    static ComStat stat = {"IDirect3DDevice9::DrawIndexedPrimitiveUP", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t, uint32_t, uint32_t, void*, uint32_t, void*, uint32_t)>(Slot(n, 84))(n, a0, a1, a2, a3, At<void>(a4), a5, At<void>(a6), a7);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_ProcessVertices(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5) {
+    static ComStat stat = {"IDirect3DDevice9::ProcessVertices", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t, uint32_t, void*, void*, uint32_t)>(Slot(n, 85))(n, a0, a1, a2, Unwrap(a3), Unwrap(a4), a5);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_CreateVertexDeclaration(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DDevice9::CreateVertexDeclaration", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 86))(n, At<void>(a0), a1 ? &o1 : nullptr);
@@ -640,11 +841,15 @@ static unsigned int T_IDirect3DDevice9_CreateVertexDeclaration(uint32_t self, ui
     return r;
 }
 static unsigned int T_IDirect3DDevice9_SetVertexDeclaration(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DDevice9::SetVertexDeclaration", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 87))(n, Unwrap(a0));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetVertexDeclaration(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DDevice9::GetVertexDeclaration", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o0 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 88))(n, a0 ? &o0 : nullptr);
@@ -652,16 +857,22 @@ static unsigned int T_IDirect3DDevice9_GetVertexDeclaration(uint32_t self, uint3
     return r;
 }
 static unsigned int T_IDirect3DDevice9_SetFVF(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DDevice9::SetFVF", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 89))(n, a0);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetFVF(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DDevice9::GetFVF", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 90))(n, At<void>(a0));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_CreateVertexShader(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DDevice9::CreateVertexShader", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 91))(n, At<void>(a0), a1 ? &o1 : nullptr);
@@ -669,11 +880,15 @@ static unsigned int T_IDirect3DDevice9_CreateVertexShader(uint32_t self, uint32_
     return r;
 }
 static unsigned int T_IDirect3DDevice9_SetVertexShader(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DDevice9::SetVertexShader", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 92))(n, Unwrap(a0));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetVertexShader(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DDevice9::GetVertexShader", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o0 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 93))(n, a0 ? &o0 : nullptr);
@@ -681,41 +896,57 @@ static unsigned int T_IDirect3DDevice9_GetVertexShader(uint32_t self, uint32_t a
     return r;
 }
 static unsigned int T_IDirect3DDevice9_SetVertexShaderConstantF(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3DDevice9::SetVertexShaderConstantF", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*, uint32_t)>(Slot(n, 94))(n, a0, At<void>(a1), a2);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetVertexShaderConstantF(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3DDevice9::GetVertexShaderConstantF", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*, uint32_t)>(Slot(n, 95))(n, a0, At<void>(a1), a2);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_SetVertexShaderConstantI(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3DDevice9::SetVertexShaderConstantI", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*, uint32_t)>(Slot(n, 96))(n, a0, At<void>(a1), a2);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetVertexShaderConstantI(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3DDevice9::GetVertexShaderConstantI", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*, uint32_t)>(Slot(n, 97))(n, a0, At<void>(a1), a2);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_SetVertexShaderConstantB(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3DDevice9::SetVertexShaderConstantB", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*, uint32_t)>(Slot(n, 98))(n, a0, At<void>(a1), a2);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetVertexShaderConstantB(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3DDevice9::GetVertexShaderConstantB", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*, uint32_t)>(Slot(n, 99))(n, a0, At<void>(a1), a2);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_SetStreamSource(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {
+    static ComStat stat = {"IDirect3DDevice9::SetStreamSource", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*, uint32_t, uint32_t)>(Slot(n, 100))(n, a0, Unwrap(a1), a2, a3);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetStreamSource(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {
+    static ComStat stat = {"IDirect3DDevice9::GetStreamSource", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*, void*, void*)>(Slot(n, 101))(n, a0, a1 ? &o1 : nullptr, At<void>(a2), At<void>(a3));
@@ -723,21 +954,29 @@ static unsigned int T_IDirect3DDevice9_GetStreamSource(uint32_t self, uint32_t a
     return r;
 }
 static unsigned int T_IDirect3DDevice9_SetStreamSourceFreq(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DDevice9::SetStreamSourceFreq", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t)>(Slot(n, 102))(n, a0, a1);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetStreamSourceFreq(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DDevice9::GetStreamSourceFreq", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*)>(Slot(n, 103))(n, a0, At<void>(a1));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_SetIndices(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DDevice9::SetIndices", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 104))(n, Unwrap(a0));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetIndices(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DDevice9::GetIndices", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o0 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 105))(n, a0 ? &o0 : nullptr);
@@ -745,6 +984,8 @@ static unsigned int T_IDirect3DDevice9_GetIndices(uint32_t self, uint32_t a0) {
     return r;
 }
 static unsigned int T_IDirect3DDevice9_CreatePixelShader(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DDevice9::CreatePixelShader", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 106))(n, At<void>(a0), a1 ? &o1 : nullptr);
@@ -752,11 +993,15 @@ static unsigned int T_IDirect3DDevice9_CreatePixelShader(uint32_t self, uint32_t
     return r;
 }
 static unsigned int T_IDirect3DDevice9_SetPixelShader(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DDevice9::SetPixelShader", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 107))(n, Unwrap(a0));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetPixelShader(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DDevice9::GetPixelShader", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o0 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 108))(n, a0 ? &o0 : nullptr);
@@ -764,51 +1009,71 @@ static unsigned int T_IDirect3DDevice9_GetPixelShader(uint32_t self, uint32_t a0
     return r;
 }
 static unsigned int T_IDirect3DDevice9_SetPixelShaderConstantF(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3DDevice9::SetPixelShaderConstantF", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*, uint32_t)>(Slot(n, 109))(n, a0, At<void>(a1), a2);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetPixelShaderConstantF(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3DDevice9::GetPixelShaderConstantF", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*, uint32_t)>(Slot(n, 110))(n, a0, At<void>(a1), a2);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_SetPixelShaderConstantI(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3DDevice9::SetPixelShaderConstantI", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*, uint32_t)>(Slot(n, 111))(n, a0, At<void>(a1), a2);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetPixelShaderConstantI(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3DDevice9::GetPixelShaderConstantI", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*, uint32_t)>(Slot(n, 112))(n, a0, At<void>(a1), a2);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_SetPixelShaderConstantB(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3DDevice9::SetPixelShaderConstantB", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*, uint32_t)>(Slot(n, 113))(n, a0, At<void>(a1), a2);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetPixelShaderConstantB(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3DDevice9::GetPixelShaderConstantB", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*, uint32_t)>(Slot(n, 114))(n, a0, At<void>(a1), a2);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_DrawRectPatch(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3DDevice9::DrawRectPatch", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*, void*)>(Slot(n, 115))(n, a0, At<void>(a1), At<void>(a2));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_DrawTriPatch(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3DDevice9::DrawTriPatch", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*, void*)>(Slot(n, 116))(n, a0, At<void>(a1), At<void>(a2));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_DeletePatch(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DDevice9::DeletePatch", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 117))(n, a0);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_CreateQuery(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DDevice9::CreateQuery", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*)>(Slot(n, 118))(n, a0, a1 ? &o1 : nullptr);
@@ -940,6 +1205,8 @@ static const GUID IDirect3DDevice9_iid = {0xD0223B96, 0xBF7A, 0x43FD, {0x92, 0xB
 Type32 IDirect3DDevice9_32 = {"IDirect3DDevice9", &IDirect3DDevice9_iid, &IUnknown_32, IDirect3DDevice9_thunks, 119, 0};
 
 static unsigned int T_IDirect3DStateBlock9_QueryInterface(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DStateBlock9::QueryInterface", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 0))(n, At<void>(a0), a1 ? &o1 : nullptr);
@@ -947,16 +1214,22 @@ static unsigned int T_IDirect3DStateBlock9_QueryInterface(uint32_t self, uint32_
     return r;
 }
 static unsigned int T_IDirect3DStateBlock9_AddRef(uint32_t self) {
+    static ComStat stat = {"IDirect3DStateBlock9::AddRef", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 1))(n);
     return r;
 }
 static unsigned int T_IDirect3DStateBlock9_Release(uint32_t self) {
+    static ComStat stat = {"IDirect3DStateBlock9::Release", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 2))(n);
     return r;
 }
 static unsigned int T_IDirect3DStateBlock9_GetDevice(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DStateBlock9::GetDevice", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o0 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 3))(n, a0 ? &o0 : nullptr);
@@ -964,11 +1237,15 @@ static unsigned int T_IDirect3DStateBlock9_GetDevice(uint32_t self, uint32_t a0)
     return r;
 }
 static unsigned int T_IDirect3DStateBlock9_Capture(uint32_t self) {
+    static ComStat stat = {"IDirect3DStateBlock9::Capture", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 4))(n);
     return r;
 }
 static unsigned int T_IDirect3DStateBlock9_Apply(uint32_t self) {
+    static ComStat stat = {"IDirect3DStateBlock9::Apply", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 5))(n);
     return r;
@@ -985,6 +1262,8 @@ static const GUID IDirect3DStateBlock9_iid = {0xB07C4FE5, 0x310D, 0x4BA8, {0xA2,
 Type32 IDirect3DStateBlock9_32 = {"IDirect3DStateBlock9", &IDirect3DStateBlock9_iid, &IUnknown_32, IDirect3DStateBlock9_thunks, 6, 0};
 
 static unsigned int T_IDirect3DSwapChain9_QueryInterface(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DSwapChain9::QueryInterface", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 0))(n, At<void>(a0), a1 ? &o1 : nullptr);
@@ -992,26 +1271,29 @@ static unsigned int T_IDirect3DSwapChain9_QueryInterface(uint32_t self, uint32_t
     return r;
 }
 static unsigned int T_IDirect3DSwapChain9_AddRef(uint32_t self) {
+    static ComStat stat = {"IDirect3DSwapChain9::AddRef", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 1))(n);
     return r;
 }
 static unsigned int T_IDirect3DSwapChain9_Release(uint32_t self) {
+    static ComStat stat = {"IDirect3DSwapChain9::Release", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 2))(n);
     return r;
 }
-static unsigned int T_IDirect3DSwapChain9_Present(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4) {
-    void* n = Unwrap(self);
-    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*, void*, void*, uint32_t)>(Slot(n, 3))(n, At<void>(a0), At<void>(a1), Handle32(a2), At<void>(a3), a4);
-    return r;
-}
 static unsigned int T_IDirect3DSwapChain9_GetFrontBufferData(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DSwapChain9::GetFrontBufferData", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 4))(n, Unwrap(a0));
     return r;
 }
 static unsigned int T_IDirect3DSwapChain9_GetBackBuffer(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3DSwapChain9::GetBackBuffer", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o2 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t, void*)>(Slot(n, 5))(n, a0, a1, a2 ? &o2 : nullptr);
@@ -1019,16 +1301,22 @@ static unsigned int T_IDirect3DSwapChain9_GetBackBuffer(uint32_t self, uint32_t 
     return r;
 }
 static unsigned int T_IDirect3DSwapChain9_GetRasterStatus(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DSwapChain9::GetRasterStatus", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 6))(n, At<void>(a0));
     return r;
 }
 static unsigned int T_IDirect3DSwapChain9_GetDisplayMode(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DSwapChain9::GetDisplayMode", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 7))(n, At<void>(a0));
     return r;
 }
 static unsigned int T_IDirect3DSwapChain9_GetDevice(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DSwapChain9::GetDevice", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o0 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 8))(n, a0 ? &o0 : nullptr);
@@ -1039,7 +1327,7 @@ static void* const IDirect3DSwapChain9_thunks[] = {
     reinterpret_cast<void*>(T_IDirect3DSwapChain9_QueryInterface),
     reinterpret_cast<void*>(T_IDirect3DSwapChain9_AddRef),
     reinterpret_cast<void*>(T_IDirect3DSwapChain9_Release),
-    reinterpret_cast<void*>(T_IDirect3DSwapChain9_Present),
+    reinterpret_cast<void*>(S_IDirect3DSwapChain9_Present),
     reinterpret_cast<void*>(T_IDirect3DSwapChain9_GetFrontBufferData),
     reinterpret_cast<void*>(T_IDirect3DSwapChain9_GetBackBuffer),
     reinterpret_cast<void*>(T_IDirect3DSwapChain9_GetRasterStatus),
@@ -1051,6 +1339,8 @@ static const GUID IDirect3DSwapChain9_iid = {0x794950F2, 0xADFC, 0x458A, {0x90, 
 Type32 IDirect3DSwapChain9_32 = {"IDirect3DSwapChain9", &IDirect3DSwapChain9_iid, &IUnknown_32, IDirect3DSwapChain9_thunks, 10, 0};
 
 static unsigned int T_IDirect3DResource9_QueryInterface(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DResource9::QueryInterface", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 0))(n, At<void>(a0), a1 ? &o1 : nullptr);
@@ -1058,16 +1348,22 @@ static unsigned int T_IDirect3DResource9_QueryInterface(uint32_t self, uint32_t 
     return r;
 }
 static unsigned int T_IDirect3DResource9_AddRef(uint32_t self) {
+    static ComStat stat = {"IDirect3DResource9::AddRef", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 1))(n);
     return r;
 }
 static unsigned int T_IDirect3DResource9_Release(uint32_t self) {
+    static ComStat stat = {"IDirect3DResource9::Release", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 2))(n);
     return r;
 }
 static unsigned int T_IDirect3DResource9_GetDevice(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DResource9::GetDevice", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o0 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 3))(n, a0 ? &o0 : nullptr);
@@ -1075,36 +1371,50 @@ static unsigned int T_IDirect3DResource9_GetDevice(uint32_t self, uint32_t a0) {
     return r;
 }
 static unsigned int T_IDirect3DResource9_SetPrivateData(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {
+    static ComStat stat = {"IDirect3DResource9::SetPrivateData", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*, uint32_t, uint32_t)>(Slot(n, 4))(n, At<void>(a0), At<void>(a1), a2, a3);
     return r;
 }
 static unsigned int T_IDirect3DResource9_GetPrivateData(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3DResource9::GetPrivateData", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*, void*)>(Slot(n, 5))(n, At<void>(a0), At<void>(a1), At<void>(a2));
     return r;
 }
 static unsigned int T_IDirect3DResource9_FreePrivateData(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DResource9::FreePrivateData", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 6))(n, At<void>(a0));
     return r;
 }
 static unsigned int T_IDirect3DResource9_SetPriority(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DResource9::SetPriority", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 7))(n, a0);
     return r;
 }
 static unsigned int T_IDirect3DResource9_GetPriority(uint32_t self) {
+    static ComStat stat = {"IDirect3DResource9::GetPriority", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 8))(n);
     return r;
 }
 static unsigned int T_IDirect3DResource9_PreLoad(uint32_t self) {
+    static ComStat stat = {"IDirect3DResource9::PreLoad", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     reinterpret_cast<void (STDMETHODCALLTYPE*)(void*)>(Slot(n, 9))(n);
     return 0;
 }
 static unsigned int T_IDirect3DResource9_GetType(uint32_t self) {
+    static ComStat stat = {"IDirect3DResource9::GetType", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 10))(n);
     return r;
@@ -1126,6 +1436,8 @@ static const GUID IDirect3DResource9_iid = {0x05EEC05D, 0x8F7D, 0x4362, {0xB9, 0
 Type32 IDirect3DResource9_32 = {"IDirect3DResource9", &IDirect3DResource9_iid, &IUnknown_32, IDirect3DResource9_thunks, 11, 0};
 
 static unsigned int T_IDirect3DVertexDeclaration9_QueryInterface(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DVertexDeclaration9::QueryInterface", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 0))(n, At<void>(a0), a1 ? &o1 : nullptr);
@@ -1133,16 +1445,22 @@ static unsigned int T_IDirect3DVertexDeclaration9_QueryInterface(uint32_t self, 
     return r;
 }
 static unsigned int T_IDirect3DVertexDeclaration9_AddRef(uint32_t self) {
+    static ComStat stat = {"IDirect3DVertexDeclaration9::AddRef", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 1))(n);
     return r;
 }
 static unsigned int T_IDirect3DVertexDeclaration9_Release(uint32_t self) {
+    static ComStat stat = {"IDirect3DVertexDeclaration9::Release", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 2))(n);
     return r;
 }
 static unsigned int T_IDirect3DVertexDeclaration9_GetDevice(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DVertexDeclaration9::GetDevice", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o0 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 3))(n, a0 ? &o0 : nullptr);
@@ -1150,6 +1468,8 @@ static unsigned int T_IDirect3DVertexDeclaration9_GetDevice(uint32_t self, uint3
     return r;
 }
 static unsigned int T_IDirect3DVertexDeclaration9_GetDeclaration(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DVertexDeclaration9::GetDeclaration", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 4))(n, At<void>(a0), At<void>(a1));
     return r;
@@ -1165,6 +1485,8 @@ static const GUID IDirect3DVertexDeclaration9_iid = {0xDD13C59C, 0x36FA, 0x4098,
 Type32 IDirect3DVertexDeclaration9_32 = {"IDirect3DVertexDeclaration9", &IDirect3DVertexDeclaration9_iid, &IUnknown_32, IDirect3DVertexDeclaration9_thunks, 5, 0};
 
 static unsigned int T_IDirect3DVertexShader9_QueryInterface(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DVertexShader9::QueryInterface", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 0))(n, At<void>(a0), a1 ? &o1 : nullptr);
@@ -1172,16 +1494,22 @@ static unsigned int T_IDirect3DVertexShader9_QueryInterface(uint32_t self, uint3
     return r;
 }
 static unsigned int T_IDirect3DVertexShader9_AddRef(uint32_t self) {
+    static ComStat stat = {"IDirect3DVertexShader9::AddRef", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 1))(n);
     return r;
 }
 static unsigned int T_IDirect3DVertexShader9_Release(uint32_t self) {
+    static ComStat stat = {"IDirect3DVertexShader9::Release", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 2))(n);
     return r;
 }
 static unsigned int T_IDirect3DVertexShader9_GetDevice(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DVertexShader9::GetDevice", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o0 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 3))(n, a0 ? &o0 : nullptr);
@@ -1189,6 +1517,8 @@ static unsigned int T_IDirect3DVertexShader9_GetDevice(uint32_t self, uint32_t a
     return r;
 }
 static unsigned int T_IDirect3DVertexShader9_GetFunction(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DVertexShader9::GetFunction", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 4))(n, At<void>(a0), At<void>(a1));
     return r;
@@ -1204,6 +1534,8 @@ static const GUID IDirect3DVertexShader9_iid = {0xEFC5557E, 0x6265, 0x4613, {0x8
 Type32 IDirect3DVertexShader9_32 = {"IDirect3DVertexShader9", &IDirect3DVertexShader9_iid, &IUnknown_32, IDirect3DVertexShader9_thunks, 5, 0};
 
 static unsigned int T_IDirect3DPixelShader9_QueryInterface(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DPixelShader9::QueryInterface", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 0))(n, At<void>(a0), a1 ? &o1 : nullptr);
@@ -1211,16 +1543,22 @@ static unsigned int T_IDirect3DPixelShader9_QueryInterface(uint32_t self, uint32
     return r;
 }
 static unsigned int T_IDirect3DPixelShader9_AddRef(uint32_t self) {
+    static ComStat stat = {"IDirect3DPixelShader9::AddRef", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 1))(n);
     return r;
 }
 static unsigned int T_IDirect3DPixelShader9_Release(uint32_t self) {
+    static ComStat stat = {"IDirect3DPixelShader9::Release", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 2))(n);
     return r;
 }
 static unsigned int T_IDirect3DPixelShader9_GetDevice(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DPixelShader9::GetDevice", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o0 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 3))(n, a0 ? &o0 : nullptr);
@@ -1228,6 +1566,8 @@ static unsigned int T_IDirect3DPixelShader9_GetDevice(uint32_t self, uint32_t a0
     return r;
 }
 static unsigned int T_IDirect3DPixelShader9_GetFunction(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DPixelShader9::GetFunction", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 4))(n, At<void>(a0), At<void>(a1));
     return r;
@@ -1243,6 +1583,8 @@ static const GUID IDirect3DPixelShader9_iid = {0x6D3BDBDC, 0x5B02, 0x4415, {0xB8
 Type32 IDirect3DPixelShader9_32 = {"IDirect3DPixelShader9", &IDirect3DPixelShader9_iid, &IUnknown_32, IDirect3DPixelShader9_thunks, 5, 0};
 
 static unsigned int T_IDirect3DBaseTexture9_QueryInterface(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DBaseTexture9::QueryInterface", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 0))(n, At<void>(a0), a1 ? &o1 : nullptr);
@@ -1250,16 +1592,22 @@ static unsigned int T_IDirect3DBaseTexture9_QueryInterface(uint32_t self, uint32
     return r;
 }
 static unsigned int T_IDirect3DBaseTexture9_AddRef(uint32_t self) {
+    static ComStat stat = {"IDirect3DBaseTexture9::AddRef", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 1))(n);
     return r;
 }
 static unsigned int T_IDirect3DBaseTexture9_Release(uint32_t self) {
+    static ComStat stat = {"IDirect3DBaseTexture9::Release", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 2))(n);
     return r;
 }
 static unsigned int T_IDirect3DBaseTexture9_GetDevice(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DBaseTexture9::GetDevice", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o0 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 3))(n, a0 ? &o0 : nullptr);
@@ -1267,66 +1615,92 @@ static unsigned int T_IDirect3DBaseTexture9_GetDevice(uint32_t self, uint32_t a0
     return r;
 }
 static unsigned int T_IDirect3DBaseTexture9_SetPrivateData(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {
+    static ComStat stat = {"IDirect3DBaseTexture9::SetPrivateData", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*, uint32_t, uint32_t)>(Slot(n, 4))(n, At<void>(a0), At<void>(a1), a2, a3);
     return r;
 }
 static unsigned int T_IDirect3DBaseTexture9_GetPrivateData(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3DBaseTexture9::GetPrivateData", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*, void*)>(Slot(n, 5))(n, At<void>(a0), At<void>(a1), At<void>(a2));
     return r;
 }
 static unsigned int T_IDirect3DBaseTexture9_FreePrivateData(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DBaseTexture9::FreePrivateData", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 6))(n, At<void>(a0));
     return r;
 }
 static unsigned int T_IDirect3DBaseTexture9_SetPriority(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DBaseTexture9::SetPriority", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 7))(n, a0);
     return r;
 }
 static unsigned int T_IDirect3DBaseTexture9_GetPriority(uint32_t self) {
+    static ComStat stat = {"IDirect3DBaseTexture9::GetPriority", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 8))(n);
     return r;
 }
 static unsigned int T_IDirect3DBaseTexture9_PreLoad(uint32_t self) {
+    static ComStat stat = {"IDirect3DBaseTexture9::PreLoad", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     reinterpret_cast<void (STDMETHODCALLTYPE*)(void*)>(Slot(n, 9))(n);
     return 0;
 }
 static unsigned int T_IDirect3DBaseTexture9_GetType(uint32_t self) {
+    static ComStat stat = {"IDirect3DBaseTexture9::GetType", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 10))(n);
     return r;
 }
 static unsigned int T_IDirect3DBaseTexture9_SetLOD(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DBaseTexture9::SetLOD", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 11))(n, a0);
     return r;
 }
 static unsigned int T_IDirect3DBaseTexture9_GetLOD(uint32_t self) {
+    static ComStat stat = {"IDirect3DBaseTexture9::GetLOD", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 12))(n);
     return r;
 }
 static unsigned int T_IDirect3DBaseTexture9_GetLevelCount(uint32_t self) {
+    static ComStat stat = {"IDirect3DBaseTexture9::GetLevelCount", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 13))(n);
     return r;
 }
 static unsigned int T_IDirect3DBaseTexture9_SetAutoGenFilterType(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DBaseTexture9::SetAutoGenFilterType", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 14))(n, a0);
     return r;
 }
 static unsigned int T_IDirect3DBaseTexture9_GetAutoGenFilterType(uint32_t self) {
+    static ComStat stat = {"IDirect3DBaseTexture9::GetAutoGenFilterType", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 15))(n);
     return r;
 }
 static unsigned int T_IDirect3DBaseTexture9_GenerateMipSubLevels(uint32_t self) {
+    static ComStat stat = {"IDirect3DBaseTexture9::GenerateMipSubLevels", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     reinterpret_cast<void (STDMETHODCALLTYPE*)(void*)>(Slot(n, 16))(n);
     return 0;
@@ -1354,6 +1728,8 @@ static const GUID IDirect3DBaseTexture9_iid = {0x580CA87E, 0x1D3C, 0x4D54, {0x99
 Type32 IDirect3DBaseTexture9_32 = {"IDirect3DBaseTexture9", &IDirect3DBaseTexture9_iid, &IDirect3DResource9_32, IDirect3DBaseTexture9_thunks, 17, 0};
 
 static unsigned int T_IDirect3DTexture9_QueryInterface(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DTexture9::QueryInterface", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 0))(n, At<void>(a0), a1 ? &o1 : nullptr);
@@ -1361,16 +1737,22 @@ static unsigned int T_IDirect3DTexture9_QueryInterface(uint32_t self, uint32_t a
     return r;
 }
 static unsigned int T_IDirect3DTexture9_AddRef(uint32_t self) {
+    static ComStat stat = {"IDirect3DTexture9::AddRef", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 1))(n);
     return r;
 }
 static unsigned int T_IDirect3DTexture9_Release(uint32_t self) {
+    static ComStat stat = {"IDirect3DTexture9::Release", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 2))(n);
     return r;
 }
 static unsigned int T_IDirect3DTexture9_GetDevice(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DTexture9::GetDevice", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o0 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 3))(n, a0 ? &o0 : nullptr);
@@ -1378,76 +1760,106 @@ static unsigned int T_IDirect3DTexture9_GetDevice(uint32_t self, uint32_t a0) {
     return r;
 }
 static unsigned int T_IDirect3DTexture9_SetPrivateData(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {
+    static ComStat stat = {"IDirect3DTexture9::SetPrivateData", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*, uint32_t, uint32_t)>(Slot(n, 4))(n, At<void>(a0), At<void>(a1), a2, a3);
     return r;
 }
 static unsigned int T_IDirect3DTexture9_GetPrivateData(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3DTexture9::GetPrivateData", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*, void*)>(Slot(n, 5))(n, At<void>(a0), At<void>(a1), At<void>(a2));
     return r;
 }
 static unsigned int T_IDirect3DTexture9_FreePrivateData(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DTexture9::FreePrivateData", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 6))(n, At<void>(a0));
     return r;
 }
 static unsigned int T_IDirect3DTexture9_SetPriority(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DTexture9::SetPriority", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 7))(n, a0);
     return r;
 }
 static unsigned int T_IDirect3DTexture9_GetPriority(uint32_t self) {
+    static ComStat stat = {"IDirect3DTexture9::GetPriority", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 8))(n);
     return r;
 }
 static unsigned int T_IDirect3DTexture9_PreLoad(uint32_t self) {
+    static ComStat stat = {"IDirect3DTexture9::PreLoad", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     reinterpret_cast<void (STDMETHODCALLTYPE*)(void*)>(Slot(n, 9))(n);
     return 0;
 }
 static unsigned int T_IDirect3DTexture9_GetType(uint32_t self) {
+    static ComStat stat = {"IDirect3DTexture9::GetType", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 10))(n);
     return r;
 }
 static unsigned int T_IDirect3DTexture9_SetLOD(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DTexture9::SetLOD", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 11))(n, a0);
     return r;
 }
 static unsigned int T_IDirect3DTexture9_GetLOD(uint32_t self) {
+    static ComStat stat = {"IDirect3DTexture9::GetLOD", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 12))(n);
     return r;
 }
 static unsigned int T_IDirect3DTexture9_GetLevelCount(uint32_t self) {
+    static ComStat stat = {"IDirect3DTexture9::GetLevelCount", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 13))(n);
     return r;
 }
 static unsigned int T_IDirect3DTexture9_SetAutoGenFilterType(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DTexture9::SetAutoGenFilterType", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 14))(n, a0);
     return r;
 }
 static unsigned int T_IDirect3DTexture9_GetAutoGenFilterType(uint32_t self) {
+    static ComStat stat = {"IDirect3DTexture9::GetAutoGenFilterType", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 15))(n);
     return r;
 }
 static unsigned int T_IDirect3DTexture9_GenerateMipSubLevels(uint32_t self) {
+    static ComStat stat = {"IDirect3DTexture9::GenerateMipSubLevels", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     reinterpret_cast<void (STDMETHODCALLTYPE*)(void*)>(Slot(n, 16))(n);
     return 0;
 }
 static unsigned int T_IDirect3DTexture9_GetLevelDesc(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DTexture9::GetLevelDesc", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*)>(Slot(n, 17))(n, a0, At<void>(a1));
     return r;
 }
 static unsigned int T_IDirect3DTexture9_GetSurfaceLevel(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DTexture9::GetSurfaceLevel", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*)>(Slot(n, 18))(n, a0, a1 ? &o1 : nullptr);
@@ -1455,11 +1867,15 @@ static unsigned int T_IDirect3DTexture9_GetSurfaceLevel(uint32_t self, uint32_t 
     return r;
 }
 static unsigned int T_IDirect3DTexture9_UnlockRect(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DTexture9::UnlockRect", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 20))(n, a0);
     return r;
 }
 static unsigned int T_IDirect3DTexture9_AddDirtyRect(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DTexture9::AddDirtyRect", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 21))(n, At<void>(a0));
     return r;
@@ -1492,6 +1908,8 @@ static const GUID IDirect3DTexture9_iid = {0x85C31227, 0x3DE5, 0x4F00, {0x9B, 0x
 Type32 IDirect3DTexture9_32 = {"IDirect3DTexture9", &IDirect3DTexture9_iid, &IDirect3DBaseTexture9_32, IDirect3DTexture9_thunks, 22, 0};
 
 static unsigned int T_IDirect3DVolumeTexture9_QueryInterface(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DVolumeTexture9::QueryInterface", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 0))(n, At<void>(a0), a1 ? &o1 : nullptr);
@@ -1499,16 +1917,22 @@ static unsigned int T_IDirect3DVolumeTexture9_QueryInterface(uint32_t self, uint
     return r;
 }
 static unsigned int T_IDirect3DVolumeTexture9_AddRef(uint32_t self) {
+    static ComStat stat = {"IDirect3DVolumeTexture9::AddRef", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 1))(n);
     return r;
 }
 static unsigned int T_IDirect3DVolumeTexture9_Release(uint32_t self) {
+    static ComStat stat = {"IDirect3DVolumeTexture9::Release", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 2))(n);
     return r;
 }
 static unsigned int T_IDirect3DVolumeTexture9_GetDevice(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DVolumeTexture9::GetDevice", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o0 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 3))(n, a0 ? &o0 : nullptr);
@@ -1516,76 +1940,106 @@ static unsigned int T_IDirect3DVolumeTexture9_GetDevice(uint32_t self, uint32_t 
     return r;
 }
 static unsigned int T_IDirect3DVolumeTexture9_SetPrivateData(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {
+    static ComStat stat = {"IDirect3DVolumeTexture9::SetPrivateData", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*, uint32_t, uint32_t)>(Slot(n, 4))(n, At<void>(a0), At<void>(a1), a2, a3);
     return r;
 }
 static unsigned int T_IDirect3DVolumeTexture9_GetPrivateData(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3DVolumeTexture9::GetPrivateData", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*, void*)>(Slot(n, 5))(n, At<void>(a0), At<void>(a1), At<void>(a2));
     return r;
 }
 static unsigned int T_IDirect3DVolumeTexture9_FreePrivateData(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DVolumeTexture9::FreePrivateData", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 6))(n, At<void>(a0));
     return r;
 }
 static unsigned int T_IDirect3DVolumeTexture9_SetPriority(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DVolumeTexture9::SetPriority", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 7))(n, a0);
     return r;
 }
 static unsigned int T_IDirect3DVolumeTexture9_GetPriority(uint32_t self) {
+    static ComStat stat = {"IDirect3DVolumeTexture9::GetPriority", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 8))(n);
     return r;
 }
 static unsigned int T_IDirect3DVolumeTexture9_PreLoad(uint32_t self) {
+    static ComStat stat = {"IDirect3DVolumeTexture9::PreLoad", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     reinterpret_cast<void (STDMETHODCALLTYPE*)(void*)>(Slot(n, 9))(n);
     return 0;
 }
 static unsigned int T_IDirect3DVolumeTexture9_GetType(uint32_t self) {
+    static ComStat stat = {"IDirect3DVolumeTexture9::GetType", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 10))(n);
     return r;
 }
 static unsigned int T_IDirect3DVolumeTexture9_SetLOD(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DVolumeTexture9::SetLOD", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 11))(n, a0);
     return r;
 }
 static unsigned int T_IDirect3DVolumeTexture9_GetLOD(uint32_t self) {
+    static ComStat stat = {"IDirect3DVolumeTexture9::GetLOD", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 12))(n);
     return r;
 }
 static unsigned int T_IDirect3DVolumeTexture9_GetLevelCount(uint32_t self) {
+    static ComStat stat = {"IDirect3DVolumeTexture9::GetLevelCount", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 13))(n);
     return r;
 }
 static unsigned int T_IDirect3DVolumeTexture9_SetAutoGenFilterType(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DVolumeTexture9::SetAutoGenFilterType", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 14))(n, a0);
     return r;
 }
 static unsigned int T_IDirect3DVolumeTexture9_GetAutoGenFilterType(uint32_t self) {
+    static ComStat stat = {"IDirect3DVolumeTexture9::GetAutoGenFilterType", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 15))(n);
     return r;
 }
 static unsigned int T_IDirect3DVolumeTexture9_GenerateMipSubLevels(uint32_t self) {
+    static ComStat stat = {"IDirect3DVolumeTexture9::GenerateMipSubLevels", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     reinterpret_cast<void (STDMETHODCALLTYPE*)(void*)>(Slot(n, 16))(n);
     return 0;
 }
 static unsigned int T_IDirect3DVolumeTexture9_GetLevelDesc(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DVolumeTexture9::GetLevelDesc", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*)>(Slot(n, 17))(n, a0, At<void>(a1));
     return r;
 }
 static unsigned int T_IDirect3DVolumeTexture9_GetVolumeLevel(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DVolumeTexture9::GetVolumeLevel", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*)>(Slot(n, 18))(n, a0, a1 ? &o1 : nullptr);
@@ -1593,11 +2047,15 @@ static unsigned int T_IDirect3DVolumeTexture9_GetVolumeLevel(uint32_t self, uint
     return r;
 }
 static unsigned int T_IDirect3DVolumeTexture9_UnlockBox(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DVolumeTexture9::UnlockBox", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 20))(n, a0);
     return r;
 }
 static unsigned int T_IDirect3DVolumeTexture9_AddDirtyBox(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DVolumeTexture9::AddDirtyBox", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 21))(n, At<void>(a0));
     return r;
@@ -1630,6 +2088,8 @@ static const GUID IDirect3DVolumeTexture9_iid = {0x2518526C, 0xE789, 0x4111, {0x
 Type32 IDirect3DVolumeTexture9_32 = {"IDirect3DVolumeTexture9", &IDirect3DVolumeTexture9_iid, &IDirect3DBaseTexture9_32, IDirect3DVolumeTexture9_thunks, 22, 0};
 
 static unsigned int T_IDirect3DCubeTexture9_QueryInterface(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DCubeTexture9::QueryInterface", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 0))(n, At<void>(a0), a1 ? &o1 : nullptr);
@@ -1637,16 +2097,22 @@ static unsigned int T_IDirect3DCubeTexture9_QueryInterface(uint32_t self, uint32
     return r;
 }
 static unsigned int T_IDirect3DCubeTexture9_AddRef(uint32_t self) {
+    static ComStat stat = {"IDirect3DCubeTexture9::AddRef", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 1))(n);
     return r;
 }
 static unsigned int T_IDirect3DCubeTexture9_Release(uint32_t self) {
+    static ComStat stat = {"IDirect3DCubeTexture9::Release", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 2))(n);
     return r;
 }
 static unsigned int T_IDirect3DCubeTexture9_GetDevice(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DCubeTexture9::GetDevice", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o0 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 3))(n, a0 ? &o0 : nullptr);
@@ -1654,76 +2120,106 @@ static unsigned int T_IDirect3DCubeTexture9_GetDevice(uint32_t self, uint32_t a0
     return r;
 }
 static unsigned int T_IDirect3DCubeTexture9_SetPrivateData(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {
+    static ComStat stat = {"IDirect3DCubeTexture9::SetPrivateData", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*, uint32_t, uint32_t)>(Slot(n, 4))(n, At<void>(a0), At<void>(a1), a2, a3);
     return r;
 }
 static unsigned int T_IDirect3DCubeTexture9_GetPrivateData(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3DCubeTexture9::GetPrivateData", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*, void*)>(Slot(n, 5))(n, At<void>(a0), At<void>(a1), At<void>(a2));
     return r;
 }
 static unsigned int T_IDirect3DCubeTexture9_FreePrivateData(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DCubeTexture9::FreePrivateData", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 6))(n, At<void>(a0));
     return r;
 }
 static unsigned int T_IDirect3DCubeTexture9_SetPriority(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DCubeTexture9::SetPriority", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 7))(n, a0);
     return r;
 }
 static unsigned int T_IDirect3DCubeTexture9_GetPriority(uint32_t self) {
+    static ComStat stat = {"IDirect3DCubeTexture9::GetPriority", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 8))(n);
     return r;
 }
 static unsigned int T_IDirect3DCubeTexture9_PreLoad(uint32_t self) {
+    static ComStat stat = {"IDirect3DCubeTexture9::PreLoad", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     reinterpret_cast<void (STDMETHODCALLTYPE*)(void*)>(Slot(n, 9))(n);
     return 0;
 }
 static unsigned int T_IDirect3DCubeTexture9_GetType(uint32_t self) {
+    static ComStat stat = {"IDirect3DCubeTexture9::GetType", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 10))(n);
     return r;
 }
 static unsigned int T_IDirect3DCubeTexture9_SetLOD(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DCubeTexture9::SetLOD", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 11))(n, a0);
     return r;
 }
 static unsigned int T_IDirect3DCubeTexture9_GetLOD(uint32_t self) {
+    static ComStat stat = {"IDirect3DCubeTexture9::GetLOD", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 12))(n);
     return r;
 }
 static unsigned int T_IDirect3DCubeTexture9_GetLevelCount(uint32_t self) {
+    static ComStat stat = {"IDirect3DCubeTexture9::GetLevelCount", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 13))(n);
     return r;
 }
 static unsigned int T_IDirect3DCubeTexture9_SetAutoGenFilterType(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DCubeTexture9::SetAutoGenFilterType", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 14))(n, a0);
     return r;
 }
 static unsigned int T_IDirect3DCubeTexture9_GetAutoGenFilterType(uint32_t self) {
+    static ComStat stat = {"IDirect3DCubeTexture9::GetAutoGenFilterType", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 15))(n);
     return r;
 }
 static unsigned int T_IDirect3DCubeTexture9_GenerateMipSubLevels(uint32_t self) {
+    static ComStat stat = {"IDirect3DCubeTexture9::GenerateMipSubLevels", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     reinterpret_cast<void (STDMETHODCALLTYPE*)(void*)>(Slot(n, 16))(n);
     return 0;
 }
 static unsigned int T_IDirect3DCubeTexture9_GetLevelDesc(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DCubeTexture9::GetLevelDesc", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*)>(Slot(n, 17))(n, a0, At<void>(a1));
     return r;
 }
 static unsigned int T_IDirect3DCubeTexture9_GetCubeMapSurface(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3DCubeTexture9::GetCubeMapSurface", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o2 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t, void*)>(Slot(n, 18))(n, a0, a1, a2 ? &o2 : nullptr);
@@ -1731,11 +2227,15 @@ static unsigned int T_IDirect3DCubeTexture9_GetCubeMapSurface(uint32_t self, uin
     return r;
 }
 static unsigned int T_IDirect3DCubeTexture9_UnlockRect(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DCubeTexture9::UnlockRect", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t)>(Slot(n, 20))(n, a0, a1);
     return r;
 }
 static unsigned int T_IDirect3DCubeTexture9_AddDirtyRect(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DCubeTexture9::AddDirtyRect", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*)>(Slot(n, 21))(n, a0, At<void>(a1));
     return r;
@@ -1768,6 +2268,8 @@ static const GUID IDirect3DCubeTexture9_iid = {0xFFF32F81, 0xD953, 0x473A, {0x92
 Type32 IDirect3DCubeTexture9_32 = {"IDirect3DCubeTexture9", &IDirect3DCubeTexture9_iid, &IDirect3DBaseTexture9_32, IDirect3DCubeTexture9_thunks, 22, 0};
 
 static unsigned int T_IDirect3DVertexBuffer9_QueryInterface(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DVertexBuffer9::QueryInterface", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 0))(n, At<void>(a0), a1 ? &o1 : nullptr);
@@ -1775,16 +2277,22 @@ static unsigned int T_IDirect3DVertexBuffer9_QueryInterface(uint32_t self, uint3
     return r;
 }
 static unsigned int T_IDirect3DVertexBuffer9_AddRef(uint32_t self) {
+    static ComStat stat = {"IDirect3DVertexBuffer9::AddRef", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 1))(n);
     return r;
 }
 static unsigned int T_IDirect3DVertexBuffer9_Release(uint32_t self) {
+    static ComStat stat = {"IDirect3DVertexBuffer9::Release", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 2))(n);
     return r;
 }
 static unsigned int T_IDirect3DVertexBuffer9_GetDevice(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DVertexBuffer9::GetDevice", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o0 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 3))(n, a0 ? &o0 : nullptr);
@@ -1792,41 +2300,57 @@ static unsigned int T_IDirect3DVertexBuffer9_GetDevice(uint32_t self, uint32_t a
     return r;
 }
 static unsigned int T_IDirect3DVertexBuffer9_SetPrivateData(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {
+    static ComStat stat = {"IDirect3DVertexBuffer9::SetPrivateData", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*, uint32_t, uint32_t)>(Slot(n, 4))(n, At<void>(a0), At<void>(a1), a2, a3);
     return r;
 }
 static unsigned int T_IDirect3DVertexBuffer9_GetPrivateData(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3DVertexBuffer9::GetPrivateData", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*, void*)>(Slot(n, 5))(n, At<void>(a0), At<void>(a1), At<void>(a2));
     return r;
 }
 static unsigned int T_IDirect3DVertexBuffer9_FreePrivateData(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DVertexBuffer9::FreePrivateData", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 6))(n, At<void>(a0));
     return r;
 }
 static unsigned int T_IDirect3DVertexBuffer9_SetPriority(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DVertexBuffer9::SetPriority", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 7))(n, a0);
     return r;
 }
 static unsigned int T_IDirect3DVertexBuffer9_GetPriority(uint32_t self) {
+    static ComStat stat = {"IDirect3DVertexBuffer9::GetPriority", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 8))(n);
     return r;
 }
 static unsigned int T_IDirect3DVertexBuffer9_PreLoad(uint32_t self) {
+    static ComStat stat = {"IDirect3DVertexBuffer9::PreLoad", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     reinterpret_cast<void (STDMETHODCALLTYPE*)(void*)>(Slot(n, 9))(n);
     return 0;
 }
 static unsigned int T_IDirect3DVertexBuffer9_GetType(uint32_t self) {
+    static ComStat stat = {"IDirect3DVertexBuffer9::GetType", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 10))(n);
     return r;
 }
 static unsigned int T_IDirect3DVertexBuffer9_Lock(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {
+    static ComStat stat = {"IDirect3DVertexBuffer9::Lock", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o2 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t, void*, uint32_t)>(Slot(n, 11))(n, a0, a1, a2 ? &o2 : nullptr, a3);
@@ -1834,11 +2358,15 @@ static unsigned int T_IDirect3DVertexBuffer9_Lock(uint32_t self, uint32_t a0, ui
     return r;
 }
 static unsigned int T_IDirect3DVertexBuffer9_Unlock(uint32_t self) {
+    static ComStat stat = {"IDirect3DVertexBuffer9::Unlock", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 12))(n);
     return r;
 }
 static unsigned int T_IDirect3DVertexBuffer9_GetDesc(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DVertexBuffer9::GetDesc", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 13))(n, At<void>(a0));
     return r;
@@ -1863,6 +2391,8 @@ static const GUID IDirect3DVertexBuffer9_iid = {0xB64BB1B5, 0xFD70, 0x4DF6, {0xB
 Type32 IDirect3DVertexBuffer9_32 = {"IDirect3DVertexBuffer9", &IDirect3DVertexBuffer9_iid, &IDirect3DResource9_32, IDirect3DVertexBuffer9_thunks, 14, 0};
 
 static unsigned int T_IDirect3DIndexBuffer9_QueryInterface(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DIndexBuffer9::QueryInterface", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 0))(n, At<void>(a0), a1 ? &o1 : nullptr);
@@ -1870,16 +2400,22 @@ static unsigned int T_IDirect3DIndexBuffer9_QueryInterface(uint32_t self, uint32
     return r;
 }
 static unsigned int T_IDirect3DIndexBuffer9_AddRef(uint32_t self) {
+    static ComStat stat = {"IDirect3DIndexBuffer9::AddRef", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 1))(n);
     return r;
 }
 static unsigned int T_IDirect3DIndexBuffer9_Release(uint32_t self) {
+    static ComStat stat = {"IDirect3DIndexBuffer9::Release", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 2))(n);
     return r;
 }
 static unsigned int T_IDirect3DIndexBuffer9_GetDevice(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DIndexBuffer9::GetDevice", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o0 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 3))(n, a0 ? &o0 : nullptr);
@@ -1887,41 +2423,57 @@ static unsigned int T_IDirect3DIndexBuffer9_GetDevice(uint32_t self, uint32_t a0
     return r;
 }
 static unsigned int T_IDirect3DIndexBuffer9_SetPrivateData(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {
+    static ComStat stat = {"IDirect3DIndexBuffer9::SetPrivateData", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*, uint32_t, uint32_t)>(Slot(n, 4))(n, At<void>(a0), At<void>(a1), a2, a3);
     return r;
 }
 static unsigned int T_IDirect3DIndexBuffer9_GetPrivateData(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3DIndexBuffer9::GetPrivateData", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*, void*)>(Slot(n, 5))(n, At<void>(a0), At<void>(a1), At<void>(a2));
     return r;
 }
 static unsigned int T_IDirect3DIndexBuffer9_FreePrivateData(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DIndexBuffer9::FreePrivateData", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 6))(n, At<void>(a0));
     return r;
 }
 static unsigned int T_IDirect3DIndexBuffer9_SetPriority(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DIndexBuffer9::SetPriority", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 7))(n, a0);
     return r;
 }
 static unsigned int T_IDirect3DIndexBuffer9_GetPriority(uint32_t self) {
+    static ComStat stat = {"IDirect3DIndexBuffer9::GetPriority", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 8))(n);
     return r;
 }
 static unsigned int T_IDirect3DIndexBuffer9_PreLoad(uint32_t self) {
+    static ComStat stat = {"IDirect3DIndexBuffer9::PreLoad", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     reinterpret_cast<void (STDMETHODCALLTYPE*)(void*)>(Slot(n, 9))(n);
     return 0;
 }
 static unsigned int T_IDirect3DIndexBuffer9_GetType(uint32_t self) {
+    static ComStat stat = {"IDirect3DIndexBuffer9::GetType", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 10))(n);
     return r;
 }
 static unsigned int T_IDirect3DIndexBuffer9_Lock(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {
+    static ComStat stat = {"IDirect3DIndexBuffer9::Lock", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o2 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t, void*, uint32_t)>(Slot(n, 11))(n, a0, a1, a2 ? &o2 : nullptr, a3);
@@ -1929,11 +2481,15 @@ static unsigned int T_IDirect3DIndexBuffer9_Lock(uint32_t self, uint32_t a0, uin
     return r;
 }
 static unsigned int T_IDirect3DIndexBuffer9_Unlock(uint32_t self) {
+    static ComStat stat = {"IDirect3DIndexBuffer9::Unlock", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 12))(n);
     return r;
 }
 static unsigned int T_IDirect3DIndexBuffer9_GetDesc(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DIndexBuffer9::GetDesc", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 13))(n, At<void>(a0));
     return r;
@@ -1958,6 +2514,8 @@ static const GUID IDirect3DIndexBuffer9_iid = {0x7C9DD65E, 0xD3F7, 0x4529, {0xAC
 Type32 IDirect3DIndexBuffer9_32 = {"IDirect3DIndexBuffer9", &IDirect3DIndexBuffer9_iid, &IDirect3DResource9_32, IDirect3DIndexBuffer9_thunks, 14, 0};
 
 static unsigned int T_IDirect3DSurface9_QueryInterface(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DSurface9::QueryInterface", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 0))(n, At<void>(a0), a1 ? &o1 : nullptr);
@@ -1965,16 +2523,22 @@ static unsigned int T_IDirect3DSurface9_QueryInterface(uint32_t self, uint32_t a
     return r;
 }
 static unsigned int T_IDirect3DSurface9_AddRef(uint32_t self) {
+    static ComStat stat = {"IDirect3DSurface9::AddRef", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 1))(n);
     return r;
 }
 static unsigned int T_IDirect3DSurface9_Release(uint32_t self) {
+    static ComStat stat = {"IDirect3DSurface9::Release", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 2))(n);
     return r;
 }
 static unsigned int T_IDirect3DSurface9_GetDevice(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DSurface9::GetDevice", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o0 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 3))(n, a0 ? &o0 : nullptr);
@@ -1982,41 +2546,57 @@ static unsigned int T_IDirect3DSurface9_GetDevice(uint32_t self, uint32_t a0) {
     return r;
 }
 static unsigned int T_IDirect3DSurface9_SetPrivateData(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {
+    static ComStat stat = {"IDirect3DSurface9::SetPrivateData", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*, uint32_t, uint32_t)>(Slot(n, 4))(n, At<void>(a0), At<void>(a1), a2, a3);
     return r;
 }
 static unsigned int T_IDirect3DSurface9_GetPrivateData(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3DSurface9::GetPrivateData", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*, void*)>(Slot(n, 5))(n, At<void>(a0), At<void>(a1), At<void>(a2));
     return r;
 }
 static unsigned int T_IDirect3DSurface9_FreePrivateData(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DSurface9::FreePrivateData", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 6))(n, At<void>(a0));
     return r;
 }
 static unsigned int T_IDirect3DSurface9_SetPriority(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DSurface9::SetPriority", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 7))(n, a0);
     return r;
 }
 static unsigned int T_IDirect3DSurface9_GetPriority(uint32_t self) {
+    static ComStat stat = {"IDirect3DSurface9::GetPriority", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 8))(n);
     return r;
 }
 static unsigned int T_IDirect3DSurface9_PreLoad(uint32_t self) {
+    static ComStat stat = {"IDirect3DSurface9::PreLoad", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     reinterpret_cast<void (STDMETHODCALLTYPE*)(void*)>(Slot(n, 9))(n);
     return 0;
 }
 static unsigned int T_IDirect3DSurface9_GetType(uint32_t self) {
+    static ComStat stat = {"IDirect3DSurface9::GetType", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 10))(n);
     return r;
 }
 static unsigned int T_IDirect3DSurface9_GetContainer(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DSurface9::GetContainer", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 11))(n, At<void>(a0), a1 ? &o1 : nullptr);
@@ -2024,16 +2604,22 @@ static unsigned int T_IDirect3DSurface9_GetContainer(uint32_t self, uint32_t a0,
     return r;
 }
 static unsigned int T_IDirect3DSurface9_GetDesc(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DSurface9::GetDesc", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 12))(n, At<void>(a0));
     return r;
 }
 static unsigned int T_IDirect3DSurface9_UnlockRect(uint32_t self) {
+    static ComStat stat = {"IDirect3DSurface9::UnlockRect", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 14))(n);
     return r;
 }
 static unsigned int T_IDirect3DSurface9_GetDC(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DSurface9::GetDC", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* h0 = a0 ? Handle32(*At<uint32_t>(a0)) : nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 15))(n, a0 ? &h0 : nullptr);
@@ -2041,6 +2627,8 @@ static unsigned int T_IDirect3DSurface9_GetDC(uint32_t self, uint32_t a0) {
     return r;
 }
 static unsigned int T_IDirect3DSurface9_ReleaseDC(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DSurface9::ReleaseDC", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 16))(n, Handle32(a0));
     return r;
@@ -2068,6 +2656,8 @@ static const GUID IDirect3DSurface9_iid = {0x0CFBAF3A, 0x9FF6, 0x429A, {0x99, 0x
 Type32 IDirect3DSurface9_32 = {"IDirect3DSurface9", &IDirect3DSurface9_iid, &IDirect3DResource9_32, IDirect3DSurface9_thunks, 17, 0};
 
 static unsigned int T_IDirect3DVolume9_QueryInterface(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DVolume9::QueryInterface", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 0))(n, At<void>(a0), a1 ? &o1 : nullptr);
@@ -2075,16 +2665,22 @@ static unsigned int T_IDirect3DVolume9_QueryInterface(uint32_t self, uint32_t a0
     return r;
 }
 static unsigned int T_IDirect3DVolume9_AddRef(uint32_t self) {
+    static ComStat stat = {"IDirect3DVolume9::AddRef", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 1))(n);
     return r;
 }
 static unsigned int T_IDirect3DVolume9_Release(uint32_t self) {
+    static ComStat stat = {"IDirect3DVolume9::Release", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 2))(n);
     return r;
 }
 static unsigned int T_IDirect3DVolume9_GetDevice(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DVolume9::GetDevice", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o0 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 3))(n, a0 ? &o0 : nullptr);
@@ -2092,21 +2688,29 @@ static unsigned int T_IDirect3DVolume9_GetDevice(uint32_t self, uint32_t a0) {
     return r;
 }
 static unsigned int T_IDirect3DVolume9_SetPrivateData(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {
+    static ComStat stat = {"IDirect3DVolume9::SetPrivateData", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*, uint32_t, uint32_t)>(Slot(n, 4))(n, At<void>(a0), At<void>(a1), a2, a3);
     return r;
 }
 static unsigned int T_IDirect3DVolume9_GetPrivateData(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3DVolume9::GetPrivateData", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*, void*)>(Slot(n, 5))(n, At<void>(a0), At<void>(a1), At<void>(a2));
     return r;
 }
 static unsigned int T_IDirect3DVolume9_FreePrivateData(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DVolume9::FreePrivateData", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 6))(n, At<void>(a0));
     return r;
 }
 static unsigned int T_IDirect3DVolume9_GetContainer(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DVolume9::GetContainer", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 7))(n, At<void>(a0), a1 ? &o1 : nullptr);
@@ -2114,11 +2718,15 @@ static unsigned int T_IDirect3DVolume9_GetContainer(uint32_t self, uint32_t a0, 
     return r;
 }
 static unsigned int T_IDirect3DVolume9_GetDesc(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DVolume9::GetDesc", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 8))(n, At<void>(a0));
     return r;
 }
 static unsigned int T_IDirect3DVolume9_UnlockBox(uint32_t self) {
+    static ComStat stat = {"IDirect3DVolume9::UnlockBox", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 10))(n);
     return r;
@@ -2140,6 +2748,8 @@ static const GUID IDirect3DVolume9_iid = {0x24F416E6, 0x1F67, 0x4AA7, {0xB8, 0x8
 Type32 IDirect3DVolume9_32 = {"IDirect3DVolume9", &IDirect3DVolume9_iid, &IUnknown_32, IDirect3DVolume9_thunks, 11, 0};
 
 static unsigned int T_IDirect3DQuery9_QueryInterface(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirect3DQuery9::QueryInterface", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 0))(n, At<void>(a0), a1 ? &o1 : nullptr);
@@ -2147,16 +2757,22 @@ static unsigned int T_IDirect3DQuery9_QueryInterface(uint32_t self, uint32_t a0,
     return r;
 }
 static unsigned int T_IDirect3DQuery9_AddRef(uint32_t self) {
+    static ComStat stat = {"IDirect3DQuery9::AddRef", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 1))(n);
     return r;
 }
 static unsigned int T_IDirect3DQuery9_Release(uint32_t self) {
+    static ComStat stat = {"IDirect3DQuery9::Release", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 2))(n);
     return r;
 }
 static unsigned int T_IDirect3DQuery9_GetDevice(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DQuery9::GetDevice", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o0 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 3))(n, a0 ? &o0 : nullptr);
@@ -2164,21 +2780,29 @@ static unsigned int T_IDirect3DQuery9_GetDevice(uint32_t self, uint32_t a0) {
     return r;
 }
 static unsigned int T_IDirect3DQuery9_GetType(uint32_t self) {
+    static ComStat stat = {"IDirect3DQuery9::GetType", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 4))(n);
     return r;
 }
 static unsigned int T_IDirect3DQuery9_GetDataSize(uint32_t self) {
+    static ComStat stat = {"IDirect3DQuery9::GetDataSize", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 5))(n);
     return r;
 }
 static unsigned int T_IDirect3DQuery9_Issue(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirect3DQuery9::Issue", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 6))(n, a0);
     return r;
 }
 static unsigned int T_IDirect3DQuery9_GetData(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirect3DQuery9::GetData", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, uint32_t, uint32_t)>(Slot(n, 7))(n, At<void>(a0), a1, a2);
     return r;
@@ -2197,6 +2821,8 @@ static const GUID IDirect3DQuery9_iid = {0xD9771460, 0xA695, 0x4F26, {0xBB, 0xD3
 Type32 IDirect3DQuery9_32 = {"IDirect3DQuery9", &IDirect3DQuery9_iid, &IUnknown_32, IDirect3DQuery9_thunks, 8, 0};
 
 static unsigned int T_IDirectInput8A_QueryInterface(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirectInput8A::QueryInterface", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 0))(n, At<void>(a0), a1 ? &o1 : nullptr);
@@ -2204,16 +2830,22 @@ static unsigned int T_IDirectInput8A_QueryInterface(uint32_t self, uint32_t a0, 
     return r;
 }
 static unsigned int T_IDirectInput8A_AddRef(uint32_t self) {
+    static ComStat stat = {"IDirectInput8A::AddRef", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 1))(n);
     return r;
 }
 static unsigned int T_IDirectInput8A_Release(uint32_t self) {
+    static ComStat stat = {"IDirectInput8A::Release", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 2))(n);
     return r;
 }
 static unsigned int T_IDirectInput8A_CreateDevice(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirectInput8A::CreateDevice", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*, void*)>(Slot(n, 3))(n, At<void>(a0), a1 ? &o1 : nullptr, Unwrap(a2));
@@ -2221,21 +2853,29 @@ static unsigned int T_IDirectInput8A_CreateDevice(uint32_t self, uint32_t a0, ui
     return r;
 }
 static unsigned int T_IDirectInput8A_GetDeviceStatus(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirectInput8A::GetDeviceStatus", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 5))(n, At<void>(a0));
     return r;
 }
 static unsigned int T_IDirectInput8A_RunControlPanel(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirectInput8A::RunControlPanel", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, uint32_t)>(Slot(n, 6))(n, Handle32(a0), a1);
     return r;
 }
 static unsigned int T_IDirectInput8A_Initialize(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirectInput8A::Initialize", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, uint32_t)>(Slot(n, 7))(n, Instance32(a0), a1);
     return r;
 }
 static unsigned int T_IDirectInput8A_FindDevice(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirectInput8A::FindDevice", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*, void*)>(Slot(n, 8))(n, At<void>(a0), At<void>(a1), At<void>(a2));
     return r;
@@ -2259,6 +2899,8 @@ static const GUID IDirectInput8A_iid = {0xBF798030, 0x483A, 0x4DA2, {0xAA, 0x99,
 Type32 IDirectInput8A_32 = {"IDirectInput8A", &IDirectInput8A_iid, &IUnknown_32, IDirectInput8A_thunks, 11, 0};
 
 static unsigned int T_IDirectInputDevice8A_QueryInterface(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirectInputDevice8A::QueryInterface", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 0))(n, At<void>(a0), a1 ? &o1 : nullptr);
@@ -2266,71 +2908,99 @@ static unsigned int T_IDirectInputDevice8A_QueryInterface(uint32_t self, uint32_
     return r;
 }
 static unsigned int T_IDirectInputDevice8A_AddRef(uint32_t self) {
+    static ComStat stat = {"IDirectInputDevice8A::AddRef", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 1))(n);
     return r;
 }
 static unsigned int T_IDirectInputDevice8A_Release(uint32_t self) {
+    static ComStat stat = {"IDirectInputDevice8A::Release", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 2))(n);
     return r;
 }
 static unsigned int T_IDirectInputDevice8A_GetCapabilities(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirectInputDevice8A::GetCapabilities", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 3))(n, At<void>(a0));
     return r;
 }
 static unsigned int T_IDirectInputDevice8A_GetProperty(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirectInputDevice8A::GetProperty", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 5))(n, At<void>(a0), At<void>(a1));
     return r;
 }
 static unsigned int T_IDirectInputDevice8A_SetProperty(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirectInputDevice8A::SetProperty", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 6))(n, At<void>(a0), At<void>(a1));
     return r;
 }
 static unsigned int T_IDirectInputDevice8A_Acquire(uint32_t self) {
+    static ComStat stat = {"IDirectInputDevice8A::Acquire", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 7))(n);
     return r;
 }
 static unsigned int T_IDirectInputDevice8A_Unacquire(uint32_t self) {
+    static ComStat stat = {"IDirectInputDevice8A::Unacquire", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 8))(n);
     return r;
 }
 static unsigned int T_IDirectInputDevice8A_GetDeviceState(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirectInputDevice8A::GetDeviceState", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*)>(Slot(n, 9))(n, a0, At<void>(a1));
     return r;
 }
 static unsigned int T_IDirectInputDevice8A_SetEventNotification(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirectInputDevice8A::SetEventNotification", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 12))(n, Handle32(a0));
     return r;
 }
 static unsigned int T_IDirectInputDevice8A_SetCooperativeLevel(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirectInputDevice8A::SetCooperativeLevel", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, uint32_t)>(Slot(n, 13))(n, Handle32(a0), a1);
     return r;
 }
 static unsigned int T_IDirectInputDevice8A_GetObjectInfo(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirectInputDevice8A::GetObjectInfo", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, uint32_t, uint32_t)>(Slot(n, 14))(n, At<void>(a0), a1, a2);
     return r;
 }
 static unsigned int T_IDirectInputDevice8A_GetDeviceInfo(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirectInputDevice8A::GetDeviceInfo", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 15))(n, At<void>(a0));
     return r;
 }
 static unsigned int T_IDirectInputDevice8A_RunControlPanel(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirectInputDevice8A::RunControlPanel", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, uint32_t)>(Slot(n, 16))(n, Handle32(a0), a1);
     return r;
 }
 static unsigned int T_IDirectInputDevice8A_Initialize(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirectInputDevice8A::Initialize", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, uint32_t, void*)>(Slot(n, 17))(n, Instance32(a0), a1, At<void>(a2));
     return r;
@@ -2338,16 +3008,22 @@ static unsigned int T_IDirectInputDevice8A_Initialize(uint32_t self, uint32_t a0
 static unsigned int T_IDirectInputDevice8A_CreateEffect(...) { return Unsupported("IDirectInputDevice8A::CreateEffect"); }
 static unsigned int T_IDirectInputDevice8A_EnumEffects(...) { return Unsupported("IDirectInputDevice8A::EnumEffects"); }
 static unsigned int T_IDirectInputDevice8A_GetEffectInfo(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirectInputDevice8A::GetEffectInfo", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 20))(n, At<void>(a0), At<void>(a1));
     return r;
 }
 static unsigned int T_IDirectInputDevice8A_GetForceFeedbackState(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirectInputDevice8A::GetForceFeedbackState", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 21))(n, At<void>(a0));
     return r;
 }
 static unsigned int T_IDirectInputDevice8A_SendForceFeedbackCommand(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirectInputDevice8A::SendForceFeedbackCommand", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 22))(n, a0);
     return r;
@@ -2355,6 +3031,8 @@ static unsigned int T_IDirectInputDevice8A_SendForceFeedbackCommand(uint32_t sel
 static unsigned int T_IDirectInputDevice8A_EnumCreatedEffectObjects(...) { return Unsupported("IDirectInputDevice8A::EnumCreatedEffectObjects"); }
 static unsigned int T_IDirectInputDevice8A_Escape(...) { return Unsupported("IDirectInputDevice8A::Escape"); }
 static unsigned int T_IDirectInputDevice8A_Poll(uint32_t self) {
+    static ComStat stat = {"IDirectInputDevice8A::Poll", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 25))(n);
     return r;
@@ -2403,6 +3081,8 @@ static const GUID IDirectInputDevice8A_iid = {0x54D41080, 0xDC15, 0x4833, {0xA4,
 Type32 IDirectInputDevice8A_32 = {"IDirectInputDevice8A", &IDirectInputDevice8A_iid, &IUnknown_32, IDirectInputDevice8A_thunks, 32, 0};
 
 static unsigned int T_IDirectInputEffect_QueryInterface(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirectInputEffect::QueryInterface", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 0))(n, At<void>(a0), a1 ? &o1 : nullptr);
@@ -2410,21 +3090,29 @@ static unsigned int T_IDirectInputEffect_QueryInterface(uint32_t self, uint32_t 
     return r;
 }
 static unsigned int T_IDirectInputEffect_AddRef(uint32_t self) {
+    static ComStat stat = {"IDirectInputEffect::AddRef", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 1))(n);
     return r;
 }
 static unsigned int T_IDirectInputEffect_Release(uint32_t self) {
+    static ComStat stat = {"IDirectInputEffect::Release", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 2))(n);
     return r;
 }
 static unsigned int T_IDirectInputEffect_Initialize(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDirectInputEffect::Initialize", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, uint32_t, void*)>(Slot(n, 3))(n, Instance32(a0), a1, At<void>(a2));
     return r;
 }
 static unsigned int T_IDirectInputEffect_GetEffectGuid(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirectInputEffect::GetEffectGuid", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 4))(n, At<void>(a0));
     return r;
@@ -2432,26 +3120,36 @@ static unsigned int T_IDirectInputEffect_GetEffectGuid(uint32_t self, uint32_t a
 static unsigned int T_IDirectInputEffect_GetParameters(...) { return Unsupported("IDirectInputEffect::GetParameters"); }
 static unsigned int T_IDirectInputEffect_SetParameters(...) { return Unsupported("IDirectInputEffect::SetParameters"); }
 static unsigned int T_IDirectInputEffect_Start(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDirectInputEffect::Start", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t)>(Slot(n, 7))(n, a0, a1);
     return r;
 }
 static unsigned int T_IDirectInputEffect_Stop(uint32_t self) {
+    static ComStat stat = {"IDirectInputEffect::Stop", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 8))(n);
     return r;
 }
 static unsigned int T_IDirectInputEffect_GetEffectStatus(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDirectInputEffect::GetEffectStatus", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 9))(n, At<void>(a0));
     return r;
 }
 static unsigned int T_IDirectInputEffect_Download(uint32_t self) {
+    static ComStat stat = {"IDirectInputEffect::Download", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 10))(n);
     return r;
 }
 static unsigned int T_IDirectInputEffect_Unload(uint32_t self) {
+    static ComStat stat = {"IDirectInputEffect::Unload", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 11))(n);
     return r;
@@ -2476,6 +3174,8 @@ static const GUID IDirectInputEffect_iid = {0xE7E1F7C0, 0x88D2, 0x11D0, {0x9A, 0
 Type32 IDirectInputEffect_32 = {"IDirectInputEffect", &IDirectInputEffect_iid, &IUnknown_32, IDirectInputEffect_thunks, 13, 0};
 
 static unsigned int T_IXAudio2_QueryInterface(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IXAudio2::QueryInterface", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 0))(n, At<void>(a0), a1 ? &o1 : nullptr);
@@ -2483,51 +3183,71 @@ static unsigned int T_IXAudio2_QueryInterface(uint32_t self, uint32_t a0, uint32
     return r;
 }
 static unsigned int T_IXAudio2_AddRef(uint32_t self) {
+    static ComStat stat = {"IXAudio2::AddRef", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 1))(n);
     return r;
 }
 static unsigned int T_IXAudio2_Release(uint32_t self) {
+    static ComStat stat = {"IXAudio2::Release", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 2))(n);
     return r;
 }
 static unsigned int T_IXAudio2_GetDeviceCount(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IXAudio2::GetDeviceCount", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 3))(n, At<void>(a0));
     return r;
 }
 static unsigned int T_IXAudio2_GetDeviceDetails(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IXAudio2::GetDeviceDetails", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*)>(Slot(n, 4))(n, a0, At<void>(a1));
     return r;
 }
 static unsigned int T_IXAudio2_Initialize(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IXAudio2::Initialize", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t)>(Slot(n, 5))(n, a0, a1);
     return r;
 }
 static unsigned int T_IXAudio2_StartEngine(uint32_t self) {
+    static ComStat stat = {"IXAudio2::StartEngine", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 11))(n);
     return r;
 }
 static unsigned int T_IXAudio2_StopEngine(uint32_t self) {
+    static ComStat stat = {"IXAudio2::StopEngine", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     reinterpret_cast<void (STDMETHODCALLTYPE*)(void*)>(Slot(n, 12))(n);
     return 0;
 }
 static unsigned int T_IXAudio2_CommitChanges(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IXAudio2::CommitChanges", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 13))(n, a0);
     return r;
 }
 static unsigned int T_IXAudio2_GetPerformanceData(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IXAudio2::GetPerformanceData", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     reinterpret_cast<void (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 14))(n, At<void>(a0));
     return 0;
 }
 static unsigned int T_IXAudio2_SetDebugConfiguration(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IXAudio2::SetDebugConfiguration", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     reinterpret_cast<void (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 15))(n, At<void>(a0), At<void>(a1));
     return 0;
@@ -2554,86 +3274,120 @@ static const GUID IXAudio2_iid = {0x8BCF1F58, 0x9FE7, 0x4583, {0x8A, 0xC6, 0xE2,
 Type32 IXAudio2_32 = {"IXAudio2", &IXAudio2_iid, &IUnknown_32, IXAudio2_thunks, 16, 0};
 
 static unsigned int T_IXAudio2Voice_GetVoiceDetails(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IXAudio2Voice::GetVoiceDetails", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     reinterpret_cast<void (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 0))(n, At<void>(a0));
     return 0;
 }
 static unsigned int T_IXAudio2Voice_EnableEffect(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IXAudio2Voice::EnableEffect", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t)>(Slot(n, 3))(n, a0, a1);
     return r;
 }
 static unsigned int T_IXAudio2Voice_DisableEffect(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IXAudio2Voice::DisableEffect", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t)>(Slot(n, 4))(n, a0, a1);
     return r;
 }
 static unsigned int T_IXAudio2Voice_GetEffectState(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IXAudio2Voice::GetEffectState", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     reinterpret_cast<void (STDMETHODCALLTYPE*)(void*, uint32_t, void*)>(Slot(n, 5))(n, a0, At<void>(a1));
     return 0;
 }
 static unsigned int T_IXAudio2Voice_SetEffectParameters(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {
+    static ComStat stat = {"IXAudio2Voice::SetEffectParameters", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*, uint32_t, uint32_t)>(Slot(n, 6))(n, a0, At<void>(a1), a2, a3);
     return r;
 }
 static unsigned int T_IXAudio2Voice_GetEffectParameters(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IXAudio2Voice::GetEffectParameters", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*, uint32_t)>(Slot(n, 7))(n, a0, At<void>(a1), a2);
     return r;
 }
 static unsigned int T_IXAudio2Voice_SetFilterParameters(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IXAudio2Voice::SetFilterParameters", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, uint32_t)>(Slot(n, 8))(n, At<void>(a0), a1);
     return r;
 }
 static unsigned int T_IXAudio2Voice_GetFilterParameters(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IXAudio2Voice::GetFilterParameters", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     reinterpret_cast<void (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 9))(n, At<void>(a0));
     return 0;
 }
 static unsigned int T_IXAudio2Voice_SetOutputFilterParameters(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IXAudio2Voice::SetOutputFilterParameters", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*, uint32_t)>(Slot(n, 10))(n, Unwrap(a0), At<void>(a1), a2);
     return r;
 }
 static unsigned int T_IXAudio2Voice_GetOutputFilterParameters(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IXAudio2Voice::GetOutputFilterParameters", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     reinterpret_cast<void (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 11))(n, Unwrap(a0), At<void>(a1));
     return 0;
 }
 static unsigned int T_IXAudio2Voice_SetVolume(uint32_t self, uint64_t a0, uint32_t a1) {
+    static ComStat stat = {"IXAudio2Voice::SetVolume", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, float, uint32_t)>(Slot(n, 12))(n, Float32(a0), a1);
     return r;
 }
 static unsigned int T_IXAudio2Voice_GetVolume(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IXAudio2Voice::GetVolume", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     reinterpret_cast<void (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 13))(n, At<void>(a0));
     return 0;
 }
 static unsigned int T_IXAudio2Voice_SetChannelVolumes(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IXAudio2Voice::SetChannelVolumes", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*, uint32_t)>(Slot(n, 14))(n, a0, At<void>(a1), a2);
     return r;
 }
 static unsigned int T_IXAudio2Voice_GetChannelVolumes(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IXAudio2Voice::GetChannelVolumes", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     reinterpret_cast<void (STDMETHODCALLTYPE*)(void*, uint32_t, void*)>(Slot(n, 15))(n, a0, At<void>(a1));
     return 0;
 }
 static unsigned int T_IXAudio2Voice_SetOutputMatrix(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4) {
+    static ComStat stat = {"IXAudio2Voice::SetOutputMatrix", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, uint32_t, uint32_t, void*, uint32_t)>(Slot(n, 16))(n, Unwrap(a0), a1, a2, At<void>(a3), a4);
     return r;
 }
 static unsigned int T_IXAudio2Voice_GetOutputMatrix(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {
+    static ComStat stat = {"IXAudio2Voice::GetOutputMatrix", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     reinterpret_cast<void (STDMETHODCALLTYPE*)(void*, void*, uint32_t, uint32_t, void*)>(Slot(n, 17))(n, Unwrap(a0), a1, a2, At<void>(a3));
     return 0;
 }
 static unsigned int T_IXAudio2Voice_DestroyVoice(uint32_t self) {
+    static ComStat stat = {"IXAudio2Voice::DestroyVoice", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     reinterpret_cast<void (STDMETHODCALLTYPE*)(void*)>(Slot(n, 18))(n);
     return 0;
@@ -2663,41 +3417,57 @@ static void* const IXAudio2Voice_thunks[] = {
 Type32 IXAudio2Voice_32 = {"IXAudio2Voice", nullptr, nullptr, IXAudio2Voice_thunks, 19, 0};
 
 static unsigned int T_IXAudio2SourceVoice_Start(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IXAudio2SourceVoice::Start", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t)>(Slot(n, 19))(n, a0, a1);
     return r;
 }
 static unsigned int T_IXAudio2SourceVoice_Stop(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IXAudio2SourceVoice::Stop", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t)>(Slot(n, 20))(n, a0, a1);
     return r;
 }
 static unsigned int T_IXAudio2SourceVoice_FlushSourceBuffers(uint32_t self) {
+    static ComStat stat = {"IXAudio2SourceVoice::FlushSourceBuffers", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 22))(n);
     return r;
 }
 static unsigned int T_IXAudio2SourceVoice_Discontinuity(uint32_t self) {
+    static ComStat stat = {"IXAudio2SourceVoice::Discontinuity", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 23))(n);
     return r;
 }
 static unsigned int T_IXAudio2SourceVoice_ExitLoop(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IXAudio2SourceVoice::ExitLoop", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 24))(n, a0);
     return r;
 }
 static unsigned int T_IXAudio2SourceVoice_SetFrequencyRatio(uint32_t self, uint64_t a0, uint32_t a1) {
+    static ComStat stat = {"IXAudio2SourceVoice::SetFrequencyRatio", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, float, uint32_t)>(Slot(n, 26))(n, Float32(a0), a1);
     return r;
 }
 static unsigned int T_IXAudio2SourceVoice_GetFrequencyRatio(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IXAudio2SourceVoice::GetFrequencyRatio", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     reinterpret_cast<void (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 27))(n, At<void>(a0));
     return 0;
 }
 static unsigned int T_IXAudio2SourceVoice_SetSourceSampleRate(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IXAudio2SourceVoice::SetSourceSampleRate", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 28))(n, a0);
     return r;
@@ -2785,6 +3555,8 @@ static void* const IXAudio2MasteringVoice_thunks[] = {
 Type32 IXAudio2MasteringVoice_32 = {"IXAudio2MasteringVoice", nullptr, &IXAudio2Voice_32, IXAudio2MasteringVoice_thunks, 19, 0};
 
 static unsigned int T_IDxDiagProvider_QueryInterface(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDxDiagProvider::QueryInterface", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 0))(n, At<void>(a0), a1 ? &o1 : nullptr);
@@ -2792,16 +3564,22 @@ static unsigned int T_IDxDiagProvider_QueryInterface(uint32_t self, uint32_t a0,
     return r;
 }
 static unsigned int T_IDxDiagProvider_AddRef(uint32_t self) {
+    static ComStat stat = {"IDxDiagProvider::AddRef", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 1))(n);
     return r;
 }
 static unsigned int T_IDxDiagProvider_Release(uint32_t self) {
+    static ComStat stat = {"IDxDiagProvider::Release", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 2))(n);
     return r;
 }
 static unsigned int T_IDxDiagProvider_GetRootContainer(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDxDiagProvider::GetRootContainer", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o0 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 4))(n, a0 ? &o0 : nullptr);
@@ -2819,6 +3597,8 @@ static const GUID IDxDiagProvider_iid = {0x9C6B4CB0, 0x23F8, 0x49CC, {0xA3, 0xED
 Type32 IDxDiagProvider_32 = {"IDxDiagProvider", &IDxDiagProvider_iid, &IUnknown_32, IDxDiagProvider_thunks, 5, 0};
 
 static unsigned int T_IDxDiagContainer_QueryInterface(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDxDiagContainer::QueryInterface", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 0))(n, At<void>(a0), a1 ? &o1 : nullptr);
@@ -2826,26 +3606,36 @@ static unsigned int T_IDxDiagContainer_QueryInterface(uint32_t self, uint32_t a0
     return r;
 }
 static unsigned int T_IDxDiagContainer_AddRef(uint32_t self) {
+    static ComStat stat = {"IDxDiagContainer::AddRef", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 1))(n);
     return r;
 }
 static unsigned int T_IDxDiagContainer_Release(uint32_t self) {
+    static ComStat stat = {"IDxDiagContainer::Release", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 2))(n);
     return r;
 }
 static unsigned int T_IDxDiagContainer_GetNumberOfChildContainers(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDxDiagContainer::GetNumberOfChildContainers", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 3))(n, At<void>(a0));
     return r;
 }
 static unsigned int T_IDxDiagContainer_EnumChildContainerNames(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDxDiagContainer::EnumChildContainerNames", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*, uint32_t)>(Slot(n, 4))(n, a0, At<void>(a1), a2);
     return r;
 }
 static unsigned int T_IDxDiagContainer_GetChildContainer(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IDxDiagContainer::GetChildContainer", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 5))(n, At<void>(a0), a1 ? &o1 : nullptr);
@@ -2853,11 +3643,15 @@ static unsigned int T_IDxDiagContainer_GetChildContainer(uint32_t self, uint32_t
     return r;
 }
 static unsigned int T_IDxDiagContainer_GetNumberOfProps(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IDxDiagContainer::GetNumberOfProps", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 6))(n, At<void>(a0));
     return r;
 }
 static unsigned int T_IDxDiagContainer_EnumPropNames(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IDxDiagContainer::EnumPropNames", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*, uint32_t)>(Slot(n, 7))(n, a0, At<void>(a1), a2);
     return r;
@@ -2877,6 +3671,8 @@ static const GUID IDxDiagContainer_iid = {0x7D0F462F, 0x4064, 0x4862, {0xBC, 0x7
 Type32 IDxDiagContainer_32 = {"IDxDiagContainer", &IDxDiagContainer_iid, &IUnknown_32, IDxDiagContainer_thunks, 9, 0};
 
 static unsigned int T_IUnknown_QueryInterface(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IUnknown::QueryInterface", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 0))(n, At<void>(a0), a1 ? &o1 : nullptr);
@@ -2884,11 +3680,15 @@ static unsigned int T_IUnknown_QueryInterface(uint32_t self, uint32_t a0, uint32
     return r;
 }
 static unsigned int T_IUnknown_AddRef(uint32_t self) {
+    static ComStat stat = {"IUnknown::AddRef", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 1))(n);
     return r;
 }
 static unsigned int T_IUnknown_Release(uint32_t self) {
+    static ComStat stat = {"IUnknown::Release", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 2))(n);
     return r;
@@ -2902,6 +3702,8 @@ static const GUID IUnknown_iid = {0x00000000, 0x0000, 0x0000, {0xC0, 0x00, 0x00,
 Type32 IUnknown_32 = {"IUnknown", &IUnknown_iid, nullptr, IUnknown_thunks, 3, 0};
 
 static unsigned int T_IClassFactory_QueryInterface(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"IClassFactory::QueryInterface", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o1 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 0))(n, At<void>(a0), a1 ? &o1 : nullptr);
@@ -2909,16 +3711,22 @@ static unsigned int T_IClassFactory_QueryInterface(uint32_t self, uint32_t a0, u
     return r;
 }
 static unsigned int T_IClassFactory_AddRef(uint32_t self) {
+    static ComStat stat = {"IClassFactory::AddRef", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 1))(n);
     return r;
 }
 static unsigned int T_IClassFactory_Release(uint32_t self) {
+    static ComStat stat = {"IClassFactory::Release", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 2))(n);
     return r;
 }
 static unsigned int T_IClassFactory_CreateInstance(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"IClassFactory::CreateInstance", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     void* o2 = nullptr;
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*, void*)>(Slot(n, 3))(n, Unwrap(a0), At<void>(a1), a2 ? &o2 : nullptr);
@@ -2926,6 +3734,8 @@ static unsigned int T_IClassFactory_CreateInstance(uint32_t self, uint32_t a0, u
     return r;
 }
 static unsigned int T_IClassFactory_LockServer(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"IClassFactory::LockServer", 0, 0, nullptr};
+    ComCount(&stat);
     void* n = Unwrap(self);
     uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 4))(n, a0);
     return r;
