@@ -513,8 +513,12 @@ def sse_ops(c: str, arrays: set[str], v16) -> str:
 # (the stack name's prefix is its type, any case: `aCStack_1a8` an array of CHAR. Lowercase only,
 # a DISPLAY_DEVICEA's DeviceName at +4 of the block a function fills was a C array of its own, and
 # CreateDCA got an unwritten name, a VS2010 client's 0xb1b020 2026-10-25)
-FRAME_LOCAL = r"(?:local|[A-Za-z]{0,5}Stack|blk)_([0-9a-f]+)"
-FRAME_DECL = re.compile(r"(?m)^[ \t]+(?!(?:return|goto|case|else|do)\b)(?!(?:local|[A-Za-z]{0,5}Stack|blk)_[0-9a-f]+\b)"
+# (and Ghidra's StackY names, the same frame offsets below the entry esp (StackX ones are above it,
+# the arguments', and stay out): 0x4b0a00's `aiStackY_94[type] = p`
+# fills, for the types it takes, the seven locals above it, `[ebp + edx*4 - 0x90]` over local_20..
+# local_8. As a C array of its own a lobby VFX's animation tracks were never bound, 2026-10-28)
+FRAME_LOCAL = r"(?:local|[A-Za-z]{0,5}StackY?|blk)_([0-9a-f]+)"
+FRAME_DECL = re.compile(r"(?m)^[ \t]+(?!(?:return|goto|case|else|do)\b)(?!(?:local|[A-Za-z]{0,5}StackY?|blk)_[0-9a-f]+\b)"
                         r"(?![a-z]{1,4}Var\d+\b)(?!(?:param|in|unaff|extraout)_\w+\b)"
                         r"((?:struct\s+)?[A-Za-z_]\w*(?:[ \t]+[A-Za-z_]\w*)*?(?:[ \t]*\*(?:[ \t]*PTR32)?)*)"
                         r"[ \t]*\b(" + FRAME_LOCAL + r")[ \t]*(\[[ \t]*(?:0x)?[0-9a-f]+[ \t]*\])?[ \t]*;[ \t]*\n")
