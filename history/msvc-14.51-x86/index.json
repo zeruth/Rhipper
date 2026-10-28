@@ -1090,5 +1090,17 @@
   "stubs": 172,
   "perfect": 4360,
   "translated": 4427
+ },
+ {
+  "sha": "fbc66cb3c38039601ec0679aadd786e6ad63e3c1",
+  "date": "2026-10-28T10:10:23-04:00",
+  "subject": "fix(translate32): an x87 call result read inside a block the call is before",
+  "run": "2026-10-28 15:00 UTC",
+  "file": "fbc66cb3c38039601ec0679aadd786e6ad63e3c1.json",
+  "passing": 21,
+  "projects": 34,
+  "stubs": 172,
+  "perfect": 4360,
+  "translated": 4427
  }
 ]

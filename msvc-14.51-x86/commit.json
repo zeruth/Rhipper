@@ -1,1 +1,1 @@
-{"sha": "ad435690d6af84858a0643969cac563009e3e37f", "date": "2026-10-28T10:07:09-04:00", "subject": "fix(translate32): bit casts and piece macros are no calls between an x87 call and its result's read"}
+{"sha": "fbc66cb3c38039601ec0679aadd786e6ad63e3c1", "date": "2026-10-28T10:10:23-04:00", "subject": "fix(translate32): an x87 call result read inside a block the call is before"}
