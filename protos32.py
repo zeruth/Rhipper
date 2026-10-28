@@ -1099,14 +1099,24 @@ def analyse(root: int, ranges):
     # stack across calls for the next one's argument. A callee that runs no x87 code can only have
     # left it so (main() checks, x87_reach): kept, its callers' extraout_ST0 that value, not a
     # stub's, a client's 0x565450 and 55 like it 2026-10-27)
+    # (and past loads: a read of a register below what the code after the call loaded, `fld [m];
+    # fsub st(4)` with nothing loaded but that one, reads the caller's own st3, kept across. /O2
+    # held five of a UI layout's floats on the stack across a vertex setter, `call 0x558840; ...;
+    # fld [ebp - 4]; fsub st(4)`, and the decompiler read them as extraout_ST1, a stub, 2026-10-28)
+    # (those in st_across_deep only, the first x87 instruction a load: st0_across keeps its own
+    # meaning, the x87-void rule's exclusion, and a callee that runs x87 code may have pushed what
+    # the read below the loads takes)
     st0_across: list[int] = []
+    st_across_deep: list[int] = []
     for a in state if x87_use else ():
         ins = insns[a]
         t = _target(ins)
         if ins.mnemonic != "call" or t is None:
             continue
         q = nxt.get(a)
-        for _ in range(32):
+        depth = 0                                  # (what the code after the call has pushed)
+        loaded = False
+        for _ in range(64):
             if q is None or q not in insns:
                 break
             qm = insns[q].mnemonic
@@ -1121,9 +1131,14 @@ def analyse(root: int, ranges):
             if qm in ("ret", "call", "jmp") or qm.startswith("j") or qm.startswith("loop"):
                 break
             if qm.startswith("f") and not qm.startswith(("fn", "fwait")) and qm not in X87_CONTROL:
-                if not qm.startswith(("fld", "fild", "fbld")):
-                    st0_across.append(t)
-                break
+                reads = x87_reads(insns[q])
+                if reads and max(reads) >= depth:
+                    (st_across_deep if loaded or qm.startswith(("fld", "fild", "fbld")) else st0_across).append(t)
+                    break
+                loaded = True
+                depth += x87_push(qm)
+                if depth < 0:
+                    break
             q = nxt.get(q)
     # (each direct call's own pushes, back to the call before it with no jump target between: a
     # variadic callee's arguments at that call, main()'s call-site signatures. /GL folds the
@@ -1333,7 +1348,7 @@ def analyse(root: int, ranges):
             "frame": -floor[0] if floor[0] is not None and floor[0] < 0 else None,"inputs": inputs, "in_width": in_width, "stack_hi": stack_hi, "slots": slots,
             "addr_taken": addr_taken, "calls": calls, "variadic": variadic, "call_pushes": call_pushes, "pushes_past": pushes_past,
             "untyped_pushed": untyped_pushed,
-            "x87_use": x87_use, "st0_live": st0_live, "st0_across": st0_across,
+            "x87_use": x87_use, "st0_live": st0_live, "st0_across": st0_across, "st_across_deep": st_across_deep,
             "open": open_, "lost": lost, "ret": ret_bytes(insns), "visited": len(state), "insns": len(insns),
             "icalls": {a: s for a, s in icalls.items() if s is not None},
             "results": {t: k for t, k in results.items() if not isinstance(t, tuple)},
@@ -1706,6 +1721,37 @@ def eax_reaches_ret(insns, state, nxt, start, limit=64, through=None):
 
 
 X87_POPS = {"fstp", "fistp", "fisttp", "fbstp", "fcompp", "fucompp", "fcomip", "fucomip", "ffreep"}
+
+
+def x87_reads(ins) -> set[int]:
+    """The x87 stack registers an instruction reads, by their place then: a load from memory or a
+    constant none, `fld st(i)` st(i), ffree and the stack pointer's moves none, anything else st0
+    and the registers it names (`fadd st(4)`, `faddp st(3)`, `fxch st(2)`, `fucompp` st0 and st1)."""
+    mn = ins.mnemonic
+    named = {int(k) for k in re.findall(r"st\((\d)\)", ins.op_str)}
+    if mn in X87_LOADS:
+        return named
+    if mn in ("ffree", "ffreep", "fdecstp", "fincstp"):
+        return set()
+    if mn in ("fcompp", "fucompp"):
+        return {0, 1}
+    # (an op with no operands works on st0 and st1: `faddp`, `fxch`, `fprem`, `fpatan`, `fyl2x`)
+    if not ins.op_str and mn in ("faddp", "fsubp", "fsubrp", "fmulp", "fdivp", "fdivrp", "fxch", "fcom", "fcomp",
+                                  "fucom", "fucomp", "fprem", "fprem1", "fpatan", "fyl2x", "fyl2xp1", "fscale"):
+        return {0, 1}
+    return named | {0}
+
+
+def x87_push(mn: str) -> int:
+    """How far an x87 instruction moves the stack: +1 a load, -1 a pop, -2 the double pops."""
+    if mn in X87_LOADS or mn in ("fsincos", "fptan", "fxtract"):
+        return 1
+    if mn in ("fcompp", "fucompp"):
+        return -2
+    if mn in X87_POPS or mn in ("faddp", "fsubp", "fsubrp", "fmulp", "fdivp", "fdivrp", "fcomp", "fucomp",
+                                "ficomp", "fpatan", "fyl2x", "fyl2xp1"):
+        return -1
+    return 0
 
 
 def x87_empty_before(insns, prv, a, limit=64) -> bool:
@@ -3816,6 +3862,9 @@ def main() -> None:
     keeps_st0 = {t for f, v in local.items() if ret_of.get(f) in ("f4", "d8") for t in v.get("st0_live", ())}
     # (and the ones a caller calls with its own value in st0 that it reads after, analyse's st0_across)
     keeps_st0 |= {t for v in local.values() for t in v.get("st0_across", ())}
+    # (or reads below what it loaded after, st_across_deep: kept only where the callee runs no x87
+    # code, x87_reach below, as for the rest)
+    keeps_st0 |= {t for v in local.values() for t in v.get("st_across_deep", ())}
 
     def x87_reach(f, seen=()):
         v = local.get(f)
