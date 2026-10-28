@@ -1,1 +1,1 @@
-{"sha": "9977ce1ea9ba1b4f751bd7cbc86d0623059c1fb9", "date": "2026-10-28T11:23:05-04:00", "subject": "fix(translate32): Ghidra's StackY locals laid out in the frame with the rest"}
+{"sha": "651757d09e3e566ab42a242a3f406bc1b7dd8963", "date": "2026-10-28T12:06:04-04:00", "subject": "fix(translate32): in_ST0's x87 values may be the calls' x87_icall_results assigned them"}

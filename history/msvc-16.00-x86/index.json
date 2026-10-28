@@ -1006,5 +1006,17 @@
   "stubs": 244,
   "perfect": 15709,
   "translated": 17527
+ },
+ {
+  "sha": "651757d09e3e566ab42a242a3f406bc1b7dd8963",
+  "date": "2026-10-28T12:06:04-04:00",
+  "subject": "fix(translate32): in_ST0's x87 values may be the calls' x87_icall_results assigned them",
+  "run": "2026-10-28 17:02 UTC",
+  "file": "651757d09e3e566ab42a242a3f406bc1b7dd8963.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 244,
+  "perfect": 15709,
+  "translated": 17527
  }
 ]
