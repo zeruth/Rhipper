@@ -1735,6 +1735,12 @@ def x87_icall_results(c: str) -> str:
                 k -= 1
                 continue
             cs = call_stmt(k)
+            # (past one an earlier group took, `extraout_ST0_00 = (*vf)(..)`: its result is that
+            # name's. Taken again as an assigned call, two curve calls' results were both the second's,
+            # `extraout_ST0 = (*vf44)(..); extraout_ST0_00 = extraout_ST0;`, 0xcd4db0)
+            if cs and cs[1] and re.fullmatch(r"extraout_ST0(?:_\d+)?", cs[1]):
+                k = cs[0] - 1
+                continue
             if cs:
                 calls.append((cs[0], k, cs[1]))
                 k = cs[0] - 1
