@@ -994,5 +994,17 @@
   "stubs": 244,
   "perfect": 15709,
   "translated": 17527
+ },
+ {
+  "sha": "9977ce1ea9ba1b4f751bd7cbc86d0623059c1fb9",
+  "date": "2026-10-28T11:23:05-04:00",
+  "subject": "fix(translate32): Ghidra's StackY locals laid out in the frame with the rest",
+  "run": "2026-10-28 16:20 UTC",
+  "file": "9977ce1ea9ba1b4f751bd7cbc86d0623059c1fb9.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 244,
+  "perfect": 15709,
+  "translated": 17527
  }
 ]
