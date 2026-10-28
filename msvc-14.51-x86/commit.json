@@ -1,1 +1,1 @@
-{"sha": "b104fb51d7d603e69b285cb79501e5ed64971b2e", "date": "2026-10-28T17:46:13-04:00", "subject": "fix(protos32): a push that reserves a float's slot, seen up to the call, not eight instructions on"}
+{"sha": "1765c496b7749cd88e6f40887a6a3c286a70a5c9", "date": "2026-10-28T18:22:58-04:00", "subject": "fix(translate32): an indirect call another extraout_ST0 already took, passed over, not taken again"}

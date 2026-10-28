@@ -1366,5 +1366,17 @@
   "stubs": 172,
   "perfect": 4360,
   "translated": 4427
+ },
+ {
+  "sha": "1765c496b7749cd88e6f40887a6a3c286a70a5c9",
+  "date": "2026-10-28T18:22:58-04:00",
+  "subject": "fix(translate32): an indirect call another extraout_ST0 already took, passed over, not taken again",
+  "run": "2026-10-28 22:53 UTC",
+  "file": "1765c496b7749cd88e6f40887a6a3c286a70a5c9.json",
+  "passing": 21,
+  "projects": 34,
+  "stubs": 172,
+  "perfect": 4360,
+  "translated": 4427
  }
 ]
