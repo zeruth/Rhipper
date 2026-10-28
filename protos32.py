@@ -1336,6 +1336,13 @@ def analyse(root: int, ranges):
             "passes": passes, "passes_via": passes_via, "st_over": st_over, "writes_ret": writes_ret, "vol_writes": vol_writes, "opaque": opaque,
             "sets_eax": sets_eax, "x87_ret_live": x87_ret_live, "x87_ret_dead": x87_ret_dead, "narrow_ret": sets_eax if sets_eax in (1, 2) and rets and rets_set == rets else 0,
             "eax_unset": root in state and eax_reaches_ret(insns, state, nxt, root, limit=256),
+            # (direct callees with a call site here that leaves st0 untouched up to the next call:
+            # theirs is no x87 result, st0_dropped)
+            # ((callee, "call" | "ret", the calls the paths end at) for each; "ret": its st0 goes on
+            # to this function's own ret untouched, no x87 result if this function's is none)
+            "x87_dropped": [(_target(insns[a]), *d) for a in state if insns[a].mnemonic == "call"
+                            and _target(insns[a]) is not None
+                            and (d := st0_dropped(insns, state, nxt, nxt.get(a))) is not None],
             "tail_ijmps": [(j, c or bool(inputs & ECX)) for j, c in tail_ijmps]}
 
 
@@ -1675,6 +1682,52 @@ def eax_reaches_ret(insns, state, nxt, start, limit=64, through=None):
                 continue
         work.append(nxt.get(p))
     return False
+
+
+def st0_dropped(insns, state, nxt, start, limit=128) -> tuple[str, list[int]] | None:
+    """Whether every path from start (just after a call) reaches another call before any x87
+    instruction: the x87 stack is empty at a call (the callee may use all eight registers), so a
+    result in st0 there would have to be popped first, `fstp st(0)`. A callee none of whose call
+    sites does so leaves nothing in st0: its return is no x87 one, whatever its last x87 value. A
+    chain of tail positions passing st0 up (0x4afe10 returning 0x61fe30's, which it had used up)
+    made four functions on a client's startup path double-returning, each a stub for the lost
+    st0, 2026-10-28. "call": every path reaches a call. "ret": some reach the caller's own ret,
+    st0 untouched, the caller's return then the evidence (main's fixpoint). None: an x87
+    instruction, an unfollowed jump or the limit first, no evidence. With the calls the paths end
+    at: one that takes st0 (`call f; call __ftol2`, the CRT's conversion of f's result) consumes
+    it, main's check; an indirect one may, no evidence."""
+    seen, work, rets, ends = set(), [start], False, set()
+    while work:
+        p = work.pop()
+        if p is None or p not in insns or p not in state:
+            return None
+        if p in seen:
+            continue
+        seen.add(p)
+        if len(seen) > limit:
+            return None
+        pi = insns[p]
+        mn = pi.mnemonic
+        if mn == "call":
+            t = _target(pi)
+            if t is None:
+                return None
+            ends.add(t)
+            continue                                   # (this path: reached a call, st0 untouched)
+        if mn == "ret":
+            rets = True
+            continue
+        if mn.startswith("f") or mn in ("int3", "hlt", "emms"):
+            return None
+        if mn.startswith("j") or mn.startswith("loop"):
+            t = _target(pi)
+            if t is None:
+                return None
+            work.append(t)
+            if mn == "jmp":
+                continue
+        work.append(nxt.get(p))
+    return ("ret" if rets else "call"), sorted(ends)
 
 
 # a return's kinds, the wider winning where callers differ
@@ -3233,6 +3286,25 @@ def main() -> None:
     family = {"i1": "i", "i2": "i", "i4": "i", "i8": "i", "f4": "x87", "d8": "x87", "s4": "sse", "q8": "sse"}
     x87_firm: set[int] = set()
     unset_void: set[int] = set()
+    # (a site's evidence holds where no call its paths end at takes st0: inputs, the math helpers')
+    # (and only in a caller that keeps no st0 across a call: the C runtime's hand-written math
+    # does, `call _set_cw; ... fsqrt`, the rule's premise not its own)
+    # (nor one that takes st0 itself, holding its argument across: _CIsqrt's `call _set_cw; ...
+    # fsqrt`)
+    drops = [(f, t, kind) for f, v in local.items()
+             if not v.get("st0_across") and f not in math_helpers and not inputs.get(f, 0) & ST0
+             for t, kind, ends in v.get("x87_dropped", ())
+             if not any(inputs.get(e, 0) & ST0 for e in ends)]
+    x87_void = {t for _f, t, kind in drops if kind == "call"}
+    # (and through the callers' own rets: a callee whose st0 a caller returns untouched has no x87
+    # result if that caller has none, to a fixpoint)
+    grew = True
+    while grew:
+        grew = False
+        for f, t, kind in drops:
+            if kind == "ret" and f in x87_void and t not in x87_void:
+                x87_void.add(t)
+                grew = True
 
     def makes_edx(t, seen=()):
         """t writes edx, or returns a result one it calls makes (an import, a function the analysis
@@ -3268,6 +3340,9 @@ def main() -> None:
             return False
         # (nor one whose st0 is certainly empty at its ret, analyse's x87_ret_dead)
         if k in ("f4", "d8") and v.get("x87_ret_dead"):
+            return False
+        # (nor one a caller calls on to the next call with st0 untouched: no x87 result, st0_dropped)
+        if k in ("f4", "d8") and t in x87_void:
             return False
         # (no integer result inferred, none a caller reads, for one with a path to its ret that
         # never writes eax, which it does not take: what it leaves there is its caller's own. _free's
@@ -3374,6 +3449,9 @@ def main() -> None:
                     changed |= give(f, "i4", f"keeps its eax across {hexa(t)}")
     for s in args.why_ret:
         a = int(s, 16)
+        if a in x87_void:
+            print(f"{hexa(a)}: no x87 result, its st0 left at a call by "
+                  + ", ".join(f"{hexa(f)}{'' if k == 'call' else ' (to its ret)'}" for f, t, k in drops if t == a))
         while a in why:
             print(f"{hexa(a)} {ret_of[a]}: {why[a]}")
             nxt_a = int(why[a].split()[-1].removesuffix("'s"), 16)
