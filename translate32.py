@@ -3597,7 +3597,11 @@ class Translator32:
         # update demoted on its frame path, 2026-10-27)
         body = re.sub(r"(?m)((?:^|[;{(,])\s*)((?:\*\s*)*[A-Za-z_]\w*(?:\s*\[[^\]\[]*\])*"
                       r"|\*\s*\(\s*[A-Za-z_][\w\s*]*\)\s*(?:&\s*REFG\([\w ,]+\)|\([^;=()]*(?:\([^;=()]*\)[^;=()]*)*\)))\s*=(?!=)\s*"
-                      r"(REFG\((?:float|double), 0x[0-9a-f]+\)|\(&REFG\((?:float|double), 0x[0-9a-f]+\)\)\[[^\]\[]*\])"
+                      # (an index with one more inside, `[(int)((*(int *)&gen_args[2]))]`: a table of
+                      # floats Ghidra typed pointers indexed by a spilled argument, C2440, 0x9919e0
+                      # demoted on a client's startup path, 2026-10-28)
+                      r"(REFG\((?:float|double), 0x[0-9a-f]+\)|\(&REFG\((?:float|double), 0x[0-9a-f]+\)\)"
+                      r"\[(?:[^\]\[]|\[[^\]\[]*\])*\])"
                       r"(?=\s*[;,)])", flt_to, body)
         # (a statement of its own storing one through a dereference nested any deeper, `*(undefined4
         # *)((int)(*(unsigned int *)(gen_frame + 0x34)) + 0x1738) = REFG(float, ...);`: the line's
