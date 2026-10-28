@@ -2783,13 +2783,24 @@ def saved_before(insns, prv, a, limit=40) -> bool:
     back): the prologue's saves done, a `sub esp` there is no frame allocation."""
     p = prv.get(a)
     saved = False
+    seq = []                                   # (the instructions back to `mov ebp, esp`, reversed)
     for _ in range(limit):
         if p is None or p not in insns:
             return False
         ins = insns[p]
         ops = ins.operands
         if ins.mnemonic == "mov" and ins.op_str == "ebp, esp":
+            # (or any register pushed after the body began, a forwarded argument: a dispatcher's
+            # `mov edx, ecx; ...; push ecx; mov ecx, [ebp + 0x10]; push ecx; ...; sub esp, 8`,
+            # 0x97d120, its member pointer called with none of its four words, 2026-10-28)
+            body = False
+            for q in reversed(seq):
+                if q.mnemonic == "push" and q.operands and q.operands[0].type == X.X86_OP_REG and body:
+                    return True
+                if q.mnemonic != "push":
+                    body = True
             return saved
+        seq.append(ins)
         # (past a call: no frame is allocated after one, `call [vt + 0xdc]; ...; push ecx; sub esp,
         # 8; ...; call edx`, 0x97f440's second call given none of its three words, 2026-10-28)
         if ins.mnemonic == "call":
