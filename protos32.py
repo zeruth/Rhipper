@@ -2103,6 +2103,33 @@ def image_member_ptrs(b: Binary, funcs: set[int]) -> set[int]:
     return out
 
 
+def image_registered(b: Binary, funcs: set[int]) -> dict[int, set[int]]:
+    """callee -> the functions pushed as constants to a direct call of it, `push 0x75e100; push
+    0x17; mov ecx, esi; call 0x5919f0`: one registration call's callbacks, each kind the same."""
+    md = disassembler()
+    md.detail = True
+    img = bytes(b.image)
+    out: dict[int, set[int]] = {}
+    for k in range(len(img) - 5):
+        if img[k] != 0x68 or int.from_bytes(img[k + 1:k + 5], "little") not in funcs:
+            continue
+        va = b.base + k
+        if not b.is_code(va):
+            continue
+        fn = int.from_bytes(img[k + 1:k + 5], "little")
+        for n, ins in enumerate(md.disasm(img[k:k + 48], va)):
+            if n == 0:
+                continue
+            if ins.mnemonic == "call":
+                t = _target(ins)
+                if t is not None:
+                    out.setdefault(t, set()).add(fn)
+                break
+            if ins.mnemonic in ("ret", "jmp") or ins.mnemonic.startswith("j") or n > 8:
+                break
+    return out
+
+
 def vtable_from_ecx(insns, prv, a) -> bool:
     """The virtual call at `a` reads its vtable from `[ecx]`, and nothing writes ecx from that load
     to the call: ecx holds the object at the call, its `this`, whatever earlier call it was set
@@ -3773,6 +3800,16 @@ def main() -> None:
         ts = {t for t in ts if t in local}
         if any(inputs.get(t, 0) & ECX for t in ts):
             methods.update(t for t in ts if not inputs.get(t, 0) and cleanup.get(t))
+    # (and the callbacks one registration call is given, `push 0x75e100; push 0x17; mov ecx, esi;
+    # call 0x5919f0`, its table later called with `this` in ecx: where some read `this`, the ones
+    # that ignore it and pop the same bytes are methods of the same shape. 0x75e100, a __stdcall of
+    # three among __thiscalls of `this` and three, took the dispatcher's `this - 4` for its result
+    # pointer and wrote 2 over the UI module's AtkModule vtable, 0x5a5250 2026-10-28)
+    for callee, fs in image_registered(b, set(local)).items():
+        fs = {t for t in fs if t in local}
+        this_pops = {cleanup.get(t) for t in fs if inputs.get(t, 0) == ECX and cleanup.get(t)}
+        if len(fs) >= 3 and this_pops:
+            methods.update(t for t in fs if not inputs.get(t, 0) and cleanup.get(t) in this_pops)
 
     # (the callees a float-returning caller calls with that result live in st0, analyse's st0_live;
     # and whether a function, or anything it calls, runs x87 code: a call through a pointer might)
