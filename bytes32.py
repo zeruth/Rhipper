@@ -47,6 +47,13 @@ OBJ = BUILD / "x86obj"
 VCVARS = os.environ.get("RHIPPER_VCVARS32", "")
 
 
+# the x86 build's options, as near the reference's own build as the newest cl allows: /O2, each
+# function its own section (/Gy, to find it), x87 floating point (/arch:IA32, VS2010's default; the
+# newest cl's x86 default is SSE2), frame pointers kept (/Oy-: the reference's trivial functions
+# are `push ebp; mov ebp, esp; ...; pop ebp`), the shadow trace compiled out (GEN_FIDELITY)
+CL_FLAGS = ["/nologo", "/c", "/O2", "/Gy", "/arch:IA32", "/Oy-", "/std:c17", "/w", "/DGEN_FIDELITY"]
+
+
 def vcvars32() -> str:
     """The newest Visual Studio's vcvars32.bat (RHIPPER_VCVARS32 to choose another)."""
     if VCVARS:
@@ -95,10 +102,7 @@ def build(jobs: int) -> list[Path]:
         from concurrent.futures import ThreadPoolExecutor
 
         def one(s: Path) -> str:
-            # (/arch:IA32: x87 floating point, as the reference's VS2010 build; the newest cl's
-            # x86 default is SSE2, and every float function compared as 0)
-            r = subprocess.run([cl, "/nologo", "/c", "/O2", "/Gy", "/arch:IA32", "/std:c17", "/w", "/DGEN_FIDELITY",
-                                f"/I{HERE / 'runtime32'}", f"/I{GEN}", f"/Fo{OBJ / (s.stem + '.obj')}", str(s)],
+            r = subprocess.run([cl, *CL_FLAGS, f"/I{HERE / 'runtime32'}", f"/I{GEN}", f"/Fo{OBJ / (s.stem + '.obj')}", str(s)],
                                cwd=OBJ, env=env, capture_output=True, text=True, errors="replace")
             return "" if r.returncode == 0 else f"{s.name}: " + " | ".join(
                 l.strip() for l in r.stdout.splitlines() if "error" in l)[:300]
@@ -252,8 +256,7 @@ def run_pool(a) -> None:
     obj = POOL / "pool.obj"
     if obj.exists():
         obj.unlink()
-    r = subprocess.run([cl, "/nologo", "/c", "/O2", "/Gy", "/arch:IA32", "/std:c17", "/w", "/DGEN_FIDELITY",
-                        f"/I{POOL}", f"/Fo{obj}", str(POOL / "pool.c")], cwd=POOL, env=env,
+    r = subprocess.run([cl, *CL_FLAGS, f"/I{POOL}", f"/Fo{obj}", str(POOL / "pool.c")], cwd=POOL, env=env,
                        capture_output=True, text=True, errors="replace")
     if r.returncode or not obj.exists():
         sys.exit("bytes32: the pool did not build:\n" + "\n".join(l for l in r.stdout.splitlines() if "error" in l)[:3000])
