@@ -1487,12 +1487,23 @@ def result_reads(insns, state, nxt):
                                     for o in pi.operands):
                     kind = kind or "d8"
                     break
+                # (or st1 without naming it, under one load: `call powi; fld [x]; fcompp`, a sound
+                # driver's octave count compared against its integer power, 0xcefae0's 0xcf3600)
+                if st_depth == 1 and not pi.op_str and mn in (
+                        "fcompp", "fucompp", "fcomp", "fcom", "fucomp", "fucom", "faddp", "fsubp", "fsubrp",
+                        "fmulp", "fdivp", "fdivrp", "fxch", "fpatan", "fyl2x", "fyl2xp1", "fscale", "fprem", "fprem1"):
+                    kind = kind or "d8"
+                    break
                 p = nxt[p]
                 continue
             # (the control and status words touch no st0: a float rounded toward zero, `call f;
             # fnstcw [m]; ...; fldcw [m2]; fistp qword ptr [t]`, its fldcw taken for the first x87
             # instruction and no read, f void and its callers stubs for extraout_ST0, 2026-10-26)
             if mn in ("fldcw", "fstcw", "fnstcw", "fstsw", "fnstsw", "fclex", "fnclex", "fwait", "wait"):
+                # (but `fnstsw ax` writes ax: the `test ah, 1` after it reads the comparison's flags,
+                # not the callee's eax. As a read, 0xcf3600, a float power, became an i1 one)
+                if mn in ("fstsw", "fnstsw") and pi.op_str == "ax":
+                    eax_w = True
                 p = nxt[p]
                 continue
             if mn.startswith("f") and not mn.startswith("fn"):
