@@ -502,5 +502,17 @@
   "stubs": 242,
   "perfect": 15711,
   "translated": 17529
+ },
+ {
+  "sha": "842a373d1f7bbf713aeb028fe2eecdcc8bb58a93",
+  "date": "2026-10-27T20:26:14-04:00",
+  "subject": "feat(translate32, Ghidra32.h, bytes32): virtual calls, frames and a forwarded edx as the reference's, in the x86 fidelity build",
+  "run": "2026-10-28 01:35 UTC",
+  "file": "842a373d1f7bbf713aeb028fe2eecdcc8bb58a93.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 242,
+  "perfect": 15711,
+  "translated": 17529
  }
 ]
