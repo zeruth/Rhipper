@@ -137,7 +137,8 @@ def coff_functions(path: Path) -> dict[int, tuple[bytes, set[int]]]:
             name = data[strtab + off:data.index(b"\0", strtab + off)].decode("latin1")
         else:
             name = name8.rstrip(b"\0").decode("latin1")
-        m = re.fullmatch(r"_?F_([0-9a-f]{8})(?:@\d+)?", name)
+        # (decorated by convention: _F_x for __cdecl, _F_x@8 __stdcall, @F_x@8 __fastcall)
+        m = re.fullmatch(r"[_@]?F_([0-9a-f]{8})(?:@\d+)?", name)
         if m and secnum > 0 and cls == 2:
             raw, size, relocs = secs[secnum - 1]
             code = data[raw + value:raw + size]
@@ -194,7 +195,9 @@ def run_pool(a) -> None:
         if rng and not f.get("thunk") and f"{ent:08x}" not in stubs:
             sizes[ent] = (rng, f["name"])
     pj = POOL / "pool.json"
-    if a.addrs_pool:
+    # (given addresses are a look of their own: the kept pool and its last scores untouched)
+    adhoc = bool(a.addrs_pool)
+    if adhoc:
         addrs = [int(x, 16) for x in a.addrs_pool]
     elif pj.exists() and not a.new_pool:
         addrs = json.loads(pj.read_text())["addrs"]
@@ -202,8 +205,10 @@ def run_pool(a) -> None:
         # (the smallest first, from --min-size up: a tier at a time, larger once those match)
         cands = sorted((hi - lo, x) for x, ((lo, hi), _n) in sizes.items() if hi - lo >= a.min_size)
         addrs = sorted(x for _s, x in cands[:a.pool])
-    pj.write_text(json.dumps({"addrs": addrs}), encoding="utf-8")
+    if not adhoc:
+        pj.write_text(json.dumps({"addrs": addrs}), encoding="utf-8")
     # the pool's C: translate32's now (--fresh) or the gen's
+    t = None
     if a.fresh:
         import translate32
         t = translate32.Translator32()
@@ -226,7 +231,13 @@ def run_pool(a) -> None:
     hdr = []
     for line in (GEN / "translated.h").read_text(encoding="utf-8", errors="replace").split("\n"):
         m = re.search(r"\bF_([0-9a-f]{8})\(", line)
-        hdr.append(protos.get(int(m.group(1), 16), line) if m and int(m.group(1), 16) in protos else line)
+        x = int(m.group(1), 16) if m else None
+        if x in protos:
+            line = protos[x]
+        elif t is not None and m and line.rstrip().endswith(");") and x in t.corpus:
+            # (every callee as translate32 declares it now: a convention change reaches the calls)
+            line = t.stub_decl(x) + ";"
+        hdr.append(line)
     (POOL / "translated.h").write_text("\n".join(hdr), encoding="utf-8")
     (POOL / "Ghidra32.h").write_bytes((HERE / "runtime32" / "Ghidra32.h").read_bytes())
     head = (GEN / "translated_000.c").read_text(encoding="utf-8").split("\n")[:2]
@@ -265,6 +276,8 @@ def run_pool(a) -> None:
             print(shown)
     last_p = POOL / "last.json"
     last = {r["addr"]: r for r in json.loads(last_p.read_text())} if last_p.exists() and not a.new_pool else {}
+    if adhoc:
+        last = {x: r for x, r in last.items() if x in set(addrs)}
     n = len(rows)
     mean = sum(r["sim"] for r in rows) / max(1, n)
     same = sum(r["same"] for r in rows)
@@ -278,7 +291,8 @@ def run_pool(a) -> None:
     if a.list:
         for r in sorted(rows, key=lambda r: r["sim"]):
             print(f"  {r['addr']:08x} sim {r['sim']:.3f} size {r.get('size', 0):5.2f} {r['ref_size']:5d}B {r['name'][:50]}")
-    last_p.write_text(json.dumps(rows), encoding="utf-8")
+    if not adhoc:
+        last_p.write_text(json.dumps(rows), encoding="utf-8")
 
 
 _MD = None

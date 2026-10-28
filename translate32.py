@@ -2076,6 +2076,20 @@ class Translator32:
         self.keeps = {int(k, 16): set(v["keep"]) for k, v in protos.items() if v.get("keep")}
         # (the functions no caller reads a result of: protos32's "v")
         self.ret_void = {int(k, 16) for k, v in protos.items() if v.get("ret") == "v"}
+        # (and each one's calling convention for the x86 fidelity build, Ghidra32.h's GEN_THISCALL
+        # and the rest: what the reference's code does with ecx and edx and who pops the stack)
+        self.conv = {}
+        for k, v in protos.items():
+            cc, regs, cleans = v.get("cc"), v.get("regs"), v.get("callee_cleans")
+            # (a register convention protos32 calls custom, when the callee pops its stack words
+            # or has none to pop: `mov eax, [ecx]; ret` is __thiscall's code)
+            pops = cleans or not v.get("stack")
+            if cc == "custom" and regs == ["ecx"] and pops:
+                cc = "__thiscall"
+            elif cc == "custom" and regs == ["ecx", "edx"] and pops:
+                cc = "__fastcall"
+            if cc in ("__thiscall", "__stdcall", "__fastcall") and not v.get("variadic"):
+                self.conv[int(k, 16)] = cc
         # (and the registers each takes its parameters in, entry_registers)
         self.param_regs = {}
         for k, v in protos.items():
@@ -3558,7 +3572,8 @@ class Translator32:
         if eh:
             body = eh_landing(body, ret)
             body = eh_state_volatile(body)
-        decl = f"{ret} F_{a:08x}({', '.join(params) or 'void'})"
+        decl = self.conv_decl(a, ret, params)
+        body = self.conv_calls(body)
         # (the shadow trace's record of the call, first: its address and first four integer
         # arguments, as shadow32.py records the reference's: its words, a float's bits and an
         # 8-byte argument's two words)
@@ -4403,6 +4418,48 @@ class Translator32:
             (translated if ok else stubbed)[a] = text
         return dict(sorted(translated.items())), dict(sorted(stubbed.items()))
 
+    def conv_decl(self, a: int, ret: str, params: list[str]) -> str:
+        """A function's declaration with the reference's convention for the x86 fidelity build:
+        `uint GEN_THISCALL F_x(unsigned int gen_a0 GEN_EDX_PARAM, ...)` (Ghidra32.h, empty on x64)."""
+        conv = self.conv.get(a)
+        ps = list(params)
+        cc = ""
+        if conv == "__thiscall" and ps and ps[0] != "...":
+            ps[0] += " GEN_EDX_PARAM"
+            cc = "GEN_THISCALL "
+        elif conv == "__fastcall" and ps:
+            cc = "GEN_FASTCALL "
+        elif conv == "__stdcall":
+            cc = "GEN_STDCALL "
+        return f"{ret} {cc}F_{a:08x}({', '.join(ps) or 'void'})"
+
+    def conv_calls(self, body: str) -> str:
+        """Each direct call to a __thiscall function given the dummy edx after `this`, GEN_EDX_ARG."""
+        out, last = [], 0
+        for m in re.finditer(r"\bF_([0-9a-f]{8})\(", body):
+            if self.conv.get(int(m.group(1), 16)) != "__thiscall":
+                continue
+            # the end of the first argument, at the call's top level
+            depth, k = 0, m.end()
+            while k < len(body):
+                ch = body[k]
+                if ch in "([":
+                    depth += 1
+                elif ch in ")]":
+                    if depth == 0:
+                        break
+                    depth -= 1
+                elif ch == "," and depth == 0:
+                    break
+                k += 1
+            if k == m.end():                    # (no argument at all)
+                continue
+            out.append(body[last:k])
+            out.append(" GEN_EDX_ARG")
+            last = k
+        out.append(body[last:])
+        return "".join(out)
+
     def stub_decl(self, a: int) -> str:
         sig = self.sigs.get(a)
         if sig is None:
@@ -4414,7 +4471,7 @@ class Translator32:
             return f"unsigned int F_{a:08x}()"
         if sig.variadic:
             ps.append("...")
-        return f"{ret} F_{a:08x}({', '.join(ps) or 'void'})"
+        return self.conv_decl(a, ret, ps)
 
     def emit(self, translated: dict[int, str], stubbed: dict[int, str]) -> list[Path]:
         GEN.mkdir(parents=True, exist_ok=True)

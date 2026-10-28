@@ -88,6 +88,23 @@ typedef unsigned long long gen_lcode();
    reference's own run. Off, the cost is a flag test */
 extern int gen_trace_on;
 void gen_trace_enter(unsigned int addr, unsigned int a0, unsigned int a1, unsigned int a2, unsigned int a3);
+/* the reference's calling conventions, in bytes32.py's x86 build (GEN_FIDELITY) only: x64 has one
+   convention, and the port's calls through pointers and the runtime's entry jumps assume the
+   plain one. __thiscall, which C cannot declare, as __fastcall with edx a dummy after `this`:
+   ecx `this`, the rest on the stack, the callee popping them, the same code (ret N) */
+#ifdef GEN_FIDELITY
+#define GEN_STDCALL __stdcall
+#define GEN_FASTCALL __fastcall
+#define GEN_THISCALL __fastcall
+#define GEN_EDX_PARAM , unsigned int gen_edx
+#define GEN_EDX_ARG , 0
+#else
+#define GEN_STDCALL
+#define GEN_FASTCALL
+#define GEN_THISCALL
+#define GEN_EDX_PARAM
+#define GEN_EDX_ARG
+#endif
 /* (GEN_FIDELITY: nothing, bytes32.py's x86 build, compared byte for byte with the reference) */
 #ifdef GEN_FIDELITY
 #define GEN_ENTER(addr, a0, a1, a2, a3) ((void)0)
