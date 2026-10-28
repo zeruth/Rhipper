@@ -1,1 +1,1 @@
-{"sha": "0adbeac383a0ae6c582d838cfcd62cc0b773dd91", "date": "2026-10-28T03:36:54-04:00", "subject": "fix(protos32): a member-function pointer kept in an object, called with the method's own ecx, is __thiscall"}
+{"sha": "fe61df84c0694371fc98318e1aebddd701e1962b", "date": "2026-10-28T03:55:02-04:00", "subject": "fix(protos32): C++ pointers to members in static data are methods"}

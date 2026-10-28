@@ -814,5 +814,17 @@
   "stubs": 172,
   "perfect": 4360,
   "translated": 4427
+ },
+ {
+  "sha": "fe61df84c0694371fc98318e1aebddd701e1962b",
+  "date": "2026-10-28T03:55:02-04:00",
+  "subject": "fix(protos32): C++ pointers to members in static data are methods",
+  "run": "2026-10-28 08:46 UTC",
+  "file": "fe61df84c0694371fc98318e1aebddd701e1962b.json",
+  "passing": 21,
+  "projects": 34,
+  "stubs": 172,
+  "perfect": 4360,
+  "translated": 4427
  }
 ]
