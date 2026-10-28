@@ -1627,6 +1627,55 @@ def x87_icall_results(c: str) -> str:
         body = "\n".join(lines[s + 1:k])
         return s if re.search(r"\b_?atexit\(", body) and "{" not in body else None
 
+    def block_open(k):
+        """the line of the `{` the `}` on line k closes, or None"""
+        depth, s = 0, k
+        while s >= 0:
+            depth += lines[s].count("}") - lines[s].count("{")
+            if depth <= 0:
+                return s if depth == 0 else None
+            s -= 1
+        return None
+
+    def far_calls(first, want):
+        """back from line `first`, past whatever calls nothing through a pointer unassigned: the
+        nearest `want` indirect call statements whose result goes nowhere (and a block that holds
+        none stepped over whole, its call or none run). Only straight up through one way in: no
+        label, `case`, `} else {` or return on the way"""
+        calls, k = [], first - 1
+        while k >= 0 and len(calls) < want:
+            l = lines[k].strip()
+            if l.startswith("}") and l != "}":
+                return None                              # (`} while (..);`, `} else {`)
+            if not l or l.endswith(";") and not re.search(r"\b(?:return|goto|break|continue)\b", l) \
+                    and not call_stmt(k):
+                k -= 1
+                continue
+            cs = call_stmt(k)
+            if cs:
+                if cs[1] is None:
+                    calls.append((cs[0], k, None))
+                k = cs[0] - 1
+                continue
+            # (an `if` the decompiler wrapped, its condition over several lines, by its first)
+            if l == "}":
+                o = block_open(k)
+                if o is None or not lines[o].rstrip().endswith("{") \
+                        or not re.match(r"\s*if \(", lines[stmt_start(o)]) or any(
+                        (cs2 := call_stmt(j)) and cs2[1] is None for j in range(o + 1, k)):
+                    return None
+                k = stmt_start(o) - 1
+                continue
+            if l == "do {" or l.endswith("{") and re.match(r"\s*(?:if|while) \(", lines[stmt_start(k)]):
+                k = stmt_start(k) - 1 if l != "do {" else k - 1
+                continue
+            # (a statement's continuation, `(..)\n ;` or an argument line, part of the one above)
+            if not re.search(r"[;{}:]\s*$", l) and not re.match(r"(?:case\b|default\b|\w+:)", l):
+                k -= 1
+                continue
+            return None
+        return calls if len(calls) == want else None
+
     firsts = {}
     for v in names:
         decl = re.compile(r"^\s*float10\s+" + v + r"\s*;\s*$")
@@ -1660,6 +1709,13 @@ def x87_icall_results(c: str) -> str:
             if not plain(l):
                 break
             k -= 1
+        # (or past other calls, when the decompiler carried the product into a loop: a sound
+        # voice's volume, three curve calls' `call edx; fmul [m]; fstp [ebp - 0x14]` multiplied
+        # into [ebp - 4] before its loop over the voices, read there after each voice's own calls
+        # as `FUN_00cd8a30(.., (float)(e_17 * (e_16 * e_15 * a) * b) * c)`, 0xcd50e0. Each name is
+        # one call's value: read later, it is still that call's)
+        if len(calls) != len(group):
+            calls = far_calls(first, len(group)) or calls
         if len(calls) != len(group):
             continue
         # (a call whose result goes to an integer returns in eax, not st0: `uVar3 = (*vf)(p); cVar2 =
