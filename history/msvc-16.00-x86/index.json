@@ -1102,5 +1102,17 @@
   "stubs": 0,
   "perfect": 0,
   "translated": 0
+ },
+ {
+  "sha": "d7b969e21fdf0a060ee206462dfe3e546079904e",
+  "date": "2026-10-28T16:07:57-04:00",
+  "subject": "feat(pipeline32): the Ghidra scripts compiled first (ghidra/checkscripts.py, javac against the install's jars)",
+  "run": "2026-10-28 21:06 UTC",
+  "file": "d7b969e21fdf0a060ee206462dfe3e546079904e.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 244,
+  "perfect": 15709,
+  "translated": 17525
  }
 ]

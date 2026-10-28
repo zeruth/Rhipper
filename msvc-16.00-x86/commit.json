@@ -1,1 +1,1 @@
-{"sha": "84cd64624631b6b8dfaf655aeb7ae1db5f1453f4", "date": "2026-10-28T16:00:05-04:00", "subject": "fix(translate32): a qualified name the decompiler wrapped onto two lines read as one"}
+{"sha": "d7b969e21fdf0a060ee206462dfe3e546079904e", "date": "2026-10-28T16:07:57-04:00", "subject": "feat(pipeline32): the Ghidra scripts compiled first (ghidra/checkscripts.py, javac against the install's jars)"}
