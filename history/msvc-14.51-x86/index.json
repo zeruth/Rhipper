@@ -670,5 +670,17 @@
   "stubs": 172,
   "perfect": 4239,
   "translated": 4305
+ },
+ {
+  "sha": "23201a729ee1c700a08241bfd1d2a436c0b24fa8",
+  "date": "2026-10-27T21:21:34-04:00",
+  "subject": "feat(shadow32): --watch, hardware write watches at an object a global points to; --watch-only at full speed",
+  "run": "2026-10-28 02:10 UTC",
+  "file": "23201a729ee1c700a08241bfd1d2a436c0b24fa8.json",
+  "passing": 21,
+  "projects": 34,
+  "stubs": 172,
+  "perfect": 4360,
+  "translated": 4427
  }
 ]

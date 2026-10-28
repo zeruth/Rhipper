@@ -1,1 +1,1 @@
-{"sha": "5408b50d57f97641ca533975007cb9a740dc31bf", "date": "2026-10-27T20:35:59-04:00", "subject": "feat(translate32): a 4-byte integer parameter whose address is taken as the argument's own storage"}
+{"sha": "23201a729ee1c700a08241bfd1d2a436c0b24fa8", "date": "2026-10-27T21:21:34-04:00", "subject": "feat(shadow32): --watch, hardware write watches at an object a global points to; --watch-only at full speed"}
