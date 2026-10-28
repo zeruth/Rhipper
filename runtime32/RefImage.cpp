@@ -22,6 +22,8 @@ struct GEN_JUMP {
 };
 extern const GEN_JUMP g_genJumps[];
 extern const unsigned int g_genJumpCount;
+// the code section's data the translation reads (jumps.c): [lo, hi) pairs, 0-ended
+extern const unsigned int g_genTextData[];
 
 typedef intptr_t (*gen_real_fn)(intptr_t, intptr_t, intptr_t, intptr_t, intptr_t, intptr_t, intptr_t, intptr_t,
                                 intptr_t, intptr_t, intptr_t, intptr_t, intptr_t, intptr_t);
@@ -751,6 +753,18 @@ bool RefMapImage(const wchar_t* path) {
     // port's (its translation, or a stub that logs the address). The port is linked below 2 GB, so
     // a 5-byte jmp rel32 reaches it from anywhere in the image.
     memset(image + (g_textLo - base), 0xcc, g_textHi - g_textLo);
+    // (but the data between functions the translation reads, as the file has it: a byte switch's
+    // index table read 0xcc and matched no case, translate32 text_data)
+    unsigned kept = 0;
+    for (const unsigned int* d = g_genTextData; d[0]; d += 2) {
+        const auto s = std::find_if(h.sections.begin(), h.sections.end(), [&](const IMAGE_SECTION_HEADER& x) {
+            return d[0] - base >= x.VirtualAddress && d[1] - base <= x.VirtualAddress + x.SizeOfRawData;
+        });
+        if (s == h.sections.end()) continue;
+        memcpy(image + (d[0] - base), file.data() + s->PointerToRawData + (d[0] - base - s->VirtualAddress), d[1] - d[0]);
+        kept += d[1] - d[0];
+    }
+    if (kept) fprintf(stderr, "%s: %u bytes of the code section's data kept\n", RHIPPER_NAME, kept);
     std::vector<GEN_JUMP> jumps(g_genJumps, g_genJumps + g_genJumpCount);
     std::sort(jumps.begin(), jumps.end(), [](const GEN_JUMP& a, const GEN_JUMP& b) { return a.ref < b.ref; });
     unsigned written = 0, crowded = 0;

@@ -2431,6 +2431,41 @@ class Translator32:
         # (among the locals, first after the brace)
         return re.sub(r"\{[ \t]*\r?\n", lambda m: m.group(0) + "".join(decls), body, count=1)
 
+    def text_data(self, translated: dict[int, str]) -> list[tuple[int, int]]:
+        """Each stretch of the code section between functions (functions.json's ranges) that the
+        translation reads through REFG/REFP: a switch's index table, a constant the compiler put
+        after its function. Only those: the rest stays int3 for the runtime, a jump into code no
+        function covers trapping rather than running x86 bytes."""
+        import bisect
+        import pefile
+        pe = pefile.PE(str(project.EXE), fast_load=True)
+        base = pe.OPTIONAL_HEADER.ImageBase
+        text = next((s for s in pe.sections if s.Characteristics & 0x20000000), None)
+        pe.close()
+        path = FACTS / "functions.json"
+        if text is None or not path.exists():
+            return []
+        lo, hi = base + text.VirtualAddress, base + text.VirtualAddress + text.Misc_VirtualSize
+        rs = sorted((int(x, 16), int(y, 16)) for f in json.loads(path.read_text())["functions"]
+                    for x, y in f.get("ranges", []))
+        gaps, at = [], lo
+        for x, y in rs:
+            if x > at:
+                gaps.append((at, x))
+            at = max(at, y)
+        if at < hi:
+            gaps.append((at, hi))
+        starts = [x for x, _ in gaps]
+        keep = set()
+        ref = re.compile(r"\bREF[GP]\((?:[^,()]+,\s*)?0x([0-9a-fA-F]+)\)")
+        for t in translated.values():
+            for m in ref.finditer(t):
+                v = int(m.group(1), 16)
+                k = bisect.bisect_right(starts, v) - 1
+                if lo <= v < hi and k >= 0 and v < gaps[k][1]:
+                    keep.add(k)
+        return [gaps[k] for k in sorted(keep)]
+
     def eh_funcinfos(self) -> dict[int, int]:
         """handler -> FuncInfo for each function whose first instructions load a FuncInfo into eax
         (`mov eax, 0x4037d8`, its magic 0x1993052x there) before jumping on to __CxxFrameHandler3."""
@@ -4896,6 +4931,15 @@ class Translator32:
         j += ["/* each C++ frame handler thunk (`mov eax, FuncInfo; jmp __CxxFrameHandler3`), its FuncInfo; 0-ended */",
               "const unsigned int g_genEhFuncInfo[] = {"]
         j += [f"  0x{h:x}u, 0x{fi:x}u," for h, fi in sorted(fis.items())]
+        j += ["  0u, 0u", "};"]
+        # (the data in the code section the translation reads, which the runtime keeps through its
+        # int3 over the rest: a byte switch's index table after its function, `movzx ecx, byte
+        # [ecx + 0x90171c]; jmp [ecx*4 + 0x9016c8]`, read 0xcc for every index, matched no case, and
+        # a lobby agent never showed the logo, 2026-10-28)
+        td = self.text_data(translated)
+        j += ["/* the reference's code-section data the translation reads: [lo, hi) pairs, 0-ended */",
+              "const unsigned int g_genTextData[] = {"]
+        j += [f"  0x{x:x}u, 0x{y:x}u," for x, y in td]
         j += ["  0u, 0u", "};"]
         write(GEN / "jumps.c", "\n".join(j) + "\n")
         # imports: an adapter per name, its real function resolved by the runtime
