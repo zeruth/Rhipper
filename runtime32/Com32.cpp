@@ -10,6 +10,7 @@
 #include <mmreg.h>
 #include <oleauto.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <mutex>
 #include <unordered_map>
@@ -18,6 +19,8 @@
 #include "RefImage.hpp"
 
 extern "C" uint32_t gen_ref_base;   // RefImage.cpp
+extern "C" const unsigned int g_genThiscall[];   // jumps.c, sorted
+extern "C" const unsigned int g_genThiscallCount;
 extern "C" __declspec(thread) unsigned short gen_x87_cw;   // Adapters.cpp
 extern "C" void gen_set_x87_cw(unsigned short cw);
 
@@ -144,10 +147,20 @@ uint32_t CallRef(uint32_t fn, A... args) {
     return reinterpret_cast<uint32_t (*)(decltype(static_cast<uint32_t>(args))...)>(static_cast<uintptr_t>(fn))(
         static_cast<uint32_t>(args)...);
 }
-// a method of an object of the reference's: slot k of its 4-byte vtable, `this` first (__stdcall)
+// whether the reference's function at fn is a __thiscall one in the gen (translate32's
+// g_genThiscall, sorted): on x64 its first parameter is ecx's, its stack words after it
+bool GenThiscall(uint32_t fn) {
+    return std::binary_search(g_genThiscall, g_genThiscall + g_genThiscallCount, fn);
+}
+
+// a method of an object of the reference's: slot k of its 4-byte vtable, `this` first (__stdcall,
+// as COM calls it). One the gen has as __thiscall, a method that leaves ecx alone and reads its
+// object from the stack, `mov esi, [ebp + 8]`, takes ecx first: the object there too, and on the
+// stack as COM puts it (a voice callback's slots, one word off, read their object through 0)
 template <typename... A>
 uint32_t CallMethod(uint32_t obj, unsigned k, A... args) {
     uint32_t fn = At<uint32_t>(*At<uint32_t>(obj))[k];
+    if (GenThiscall(fn)) return CallRef(fn, obj, obj, args...);
     return CallRef(fn, obj, args...);
 }
 

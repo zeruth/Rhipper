@@ -5140,6 +5140,18 @@ class Translator32:
         # (and each local thunk, to its target's)
         j += [f"  {{0x{at:x}u, (void *){narrow.get(t, f'F_{t:08x}')}}}," for at, t in sorted(self.thunks.values())]
         j += ["};", f"const unsigned int g_genJumpCount = {len(self.corpus) + len(self.thunks)};"]
+        # (and the reference addresses whose function is a __thiscall one, `this` in ecx before its
+        # stack words, sorted: the runtime calls a reference object's method for a system callback
+        # as COM does, __stdcall with `this` the first stack word, and on x64 a __thiscall function's
+        # first parameter is ecx's. A voice callback's slots, `mov esi, [ebp + 8]` with nothing read
+        # of ecx, are __thiscall as methods that leave their `this` alone; called with the object
+        # first, each word was one off and OnVoiceProcessingPassStart read its object through 0,
+        # Com32.cpp CallMethod)
+        this_at = sorted({a for a in self.corpus if self.conv.get(a) == "__thiscall"}
+                         | {at for at, t in self.thunks.values() if self.conv.get(t) == "__thiscall"})
+        j += ["const unsigned int g_genThiscall[] = {"]
+        j += ["  " + ", ".join(f"0x{a:x}u" for a in this_at[i:i + 8]) + "," for i in range(0, len(this_at), 8)]
+        j += ["  0u", "};", f"const unsigned int g_genThiscallCount = {len(this_at)};"]
         # (the C++ EH frames' handler thunks and their FuncInfo, for the runtime's dispatcher, which
         # cannot read the reference's code: int3 over all of it, Adapters.cpp eh::FuncInfoOf)
         fis = self.eh_funcinfos()

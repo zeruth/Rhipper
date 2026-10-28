@@ -205,10 +205,17 @@ def all_jumps(t) -> None:
         if m and l.rstrip().endswith(";"):
             decls[int(m.group(1), 16)] = l.rstrip()[:-1]
     wrappers = {a: w for a, d in decls.items() if (w := t.jump_wrapper(a, d)) is not None}
-    out, n = [], 0
+    # (and the table of the __thiscall ones, translate32's g_genThiscall, each entry whose target is)
+    this_fns = {a for a, d in decls.items() if "GEN_THISCALL" in d}
+    out, n, this_at, skip = [], 0, set(), False
     for l in lines:
         if l.startswith("static ") and re.search(r"\bW_[0-9a-f]{8}\(", l):
             continue                                   # (the old wrappers, all written again)
+        if l.startswith("const unsigned int g_genThiscall[]"):
+            skip = True
+        if skip:
+            skip = not l.startswith("const unsigned int g_genThiscallCount")
+            continue
         if l.startswith("const GEN_JUMP g_genJumps[]"):
             out += [wrappers[a] for a in sorted(wrappers)]
         m = re.match(r"  \{0x([0-9a-f]+)u, \(void \*\)[WF]_([0-9a-f]{8})\},$", l)
@@ -216,7 +223,13 @@ def all_jumps(t) -> None:
             a, target = int(m.group(1), 16), int(m.group(2), 16)
             l = f"  {{0x{a:x}u, (void *){'W' if target in wrappers else 'F'}_{target:08x}}},"
             n += 1
+            if target in this_fns:
+                this_at.add(a)
         out.append(l)
+    this_at = sorted(this_at)
+    out += ["const unsigned int g_genThiscall[] = {"]
+    out += ["  " + ", ".join(f"0x{a:x}u" for a in this_at[i:i + 8]) + "," for i in range(0, len(this_at), 8)]
+    out += ["  0u", "};", f"const unsigned int g_genThiscallCount = {len(this_at)};", ""]
     jpath.write_text("\n".join(out), encoding="utf-8")
     print(f"quickfix: jumps.c, {len(wrappers)} wrappers, {n} entries")
 
