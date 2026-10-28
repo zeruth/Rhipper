@@ -2112,6 +2112,105 @@ unsigned int gen_imp_select(uint32_t nfds, uint32_t rd, uint32_t wr, uint32_t ex
     }
     return static_cast<unsigned int>(n);
 }
+// ---- getaddrinfo, freeaddrinfo, gethostbyname: addrinfo and hostent hold pointers and a size_t,
+// laid out apart on x64 (gotchas.py's risky imports). Winsock's results sit in the port's heap,
+// below 4 GB: each pointer as it is, the structures rebuilt in the x86 layout
+struct AddrInfo32 {
+    int32_t flags, family, socktype, protocol;
+    uint32_t addrlen, canonname, addr, next;
+};
+// (x64's, as ws2def.h and winsock.h have them: the runtime includes no winsock header)
+struct ADDRINFOA {
+    int ai_flags, ai_family, ai_socktype, ai_protocol;
+    size_t ai_addrlen;
+    char* ai_canonname;
+    void* ai_addr;
+    ADDRINFOA* ai_next;
+};
+struct HostEnt64 {
+    char* h_name;
+    char** h_aliases;
+    short h_addrtype, h_length;
+    char** h_addr_list;
+};
+struct HostEnt32 {
+    uint32_t name, aliases;
+    int16_t addrtype, length;
+    uint32_t addr_list;
+};
+static std::mutex g_aiLock;
+static std::unordered_map<uint32_t, void*> g_aiReal;   // the x86 list's head -> winsock's own
+unsigned int gen_imp_getaddrinfo(uint32_t node, uint32_t service, uint32_t hints, uint32_t res) {
+    using Get = int(WINAPI*)(const char*, const char*, const ADDRINFOA*, ADDRINFOA**);
+    static Get get = reinterpret_cast<Get>(GetProcAddress(LoadLibraryA("ws2_32.dll"), "getaddrinfo"));
+    ADDRINFOA h = {}, *ph = nullptr;
+    if (hints) {
+        auto s = At<AddrInfo32>(hints);
+        h.ai_flags = s->flags;
+        h.ai_family = s->family;
+        h.ai_socktype = s->socktype;
+        h.ai_protocol = s->protocol;
+        ph = &h;
+    }
+    ADDRINFOA* out = nullptr;
+    int r = get(At<const char>(node), At<const char>(service), ph, &out);
+    if (res) *At<uint32_t>(res) = 0;
+    if (r != 0 || !out) return static_cast<unsigned int>(r);
+    // (the x86 nodes, one block in the heap, each linked to the next)
+    size_t n = 0;
+    for (ADDRINFOA* p = out; p; p = p->ai_next) n++;
+    auto nodes = static_cast<AddrInfo32*>(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, n * sizeof(AddrInfo32)));
+    size_t k = 0;
+    for (ADDRINFOA* p = out; p; p = p->ai_next, k++) {
+        AddrInfo32& d = nodes[k];
+        d.flags = p->ai_flags;
+        d.family = p->ai_family;
+        d.socktype = p->ai_socktype;
+        d.protocol = p->ai_protocol;
+        d.addrlen = static_cast<uint32_t>(p->ai_addrlen);
+        d.canonname = Low(p->ai_canonname);
+        d.addr = Low(p->ai_addr);
+        d.next = k + 1 < n ? Low(&nodes[k + 1]) : 0;
+    }
+    {
+        std::lock_guard<std::mutex> hold(g_aiLock);
+        g_aiReal[Low(nodes)] = out;
+    }
+    if (res) *At<uint32_t>(res) = Low(nodes);
+    return 0;
+}
+unsigned int gen_imp_freeaddrinfo(uint32_t list) {
+    using Free = void(WINAPI*)(ADDRINFOA*);
+    static Free fr = reinterpret_cast<Free>(GetProcAddress(LoadLibraryA("ws2_32.dll"), "freeaddrinfo"));
+    void* real = nullptr;
+    {
+        std::lock_guard<std::mutex> hold(g_aiLock);
+        auto it = g_aiReal.find(list);
+        if (it == g_aiReal.end()) return 0;   // (not one of ours: nothing winsock would know)
+        real = it->second;
+        g_aiReal.erase(it);
+    }
+    fr(static_cast<ADDRINFOA*>(real));
+    HeapFree(GetProcessHeap(), 0, At<void>(list));
+    return 0;
+}
+unsigned int gen_imp_gethostbyname(uint32_t name) {
+    using Get = HostEnt64*(WINAPI*)(const char*);
+    static Get get = reinterpret_cast<Get>(GetProcAddress(LoadLibraryA("ws2_32.dll"), "gethostbyname"));
+    HostEnt64* h = get(At<const char>(name));
+    if (!h) return 0;
+    // (per thread, as winsock's own: valid until the thread's next call)
+    static thread_local HostEnt32 e;
+    static thread_local uint32_t aliases[33], addrs[33];
+    int k = 0;
+    for (; h->h_aliases && h->h_aliases[k] && k < 32; k++) aliases[k] = Low(h->h_aliases[k]);
+    aliases[k] = 0;
+    for (k = 0; h->h_addr_list && h->h_addr_list[k] && k < 32; k++) addrs[k] = Low(h->h_addr_list[k]);
+    addrs[k] = 0;
+    e = {Low(h->h_name), Low(aliases), h->h_addrtype, h->h_length, Low(addrs)};
+    return Low(&e);
+}
+
 unsigned int gen_imp___WSAFDIsSet(uint32_t sock, uint32_t set) {
     if (set == 0) return 0;
     auto s = At<FdSet32>(set);
