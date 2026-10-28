@@ -838,5 +838,17 @@
   "stubs": 244,
   "perfect": 15709,
   "translated": 17527
+ },
+ {
+  "sha": "2fc2f9160a5c38e9eef7bef0e13cb95d4a75b802",
+  "date": "2026-10-28T06:54:56-04:00",
+  "subject": "feat(shadow32, protos32, runtime32): indirect calls sized by the callees a reference run reached",
+  "run": "2026-10-28 11:54 UTC",
+  "file": "2fc2f9160a5c38e9eef7bef0e13cb95d4a75b802.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 244,
+  "perfect": 15709,
+  "translated": 17527
  }
 ]
