@@ -982,5 +982,17 @@
   "stubs": 244,
   "perfect": 15709,
   "translated": 17527
+ },
+ {
+  "sha": "239b2f802ab61fa276eb34fe985a350188b19a79",
+  "date": "2026-10-28T11:10:29-04:00",
+  "subject": "feat(runtime32, com32gen): COM call counts and back-buffer dumps (<ENV>_COMSTATS, <ENV>_FRAMEDUMP)",
+  "run": "2026-10-28 15:58 UTC",
+  "file": "239b2f802ab61fa276eb34fe985a350188b19a79.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 244,
+  "perfect": 15709,
+  "translated": 17527
  }
 ]
