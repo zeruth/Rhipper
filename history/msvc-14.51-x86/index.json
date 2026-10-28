@@ -706,5 +706,17 @@
   "stubs": 172,
   "perfect": 4360,
   "translated": 4427
+ },
+ {
+  "sha": "ae4e1865d31ef7e8cf7fd17faf131d29be7167ed",
+  "date": "2026-10-28T01:15:51-04:00",
+  "subject": "feat(runtime32): <ENV>_WATCH=GLOBAL:OFF,OFF, shadow32's --watch spec in the port",
+  "run": "2026-10-28 06:07 UTC",
+  "file": "ae4e1865d31ef7e8cf7fd17faf131d29be7167ed.json",
+  "passing": 21,
+  "projects": 34,
+  "stubs": 172,
+  "perfect": 4360,
+  "translated": 4427
  }
 ]
