@@ -936,21 +936,57 @@ static HWND Hwnd32(uint32_t h) {
     return reinterpret_cast<HWND>(static_cast<uintptr_t>(h));
 }
 
+// <ENV>_VCURSOR=1: GetCursorPos answers with the last mouse message's place (its client point, as
+// screen coordinates) instead of the system cursor's: a run's posted input (portrun's CC_INPUT)
+// moves the game's cursor without moving anyone's mouse. A client reads its UI's cursor through
+// GetCursorPos, the messages' own points unused, and posted clicks landed where the real cursor
+// was (2026-10-28)
+static int g_vcursor = -1;
+static volatile LONG g_vx = -1, g_vy = -1;
+static HWND g_vhwnd = nullptr;
+static bool VCursorOn() {
+    if (g_vcursor == -1) {
+        wchar_t v[4] = {};
+        g_vcursor = RefEnv("VCURSOR", v, 4) && v[0] == L'1' ? 1 : 0;
+    }
+    return g_vcursor == 1;
+}
+static void NoteMouse(const MSG& m) {
+    if (m.message < WM_MOUSEFIRST || m.message > WM_MOUSELAST || m.message == WM_MOUSEWHEEL || !VCursorOn()) return;
+    g_vhwnd = m.hwnd;
+    g_vx = static_cast<short>(LOWORD(m.lParam));
+    g_vy = static_cast<short>(HIWORD(m.lParam));
+}
+unsigned int gen_imp_GetCursorPos(uint32_t out) {
+    POINT p = {};
+    BOOL r;
+    if (VCursorOn() && g_vhwnd && g_vx >= 0) {
+        p = {g_vx, g_vy};
+        r = ClientToScreen(g_vhwnd, &p);
+    } else {
+        r = GetCursorPos(&p);
+    }
+    if (out) *At<POINT>(out) = p;   // (two LONGs on both)
+    return static_cast<unsigned int>(r);
+}
 unsigned int gen_imp_PeekMessageW(uint32_t msg, uint32_t hwnd, uint32_t lo, uint32_t hi, uint32_t remove) {
     MSG m = {};
     BOOL r = PeekMessageW(&m, Hwnd32(hwnd), lo, hi, remove);
+    if (r) NoteMouse(m);
     if (r && msg) ToMsg32(m, msg);
     return static_cast<unsigned int>(r);
 }
 unsigned int gen_imp_PeekMessageA(uint32_t msg, uint32_t hwnd, uint32_t lo, uint32_t hi, uint32_t remove) {
     MSG m = {};
     BOOL r = PeekMessageA(&m, Hwnd32(hwnd), lo, hi, remove);
+    if (r) NoteMouse(m);
     if (r && msg) ToMsg32(m, msg);
     return static_cast<unsigned int>(r);
 }
 unsigned int gen_imp_GetMessageW(uint32_t msg, uint32_t hwnd, uint32_t lo, uint32_t hi) {
     MSG m = {};
     BOOL r = GetMessageW(&m, Hwnd32(hwnd), lo, hi);
+    if (r != -1) NoteMouse(m);
     if (r != -1 && msg) ToMsg32(m, msg);
     return static_cast<unsigned int>(r);
 }
