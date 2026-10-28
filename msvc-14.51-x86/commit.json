@@ -1,1 +1,1 @@
-{"sha": "84814afc96b69c61040f4c6ded89905730b028c2", "date": "2026-10-28T16:25:24-04:00", "subject": "feat(ghidra): ProbePiece.java, the piece merge's inputs at an address (its function, the one before it, each reference and its type)"}
+{"sha": "c4e9eebd6a319e0541eb52769a9197f52f9f9ca4", "date": "2026-10-28T16:41:43-04:00", "subject": "fix(protos32): variadic through a pointer stepped past the last fixed parameter"}

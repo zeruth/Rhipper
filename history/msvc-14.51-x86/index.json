@@ -1282,5 +1282,17 @@
   "stubs": 172,
   "perfect": 4360,
   "translated": 4427
+ },
+ {
+  "sha": "c4e9eebd6a319e0541eb52769a9197f52f9f9ca4",
+  "date": "2026-10-28T16:41:43-04:00",
+  "subject": "fix(protos32): variadic through a pointer stepped past the last fixed parameter",
+  "run": "2026-10-28 21:35 UTC",
+  "file": "c4e9eebd6a319e0541eb52769a9197f52f9f9ca4.json",
+  "passing": 21,
+  "projects": 34,
+  "stubs": 172,
+  "perfect": 4360,
+  "translated": 4427
  }
 ]
