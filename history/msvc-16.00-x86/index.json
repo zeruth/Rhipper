@@ -514,5 +514,17 @@
   "stubs": 242,
   "perfect": 15711,
   "translated": 17529
+ },
+ {
+  "sha": "f59df3e020c533b9eaee3638cff8af06b4117304",
+  "date": "2026-10-27T20:32:49-04:00",
+  "subject": "fix(translate32): a void-typed function whose callers read its result returns its tail call's",
+  "run": "2026-10-28 01:48 UTC",
+  "file": "f59df3e020c533b9eaee3638cff8af06b4117304.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 244,
+  "perfect": 15709,
+  "translated": 17527
  }
 ]
