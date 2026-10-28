@@ -1270,5 +1270,17 @@
   "stubs": 244,
   "perfect": 15709,
   "translated": 17525
+ },
+ {
+  "sha": "350e3d66d8db03ddb1edc648ba71936a7713fce2",
+  "date": "2026-10-28T18:32:01-04:00",
+  "subject": "fix(translate32): a method of the function's own class as a value, by its unqualified name",
+  "run": "2026-10-28 23:34 UTC",
+  "file": "350e3d66d8db03ddb1edc648ba71936a7713fce2.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 240,
+  "perfect": 15706,
+  "translated": 17529
  }
 ]
