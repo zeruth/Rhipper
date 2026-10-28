@@ -1054,5 +1054,17 @@
   "stubs": 244,
   "perfect": 15709,
   "translated": 17527
+ },
+ {
+  "sha": "5cd60ceec1ccad3b229a63bb80452ba193ed9d6d",
+  "date": "2026-10-28T13:36:20-04:00",
+  "subject": "feat(runtime32): <ENV>_VCURSOR, a virtual cursor for scripted input",
+  "run": "2026-10-28 18:24 UTC",
+  "file": "5cd60ceec1ccad3b229a63bb80452ba193ed9d6d.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 244,
+  "perfect": 15709,
+  "translated": 17527
  }
 ]

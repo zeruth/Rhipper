@@ -1,1 +1,1 @@
-{"sha": "6c48b4b524a31abf3e2b75825b0c1385f851f80a", "date": "2026-10-28T13:27:54-04:00", "subject": "fix(runtime32): getaddrinfo, freeaddrinfo and gethostbyname in the x86 layouts"}
+{"sha": "5cd60ceec1ccad3b229a63bb80452ba193ed9d6d", "date": "2026-10-28T13:36:20-04:00", "subject": "feat(runtime32): <ENV>_VCURSOR, a virtual cursor for scripted input"}
