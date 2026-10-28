@@ -2749,17 +2749,40 @@ class Translator32:
                     return "))(" in l.replace(" ", "") or any(
                         self.printed_addr(m.group(1)) is not None
                         for m in re.finditer(r"(?<![\w:])((?:[A-Za-z_]\w*::)*[A-Za-z_]\w*)\s*\(", l))
-                while p >= 0:
-                    if calls_in.search(orig[p]) and real_call(orig[p]):
-                        call = self.kept_call(orig[p], reg)
-                        # (back over a call that leaves the register alone, its keep convention:
-                        # `FUN_00504070(this, x); n = FUN_004ff570(k); FUN_00529340(this_00 + ...)`,
-                        # ecx `this` through both, a VS2010 client's 0x50b800)
-                        if call is None and self.call_keeps(orig[p], reg):
-                            p -= 1
-                            continue
+                # (and if that finds no kept call, again over each block that never falls through to
+                # the use, its last statement a return or goto: what it calls is on another path. A
+                # drop-down list's vf2 0x5a33e0, `if (..) { LAB_x: ..; return FUN_0059cc00(..); } ..
+                # if (extraout_ECX != 0)`, ecx the list kept through 0x5622f0 before the block, a
+                # stub when a client's settings filled their tabs, 2026-10-28)
+                start = p
+                for skip_returning in (False, True):
+                    p, call = start, None
+                    while p >= 0:
+                        if skip_returning and orig[p].strip() == "}":
+                            depth, o = 0, p
+                            while o >= 0:
+                                depth += orig[o].count("}") - orig[o].count("{")
+                                if depth <= 0:
+                                    break
+                                o -= 1
+                            body = [l.strip() for l in orig[o + 1:p] if l.strip()]
+                            if o >= 0 and body and re.match(r"(?:return\b|goto\s)", body[-1]) \
+                                    and re.match(r"\s*(?:\}\s*else\s*)?if\s*\(", orig[o]) \
+                                    and not real_call(orig[o][:orig[o].rfind("{")]):
+                                p = o - 1
+                                continue
+                        if calls_in.search(orig[p]) and real_call(orig[p]):
+                            call = self.kept_call(orig[p], reg)
+                            # (back over a call that leaves the register alone, its keep convention:
+                            # `FUN_00504070(this, x); n = FUN_004ff570(k); FUN_00529340(this_00 +
+                            # ...)`, ecx `this` through both, a VS2010 client's 0x50b800)
+                            if call is None and self.call_keeps(orig[p], reg):
+                                p -= 1
+                                continue
+                            break
+                        p -= 1
+                    if call is not None:
                         break
-                    p -= 1
                 if call is not None:
                     # (assigned between the call and the name's last use: after it, no matter. The UI
                     # hit test 0x5791d0's `piVar4 = FUN_00559c20(iVar2); if (piVar4 == 0) {
