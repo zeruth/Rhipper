@@ -1222,5 +1222,17 @@
   "stubs": 0,
   "perfect": 0,
   "translated": 0
+ },
+ {
+  "sha": "84cd64624631b6b8dfaf655aeb7ae1db5f1453f4",
+  "date": "2026-10-28T16:00:05-04:00",
+  "subject": "fix(translate32): a qualified name the decompiler wrapped onto two lines read as one",
+  "run": "2026-10-28 20:38 UTC",
+  "file": "84cd64624631b6b8dfaf655aeb7ae1db5f1453f4.json",
+  "passing": 0,
+  "projects": 34,
+  "stubs": 0,
+  "perfect": 0,
+  "translated": 0
  }
 ]

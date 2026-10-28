@@ -1,0 +1,212 @@
+{
+ "sha": "84cd64624631b6b8dfaf655aeb7ae1db5f1453f4",
+ "date": "2026-10-28T16:00:05-04:00",
+ "subject": "fix(translate32): a qualified name the decompiler wrapped onto two lines read as one",
+ "run": "2026-10-28 20:38 UTC",
+ "summary": {
+  "calls-GL": {
+   "detail": "ghidra-all.log:\nERROR REPORT SCRIPT ERROR: ApplyFacts.java : The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1] (HeadlessAnalyzer) ghidra.app.script.GhidraScriptLoadException: The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1]\nCaused by: java.lang.ClassNotFoundException: ApplyFacts not found by f219a624 [1]\nthe facts session did not finish (build/ghidra-last.log): the old exports are kept",
+   "status": "FAIL",
+   "stopped": "ghidra",
+   "when": "2026-10-28 20:38"
+  },
+  "calls-O2": {
+   "detail": "ghidra-all.log:\nERROR REPORT SCRIPT ERROR: ApplyFacts.java : The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1] (HeadlessAnalyzer) ghidra.app.script.GhidraScriptLoadException: The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1]\nCaused by: java.lang.ClassNotFoundException: ApplyFacts not found by f219a624 [1]\nthe facts session did not finish (build/ghidra-last.log): the old exports are kept",
+   "status": "FAIL",
+   "stopped": "ghidra",
+   "when": "2026-10-28 20:38"
+  },
+  "calls-Od": {
+   "detail": "ghidra-all.log:\nERROR REPORT SCRIPT ERROR: ApplyFacts.java : The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1] (HeadlessAnalyzer) ghidra.app.script.GhidraScriptLoadException: The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1]\nCaused by: java.lang.ClassNotFoundException: ApplyFacts not found by f219a624 [1]\nthe facts session did not finish (build/ghidra-last.log): the old exports are kept",
+   "status": "FAIL",
+   "stopped": "ghidra",
+   "when": "2026-10-28 20:38"
+  },
+  "com-O2": {
+   "detail": "ghidra-all.log:\nERROR REPORT SCRIPT ERROR: ApplyFacts.java : The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1] (HeadlessAnalyzer) ghidra.app.script.GhidraScriptLoadException: The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1]\nCaused by: java.lang.ClassNotFoundException: ApplyFacts not found by f219a624 [1]\nthe facts session did not finish (build/ghidra-last.log): the old exports are kept",
+   "status": "FAIL",
+   "stopped": "ghidra",
+   "when": "2026-10-28 20:38"
+  },
+  "com-Od": {
+   "detail": "ghidra-all.log:\nERROR REPORT SCRIPT ERROR: ApplyFacts.java : The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1] (HeadlessAnalyzer) ghidra.app.script.GhidraScriptLoadException: The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1]\nCaused by: java.lang.ClassNotFoundException: ApplyFacts not found by f219a624 [1]\nthe facts session did not finish (build/ghidra-last.log): the old exports are kept",
+   "status": "FAIL",
+   "stopped": "ghidra",
+   "when": "2026-10-28 20:38"
+  },
+  "core-O2": {
+   "detail": "ghidra-all.log:\nERROR REPORT SCRIPT ERROR: ApplyFacts.java : The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1] (HeadlessAnalyzer) ghidra.app.script.GhidraScriptLoadException: The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1]\nCaused by: java.lang.ClassNotFoundException: ApplyFacts not found by f219a624 [1]\nthe facts session did not finish (build/ghidra-last.log): the old exports are kept",
+   "status": "FAIL",
+   "stopped": "ghidra",
+   "when": "2026-10-28 20:38"
+  },
+  "core-Od": {
+   "detail": "ghidra-all.log:\nERROR REPORT SCRIPT ERROR: ApplyFacts.java : The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1] (HeadlessAnalyzer) ghidra.app.script.GhidraScriptLoadException: The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1]\nCaused by: java.lang.ClassNotFoundException: ApplyFacts not found by f219a624 [1]\nthe facts session did not finish (build/ghidra-last.log): the old exports are kept",
+   "status": "FAIL",
+   "stopped": "ghidra",
+   "when": "2026-10-28 20:38"
+  },
+  "cpp-O2": {
+   "detail": "ghidra-all.log:\nERROR REPORT SCRIPT ERROR: ApplyFacts.java : The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1] (HeadlessAnalyzer) ghidra.app.script.GhidraScriptLoadException: The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1]\nCaused by: java.lang.ClassNotFoundException: ApplyFacts not found by f219a624 [1]\nthe facts session did not finish (build/ghidra-last.log): the old exports are kept",
+   "status": "FAIL",
+   "stopped": "ghidra",
+   "when": "2026-10-28 20:38"
+  },
+  "cpp-Od": {
+   "detail": "ghidra-all.log:\nERROR REPORT SCRIPT ERROR: ApplyFacts.java : The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1] (HeadlessAnalyzer) ghidra.app.script.GhidraScriptLoadException: The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1]\nCaused by: java.lang.ClassNotFoundException: ApplyFacts not found by f219a624 [1]\nthe facts session did not finish (build/ghidra-last.log): the old exports are kept",
+   "status": "FAIL",
+   "stopped": "ghidra",
+   "when": "2026-10-28 20:38"
+  },
+  "crt-O2": {
+   "detail": "ghidra-all.log:\nERROR REPORT SCRIPT ERROR: ApplyFacts.java : The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1] (HeadlessAnalyzer) ghidra.app.script.GhidraScriptLoadException: The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1]\nCaused by: java.lang.ClassNotFoundException: ApplyFacts not found by f219a624 [1]\nthe facts session did not finish (build/ghidra-last.log): the old exports are kept",
+   "status": "FAIL",
+   "stopped": "ghidra",
+   "when": "2026-10-28 20:38"
+  },
+  "crt-Od": {
+   "detail": "ghidra-all.log:\nERROR REPORT SCRIPT ERROR: ApplyFacts.java : The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1] (HeadlessAnalyzer) ghidra.app.script.GhidraScriptLoadException: The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1]\nCaused by: java.lang.ClassNotFoundException: ApplyFacts not found by f219a624 [1]\nthe facts session did not finish (build/ghidra-last.log): the old exports are kept",
+   "status": "FAIL",
+   "stopped": "ghidra",
+   "when": "2026-10-28 20:38"
+  },
+  "eh-O2": {
+   "detail": "ghidra-all.log:\nERROR REPORT SCRIPT ERROR: ApplyFacts.java : The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1] (HeadlessAnalyzer) ghidra.app.script.GhidraScriptLoadException: The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1]\nCaused by: java.lang.ClassNotFoundException: ApplyFacts not found by f219a624 [1]\nthe facts session did not finish (build/ghidra-last.log): the old exports are kept",
+   "status": "FAIL",
+   "stopped": "ghidra",
+   "when": "2026-10-28 20:38"
+  },
+  "eh-Od": {
+   "detail": "ghidra-all.log:\nERROR REPORT SCRIPT ERROR: ApplyFacts.java : The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1] (HeadlessAnalyzer) ghidra.app.script.GhidraScriptLoadException: The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1]\nCaused by: java.lang.ClassNotFoundException: ApplyFacts not found by f219a624 [1]\nthe facts session did not finish (build/ghidra-last.log): the old exports are kept",
+   "status": "FAIL",
+   "stopped": "ghidra",
+   "when": "2026-10-28 20:38"
+  },
+  "engine-GL": {
+   "detail": "ghidra-all.log:\nERROR REPORT SCRIPT ERROR: ApplyFacts.java : The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1] (HeadlessAnalyzer) ghidra.app.script.GhidraScriptLoadException: The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1]\nCaused by: java.lang.ClassNotFoundException: ApplyFacts not found by f219a624 [1]\nthe facts session did not finish (build/ghidra-last.log): the old exports are kept",
+   "status": "FAIL",
+   "stopped": "ghidra",
+   "when": "2026-10-28 20:38"
+  },
+  "engine-O2": {
+   "detail": "ghidra-all.log:\nERROR REPORT SCRIPT ERROR: ApplyFacts.java : The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1] (HeadlessAnalyzer) ghidra.app.script.GhidraScriptLoadException: The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1]\nCaused by: java.lang.ClassNotFoundException: ApplyFacts not found by f219a624 [1]\nthe facts session did not finish (build/ghidra-last.log): the old exports are kept",
+   "status": "FAIL",
+   "stopped": "ghidra",
+   "when": "2026-10-28 20:38"
+  },
+  "engine-Od": {
+   "detail": "ghidra-all.log:\nERROR REPORT SCRIPT ERROR: ApplyFacts.java : The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1] (HeadlessAnalyzer) ghidra.app.script.GhidraScriptLoadException: The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1]\nCaused by: java.lang.ClassNotFoundException: ApplyFacts not found by f219a624 [1]\nthe facts session did not finish (build/ghidra-last.log): the old exports are kept",
+   "status": "FAIL",
+   "stopped": "ghidra",
+   "when": "2026-10-28 20:38"
+  },
+  "float-IA32": {
+   "detail": "ghidra-all.log:\nERROR REPORT SCRIPT ERROR: ApplyFacts.java : The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1] (HeadlessAnalyzer) ghidra.app.script.GhidraScriptLoadException: The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1]\nCaused by: java.lang.ClassNotFoundException: ApplyFacts not found by f219a624 [1]\nthe facts session did not finish (build/ghidra-last.log): the old exports are kept",
+   "status": "FAIL",
+   "stopped": "ghidra",
+   "when": "2026-10-28 20:38"
+  },
+  "float-O2": {
+   "detail": "ghidra-all.log:\nERROR REPORT SCRIPT ERROR: ApplyFacts.java : The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1] (HeadlessAnalyzer) ghidra.app.script.GhidraScriptLoadException: The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1]\nCaused by: java.lang.ClassNotFoundException: ApplyFacts not found by f219a624 [1]\nthe facts session did not finish (build/ghidra-last.log): the old exports are kept",
+   "status": "FAIL",
+   "stopped": "ghidra",
+   "when": "2026-10-28 20:38"
+  },
+  "float-Od": {
+   "detail": "ghidra-all.log:\nERROR REPORT SCRIPT ERROR: ApplyFacts.java : The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1] (HeadlessAnalyzer) ghidra.app.script.GhidraScriptLoadException: The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1]\nCaused by: java.lang.ClassNotFoundException: ApplyFacts not found by f219a624 [1]\nthe facts session did not finish (build/ghidra-last.log): the old exports are kept",
+   "status": "FAIL",
+   "stopped": "ghidra",
+   "when": "2026-10-28 20:38"
+  },
+  "fpenv-IA32": {
+   "detail": "ghidra-all.log:\nERROR REPORT SCRIPT ERROR: ApplyFacts.java : The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1] (HeadlessAnalyzer) ghidra.app.script.GhidraScriptLoadException: The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1]\nCaused by: java.lang.ClassNotFoundException: ApplyFacts not found by f219a624 [1]\nthe facts session did not finish (build/ghidra-last.log): the old exports are kept",
+   "status": "FAIL",
+   "stopped": "ghidra",
+   "when": "2026-10-28 20:38"
+  },
+  "fpenv-O2": {
+   "detail": "ghidra-all.log:\nERROR REPORT SCRIPT ERROR: ApplyFacts.java : The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1] (HeadlessAnalyzer) ghidra.app.script.GhidraScriptLoadException: The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1]\nCaused by: java.lang.ClassNotFoundException: ApplyFacts not found by f219a624 [1]\nthe facts session did not finish (build/ghidra-last.log): the old exports are kept",
+   "status": "FAIL",
+   "stopped": "ghidra",
+   "when": "2026-10-28 20:38"
+  },
+  "fpenv-Od": {
+   "detail": "ghidra-all.log:\nERROR REPORT SCRIPT ERROR: ApplyFacts.java : The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1] (HeadlessAnalyzer) ghidra.app.script.GhidraScriptLoadException: The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1]\nCaused by: java.lang.ClassNotFoundException: ApplyFacts not found by f219a624 [1]\nthe facts session did not finish (build/ghidra-last.log): the old exports are kept",
+   "status": "FAIL",
+   "stopped": "ghidra",
+   "when": "2026-10-28 20:38"
+  },
+  "int64-O2": {
+   "detail": "ghidra-all.log:\nERROR REPORT SCRIPT ERROR: ApplyFacts.java : The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1] (HeadlessAnalyzer) ghidra.app.script.GhidraScriptLoadException: The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1]\nCaused by: java.lang.ClassNotFoundException: ApplyFacts not found by f219a624 [1]\nthe facts session did not finish (build/ghidra-last.log): the old exports are kept",
+   "status": "FAIL",
+   "stopped": "ghidra",
+   "when": "2026-10-28 20:38"
+  },
+  "int64-Od": {
+   "detail": "ghidra-all.log:\nERROR REPORT SCRIPT ERROR: ApplyFacts.java : The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1] (HeadlessAnalyzer) ghidra.app.script.GhidraScriptLoadException: The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1]\nCaused by: java.lang.ClassNotFoundException: ApplyFacts not found by f219a624 [1]\nthe facts session did not finish (build/ghidra-last.log): the old exports are kept",
+   "status": "FAIL",
+   "stopped": "ghidra",
+   "when": "2026-10-28 20:38"
+  },
+  "misc-O2": {
+   "detail": "ghidra-all.log:\nERROR REPORT SCRIPT ERROR: ApplyFacts.java : The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1] (HeadlessAnalyzer) ghidra.app.script.GhidraScriptLoadException: The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1]\nCaused by: java.lang.ClassNotFoundException: ApplyFacts not found by f219a624 [1]\nthe facts session did not finish (build/ghidra-last.log): the old exports are kept",
+   "status": "FAIL",
+   "stopped": "ghidra",
+   "when": "2026-10-28 20:38"
+  },
+  "misc-Od": {
+   "detail": "ghidra-all.log:\nERROR REPORT SCRIPT ERROR: ApplyFacts.java : The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1] (HeadlessAnalyzer) ghidra.app.script.GhidraScriptLoadException: The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1]\nCaused by: java.lang.ClassNotFoundException: ApplyFacts not found by f219a624 [1]\nthe facts session did not finish (build/ghidra-last.log): the old exports are kept",
+   "status": "FAIL",
+   "stopped": "ghidra",
+   "when": "2026-10-28 20:38"
+  },
+  "seh-O2": {
+   "detail": "ghidra-all.log:\nERROR REPORT SCRIPT ERROR: ApplyFacts.java : The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1] (HeadlessAnalyzer) ghidra.app.script.GhidraScriptLoadException: The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1]\nCaused by: java.lang.ClassNotFoundException: ApplyFacts not found by f219a624 [1]\nthe facts session did not finish (build/ghidra-last.log): the old exports are kept",
+   "status": "FAIL",
+   "stopped": "ghidra",
+   "when": "2026-10-28 20:38"
+  },
+  "seh-Od": {
+   "detail": "ghidra-all.log:\nERROR REPORT SCRIPT ERROR: ApplyFacts.java : The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1] (HeadlessAnalyzer) ghidra.app.script.GhidraScriptLoadException: The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1]\nCaused by: java.lang.ClassNotFoundException: ApplyFacts not found by f219a624 [1]\nthe facts session did not finish (build/ghidra-last.log): the old exports are kept",
+   "status": "FAIL",
+   "stopped": "ghidra",
+   "when": "2026-10-28 20:38"
+  },
+  "stl-O2": {
+   "detail": "ghidra-all.log:\nERROR REPORT SCRIPT ERROR: ApplyFacts.java : The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1] (HeadlessAnalyzer) ghidra.app.script.GhidraScriptLoadException: The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1]\nCaused by: java.lang.ClassNotFoundException: ApplyFacts not found by f219a624 [1]\nthe facts session did not finish (build/ghidra-last.log): the old exports are kept",
+   "status": "FAIL",
+   "stopped": "ghidra",
+   "when": "2026-10-28 20:38"
+  },
+  "stl-Od": {
+   "detail": "ghidra-all.log:\nERROR REPORT SCRIPT ERROR: ApplyFacts.java : The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1] (HeadlessAnalyzer) ghidra.app.script.GhidraScriptLoadException: The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1]\nCaused by: java.lang.ClassNotFoundException: ApplyFacts not found by f219a624 [1]\nthe facts session did not finish (build/ghidra-last.log): the old exports are kept",
+   "status": "FAIL",
+   "stopped": "ghidra",
+   "when": "2026-10-28 20:38"
+  },
+  "sys-O2": {
+   "detail": "ghidra-all.log:\nERROR REPORT SCRIPT ERROR: ApplyFacts.java : The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1] (HeadlessAnalyzer) ghidra.app.script.GhidraScriptLoadException: The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1]\nCaused by: java.lang.ClassNotFoundException: ApplyFacts not found by f219a624 [1]\nthe facts session did not finish (build/ghidra-last.log): the old exports are kept",
+   "status": "FAIL",
+   "stopped": "ghidra",
+   "when": "2026-10-28 20:38"
+  },
+  "sys-Od": {
+   "detail": "ghidra-all.log:\nERROR REPORT SCRIPT ERROR: ApplyFacts.java : The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1] (HeadlessAnalyzer) ghidra.app.script.GhidraScriptLoadException: The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1]\nCaused by: java.lang.ClassNotFoundException: ApplyFacts not found by f219a624 [1]\nthe facts session did not finish (build/ghidra-last.log): the old exports are kept",
+   "status": "FAIL",
+   "stopped": "ghidra",
+   "when": "2026-10-28 20:38"
+  },
+  "win-O2": {
+   "detail": "ghidra-all.log:\nERROR REPORT SCRIPT ERROR: ApplyFacts.java : The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1] (HeadlessAnalyzer) ghidra.app.script.GhidraScriptLoadException: The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1]\nCaused by: java.lang.ClassNotFoundException: ApplyFacts not found by f219a624 [1]\nthe facts session did not finish (build/ghidra-last.log): the old exports are kept",
+   "status": "FAIL",
+   "stopped": "ghidra",
+   "when": "2026-10-28 20:38"
+  },
+  "win-Od": {
+   "detail": "ghidra-all.log:\nERROR REPORT SCRIPT ERROR: ApplyFacts.java : The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1] (HeadlessAnalyzer) ghidra.app.script.GhidraScriptLoadException: The class could not be found. It must be the public class of the .java file: ApplyFacts not found by f219a624 [1]\nCaused by: java.lang.ClassNotFoundException: ApplyFacts not found by f219a624 [1]\nthe facts session did not finish (build/ghidra-last.log): the old exports are kept",
+   "status": "FAIL",
+   "stopped": "ghidra",
+   "when": "2026-10-28 20:38"
+  }
+ }
+}
