@@ -1104,6 +1104,18 @@
   "translated": 0
  },
  {
+  "sha": "fb900a5c771e213f26d88a7c3facf41329ff8412",
+  "date": "2026-10-28T16:05:41-04:00",
+  "subject": "fix(ApplyFacts): getFunctionBefore is the script API's, not FunctionManager's",
+  "run": "2026-10-28 21:23 UTC",
+  "file": "fb900a5c771e213f26d88a7c3facf41329ff8412.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 244,
+  "perfect": 15709,
+  "translated": 17525
+ },
+ {
   "sha": "d7b969e21fdf0a060ee206462dfe3e546079904e",
   "date": "2026-10-28T16:07:57-04:00",
   "subject": "feat(pipeline32): the Ghidra scripts compiled first (ghidra/checkscripts.py, javac against the install's jars)",
