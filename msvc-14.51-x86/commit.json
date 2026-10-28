@@ -1,1 +1,1 @@
-{"sha": "350e3d66d8db03ddb1edc648ba71936a7713fce2", "date": "2026-10-28T18:32:01-04:00", "subject": "fix(translate32): a method of the function's own class as a value, by its unqualified name"}
+{"sha": "db293c2774b55ee0dcf4d1d79e0e963d28425d57", "date": "2026-10-28T18:33:17-04:00", "subject": "fix(translate32): a scoped enum's name by its last part, an int"}
