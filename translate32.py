@@ -3876,6 +3876,13 @@ class Translator32:
             if "*" not in t or "[" in t:
                 return m.group(0)
             bare = re.sub(r'L?"(?:\\.|[^"\\])*"', '""', rhs)   # (`"Havok-3.0.0"` holds no float)
+            # (nor a float's bits, gen_fl2bits(x), an integer: `this + (int)gen_fl2bits(fVar5) * 2 +
+            # 0x210` is a pointer, and as a float's bits the cast of a pointer to float failed to
+            # compile, three of a client's Apricot emitters demoted to stubs on its startup path,
+            # 2026-10-28)
+            while (k := bare.find("gen_fl2bits(")) >= 0 or (k := bare.find("gen_d2bits(")) >= 0:
+                o = bare.index("(", k)
+                bare = bare[:k] + "0" + bare[match_paren(bare, o):]
             if not FLOATISH.search(bare) or re.search(r'&|""|\bF_[0-9a-f]{8}\s*\(|\bREFG\((?!float|double)|\(\s*[A-Za-z_][\w ]*\*', bare):
                 return m.group(0)
             return f"{m.group(1)}{n} = ({t.strip()})(uintptr_t)gen_fl2bits((float)({rhs}));"
