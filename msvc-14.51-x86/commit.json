@@ -1,1 +1,1 @@
-{"sha": "8b323265728f7afa35f98fbeebd2c10280e05360", "date": "2026-10-28T04:50:10-04:00", "subject": "fix(translate32): x87_icall_results takes a call whose ; the decompiler wrapped onto the next line"}
+{"sha": "2ab3ba1436669ae553b55a8acf6a8d68d5a10a3a", "date": "2026-10-28T05:06:31-04:00", "subject": "fix(protos32): a sub esp after the prologue's register saves reserves arguments, not the frame"}
