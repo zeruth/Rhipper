@@ -1658,6 +1658,20 @@ def x87_icall_results(c: str) -> str:
             k -= 1
         if len(calls) != len(group):
             continue
+        # (a call whose result goes to an integer returns in eax, not st0: `uVar3 = (*vf)(p); cVar2 =
+        # (char)uVar3; in_ST0 = extraout_ST0_02;`, the function's own st0 kept across it and returned,
+        # returned_only's. As the call's result, a sound root's vf108 0xcd2c90 was a stub)
+        # (only where the value is no more than copied into in_ST0: an integer-typed variable may hold
+        # an x87 result the decompiler mistyped, and as no call's, 0xcd9930 and 0xcddf40 were stubs)
+        def float_var(n):
+            return bool(re.search(r"(?m)^\s*(?:float10|float|double|longdouble)\s+" + re.escape(n) + r"\s*;", c))
+
+        def only_to_in_st0(n):
+            uses = [l for l in lines if re.search(r"\b" + n + r"\b", l) and not re.match(r"\s*float10\s+" + n + r"\s*;", l)]
+            return bool(uses) and all(re.fullmatch(r"\s*in_ST0 = " + n + r";\s*", l) for l in uses)
+        if any(assigned and not float_var(assigned) and only_to_in_st0(v)
+               for v, (_s, _e, assigned) in zip(group, reversed(calls))):
+            continue
         for v, (s, e, assigned) in zip(group, reversed(calls)):
             indent = lines[s][:len(lines[s]) - len(lines[s].lstrip())]
             if assigned:
