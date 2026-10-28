@@ -391,6 +391,11 @@ def analyse(root: int, ranges):
                     # past it, `lea esi, [esp + 0x10]`, rhtest msvc-16.00-x86 calls-O2)
                     r = ops[0].reg if ops and ops[0].type == X.X86_OP_REG else None
                     q = nxt.get(a)
+                    # (or stepped past it first, `lea esi, [ebp + 0x10]; add esi, 4; push [esi]`: the
+                    # CRT's __strcats(dest, size, n, ...), its strings a variadic tail, typed with
+                    # only its three and its callers' third string dropped; strcat_s failed on what
+                    # stood there, __invoke_watson, a client's lobby START, 2026-10-28)
+                    step = 0
                     for _ in range(8):
                         if r is None or q is None or q not in insns:
                             break
@@ -398,9 +403,15 @@ def analyse(root: int, ranges):
                         mem = next((o for o in qi.operands if o.type == X.X86_OP_MEM and o.mem.base == r
                                     and not o.mem.index), None)
                         if mem is not None and qi.mnemonic != "lea":
-                            if mem.mem.disp > 0:
-                                lea_offs.add(off + mem.mem.disp)
+                            if mem.mem.disp + step > 0:
+                                lea_offs.add(off + mem.mem.disp + step)
                             break
+                        qo = qi.operands
+                        if qi.mnemonic == "add" and len(qo) == 2 and qo[0].type == X.X86_OP_REG and qo[0].reg == r \
+                                and qo[1].type == X.X86_OP_IMM:
+                            step += qo[1].imm
+                            q = nxt.get(q)
+                            continue
                         if r in regs_access(qi)[1] or qi.mnemonic in ("call", "ret") or qi.mnemonic.startswith("j"):
                             break
                         q = nxt.get(q)
