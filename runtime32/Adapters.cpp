@@ -936,6 +936,20 @@ static HWND Hwnd32(uint32_t h) {
     return reinterpret_cast<HWND>(static_cast<uintptr_t>(h));
 }
 
+// SetClassLongA with a handle's index (GCL_HCURSOR -12, GCL_HICON -14, GCL_HBRBACKGROUND -10,
+// GCL_HICONSM -34, GCL_HMODULE -16, GCL_MENUNAME -8): x64 has those only through SetClassLongPtr,
+// SetClassLongA failing with them (gotchas.py's risky imports; a client hides its cursor so, a
+// handle of 0 into GCL_HCURSOR). The handle sign-extended, as a 32-bit handle widens; the old one
+// handed back in its low half, as x86's
+unsigned int gen_imp_SetClassLongA(uint32_t hwnd, uint32_t index, uint32_t value) {
+    const int i = static_cast<int>(index);
+    if (i == -8 || i == -10 || i == -12 || i == -14 || i == -16 || i == -34) {
+        LONG_PTR v = static_cast<LONG_PTR>(static_cast<int32_t>(value));
+        return static_cast<unsigned int>(SetClassLongPtrA(Hwnd32(hwnd), i, v));
+    }
+    return static_cast<unsigned int>(SetClassLongA(Hwnd32(hwnd), i, static_cast<LONG>(value)));
+}
+
 // <ENV>_VCURSOR=1: GetCursorPos answers with the last mouse message's place (its client point, as
 // screen coordinates) instead of the system cursor's: a run's posted input (portrun's CC_INPUT)
 // moves the game's cursor without moving anyone's mouse. A client reads its UI's cursor through
