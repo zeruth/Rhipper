@@ -1,1 +1,1 @@
-{"sha": "61de8da958d02ff5551ead044d8b37745098d5f5", "date": "2026-10-28T02:18:43-04:00", "subject": "fix(protos32): next_call_deficit counts sub esp, imm as words for the next call"}
+{"sha": "c26ca1b332389d2c6d31ced7a8d8ee3b60c9d844", "date": "2026-10-28T03:06:26-04:00", "subject": "feat(quickfix): a few functions through Ghidra, translation and build in minutes"}
