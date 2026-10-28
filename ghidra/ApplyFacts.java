@@ -345,7 +345,8 @@ public class ApplyFacts extends GhidraScript {
                     // callers returned that, not the eax they had set, 2026-10-24)
                     // (but for its result in ecx, "c4", which keeps eax alone)
                     if (o.getAsJsonArray("keep").contains(new com.google.gson.JsonPrimitive("eax"))
-                            && !(o.has("ret") && "c4".equals(o.get("ret").getAsString()))
+                            && !(o.has("ret") && java.util.Arrays.asList("c4", "si4", "di4", "bx4")
+                                    .contains(o.get("ret").getAsString()))
                             && !(f.getReturnType() instanceof ghidra.program.model.data.VoidDataType)) {
                         f.setReturnType(ghidra.program.model.data.VoidDataType.dataType, SourceType.ANALYSIS);
                     }
@@ -948,14 +949,18 @@ public class ApplyFacts extends GhidraScript {
         }
         // (an int in ecx, protos32.py's "c4": a function's code its own funclet hands a value to in
         // ecx, seh's __finally body and the code after it, rhtest eh-O2)
-        if (kind.equals("c4")) {
+        // (and one in a callee-saved register a frame funclet hands back, "si4" / "di4" / "bx4":
+        // __updatetlocinfo's __finally, `mov esi, [ebp - 0x1c]; ret`, its caller's result)
+        String retReg = kind.equals("c4") ? "ECX" : kind.equals("si4") ? "ESI" : kind.equals("di4") ? "EDI"
+                : kind.equals("bx4") ? "EBX" : null;
+        if (retReg != null) {
             DataType want = ghidra.program.model.data.UnsignedIntegerDataType.dataType;
             if (want.isEquivalent(have) && f.hasCustomVariableStorage()
                     && f.getReturn().getVariableStorage().getRegister() != null
-                    && f.getReturn().getVariableStorage().getRegister().getName().equals("ECX")) return;
+                    && f.getReturn().getVariableStorage().getRegister().getName().equals(retReg)) return;
             if (!f.hasCustomVariableStorage()) f.setCustomVariableStorage(true);
             f.setReturn(want, new ghidra.program.model.listing.VariableStorage(currentProgram,
-                    currentProgram.getRegister("ECX")), SourceType.ANALYSIS);
+                    currentProgram.getRegister(retReg)), SourceType.ANALYSIS);
             returnsSet++;
             return;
         }

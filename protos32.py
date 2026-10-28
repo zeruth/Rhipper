@@ -1355,7 +1355,7 @@ def analyse(root: int, ranges):
     x87_data = any(insns[a].mnemonic.startswith("f") and insns[a].mnemonic not in X87_CONTROL for a in state) \
         or any(insns[a].mnemonic == "call" and _target(insns[a]) is None for a in state) \
         or any(indirect_tail_jump(insns[a]) for a in state)
-    return {"fpu_clear": fpu_clear, "x87_data": x87_data, "x87_own_ret": x87_own_ret, "local_block": block, "passed": passed, "tail_jumps": tail_jumps, "eh_imms": eh_imms,
+    return {"reg_handoff": reg_handoff(insns, prv, state), "fpu_clear": fpu_clear, "x87_data": x87_data, "x87_own_ret": x87_own_ret, "local_block": block, "passed": passed, "tail_jumps": tail_jumps, "eh_imms": eh_imms,
             "frame": -floor[0] if floor[0] is not None and floor[0] < 0 else None,"inputs": inputs, "in_width": in_width, "stack_hi": stack_hi, "slots": slots,
             "addr_taken": addr_taken, "calls": calls, "variadic": variadic, "call_pushes": call_pushes, "pushes_past": pushes_past,
             "untyped_pushed": untyped_pushed,
@@ -1384,6 +1384,10 @@ def analyse(root: int, ranges):
             "field_calls": {a: d for a in state if insns[a].mnemonic == "call" and _target(insns[a]) is None
                             and inputs & ECX and not state[a][0] & ECX
                             and (d := field_call_disp(insns, prv, a)) is not None},
+            # (and every call through a field, ecx whatever it holds: a delegate's `mov ecx, [esi +
+            # 0x1cc]; ...; call [esi + 0x1d0]`, its object beside its function, main's)
+            "field_icalls": {a: d for a in state if insns[a].mnemonic == "call" and _target(insns[a]) is None
+                             and (d := field_call_disp(insns, prv, a)) is not None},
             # (its first x87 instruction from the entry, in address order, reads the stack rather
             # than loading: it takes st0, __ftol2's `fstp`/`fistp`, whatever inputs makes of it)
             "st0_entry": st0_at_entry(insns, root),
@@ -1399,6 +1403,34 @@ EDX_REGS = {X.X86_REG_EDX, X.X86_REG_DX, X.X86_REG_DL, X.X86_REG_DH}
 SETJMP_NAME = re.compile(r"(?:FID_conflict:)?_*(?:setjmp3|setjmp)")
 # (x87 pushes of a memory operand or a constant: no st0 read. `fld st(i)` reads the stack)
 X87_LOADS = {"fld", "fild", "fbld", "fldz", "fld1", "fldpi", "fldl2e", "fldl2t", "fldlg2", "fldln2"}
+
+
+def reg_handoff(insns, prv, state) -> str | None:
+    """The callee-saved register a frame funclet hands its caller: each ret right after `mov REG,
+    [ebp - k]`, REG esi, edi or ebx, never pushed (saved) in the function, which sets up no frame
+    of its own (the caller's ebp, a __finally body's). The CRT's __updatetlocinfo calls its
+    __finally `push 0xc; call _unlock; pop ecx; mov esi, [ebp - 0x1c]; ret` and returns esi after:
+    unseen, its result was the esi from before, `&ptd->ptlocinfo`, and a client's sound thread
+    printed with that as its locale, a fault reading pctype through 0, 2026-10-28."""
+    regs = {X.X86_REG_ESI: "esi", X.X86_REG_EDI: "edi", X.X86_REG_EBX: "ebx"}
+    got = set()
+    for a in state:
+        ins = insns[a]
+        ops = ins.operands
+        if ins.mnemonic == "push" and ops and ops[0].type == X.X86_OP_REG and ops[0].reg in regs:
+            return None
+        if ins.mnemonic == "mov" and ins.op_str == "ebp, esp":
+            return None
+        if ins.mnemonic != "ret":
+            continue
+        p = prv.get(a)
+        pi = insns.get(p) if p is not None else None
+        po = pi.operands if pi is not None else ()
+        if pi is None or pi.mnemonic != "mov" or len(po) != 2 or po[0].type != X.X86_OP_REG \
+                or po[0].reg not in regs or po[1].type != X.X86_OP_MEM or po[1].mem.base != X.X86_REG_EBP:
+            return None
+        got.add(regs[po[0].reg])
+    return got.pop() if len(got) == 1 else None
 
 
 def result_reads(insns, state, nxt):
@@ -1904,6 +1936,8 @@ def st0_dropped(insns, state, nxt, start, limit=128) -> tuple[str, list[int]] | 
 
 # a return's kinds, the wider winning where callers differ
 # (s4 / q8: a float / double in xmm0, /LTCG's)
+# (a result in a callee-saved register, by the register: reg_handoff's, ApplyFacts')
+REG_RETS = {"esi": "si4", "edi": "di4", "ebx": "bx4"}
 RET_RANK = {"i1": 1, "i2": 2, "i4": 3, "f4": 4, "d8": 4, "s4": 4, "q8": 4, "i8": 5}
 
 
@@ -3907,6 +3941,34 @@ def main() -> None:
         ts = {t for t in ts if t in local}
         if any(inputs.get(t, 0) & ECX for t in ts):
             methods.update(t for t in ts if not inputs.get(t, 0) and cleanup.get(t))
+    # (and a delegate: a call through a field with its object put in ecx, `mov ecx, [esi + 0x1cc];
+    # ...; mov eax, [esi + 0x1d0]; call eax`, a __thiscall site. The functions stored at that
+    # displacement that pop the same stack words and read no ecx are methods of it all the same: a
+    # list renderer's callback 0x8fb7a0, a __stdcall of three, took the call's ecx for its index and
+    # the index, 0, for its row, a fault on a client's title screen, 0x59f4d0 2026-10-28)
+    all_stored: dict[int, set[int]] = {}
+    for v in local.values():
+        for d, ts in v.get("field_stores", {}).items():
+            all_stored.setdefault(d, set()).update(ts)
+    for v in local.values():
+        for a, d in v.get("field_icalls", {}).items():
+            shape = v.get("icalls", {}).get(a)
+            if shape is None or shape[0] != "__thiscall":
+                continue
+            methods.update(t for t in all_stored.get(d, ()) if t in local and not inputs.get(t, 0)
+                           and cleanup.get(t) == 4 * shape[1])
+    # (and the targets a reference run saw a __thiscall site reach, data/icall_targets.json, the
+    # ones that read no ecx and pop the site's words: a delegate built on the stack, `{this,
+    # FUN_008fb7a0}` handed to a list by AddonCharaMakeDataImport::vf44, no field store to see)
+    seen_path = project.ROOT / "data" / "icall_targets.json"
+    seen_at = {int(k, 16): [int(t, 16) for t in ts] for k, ts in json.loads(seen_path.read_text()).items()} \
+        if seen_path.exists() else {}
+    for v in local.values():
+        for a, shape in v.get("icalls", {}).items():
+            if shape is None or shape[0] != "__thiscall" or a not in seen_at:
+                continue
+            methods.update(t for t in seen_at[a] if t in local and not inputs.get(t, 0)
+                           and cleanup.get(t) == 4 * shape[1])
     # (and the callbacks one registration call is given, `push 0x75e100; push 0x17; mov ecx, esi;
     # call 0x5919f0`, its table later called with `this` in ecx: where some read `this`, the ones
     # that ignore it and pop the same bytes are methods of the same shape. 0x75e100, a __stdcall of
@@ -3945,6 +4007,14 @@ def main() -> None:
                     and lt.get("vol_writes", 0) & ECX:
                 ret_of[t] = "c4"
                 why[t] = f"its ecx taken by {hexa(t2)} after {hexa(f)}'s call"
+    # (and one in a callee-saved register, a frame funclet's `mov esi, [ebp - k]; ret`, analyse's
+    # reg_handoff: ApplyFacts "si4", "di4", "bx4", an int there. Over an eax result only passed
+    # through, not one a caller reads: the funclet's eax is its _unlock's, which nothing reads)
+    for f, v in local.items():
+        r = v.get("reg_handoff")
+        if r and f not in noreturn and not why.get(f, "").startswith("read by"):
+            ret_of[f] = REG_RETS[r]
+            why[f] = f"hands {r} back, `mov {r}, [ebp - k]; ret`"
 
     # 4. conventions and parameters
     # (the functions some direct call or jump reaches)
@@ -4090,7 +4160,7 @@ def main() -> None:
             e["ret"] = "v"                        # (give's refusal, a path that never sets eax: void,
                                                   # whatever a round before typed)
         keep = [n for bit, n in ((EAX, "eax"), (ECX, "ecx"), (EDX, "edx"))
-                if not kills[f] & bit and not (bit == EAX and f in ret_of and ret_of[f] != "c4")
+                if not kills[f] & bit and not (bit == EAX and f in ret_of and ret_of[f] not in ("c4", *REG_RETS.values()))
                 and not (bit == EDX and ret_of.get(f) == "i8")]
         # (and st0, for one a caller calls with its float result in st0 still to return, that runs
         # no x87 code, nor does anything it calls: VS2010's _strtod_l returns its double past
