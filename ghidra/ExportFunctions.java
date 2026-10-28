@@ -86,7 +86,10 @@ public class ExportFunctions extends GhidraScript {
         int removed = removeFallInFunctions();
         if (removed > 0) println("ExportFunctions: functions fallen into removed " + removed);
         int count = 0, imports = 0;
-        try (PrintWriter w = new PrintWriter(new FileWriter(out))) {
+        // (written beside it and renamed over it once complete: a tool reading the facts while a
+        // pipeline runs, disasm.py or bytes32.py, read half a file and failed on its JSON)
+        String tmp = out + ".tmp";
+        try (PrintWriter w = new PrintWriter(new FileWriter(tmp))) {
             w.println("{\"functions\": [");
             FunctionIterator it = currentProgram.getFunctionManager().getFunctions(true);
             boolean first = true;
@@ -148,6 +151,8 @@ public class ExportFunctions extends GhidraScript {
             w.print(params);
             w.println("}, \"import_untyped\": [" + untyped + "]}");
         }
+        java.nio.file.Files.move(java.nio.file.Paths.get(tmp), java.nio.file.Paths.get(out),
+                                 java.nio.file.StandardCopyOption.REPLACE_EXISTING);
         println("ExportFunctions: wrote " + count + " functions and " + imports + " import slots to " + out);
     }
 }

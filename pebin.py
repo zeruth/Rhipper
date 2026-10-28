@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import bisect
 import json
+import os
 import re
 import struct
 import sys
@@ -458,7 +459,11 @@ class Binary:
 def write_facts(name: str, data) -> Path:
     FACTS.mkdir(parents=True, exist_ok=True)
     path = FACTS / f"{name}.json"
-    path.write_text(json.dumps(data, indent=1))
+    # (beside it, then renamed over it: a reader while a pipeline runs, disasm.py or bytes32.py,
+    # read half a file and failed on its JSON)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(data, indent=1))
+    os.replace(tmp, path)
     return path
 
 
