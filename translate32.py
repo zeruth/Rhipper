@@ -3538,6 +3538,11 @@ class Translator32:
         # `uVar4 = FUN_004308f0(...)`. A void function was `xor eax, eax; ret` against the
         # reference's `ret`, bytes32's smallest functions, 2026-10-27)
         if sig.ret.strip() == "void" and a not in self.ret_void:
+            # (a call statement just before the return is what the function returns: the
+            # reference's tail call, `jmp eax`, leaves the callee's eax for the callers that read
+            # it, where Ghidra's void dropped it and 0 came back, 0x439610 in a client 2026-10-27)
+            body = re.sub(r"(?m)^([ \t]*)((?:\(\(\w+ \*\)[^;\n]*|[A-Za-z_]\w*\([^;\n]*)\));\s*\n[ \t]*return\s*;",
+                          lambda m: f"{m.group(1)}return (uint)({m.group(2)});", body)
             body = re.sub(r"\breturn\s*;", "return 0;", body)
         if not balanced(body):
             raise ValueError("unbalanced braces")
@@ -3575,6 +3580,9 @@ class Translator32:
             body = eh_state_volatile(body)
         decl = self.conv_decl(a, ret, params)
         body = self.conv_calls(body, a)
+        # (an integer added negated as the subtraction it was, `(int)this + -4` -> `- 4`: the same
+        # value, and the compiler's `sub ecx, 4` for it where `+ -4` was `add ecx, -4`, bytes32)
+        body = re.sub(r"\+ -((?:0x[0-9a-f]+|\d+)\b)(?![.\w])", r"- \1", body)
         # (the shadow trace's record of the call, first: its address and first four integer
         # arguments, as shadow32.py records the reference's: its words, a float's bits and an
         # 8-byte argument's two words)
@@ -4543,9 +4551,12 @@ class Translator32:
             callee = body[m.start() + len("((code *)"):end - 1]
             # (the first argument read through for the callee: `*X`, `*(int *)X`, `**(int **)(X + 8)`)
             core = re.sub(r"^(?:\(\s*[\w\s*]+\)\s*)+", "", first).strip()
-            if not core or not re.search(r"\*\s*(?:\(\s*[\w\s*]+\)\s*)*\(?\s*" + re.escape(core) + r"\b", callee):
+            # (the name's end by what follows it, not \b: `REFG(int * PTR32, 0x1371294)` ends in `)`)
+            if not core or not re.search(r"\*\s*(?:\(\s*[\w\s*]+\)\s*)*\(?\s*" + re.escape(core) + r"(?!\w)", callee):
                 continue
             out.append(body[pos:m.start()])
+            # (the dummy edx 0, or the function's own forwarded, conv_calls. The method's address
+            # as it, GEN_EDX_VAL, came out `mov edx, eax; call eax` and lost a thunk's tail call)
             out.append("((GEN_TCODE *)" + callee + ")" + body[end:j] + " GEN_EDX_ARG")
             pos = j
         out.append(body[pos:])
