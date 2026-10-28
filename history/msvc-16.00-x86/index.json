@@ -1284,6 +1284,18 @@
   "translated": 17525
  },
  {
+  "sha": "b4c6aaf70d3e79feaf3bb8323198a9f36defc01b",
+  "date": "2026-10-28T18:27:59-04:00",
+  "subject": "fix(protos32): a store through [esp] covers each slot of its width, a double's two pushes",
+  "run": "2026-10-28 23:47 UTC",
+  "file": "b4c6aaf70d3e79feaf3bb8323198a9f36defc01b.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 240,
+  "perfect": 15706,
+  "translated": 17529
+ },
+ {
   "sha": "350e3d66d8db03ddb1edc648ba71936a7713fce2",
   "date": "2026-10-28T18:32:01-04:00",
   "subject": "fix(translate32): a method of the function's own class as a value, by its unqualified name",
