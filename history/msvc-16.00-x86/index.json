@@ -634,5 +634,17 @@
   "stubs": 256,
   "perfect": 15697,
   "translated": 17515
+ },
+ {
+  "sha": "61de8da958d02ff5551ead044d8b37745098d5f5",
+  "date": "2026-10-28T02:18:43-04:00",
+  "subject": "fix(protos32): next_call_deficit counts sub esp, imm as words for the next call",
+  "run": "2026-10-28 07:04 UTC",
+  "file": "61de8da958d02ff5551ead044d8b37745098d5f5.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 256,
+  "perfect": 15697,
+  "translated": 17515
  }
 ]
