@@ -1,1 +1,1 @@
-{"sha": "50e61fb3fbaac6c2c9a1a4d8c90996b2bae624ee", "date": "2026-10-28T01:45:13-04:00", "subject": "feat(stubcheck): --footprint REGEX, a pass's reach over the whole corpus before a pipeline"}
+{"sha": "d30e77aaebdc2f1d6796174376ae2f80914d79ec", "date": "2026-10-28T02:06:48-04:00", "subject": "fix(pebin, ExportFunctions): facts files written beside and renamed over, never read half-written"}
