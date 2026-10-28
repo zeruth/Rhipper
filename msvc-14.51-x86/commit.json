@@ -1,1 +1,1 @@
-{"sha": "a7af4fcbaba012223e683fb202a5cf38710a69ea", "date": "2026-10-28T07:40:40-04:00", "subject": "feat(covdiff): the functions the reference called that the port never did, in the reference's first-call order"}
+{"sha": "1801d9fed4e897d1df3f08d10541ea84546f886f", "date": "2026-10-28T08:27:33-04:00", "subject": "fix(translate32): a switch on its byte table's entry, the cases labelled by the original values, switches on those"}
