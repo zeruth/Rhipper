@@ -3832,6 +3832,13 @@ def main() -> None:
             stack_params.append([k, 4] if k in ("f", "n") else ["i", 4])
             off += 4
         params = [["i", 4]] * len(regs) + stack_params
+        # (a method made __thiscall that reads no `this`, a vtable's or a pointer to member's: its
+        # `this` first all the same, the convention's ecx. Without it the first stack word became
+        # ecx's, every one after shifted down: a listener's vf28 typed its second word a float
+        # (its third is), the caller's pointer passed in a register the float was not read from,
+        # and 0x9e1fc0 read through null, 0x9bc900 2026-10-28)
+        if cc == "__thiscall" and not reg & ECX:
+            params = [["i", 4]] + params
         e = {"cc": cc, "params": params, "stack": stack}
         if v.get("fpu_clear"):
             e["fpu_clear"] = True
