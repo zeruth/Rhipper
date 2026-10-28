@@ -1,1 +1,1 @@
-{"sha": "651757d09e3e566ab42a242a3f406bc1b7dd8963", "date": "2026-10-28T12:06:04-04:00", "subject": "fix(translate32): in_ST0's x87 values may be the calls' x87_icall_results assigned them"}
+{"sha": "6c48b4b524a31abf3e2b75825b0c1385f851f80a", "date": "2026-10-28T13:27:54-04:00", "subject": "fix(runtime32): getaddrinfo, freeaddrinfo and gethostbyname in the x86 layouts"}

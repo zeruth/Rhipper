@@ -1042,5 +1042,17 @@
   "stubs": 244,
   "perfect": 15709,
   "translated": 17527
+ },
+ {
+  "sha": "6c48b4b524a31abf3e2b75825b0c1385f851f80a",
+  "date": "2026-10-28T13:27:54-04:00",
+  "subject": "fix(runtime32): getaddrinfo, freeaddrinfo and gethostbyname in the x86 layouts",
+  "run": "2026-10-28 18:13 UTC",
+  "file": "6c48b4b524a31abf3e2b75825b0c1385f851f80a.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 244,
+  "perfect": 15709,
+  "translated": 17527
  }
 ]
