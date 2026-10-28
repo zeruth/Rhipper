@@ -1,1 +1,1 @@
-{"sha": "4586f8d2d935e785756027dee1228fb35660c519", "date": "2026-10-28T10:16:50-04:00", "subject": "fix(protos32): `fnstsw ax` writes eax; an operand-less fcompp under one load reads the call's st0"}
+{"sha": "239b2f802ab61fa276eb34fe985a350188b19a79", "date": "2026-10-28T11:10:29-04:00", "subject": "feat(runtime32, com32gen): COM call counts and back-buffer dumps (<ENV>_COMSTATS, <ENV>_FRAMEDUMP)"}
