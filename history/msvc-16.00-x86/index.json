@@ -922,5 +922,17 @@
   "stubs": 244,
   "perfect": 15709,
   "translated": 17527
+ },
+ {
+  "sha": "59f04da16d9d8291b855eaf85df5e2e8433b6f38",
+  "date": "2026-10-28T09:59:01-04:00",
+  "subject": "fix(translate32, covdiff): an x87 call result read past a function-static's init; covdiff --after, --by-count",
+  "run": "2026-10-28 14:55 UTC",
+  "file": "59f04da16d9d8291b855eaf85df5e2e8433b6f38.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 244,
+  "perfect": 15709,
+  "translated": 17527
  }
 ]
