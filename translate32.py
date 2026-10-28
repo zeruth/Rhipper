@@ -1642,6 +1642,13 @@ def x87_icall_results(c: str) -> str:
             if g is not None:
                 k = g - 1
                 continue
+            # (and out of the block the read is in, through its opening: `if (0 < n) {`, `do {`,
+            # a condition calling nothing. A sound root's volume, three curve calls' product read in
+            # a loop over its voices, 0xcd2250. Never `} else {`: the branch above it did not run)
+            if l == "do {" or re.fullmatch(r"(?:if|while) \((.*)\) \{", l) and \
+                    plain(re.fullmatch(r"(?:if|while) \((.*)\) \{", l).group(1) + ";"):
+                k -= 1
+                continue
             if not plain(l):
                 break
             k -= 1
