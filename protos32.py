@@ -1340,8 +1340,11 @@ def analyse(root: int, ranges):
             # theirs is no x87 result, st0_dropped)
             # ((callee, "call" | "ret", the calls the paths end at) for each; "ret": its st0 goes on
             # to this function's own ret untouched, no x87 result if this function's is none)
+            # (its first x87 instruction from the entry, in address order, reads the stack rather
+            # than loading: it takes st0, __ftol2's `fstp`/`fistp`, whatever inputs makes of it)
+            "st0_entry": st0_at_entry(insns, root),
             "x87_dropped": [(_target(insns[a]), *d) for a in state if insns[a].mnemonic == "call"
-                            and _target(insns[a]) is not None
+                            and _target(insns[a]) is not None and x87_empty_before(insns, prv, a)
                             and (d := st0_dropped(insns, state, nxt, nxt.get(a))) is not None],
             "tail_ijmps": [(j, c or bool(inputs & ECX)) for j, c in tail_ijmps]}
 
@@ -1684,6 +1687,50 @@ def eax_reaches_ret(insns, state, nxt, start, limit=64, through=None):
     return False
 
 
+X87_POPS = {"fstp", "fistp", "fisttp", "fbstp", "fcompp", "fucompp", "fcomip", "fucomip", "ffreep"}
+
+
+def x87_empty_before(insns, prv, a, limit=64) -> bool:
+    """Whether the caller holds nothing on the x87 stack going into the call at `a`: back to the
+    previous call (or the function's start), no x87 instruction, or the last one a pop. The C
+    runtime's hand-written math loads its result and then calls the control word's restore,
+    `fld [x]; call _rstorfp; ret` (0xc6f4a3): its st0 kept across, the restore's leaving st0 there
+    no evidence the restore returns none, 33 functions stubbed on it, 2026-10-28."""
+    p = prv.get(a)
+    for _ in range(limit):
+        if p is None or p not in insns:
+            return True
+        mn = insns[p].mnemonic
+        if mn in ("call", "ret"):
+            return True
+        if mn.startswith("f") and mn not in X87_CONTROL:
+            return mn in X87_POPS
+        p = prv.get(p)
+    return False
+
+
+def st0_at_entry(insns, root, limit=48) -> bool:
+    """Whether the function's first x87 instruction from its entry (in address order, to its first
+    call or ret) reads the stack: `call f; call __ftol2` converts f's st0, __ftol2 starting `fstp`
+    (or fnstcw then fistp). A load, fld [m] / fild / fldz, takes nothing."""
+    p = root
+    for _ in range(limit):
+        ins = insns.get(p)
+        if ins is None:
+            return False
+        mn = ins.mnemonic
+        if mn in ("call", "ret"):
+            return False
+        if mn.startswith("f") and mn not in X87_CONTROL and mn != "fwait":
+            if mn in X87_LOADS:
+                ops = ins.operands
+                # (fld st(i) reads the stack)
+                return bool(ops) and ops[0].type == X.X86_OP_REG
+            return True
+        p = p + ins.size
+    return False
+
+
 def st0_dropped(insns, state, nxt, start, limit=128) -> tuple[str, list[int]] | None:
     """Whether every path from start (just after a call) reaches another call before any x87
     instruction: the x87 stack is empty at a call (the callee may use all eight registers), so a
@@ -1709,9 +1756,25 @@ def st0_dropped(insns, state, nxt, start, limit=128) -> tuple[str, list[int]] | 
         pi = insns[p]
         mn = pi.mnemonic
         if mn == "call":
+            # (an epilogue's helper, a ret a few instructions on: __security_check_cookie, `mov
+            # ecx, [ebp - 4]; xor ecx, ebp; call; mov esp, ebp; pop ebp; ret`, __SEH_epilog4. The
+            # compiler keeps a double result in st0 across it: no call ending the path but its
+            # way to the ret. Taken for one, 0xc6f283's `fld [ebp - 8]; ret` was no x87 result
+            # and 33 functions reading it were stubbed, 2026-10-28)
+            q, k = nxt.get(p), 0
+            while q in insns and k < 8 and insns[q].mnemonic not in ("ret", "call") \
+                    and not insns[q].mnemonic.startswith(("f", "j")):
+                q, k = nxt.get(q), k + 1
             t = _target(pi)
             if t is None:
                 return None
+            # (checked as the calls ending a path are, main's st0_entry: `call f; call _ftol;
+            # mov [ebx + 0x3c], eax; pop ebx; ret` converts f's st0, 0x5796e0's 0x576610 made
+            # no x87 result and its 38 readers stubs, 2026-10-28)
+            if q in insns and insns[q].mnemonic == "ret":
+                rets = True
+                ends.add(t)
+                continue
             ends.add(t)
             continue                                   # (this path: reached a call, st0 untouched)
         if mn == "ret":
@@ -3303,7 +3366,7 @@ def main() -> None:
     drops = [(f, t, kind) for f, v in local.items()
              if not v.get("st0_across") and f not in math_helpers and not inputs.get(f, 0) & ST0
              for t, kind, ends in v.get("x87_dropped", ())
-             if not any(inputs.get(e, 0) & ST0 for e in ends)]
+             if not any(inputs.get(e, 0) & ST0 or e not in local or local[e].get("st0_entry") for e in ends)]
     x87_void = {t for _f, t, kind in drops if kind == "call"}
     # (and through the callers' own rets: a callee whose st0 a caller returns untouched has no x87
     # result if that caller has none, to a fixpoint)
@@ -3463,7 +3526,10 @@ def main() -> None:
                   + ", ".join(f"{hexa(f)}{'' if k == 'call' else ' (to its ret)'}" for f, t, k in drops if t == a))
         while a in why:
             print(f"{hexa(a)} {ret_of[a]}: {why[a]}")
-            nxt_a = int(why[a].split()[-1].removesuffix("'s"), 16)
+            try:
+                nxt_a = int(why[a].split()[-1].removesuffix("'s"), 16)
+            except ValueError:
+                break                                  # (a reason of its own: "loads st0 before its ret")
             if why[a].startswith("read") or nxt_a == a:
                 break
             a = nxt_a
