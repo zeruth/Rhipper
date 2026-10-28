@@ -1655,6 +1655,22 @@ def switch_offset(c: str) -> str:
         cases = [int(x, 0) for x in re.findall(r"\bcase\s+(0x[0-9a-f]+|\d+)\s*:", c[start:i])]
         if cases and min(cases) >= off:
             c = c[:m.end()] + c[m.end():].replace(sw.group(0), f"switch({v} + {k.group(1)}) {{", 1)
+    # (and one that switches on the byte table's entry itself, "Could not find normalized switch
+    # variable to match jumptable": `V = E - K; switch((&..switchdataD_..)[V]) { case K + i: }`, its
+    # cases labelled by E's values all the same. A UI module's lookup, param 1 its byte 0, matched
+    # no case and returned -1 for every slot, 0xac29c0 2026-10-28)
+    for m in list(re.finditer(r"switch\s*\(\s*\(\s*&[\w:]*switchdataD_[0-9a-f]+\s*\)\s*\[\s*(\w+)\s*\]\s*\)\s*\{", c)):
+        v = m.group(1)
+        k = re.search(rf"(?m)^\s*{re.escape(v)}\s*=\s*[^;]*?\s-\s*(0x[0-9a-f]+|\d+)\s*;", c[:m.start()])
+        if not k:
+            continue
+        start, depth, i = m.end(), 1, m.end()
+        while i < len(c) and depth:
+            depth += {"{": 1, "}": -1}.get(c[i], 0)
+            i += 1
+        cases = [int(x, 0) for x in re.findall(r"\bcase\s+(0x[0-9a-f]+|\d+)\s*:", c[start:i])]
+        if cases and min(cases) >= int(k.group(1), 0):
+            c = c.replace(m.group(0), f"switch({v} + {k.group(1)}) {{", 1)
     return c
 
 
