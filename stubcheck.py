@@ -1,4 +1,4 @@
-"""A translate32 change checked on the functions it is about, in seconds, before a pipeline run:
+r"""A translate32 change checked on the functions it is about, in seconds, before a pipeline run:
 each one translated again against the corpus as it is, nothing written.
 
     python stubcheck.py --reason "extraout_ECX"     the stubs (manifest.json) whose reason has it:
@@ -10,6 +10,9 @@ each one translated again against the corpus as it is, nothing written.
                                                     decompilation matches it: any that a change
                                                     turned into a stub or whose C is no longer the
                                                     gen's (the other half of checking a fix)
+    python stubcheck.py --footprint "gen_stale\d+ =" [--where REGEX] [--jobs 6]
+                                                    every function translated now, in parallel:
+                                                    those whose C matches (a new pass's real reach)
 
 Run it from the project, before pushing a translate32 fix: a fix that turns a reason's stubs
 into others shows here, not 40 minutes later as a higher stub count (982a7e8's atan2, 47 functions
@@ -48,6 +51,41 @@ def same(regex: str, n: int) -> None:
     print(f"{len(want)} checked: {now_stub} now stubs, {changed} changed")
 
 
+_t = None
+
+
+def _init_worker() -> None:
+    global _t
+    _t = translate32.Translator32()
+
+
+def _translate(batch: list[int]) -> list[tuple[int, bool, str]]:
+    return [_t.translate_one(x) for x in batch]
+
+
+def footprint(regex: str, where: str | None, jobs: int) -> None:
+    """Every function (or those whose decompilation matches --where) translated now, in parallel:
+    the ones whose C matches regex, with the line. A pass's reach over the whole corpus before a
+    pipeline run: stale_loads, dry-run on the two functions it was written for, rewrote eleven, and
+    nine were wrong (one faulting at boot, 2026-10-28)."""
+    from multiprocessing import Pool
+    pat = re.compile(regex)
+    t = translate32.Translator32()
+    want = [x for x, r in t.corpus.items() if not where or re.search(where, r.get("c", ""))]
+    del t
+    batches = [want[k:k + 200] for k in range(0, len(want), 200)]
+    hits = 0
+    with Pool(jobs, initializer=_init_worker) as pool:
+        for res in pool.imap_unordered(_translate, batches):
+            for x, ok, text in res:
+                m = pat.search(text or "") if ok else None
+                if m:
+                    hits += 1
+                    line = text[text.rfind("\n", 0, m.start()) + 1:text.find("\n", m.end())].strip()
+                    print(f"{x:08x} {line[:140]}", flush=True)
+    print(f"{hits} of {len(want)} functions match")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("addrs", nargs="*", type=lambda s: int(s, 16))
@@ -55,7 +93,13 @@ def main() -> None:
     ap.add_argument("--show", action="store_true", help="print each function's C")
     ap.add_argument("--same", metavar="REGEX", help="translated functions matching it: still the gen's C?")
     ap.add_argument("-n", type=int, default=400, help="with --same, at most this many")
+    ap.add_argument("--footprint", metavar="REGEX", help="every function translated now: those whose C matches")
+    ap.add_argument("--where", metavar="REGEX", help="with --footprint, only functions whose decompilation matches")
+    ap.add_argument("--jobs", type=int, default=6)
     a = ap.parse_args()
+    if a.footprint:
+        footprint(a.footprint, a.where, a.jobs)
+        return
     if a.same:
         same(a.same, a.n)
         return
