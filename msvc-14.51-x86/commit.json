@@ -1,1 +1,1 @@
-{"sha": "9977ce1ea9ba1b4f751bd7cbc86d0623059c1fb9", "date": "2026-10-28T11:23:05-04:00", "subject": "fix(translate32): Ghidra's StackY locals laid out in the frame with the rest"}
+{"sha": "bb62de89b78fe6eab9596b1609234981338cf483", "date": "2026-10-28T11:48:50-04:00", "subject": "fix(translate32): an integer call's result is no x87 one where st0 is only copied into in_ST0"}

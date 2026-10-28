@@ -1138,5 +1138,17 @@
   "stubs": 172,
   "perfect": 4360,
   "translated": 4427
+ },
+ {
+  "sha": "bb62de89b78fe6eab9596b1609234981338cf483",
+  "date": "2026-10-28T11:48:50-04:00",
+  "subject": "fix(translate32): an integer call's result is no x87 one where st0 is only copied into in_ST0",
+  "run": "2026-10-28 16:40 UTC",
+  "file": "bb62de89b78fe6eab9596b1609234981338cf483.json",
+  "passing": 21,
+  "projects": 34,
+  "stubs": 172,
+  "perfect": 4360,
+  "translated": 4427
  }
 ]
