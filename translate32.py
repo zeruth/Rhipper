@@ -1142,6 +1142,50 @@ def stack_vs_const(c: str) -> str:
     return re.sub(rf"{st}\s*==\s*{small}|{small}\s*==\s*{st}", "0", c)
 
 
+def neg_scaled(c: str) -> str:
+    """A term scaled by a negative constant added to an address, `&DAT_x + (u >> 0x18) * -4` or
+    `pfVar + uVar * -4`: x86 sums the address mod 2^32, a step back, but an unsigned `u * -4` is
+    near 2^32 as C's 32-bit product, and added to a 64-bit pointer reaches 4 GB past it. A table
+    on a client's sound path read at 0x1_0134f86c, 0xcee1d0 once that path ran, 2026-10-28. The term as the signed offset it is: `(int)(u * -4)`."""
+    ptrs = set(re.findall(r"(?m)^\s*[A-Za-z_][\w ]*?\*+\s*(\w+)\s*;", c))
+    out, last = [], 0
+    for m in re.finditer(r" \* -(?:0x[0-9a-f]+|\d+)\b", c):
+        i = m.start()
+        if i < last:
+            continue
+        # the multiplicand: a parenthesised group or a name (indexed), each cast before it
+        j = i
+        if c[j - 1] == ")":
+            d, j = 0, j - 1
+            while j >= 0:
+                d += {")": 1, "(": -1}.get(c[j], 0)
+                if d == 0:
+                    break
+                j -= 1
+        else:
+            n = re.search(r"[A-Za-z_]\w*(?:\[[^\[\]]*\])?$", c[last:j])
+            if not n:
+                continue
+            j = last + n.start()
+        while True:
+            cast = re.search(r"\((?:[A-Za-z_][\w ]*\**)\)$", c[last:j])
+            if not cast:
+                break
+            j = last + cast.start()
+        # (added to an address: a global's, or a pointer variable)
+        # (not one cast to an integer first, `(int)piVar8 + ..`: 32-bit arithmetic already)
+        base = re.search(r"(?:&\w+|&REFG\([^()]*\)|(?<![\w)*])(\w+)) \+\s+$", c[max(last, j - 200):j])
+        if not base or (base.group(1) and base.group(1) not in ptrs):
+            continue
+        # (and the term ends there: `u * -10000 / 100` divides unsigned, its own value)
+        if not re.match(r"\s*(?:[-+)\],;]|$)", c[m.end():]) or re.match(r"\s*->", c[m.end():]):
+            continue
+        out.append(c[last:j] + "(int)(" + c[j:m.end()] + ")")
+        last = m.end()
+    out.append(c[last:])
+    return "".join(out)
+
+
 def returned_only(c: str) -> set[str]:
     """The result registers the decompiler lost that the function only returns: `in_EAX` (eax
     as the function found it) and `extraout_EAX` (what a void callee left in it), read nowhere but
@@ -2984,7 +3028,7 @@ class Translator32:
 
     # ---- one function ---------------------------------------------------------------------------
     def why_not(self, a: int) -> str | None:
-        c = self.entry_registers(a, self.kept_inputs(self.kept_st0(stack_vs_const(v16_forms(cpu_state(array_stores(locked_reads(strip_comments(self.corpus[a]["c"])))))))))
+        c = self.entry_registers(a, self.kept_inputs(self.kept_st0(stack_vs_const(neg_scaled(v16_forms(cpu_state(array_stores(locked_reads(strip_comments(self.corpus[a]["c"]))))))))))
         if a not in self.sigs:
             return "no signature"
         # (a register as the function found it that no parameter is in, never assigned: lost)
@@ -3440,7 +3484,7 @@ class Translator32:
         sig = self.sigs[a]
         self.cur_params = sig.params              # (pointer_steps: the parameters' types)
         self.cur_gt = self.corpus[a].get("gt") or {}  # (global_lvalue: the decompiler's types of the globals)
-        c = self.entry_registers(a, self.kept_inputs(self.kept_st0(stack_vs_const(v16_forms(cpu_state(array_stores(locked_reads(strip_comments(self.corpus[a]["c"])))))))))
+        c = self.entry_registers(a, self.kept_inputs(self.kept_st0(stack_vs_const(neg_scaled(v16_forms(cpu_state(array_stores(locked_reads(strip_comments(self.corpus[a]["c"]))))))))))
         # (the registers a failure reporter only records, context_capture: locals of their own,
         # zeroed at the end, by names that read as no register: `in_ES` would be one)
         for n in context_capture(c):
