@@ -172,8 +172,11 @@ void PrintStack(HANDLE thread, CONTEXT c) {
 // arms it, the trace on.
 // Up to four words at once (debug registers 0-3), commas between: <address>,<address> or
 // <function>+<offset>,<offset> (two inputs of one computation in one run).
+// <ENV>_WATCH=<global>:<offset>,<offset>: the words at the object a global of the reference's
+// points to, once it points to one (shadow32.py's --watch, the same spec for both runs).
 volatile uint64_t g_watch = 0;        // the first watched word: nonzero, the watch is on
 volatile uint64_t g_watches[4] = {};
+uint64_t g_watchGlobal = 0;
 volatile int g_nWatches = 0;
 volatile uint64_t g_watchArmed = 0;   // the address every thread's register held after a pass
 volatile LONG g_watchHits = 0;
@@ -213,6 +216,19 @@ DWORD WINAPI WatchThreads(void*) {
     std::unordered_map<DWORD, uint64_t> armed;   // thread -> the address its register holds
     DWORD self = GetCurrentThreadId(), pid = GetCurrentProcessId();
     for (;;) {
+        if (!g_watch && g_watchGlobal) {
+            // (the global's object, the first time it holds one)
+            uint32_t obj = *reinterpret_cast<volatile uint32_t*>(g_watchGlobal);
+            if (obj) {
+                for (int i = 0; i < g_nWatches; i++) {
+                    g_watches[i] = static_cast<uint64_t>(obj) + g_watchOffsets[i];
+                    fprintf(stderr, "%s: watch armed at %llx (now %08x) ([%llx] = %x)\n", RHIPPER_NAME, g_watches[i],
+                            *reinterpret_cast<volatile uint32_t*>(g_watches[i]), g_watchGlobal, obj);
+                }
+                fflush(stderr);
+                g_watch = g_watches[0];
+            }
+        }
         if (!g_watch) {
             Sleep(1);
             continue;
@@ -788,7 +804,12 @@ bool RefMapImage(const wchar_t* path) {
     if (RefEnv("WATCH", watch, 40)) {
         wchar_t* end = nullptr;
         uint64_t v = wcstoull(watch, &end, 16);
-        if (end && *end == L'+') {
+        if (end && *end == L':') {
+            g_watchGlobal = v;
+            for (; end && (*end == L':' || *end == L',') && g_nWatches < 4; g_nWatches++)
+                g_watchOffsets[g_nWatches] = static_cast<unsigned int>(wcstoul(end + 1, &end, 16));
+            fprintf(stderr, "%s: watching %d words at [%llx] + offsets, once it is set\n", RHIPPER_NAME, g_nWatches, v);
+        } else if (end && *end == L'+') {
             g_watchFn = static_cast<unsigned int>(v);
             for (; end && (*end == L'+' || *end == L',') && g_nWatches < 4; g_nWatches++) {
                 g_watchOffsets[g_nWatches] = static_cast<unsigned int>(wcstoul(end + 1, &end, 16));
