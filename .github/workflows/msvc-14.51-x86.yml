@@ -8,11 +8,9 @@ on:
     paths-ignore: ["**.md"]
   workflow_dispatch:
 
-# (a run finishes: a push queues the next, the newest replacing any still waiting. Cancelled by
-# each push, a run longer than the pushes' spacing never published a result)
-concurrency:
-  group: ${{ github.workflow }}
-  cancel-in-progress: false
+# (every push its own run, in parallel: one concurrency group let only the newest waiting run
+# through, and the commits between never had a result. pages.py keeps each run's under its
+# commit, history/<toolset>/, and shows the newest commit's whatever order they finish in)
 
 permissions:
   contents: write

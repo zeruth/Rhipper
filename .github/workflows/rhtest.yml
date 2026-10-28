@@ -96,9 +96,11 @@ jobs:
           cd "$site"
           git add -A
           git commit -q -m "rhtest $TOOLSET: ${GITHUB_SHA::7}" || exit 0
-          for i in 1 2 3; do
+          # (more tries, a moment apart: every push runs in parallel now, and they publish together)
+          for i in 1 2 3 4 5 6 7 8; do
             git push origin gh-pages && exit 0
-            # (another toolset's workflow published in between: on top of it, with the index remade)
+            sleep $((RANDOM % 20 + 5))
+            # (another run published in between: on top of it, with the index and history remade)
             git pull --rebase -X theirs origin gh-pages || true
             python "$GITHUB_WORKSPACE/tests/rhtest/pages.py" "$site" "$TOOLSET"
             git add -A && git commit -q --amend --no-edit || true
