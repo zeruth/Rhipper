@@ -1,1 +1,1 @@
-{"sha": "23201a729ee1c700a08241bfd1d2a436c0b24fa8", "date": "2026-10-27T21:21:34-04:00", "subject": "feat(shadow32): --watch, hardware write watches at an object a global points to; --watch-only at full speed"}
+{"sha": "470652bb97628e55306d8616dba71bbb75fb1530", "date": "2026-10-28T01:14:11-04:00", "subject": "fix(protos32): a method's own ecx at a call through a table of member functions is `this`"}
