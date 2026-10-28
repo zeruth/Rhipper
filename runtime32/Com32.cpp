@@ -757,13 +757,30 @@ R Native(void* n, unsigned k, A... args) {
     return reinterpret_cast<R(STDMETHODCALLTYPE*)(void*, A...)>(Slot(n, k))(n, args...);
 }
 
+// (the hand-written methods counted too, COMSTATS, and their failures apart: a create that fails
+// leaves a sound silent with nothing in the log)
+#define COM_COUNTED(name, expr)                                                    \
+    [&]() -> uint32_t {                                                            \
+        static ComStat stat = {name, 0, 0, nullptr};                               \
+        static ComStat failed = {name " (failed)", 0, 0, nullptr};                 \
+        ComCount(&stat);                                                           \
+        uint32_t r_ = (expr);                                                      \
+        if (FAILED(static_cast<HRESULT>(r_))) {                                    \
+            ComCount(&failed);                                                     \
+            if (failed.calls <= 3)                                                 \
+                fprintf(stderr, "%s: %s failed %08x\n", RHIPPER_NAME, name, r_);   \
+        }                                                                          \
+        return r_;                                                                 \
+    }()
+
 }  // namespace
 
 extern "C" {
 
 unsigned int S_IXAudio2_RegisterForCallbacks(uint32_t self, uint32_t cb) {
     void* n = Unwrap(self);
-    return Native<uint32_t>(n, kRegisterForCallbacks, static_cast<void*>(FaceOf<EngineCallback>(cb)));
+    return COM_COUNTED("IXAudio2::RegisterForCallbacks",
+                       Native<uint32_t>(n, kRegisterForCallbacks, static_cast<void*>(FaceOf<EngineCallback>(cb))));
 }
 unsigned int S_IXAudio2_UnregisterForCallbacks(uint32_t self, uint32_t cb) {
     void* n = Unwrap(self);
@@ -777,8 +794,9 @@ unsigned int S_IXAudio2_CreateSourceVoice(uint32_t self, uint32_t out, uint32_t 
     SendsN s;
     ChainN c;
     void* v = nullptr;
-    uint32_t hr = Native<uint32_t>(n, kCreateSourceVoice, &v, At<const void>(format), flags, Float32(ratio),
-                                   static_cast<void*>(FaceOf<VoiceCallback>(cb)), s.Of(sends), c.Of(chain));
+    uint32_t hr = COM_COUNTED("IXAudio2::CreateSourceVoice",
+                              Native<uint32_t>(n, kCreateSourceVoice, &v, At<const void>(format), flags, Float32(ratio),
+                                               static_cast<void*>(FaceOf<VoiceCallback>(cb)), s.Of(sends), c.Of(chain)));
     if (out) *At<uint32_t>(out) = Wrap(v, &IXAudio2SourceVoice_32);
     return hr;
 }
@@ -788,7 +806,9 @@ unsigned int S_IXAudio2_CreateSubmixVoice(uint32_t self, uint32_t out, uint32_t 
     SendsN s;
     ChainN c;
     void* v = nullptr;
-    uint32_t hr = Native<uint32_t>(n, kCreateSubmixVoice, &v, channels, rate, flags, stage, s.Of(sends), c.Of(chain));
+    uint32_t hr = COM_COUNTED("IXAudio2::CreateSubmixVoice",
+                              Native<uint32_t>(n, kCreateSubmixVoice, &v, channels, rate, flags, stage, s.Of(sends),
+                                               c.Of(chain)));
     if (out) *At<uint32_t>(out) = Wrap(v, &IXAudio2SubmixVoice_32);
     return hr;
 }
@@ -797,18 +817,19 @@ unsigned int S_IXAudio2_CreateMasteringVoice(uint32_t self, uint32_t out, uint32
     void* n = Unwrap(self);
     ChainN c;
     void* v = nullptr;
-    uint32_t hr = Native<uint32_t>(n, kCreateMasteringVoice, &v, channels, rate, flags, device, c.Of(chain));
+    uint32_t hr = COM_COUNTED("IXAudio2::CreateMasteringVoice",
+                              Native<uint32_t>(n, kCreateMasteringVoice, &v, channels, rate, flags, device, c.Of(chain)));
     if (out) *At<uint32_t>(out) = Wrap(v, &IXAudio2MasteringVoice_32);
     return hr;
 }
 
 unsigned int S_IXAudio2Voice_SetOutputVoices(uint32_t self, uint32_t sends) {
     SendsN s;
-    return Native<uint32_t>(Unwrap(self), kSetOutputVoices, s.Of(sends));
+    return COM_COUNTED("IXAudio2Voice::SetOutputVoices", Native<uint32_t>(Unwrap(self), kSetOutputVoices, s.Of(sends)));
 }
 unsigned int S_IXAudio2Voice_SetEffectChain(uint32_t self, uint32_t chain) {
     ChainN c;
-    return Native<uint32_t>(Unwrap(self), kSetEffectChain, c.Of(chain));
+    return COM_COUNTED("IXAudio2Voice::SetEffectChain", Native<uint32_t>(Unwrap(self), kSetEffectChain, c.Of(chain)));
 }
 
 // (XAudio2 copies the buffer's description, not its audio)
@@ -818,8 +839,9 @@ unsigned int S_IXAudio2SourceVoice_SubmitSourceBuffer(uint32_t self, uint32_t bu
                   b->LoopBegin, b->LoopLength, b->LoopCount, At<void>(b->pContext)};
     BufferWma64 w = {};
     if (wma) w = {At<const uint32_t>(At<BufferWma32>(wma)->pDecodedPacketCumulativeBytes), At<BufferWma32>(wma)->PacketCount};
-    return Native<uint32_t>(Unwrap(self), kSubmitSourceBuffer, static_cast<const Buffer64*>(&n),
-                            wma ? static_cast<const BufferWma64*>(&w) : nullptr);
+    return COM_COUNTED("IXAudio2SourceVoice::SubmitSourceBuffer",
+                       Native<uint32_t>(Unwrap(self), kSubmitSourceBuffer, static_cast<const Buffer64*>(&n),
+                                        wma ? static_cast<const BufferWma64*>(&w) : nullptr));
 }
 unsigned int S_IXAudio2SourceVoice_GetState(uint32_t self, uint32_t out) {
     VoiceState64 n = {};

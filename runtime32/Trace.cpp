@@ -79,6 +79,15 @@ void RefWatchStart();
 
 void RefPrintStack(HANDLE thread, CONTEXT c);   // RefImage.cpp
 
+// (Ghidra32.h's GEN_SUSPECT: a function reading a local it never assigns, on its first call; a
+// count of them at the end, gotchas.py's)
+extern "C" void gen_suspect(unsigned int addr, const char* names) {
+    static volatile long n = 0;
+    long k = InterlockedIncrement(&n);
+    fprintf(stderr, "%s: suspect %08x ran, reading %s uninitialized (%ld so far)\n", RHIPPER_NAME, addr, names, k);
+    fflush(stderr);
+}
+
 extern "C" void gen_trace_enter(unsigned int addr, unsigned int a0, unsigned int a1, unsigned int a2, unsigned int a3) {
     static bool first = true;
     // <ENV>_STACKAT=<hex address>: the stack at that function's first entry, its callers (a
@@ -91,6 +100,10 @@ extern "C" void gen_trace_enter(unsigned int addr, unsigned int a0, unsigned int
     static unsigned int dump_at = 0, dump_left = 0, dump_bytes = 0x40;
     static int dump_from = 0;                  // (,<start>: from a0 + start, a signed hex offset)
     static int dump_arg = 0;                   // (,<arg>: which argument points to it, 0-3)
+    // (,<deref>...: hex offsets followed first, the object at *(arg + d1), then *(that + d2): a
+    // renderer's this+4 object's +4 field, null in one run and stale in the next, 2026-10-28)
+    static int dump_deref[4] = {};
+    static int dump_nderef = 0;
     if (first) {
         first = false;
         RefWatchStart();
@@ -105,14 +118,42 @@ extern "C" void gen_trace_enter(unsigned int addr, unsigned int a0, unsigned int
             if (end && *end == L',') dump_bytes = static_cast<unsigned int>(wcstoul(end + 1, &end, 16));
             if (end && *end == L',') dump_from = static_cast<int>(wcstol(end + 1, &end, 16));
             if (end && *end == L',') dump_arg = static_cast<int>(wcstol(end + 1, &end, 10)) & 3;
+            while (end && *end == L',' && dump_nderef < 4)
+                dump_deref[dump_nderef++] = static_cast<int>(wcstol(end + 1, &end, 16));
         }
     }
+    // (<ENV>_DUMPAT_IF=0: only the calls whose pointer chain ends at 0 or in memory nothing has, each
+    // with its stack, the trace's own limit no matter: the one call of thousands that writes through
+    // a field another run held garbage in)
+    static int dump_if = -1;
+    if (dump_if == -1) {
+        wchar_t v[8] = {};
+        dump_if = RefEnv("DUMPAT_IF", v, 8) && v[0] == L'0' ? 1 : 0;
+    }
     if (dump_left && addr == dump_at) {
+        MEMORY_BASIC_INFORMATION mbi;
+        unsigned int base = dump_arg == 1 ? a1 : dump_arg == 2 ? a2 : dump_arg == 3 ? a3 : a0;
+        unsigned int chain[4] = {};
+        for (int k = 0; k < dump_nderef && base; k++) {
+            auto at = reinterpret_cast<const unsigned int*>(static_cast<uintptr_t>(base) + dump_deref[k]);
+            base = VirtualQuery(at, &mbi, sizeof mbi) && mbi.State == MEM_COMMIT ? *at : 0;
+            chain[k] = base;
+        }
+        auto q = reinterpret_cast<const void*>(static_cast<uintptr_t>(base));
+        const bool bad = !base || !VirtualQuery(q, &mbi, sizeof mbi) || mbi.State != MEM_COMMIT;
+        if (dump_if && !bad) goto dumped;
         dump_left--;
         fprintf(stderr, "%s: DUMPAT %x(%x, %x, %x, %x) on thread %lu:\n", RHIPPER_NAME, addr, a0, a1, a2, a3,
                 GetCurrentThreadId());
-        MEMORY_BASIC_INFORMATION mbi;
-        unsigned int base = dump_arg == 1 ? a1 : dump_arg == 2 ? a2 : dump_arg == 3 ? a3 : a0;
+        for (int k = 0; k < dump_nderef; k++) fprintf(stderr, "  *(+%x) = %x\n", dump_deref[k], chain[k]);
+        if (dump_if) {
+            CONTEXT c = {};
+            RtlCaptureContext(&c);
+            RefPrintStack(GetCurrentThread(), c);
+            // (and the object the chain starts at, not the bad place it ends: the node whose
+            // parent pointer is garbage)
+            base = dump_arg == 1 ? a1 : dump_arg == 2 ? a2 : dump_arg == 3 ? a3 : a0;
+        }
         auto p = reinterpret_cast<const unsigned char*>(static_cast<uintptr_t>(base) + dump_from);
         if (base && VirtualQuery(p, &mbi, sizeof mbi) && mbi.State == MEM_COMMIT) {
             for (unsigned int k = 0; k < dump_bytes; k += 16) {
@@ -125,6 +166,7 @@ extern "C" void gen_trace_enter(unsigned int addr, unsigned int a0, unsigned int
         }
         fflush(stderr);
     }
+dumped:
     if (stack_at && addr == stack_at) {
         stack_at = 0;
         fprintf(stderr, "%s: STACKAT %x(%x, %x, %x, %x) on thread %lu:\n", RHIPPER_NAME, addr, a0, a1, a2, a3,
@@ -141,7 +183,8 @@ extern "C" void gen_trace_enter(unsigned int addr, unsigned int a0, unsigned int
         g_started = true;
     }
     if (g_left == 0) {
-        gen_trace_on = 0;
+        // (the trace's file full: the entry hooks stay on for DUMPAT and STACKAT, which want them)
+        if (!dump_left && !stack_at && !g_watchFn) gen_trace_on = 0;
         FlushLocked();
         return;
     }

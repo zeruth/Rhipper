@@ -125,6 +125,16 @@ typedef unsigned int __fastcall gen_tcode();
 #define GEN_ENTER(addr, a0, a1, a2, a3) \
     do { if (gen_trace_on) gen_trace_enter((addr), (a0), (a1), (a2), (a3)); } while (0)
 #endif
+/* (a function translate32 found reading a local it never assigns, a register the decompiler lost and
+   named like a variable: its first call logged, by name, `<name>: suspect F_x ran (this_00)` -- what
+   would be a silent miscompile, a UI hit test handed its node a code address, 2026-10-28) */
+void gen_suspect(unsigned int addr, const char *names);
+#ifdef GEN_FIDELITY
+#define GEN_SUSPECT(addr, names) ((void)0)
+#else
+#define GEN_SUSPECT(addr, names) \
+    do { static volatile int gen_s_; if (!gen_s_) { gen_s_ = 1; gen_suspect((addr), (names)); } } while (0)
+#endif
 /* (a float or 8-byte argument's stack words, as the reference's record holds them: its bits, not
    its value converted, pi/4 recorded as 0 parted a client's runs at a sincos, 2026-10-26) */
 static __inline unsigned int gen_trace_f(float f) { union { float f; unsigned int u; } v; v.f = f; return v.u; }

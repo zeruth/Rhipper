@@ -196,6 +196,16 @@ void RefWatchStart() {
 }
 void RefWatchEnter(unsigned int a0) {
     if (g_watch) return;
+    // (<ENV>_WATCH_DEREF=<hex offset>: the offsets from the object a0 + offset points to, not a0's:
+    // an image renderer's this+4 object's +4 field, written through null in one run and freed
+    // memory in the next, 2026-10-28)
+    wchar_t d[16] = {};
+    if (RefEnv("WATCH_DEREF", d, 16)) {
+        unsigned int off = static_cast<unsigned int>(wcstoul(d, nullptr, 16));
+        unsigned int obj = *reinterpret_cast<volatile uint32_t*>(static_cast<uintptr_t>(a0) + off);
+        fprintf(stderr, "%s: watch base *(%x + 0x%x) = %x\n", RHIPPER_NAME, a0, off, obj);
+        a0 = obj;
+    }
     for (int i = 0; i < g_nWatches; i++) {
         g_watches[i] = static_cast<uint64_t>(a0) + g_watchOffsets[i];
         fprintf(stderr, "%s: watch armed at %llx (now %08x)\n", RHIPPER_NAME, g_watches[i],
@@ -629,6 +639,108 @@ void GuardHeapStart() {
             static_cast<unsigned long long>(g_guard.hi));
 }
 
+// <ENV>_FREECHECK=1: each block the reference frees remembered with its freer's stack until the heap
+// hands it out again, so a second free of it prints both stacks, the first free the bug: a UI
+// teardown's heap check failed (STATUS_HEAP_CORRUPTION) at a free of a block another had freed, the
+// fail-fast saying nothing of the other (2026-10-28). The real heap underneath, its layout as is.
+struct FreeCheck {
+    std::mutex lock;
+    struct Freed {
+        void* frames[12];
+        USHORT n;
+        DWORD tid;
+    };
+    std::unordered_map<intptr_t, Freed> freed;
+    gen_real_fn alloc = nullptr, free = nullptr, realloc = nullptr;
+    long reported = 0;
+};
+FreeCheck g_fc;
+
+void FreeCheckPrint(void* const* frames, USHORT n) {
+    HANDLE self = GetCurrentProcess();
+    InitSymbols();
+    for (USHORT k = 0; k < n; k++) {
+        char buf[sizeof(SYMBOL_INFO) + 256] = {};
+        auto sym = reinterpret_cast<SYMBOL_INFO*>(buf);
+        sym->SizeOfStruct = sizeof(SYMBOL_INFO);
+        sym->MaxNameLen = 255;
+        DWORD64 disp = 0;
+        const char* name = SymFromAddr(self, reinterpret_cast<DWORD64>(frames[k]), &disp, sym) ? sym->Name : "?";
+        fprintf(stderr, "    %2u  %p  %s+0x%llx\n", k, frames[k], name, disp);
+    }
+}
+
+intptr_t FreeCheckAlloc(intptr_t heap, intptr_t flags, intptr_t n, intptr_t a3, intptr_t a4, intptr_t a5, intptr_t a6,
+                        intptr_t a7, intptr_t a8, intptr_t a9, intptr_t a10, intptr_t a11, intptr_t a12, intptr_t a13) {
+    intptr_t p = g_fc.alloc(heap, flags, n, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13);
+    if (p) {
+        std::lock_guard<std::mutex> hold(g_fc.lock);
+        g_fc.freed.erase(p);
+    }
+    return p;
+}
+intptr_t FreeCheckFree(intptr_t heap, intptr_t flags, intptr_t p, intptr_t a3, intptr_t a4, intptr_t a5, intptr_t a6,
+                       intptr_t a7, intptr_t a8, intptr_t a9, intptr_t a10, intptr_t a11, intptr_t a12, intptr_t a13) {
+    if (p) {
+        FreeCheck::Freed f = {};
+        f.n = RtlCaptureStackBackTrace(1, 12, f.frames, nullptr);
+        f.tid = GetCurrentThreadId();
+        std::lock_guard<std::mutex> hold(g_fc.lock);
+        auto it = g_fc.freed.find(p);
+        if (it != g_fc.freed.end()) {
+            if (g_fc.reported++ < 8) {
+                fprintf(stderr, "%s: FREECHECK: %llx freed again, on thread %lu:\n", RHIPPER_NAME,
+                        static_cast<unsigned long long>(p), f.tid);
+                FreeCheckPrint(f.frames, f.n);
+                fprintf(stderr, "  first freed on thread %lu:\n", it->second.tid);
+                FreeCheckPrint(it->second.frames, it->second.n);
+                fflush(stderr);
+            }
+            return 1;   // (the second free left out: the run goes on to the next)
+        }
+        g_fc.freed[p] = f;
+    }
+    return g_fc.free(heap, flags, p, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13);
+}
+intptr_t FreeCheckReAlloc(intptr_t heap, intptr_t flags, intptr_t p, intptr_t n, intptr_t a4, intptr_t a5, intptr_t a6,
+                          intptr_t a7, intptr_t a8, intptr_t a9, intptr_t a10, intptr_t a11, intptr_t a12, intptr_t a13) {
+    {
+        std::lock_guard<std::mutex> hold(g_fc.lock);
+        auto it = g_fc.freed.find(p);
+        if (it != g_fc.freed.end() && g_fc.reported++ < 8) {
+            fprintf(stderr, "%s: FREECHECK: %llx reallocated after its free; first freed on thread %lu:\n",
+                    RHIPPER_NAME, static_cast<unsigned long long>(p), it->second.tid);
+            FreeCheckPrint(it->second.frames, it->second.n);
+            fflush(stderr);
+        }
+    }
+    intptr_t q = g_fc.realloc(heap, flags, p, n, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13);
+    if (q) {
+        std::lock_guard<std::mutex> hold(g_fc.lock);
+        g_fc.freed.erase(q);
+    }
+    return q;
+}
+
+void FreeCheckStart() {
+    wchar_t on[8] = {};
+    if (RefEnv("FREECHECK", on, 8) == 0 || on[0] == L'0' || g_guard.lo) return;
+    for (unsigned k = 0; k < g_genImportCount; k++) {
+        const GEN_IMPORT& im = g_genImports[k];
+        if (!im.real || !*im.real) continue;
+        struct { const char* name; gen_real_fn* keep; gen_real_fn hook; } hooks[] = {
+            {"HeapAlloc", &g_fc.alloc, FreeCheckAlloc}, {"HeapFree", &g_fc.free, FreeCheckFree},
+            {"HeapReAlloc", &g_fc.realloc, FreeCheckReAlloc}};
+        for (auto& h : hooks)
+            if (strcmp(im.name, h.name) == 0) {
+                *h.keep = *im.real;
+                *im.real = h.hook;
+            }
+    }
+    fprintf(stderr, "%s: FREECHECK on (%s)\n", RHIPPER_NAME,
+            g_fc.alloc && g_fc.free && g_fc.realloc ? "HeapAlloc, HeapFree, HeapReAlloc" : "not all the heap imports");
+}
+
 // <ENV>_DUMPAFTER=<seconds>[,<seconds again>]: every other thread's stack, each suspended while
 // it is walked, after that long (and every so often after): where a hung run spins or waits
 DWORD WINAPI DumpThreads(void* arg) {
@@ -809,6 +921,7 @@ bool RefMapImage(const wchar_t* path) {
         }
     }
     GuardHeapStart();
+    FreeCheckStart();
     DumpAfterStart();
 
     DWORD old;

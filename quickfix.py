@@ -118,6 +118,13 @@ def splice(t, addrs: list[int]) -> list[Path]:
         where = next((p for p in files if name in texts[p] and block_span(texts[p], a)), None)
         si = next((k for k, l in enumerate(stubs) if f" {name}" in l or l.startswith(name)), None)
         if ok:
+            # (marked as emit marks it: a local read and never assigned, GEN_SUSPECT)
+            names = translate32.uninit_locals(text)
+            manifest.setdefault("suspect", {}).pop(f"{a:08x}", None)
+            if names:
+                manifest["suspect"][f"{a:08x}"] = names
+                text = re.sub(r"(?m)^([ \t]*GEN_ENTER\(0x[0-9a-f]+u,[^\n]*;)$",
+                              lambda m: m.group(1) + f'\n  GEN_SUSPECT(0x{a:x}u, "{", ".join(names)}");', text, count=1)
             block = text.strip() + "\n\n"
             if where is not None:
                 s, e = block_span(texts[where], a)

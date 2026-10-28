@@ -2721,6 +2721,22 @@ class Translator32:
                 # conditions and braces between are no call)
                 calls_in = re.compile(r"\b(?!(?:if|while|for|switch|return|sizeof)\b)[A-Za-z_]\w*\s*\(")
                 call = None
+                # (or the call is on the use's own line, before it, a condition's comma expression:
+                # `(bVar9 = F_004d2770(this), this = this_00, bVar9 != 0)`, ecx kept through it. A
+                # frame scheduler's 0x4d2f40, 345 calls a boot with an uninitialized `this`, 2026-10-28)
+                first = orig[uses[0]]
+                at = re.search(rf"\b{re.escape(n)}\b", first)
+                if at and calls_in.search(first[:at.start()]):
+                    same = self.kept_call(first[:at.start()], reg)
+                    if same is not None:
+                        value = same
+                        resolved[n] = value
+                        dl_type = decl.match(lines[dl]).group(1).strip()
+                        for i in uses:
+                            lines[i] = re.sub(rf"\b{re.escape(n)}\b", f"(({dl_type})(uintptr_t)({value}))", lines[i])
+                        lines[dl] = None
+                        done.add(n)
+                        continue
 
                 def real_call(l):
                     # (a function's name or a call through a pointer; not LOCK() / UNLOCK(), the
@@ -2740,7 +2756,12 @@ class Translator32:
                         break
                     p -= 1
                 if call is not None:
-                    later = "\n".join(orig[p + 1:])
+                    # (assigned between the call and the name's last use: after it, no matter. The UI
+                    # hit test 0x5791d0's `piVar4 = FUN_00559c20(iVar2); if (piVar4 == 0) {
+                    # FUN_005c8430(this_00, ..)`, iVar2 assigned again further down its loop: the
+                    # node refused, this_00 left uninitialized, and a click on the title menu handed
+                    # the hit test a code address for its node, 2026-10-28)
+                    later = "\n".join(orig[p + 1:max(uses) + 1])
                     names_in = set(re.findall(r"[A-Za-z_]\w*", call))
                     if not any(re.search(rf"(?<![=!<>])\b{re.escape(v)}\s*(?:[-+*/|&^]|<<|>>)?=(?!=)", later)
                                for v in names_in):
@@ -4926,6 +4947,16 @@ class Translator32:
         write(GEN / "translated.h", "\n".join(h) + "\n")
         write(GEN / "Ghidra32.h", HEADER.read_text(encoding="utf-8"))
         files = []
+        # (each function reading a local it never assigns logs its first call, GEN_SUSPECT: a silent
+        # miscompile otherwise, found only by the crash it leads to)
+        suspect = {}
+        for a in list(translated):
+            names = uninit_locals(translated[a])
+            if names:
+                suspect[a] = names
+                translated[a] = re.sub(r"(?m)^([ \t]*GEN_ENTER\(0x[0-9a-f]+u,[^\n]*;)$",
+                                       lambda m: m.group(1) + f'\n  GEN_SUSPECT(0x{a:x}u, "{", ".join(names)}");',
+                                       translated[a], count=1)
         items = sorted(translated.items())
         for k in range(0, len(items), PER_FILE):
             chunk = items[k:k + PER_FILE]
@@ -5039,9 +5070,34 @@ class Translator32:
         write(GEN / "imports.c", "\n".join(im) + "\n")
         reasons = Counter(re.sub(r"\(.*", "", v).split(":")[0].strip() for v in stubbed.values())
         write(MANIFEST, json.dumps({"translated": len(translated), "stubbed": len(stubbed),
+                                    "suspect": {f"{a:08x}": n for a, n in sorted(suspect.items())},
                                     "reasons": dict(reasons.most_common()),
                                     "stubs": {f"{a:08x}": v for a, v in sorted(stubbed.items())}}, indent=1))
         return files
+
+
+UNINIT_DECL = re.compile(r"(?m)^[ \t]+(?!(?:return|goto|break|continue|case)\b)[A-Za-z_][\w \t]*?[\s*]+([A-Za-z_]\w*)[ \t]*;[ \t]*$")
+
+
+def uninit_locals(text: str) -> list[str]:
+    """The locals a translated function reads but never assigns: a register the decompiler lost and
+    named like a variable (`this_00`, `pvVar5`), past the passes that resolve `extraout_*`. Read so,
+    each is what the host's register or stack slot held: a UI hit test's `this_00`, its node, a code
+    address, and a click on the title menu crashed (2026-10-28). emit marks each GEN_SUSPECT."""
+    _head, _, rest = text.partition("{")
+    out = []
+    for m in UNINIT_DECL.finditer(rest):
+        n = m.group(1)
+        if ":" in m.group(0) or n.startswith(("gen_", "param_", "in_", "extraout_", "unaff_", "LAB_", "joined_")):
+            continue
+        code = rest[:m.start()] + rest[m.end():]
+        if not re.search(rf"\b{n}\b", code):
+            continue
+        if re.search(rf"(?<![\w.>])\b{n}\s*(?:[-+*/|&^%]|<<|>>)?=(?!=)|&\s*{n}\b|\b{n}\s*(?:\+\+|--)|(?:\+\+|--)\s*{n}\b"
+                     rf"|\b{n}\s*\[|\(\s*{n}\s*\)\s*\[|\b{n}\s*\.\w+\s*=(?!=)|\b{n}\s*->", code):
+            continue
+        out.append(n)
+    return out
 
 
 def write(path: Path, text: str) -> None:
