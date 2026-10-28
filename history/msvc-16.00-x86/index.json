@@ -1236,6 +1236,18 @@
   "translated": 17525
  },
  {
+  "sha": "fc5cb77c43d8fdbf39e02bec9d72de8d6e154486",
+  "date": "2026-10-28T18:07:33-04:00",
+  "subject": "fix(translate32): a term scaled by a negative constant added to an address, its signed offset",
+  "run": "2026-10-28 23:25 UTC",
+  "file": "fc5cb77c43d8fdbf39e02bec9d72de8d6e154486.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 244,
+  "perfect": 15709,
+  "translated": 17525
+ },
+ {
   "sha": "8b16bfab6977556e3da72591c7703ca910e7ac7e",
   "date": "2026-10-28T18:16:17-04:00",
   "subject": "fix(runtime32): a reference object's method called back as COM does, by the gen's convention",
