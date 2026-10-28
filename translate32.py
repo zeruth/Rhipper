@@ -1569,9 +1569,12 @@ def x87_icall_results(c: str) -> str:
     lines = c.split("\n")
     names = sorted(set(re.findall(r"\bextraout_ST0(?:_\d+)?\b", c)), key=lambda n: (len(n), n))
 
+    # (the bit casts and Ghidra's piece macros are no calls: `local_10 = gen_bits2d((ulonglong)
+    # gen_d2bits(dVar7) & 0xffffffff);` between a VFX distance's curve call and its read, 0x9af400)
     def plain(l):
         return l.endswith(";") and not re.search(r"[{}:]|\b(?:if|while|for|switch|return|goto|do)\b", l) \
-            and not re.search(r"\b(?!(?:sizeof)\b)[A-Za-z_]\w*\s*\(", re.sub(r"\(\s*[\w ]+\s*\**\s*\)", "", l))
+            and not re.search(r"\b(?!(?:sizeof|gen_(?:bits2[fd]|[fd]2bits|fl2bits)|CONCAT\d+|SUB\d+|ZEXT\d+|SEXT\d+)\b)"
+                              r"[A-Za-z_]\w*\s*\(", re.sub(r"\(\s*[\w ]+\s*\**\s*\)", "", l))
 
     def call_stmt(k):
         """(start, assigned name or None) of the indirect call statement ending on line k"""
