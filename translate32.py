@@ -1177,8 +1177,12 @@ def returned_only(c: str) -> set[str]:
         # extraout_ST0_00, uVar2 != 0)`, a scheduler clip's vf30 and 0xaef6e0, 2026-10-27)
         def only_copied(s, n):
             return not re.search(r"\b" + n + r"\b", re.sub(r"\bin_ST0 = " + n + r"(?=\s*[,;)])", "", s))
+        # (or given its value by the call x87_icall_results found for it, `extraout_ST0_00 =
+        # (*vf)(..);`: a value, no lost register. A sound driver's 0xcd6c00, whose tail call's st0 is
+        # its result, the other paths returning st0 as they found it)
         if all(all(only_copied(s, n) or re.fullmatch(r"[A-Za-z_][\w ]*?\s+" + n + r";", s)
                    or re.fullmatch(r"return (?:\(\w+\))?" + n + r";", s)
+                   or re.match(re.escape(n) + r" = \(", s)
                    for s in lines_st if re.search(r"\b" + n + r"\b", s)) for n in st_left):
             entry |= {"in_ST0"} | st_left
     # (and what a callee left in ecx or edx, where all it reaches is a store the next statement
