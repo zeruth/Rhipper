@@ -4767,17 +4767,45 @@ class Translator32:
         # the dummy edx forwarded)
         names = [(re.search(r"\bgen_a\d+\b", p).group(0) + (" GEN_EDX_FWD" if "GEN_EDX_PARAM" in p else ""))
                  if re.search(r"\bgen_a\d+\b", p) else nm for p, nm in zip(ps, names)]
+        # (and float or double parameters taken as their bits: an indirect caller passes each word
+        # as an integer, `(undefined4)gen_fl2bits(f)` through code, in an integer register, where
+        # the callee reads its float from an xmm one. A sound filter's set read 16384 and 1.0 from
+        # xmm2 and xmm3 for its frequency and Q, and asserted, 0xcc1720 2026-10-28)
+        wps, conv = [], False
+        if "..." not in ps:
+            for p, nm in zip(ps, names):
+                m = re.fullmatch(r"(float|double)\s+(gen_a\d+)", p)
+                if m:
+                    conv = True
+                    if m.group(1) == "float":
+                        wps.append(f"unsigned int {m.group(2)}")
+                        names[names.index(nm)] = f"gen_bits2f({m.group(2)})"
+                    else:
+                        wps.append(f"unsigned long long {m.group(2)}")
+                        names[names.index(nm)] = f"gen_bits2d({m.group(2)})"
+                else:
+                    wps.append(p)
+        else:
+            wps = ps
+        call = f"F_{a:08x}({', '.join(names)})"
+        sig = ", ".join(wps) or "void"
         # (and one returning an x87 value, float, double or float10, as a double: an indirect
         # caller reading it calls through gen_fcode, double's type, and a float in xmm0 read so
         # was another number, code_slots, 2026-10-26)
         # (not a variadic one: no wrapper can pass its `...` on)
         if width is None and "*" not in ret and ret.split()[-1] in FLOATS and "..." not in ps:
-            return (f"static double W_{a:08x}({', '.join(ps) or 'void'}) "
-                    f"{{ return (double)F_{a:08x}({', '.join(names)}); }}")
-        if width is None:
+            return f"static double W_{a:08x}({sig}) {{ return (double){call}; }}"
+        if width is not None:
+            return f"static unsigned int W_{a:08x}({sig}) {{ return (unsigned int)({width}){call}; }}"
+        if not conv:
             return None
-        return (f"static unsigned int W_{a:08x}({', '.join(ps) or 'void'}) "
-                f"{{ return (unsigned int)({width})F_{a:08x}({', '.join(names)}); }}")
+        if ret == "void":
+            return f"static unsigned int W_{a:08x}({sig}) {{ {call}; return 0; }}"
+        if "*" in ret:
+            return f"static unsigned int W_{a:08x}({sig}) {{ return (unsigned int)(uintptr_t){call}; }}"
+        if ret.split()[-1] in ("longlong", "ulonglong", "undefined8", "int8", "uint8"):
+            return f"static unsigned long long W_{a:08x}({sig}) {{ return (unsigned long long){call}; }}"
+        return f"static unsigned int W_{a:08x}({sig}) {{ return (unsigned int){call}; }}"
 
     def emit(self, translated: dict[int, str], stubbed: dict[int, str]) -> list[Path]:
         GEN.mkdir(parents=True, exist_ok=True)

@@ -4096,6 +4096,53 @@ def main() -> None:
             if any(this_like(p) for p in ps) and \
                     all(this_like(p) or (not p.get("params") and not p.get("stack")) for p in ps):
                 v["icalls"][a] = ("__thiscall", shape[1])
+    def observed_words(a, cc):
+        """the words the targets a reference run saw at site a take, or None (see below)"""
+        ts = [t for t in icall_targets.get(a, ()) if t in local]
+        pops, known = set(), bool(ts)
+        for t in ts:
+            if cleanup.get(t):
+                pops.add(cleanup[t])
+            elif local[t].get("tail_jumps") or local[t].get("tail_ijmps"):
+                continue
+            elif cleanup.get(t) == 0 and stack_hi.get(t, 0) <= 4:
+                pops.add(0)
+            else:
+                known = False
+        return next(iter(pops)) // 4 if known and len(pops) == 1 and cc != "__cdecl" else None
+
+    # (an observed site that takes more words than were pushed for it takes them from the calls
+    # before it: first the words observed calls before gave up, then those the unobserved ones
+    # nearest before it were counted. The getters of `f1 = a(); f2 = b(f1); ... set(&out, f3)`,
+    # each a float pushed for set, are seen less often than set: given set's four words, the
+    # getters kept one each, and the decompiler read the frame's saved ebx, a stub, 2026-10-28)
+    for f, v in local.items():
+        ic = v.get("icalls", {})
+        if not any(a in icall_targets for a in ic):
+            continue
+        order = sorted(ic)
+        pool = 0
+        for k, a in enumerate(order):
+            cc, n = ic[a]
+            n2 = observed_words(a, cc)
+            if n2 is None:
+                continue
+            if n2 < n:
+                pool += n - n2
+            elif n2 > n:
+                need = n2 - n
+                take = min(pool, need)
+                pool -= take
+                need -= take
+                for b in reversed(order[:k]):
+                    if need <= 0:
+                        break
+                    cb, nb = ic[b]
+                    if b in icall_targets or nb <= 0 or a - b > 0x80:
+                        continue
+                    give_up = min(nb, need)
+                    ic[b] = (cb, nb - give_up)
+                    need -= give_up
     for f, v in local.items():
         # (an indirect tail jump: a call that returns, ApplyFacts' "jumps", given the forwarder's
         # own words, `this` first where ecx holds one)
@@ -4114,26 +4161,13 @@ def main() -> None:
             # `push ecx; fstp [esp]; call [vt + 0x10]` thrice, then `call [vt + 0x3c]`, went to
             # the getters: a sound filter's set got its frequency from a register, 16384, and
             # asserted, 0xcd0a33 2026-10-28)
-            ts = [t for t in icall_targets.get(a, ()) if t in local]
             # (each target's words: what it pops; or none, a plain `ret` reading no stack argument,
             # the float getters themselves; a tail-jumping one hands on the next's; anything else
-            # unknown, no evidence)
-            pops, known = set(), bool(ts)
-            for t in ts:
-                if cleanup.get(t):
-                    pops.add(cleanup[t])
-                elif local[t].get("tail_jumps") or local[t].get("tail_ijmps"):
-                    continue
-                elif cleanup.get(t) == 0 and stack_hi.get(t, 0) <= 4:
-                    pops.add(0)
-                else:
-                    known = False
-            # (not a __cdecl one: the caller's own `add esp, k` is its count)
-            if known and len(pops) == 1 and cc != "__cdecl":
-                n2 = next(iter(pops)) // 4
-                if n2 != n:
-                    observed += 1
-                    n = n2
+            # unknown, no evidence. Not a __cdecl one: the caller's own `add esp, k` is its count)
+            n2 = observed_words(a, cc)
+            if n2 is not None and n2 != n:
+                observed += 1
+                n = n2
             calls[hexa(a)] = [["i", 4]] * (n + {"__thiscall": 1, "__fastcall": 2}.get(cc, 0))
             ccs[hexa(a)] = cc
             # (and its x87 result, where the caller reads one: `call edx; fcomp [x]`. Looked up in
