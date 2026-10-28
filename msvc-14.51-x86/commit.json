@@ -1,1 +1,1 @@
-{"sha": "842a373d1f7bbf713aeb028fe2eecdcc8bb58a93", "date": "2026-10-27T20:26:14-04:00", "subject": "feat(translate32, Ghidra32.h, bytes32): virtual calls, frames and a forwarded edx as the reference's, in the x86 fidelity build"}
+{"sha": "f59df3e020c533b9eaee3638cff8af06b4117304", "date": "2026-10-27T20:32:49-04:00", "subject": "fix(translate32): a void-typed function whose callers read its result returns its tail call's"}
