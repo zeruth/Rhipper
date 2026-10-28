@@ -51,7 +51,9 @@ VCVARS = os.environ.get("RHIPPER_VCVARS32", "")
 # function its own section (/Gy, to find it), x87 floating point (/arch:IA32, VS2010's default; the
 # newest cl's x86 default is SSE2), frame pointers kept (/Oy-: the reference's trivial functions
 # are `push ebp; mov ebp, esp; ...; pop ebp`), the shadow trace compiled out (GEN_FIDELITY)
-CL_FLAGS = ["/nologo", "/c", "/O2", "/Gy", "/arch:IA32", "/Oy-", "/std:c17", "/w", "/DGEN_FIDELITY"]
+# (frames per function since: GEN_FRAME / GEN_NOFRAME, translate32 reading the reference's
+# `push ebp; mov ebp, esp`, which VS2010's libraries mixed; /Oy- left them all with frames)
+CL_FLAGS = ["/nologo", "/c", "/O2", "/Gy", "/arch:IA32", "/std:c17", "/w", "/DGEN_FIDELITY"]
 
 
 def vcvars32() -> str:
@@ -169,7 +171,8 @@ def tokens(md, code: bytes, base: int, masked: set[int], lo: int, hi: int) -> tu
         if ins.group(capstone.CS_GRP_JUMP) or ins.group(capstone.CS_GRP_CALL):
             for k in range(off + 1, off + ins.size):
                 mb[k] = 0
-            s = ins.mnemonic + (" L" if re.fullmatch(r"0x[0-9a-f]+", ins.op_str) else " " + ins.op_str)
+            # (a target capstone prints in decimal when small, `call 7` in an object, is one too)
+            s = ins.mnemonic + (" L" if re.fullmatch(r"(?:0x)?[0-9a-f]+", ins.op_str) else " " + ins.op_str)
         if any(off <= r < off + ins.size for r in masked):
             s = re.sub(r"0x[0-9a-f]{5,}", "A", s)
         # (and an address in the reference's image on either side: the port's REFG and REFP are
@@ -248,7 +251,8 @@ def run_pool(a) -> None:
     for x, text in texts.items():
         m = re.search(r"^([^\n/][^\n]*\bF_" + f"{x:08x}" + r"\([^\n]*\))\s*$", text, re.M)
         if m:
-            protos[x] = m.group(1) + ";"
+            # (the frame pragma leads the definition, not the prototype)
+            protos[x] = re.sub(r"^GEN_(?:NO)?FRAME\s+", "", m.group(1)) + ";"
     hdr = []
     for line in (GEN / "translated.h").read_text(encoding="utf-8", errors="replace").split("\n"):
         m = re.search(r"\bF_([0-9a-f]{8})\(", line)

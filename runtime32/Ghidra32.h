@@ -93,12 +93,25 @@ void gen_trace_enter(unsigned int addr, unsigned int a0, unsigned int a1, unsign
    plain one. __thiscall, which C cannot declare, as __fastcall with edx a dummy after `this`:
    ecx `this`, the rest on the stack, the callee popping them, the same code (ret N) */
 #ifdef GEN_FIDELITY
+/* (and a virtual call's pointer, translate32's vcalls: __thiscall's code, unprototyped) */
+typedef unsigned int __fastcall gen_tcode();
+#define GEN_TCODE gen_tcode
 #define GEN_STDCALL __stdcall
 #define GEN_FASTCALL __fastcall
 #define GEN_THISCALL __fastcall
 #define GEN_EDX_PARAM , unsigned int gen_edx
 #define GEN_EDX_ARG , 0
+/* (a __thiscall function's own dummy handed on: edx as it came, nothing to set) */
+#define GEN_EDX_FWD , gen_edx
+/* (and each function's frame as the reference's: `push ebp; mov ebp, esp` or none, which
+   VS2010's libraries mixed, per function as translate32 reads it off the reference) */
+#define GEN_FRAME __pragma(optimize("y", off))
+#define GEN_NOFRAME __pragma(optimize("y", on))
 #else
+#define GEN_EDX_FWD
+#define GEN_FRAME
+#define GEN_NOFRAME
+#define GEN_TCODE code
 #define GEN_STDCALL
 #define GEN_FASTCALL
 #define GEN_THISCALL

@@ -3574,7 +3574,7 @@ class Translator32:
             body = eh_landing(body, ret)
             body = eh_state_volatile(body)
         decl = self.conv_decl(a, ret, params)
-        body = self.conv_calls(body)
+        body = self.conv_calls(body, a)
         # (the shadow trace's record of the call, first: its address and first four integer
         # arguments, as shadow32.py records the reference's: its words, a float's bits and an
         # 8-byte argument's two words)
@@ -3593,7 +3593,19 @@ class Translator32:
         prologue = [f"  GEN_ENTER(0x{a:x}u, {', '.join(args)});"] + prologue
         # (the parameters' names are locals now, declared first in the body)
         body = body.replace("{", "{\n" + "\n".join(prologue), 1)
-        return f"/* ref: {self.corpus[a]['name']} */\n{decl}\n{body.strip()}\n"
+        # (the frame as the reference's, for the x86 fidelity build: GEN_FRAME, GEN_NOFRAME)
+        frame = "GEN_FRAME " if self.has_frame(a) else "GEN_NOFRAME "
+        return f"/* ref: {self.corpus[a]['name']} */\n{frame}{decl}\n{body.strip()}\n"
+
+    def has_frame(self, a: int) -> bool:
+        """Whether the reference function opens an ebp frame, `push ebp; mov ebp, esp` (55 8b ec)."""
+        import pefile
+        if self._pe is None:
+            self._pe = pefile.PE(str(project.EXE), fast_load=True)
+        try:
+            return self._pe.get_data(a - self._pe.OPTIONAL_HEADER.ImageBase, 3) == b"\x55\x8b\xec"
+        except Exception:
+            return False
 
     def undeclared(self, body: str, var_types: dict[str, str]) -> None:
         """Every name left in the body is one C will know: a local or parameter, a label, a
@@ -4434,8 +4446,25 @@ class Translator32:
             cc = "GEN_STDCALL "
         return f"{ret} {cc}F_{a:08x}({', '.join(ps) or 'void'})"
 
-    def conv_calls(self, body: str) -> str:
-        """Each direct call to a __thiscall function given the dummy edx after `this`, GEN_EDX_ARG."""
+    def conv_calls(self, body: str, a: int | None = None) -> str:
+        """Each direct call to a __thiscall function given the dummy edx after `this`, GEN_EDX_ARG;
+        and each virtual call, through the vtable of the object it passes first, as __thiscall's
+        too (vcalls)."""
+        body = self.vcalls(body)
+        body = self.direct_thiscalls(body)
+        # (a __thiscall function's first such call, with no call before it to change edx: its own
+        # dummy handed on, GEN_EDX_FWD, edx as it came, where a 0 was `xor edx, edx` the reference
+        # has not: a `sub ecx, 4; jmp` thunk, bytes32's 8-byte functions 2026-10-27)
+        if a is not None and self.conv.get(a) == "__thiscall":
+            k = body.find(" GEN_EDX_ARG")
+            if k >= 0:
+                line_start = body.rfind("\n", 0, k) + 1
+                before = body[:line_start]
+                if not re.search(r"\bF_[0-9a-f]{8}\(|\(\((?:GEN_TCODE|code) \*\)|\bgen_imp_\w+\(", before):
+                    body = body[:k] + " GEN_EDX_FWD" + body[k + len(" GEN_EDX_ARG"):]
+        return body
+
+    def direct_thiscalls(self, body: str) -> str:
         out, last = [], 0
         for m in re.finditer(r"\bF_([0-9a-f]{8})\(", body):
             if self.conv.get(int(m.group(1), 16)) != "__thiscall":
@@ -4459,6 +4488,67 @@ class Translator32:
             out.append(" GEN_EDX_ARG")
             last = k
         out.append(body[last:])
+        return "".join(out)
+
+    @staticmethod
+    def vcalls(body: str) -> str:
+        """`((code *)*(gen_code32 *)(*piVar1 + 0x18))(piVar1, ...)`, a call through the vtable of
+        its first argument: a method, __thiscall in the reference (`this` in ecx, the callee
+        popping the rest), so for the x86 fidelity build `((GEN_TCODE *)...)(piVar1 GEN_EDX_ARG,
+        ...)`, Ghidra32.h's unprototyped __fastcall there and `code` elsewhere. As a __cdecl call
+        it pushed `this` and its caller popped: a forwarding thunk's tail call became a call that
+        pushed its eight arguments again, bytes32 2026-10-27."""
+        if "(code *)" not in body:
+            return body
+
+        def close(s: str, k: int) -> int:
+            """the index past the parenthesis matching s[k] == '(', or -1"""
+            depth = 0
+            for j in range(k, len(s)):
+                if s[j] == "(":
+                    depth += 1
+                elif s[j] == ")":
+                    depth -= 1
+                    if depth == 0:
+                        return j + 1
+            return -1
+
+        out, pos = [], 0
+        for m in re.finditer(r"\(\(code \*\)", body):
+            if m.start() < pos:
+                continue
+            end = close(body, m.start())             # past `((code *)E)`
+            if end < 0:
+                continue
+            k = end
+            while k < len(body) and body[k] in " \t\r\n":
+                k += 1
+            if k >= len(body) or body[k] != "(":
+                continue
+            args_end = close(body, k)
+            if args_end < 0:
+                continue
+            # the first argument, at the call's top level
+            depth, j = 0, k + 1
+            while j < args_end - 1:
+                ch = body[j]
+                if ch in "([":
+                    depth += 1
+                elif ch in ")]":
+                    depth -= 1
+                elif ch == "," and depth == 0:
+                    break
+                j += 1
+            first = body[k + 1:j].strip()
+            callee = body[m.start() + len("((code *)"):end - 1]
+            # (the first argument read through for the callee: `*X`, `*(int *)X`, `**(int **)(X + 8)`)
+            core = re.sub(r"^(?:\(\s*[\w\s*]+\)\s*)+", "", first).strip()
+            if not core or not re.search(r"\*\s*(?:\(\s*[\w\s*]+\)\s*)*\(?\s*" + re.escape(core) + r"\b", callee):
+                continue
+            out.append(body[pos:m.start()])
+            out.append("((GEN_TCODE *)" + callee + ")" + body[end:j] + " GEN_EDX_ARG")
+            pos = j
+        out.append(body[pos:])
         return "".join(out)
 
     def stub_decl(self, a: int) -> str:
