@@ -63,6 +63,11 @@ def step(name: str, cmd: list[str], tail: int = 3, cwd: Path = ROOT) -> tuple[in
 
 def facts(jobs: int) -> bool:
     py = sys.executable
+    # (the Ghidra scripts compiled first, in seconds: one that does not compile failed the facts
+    # session six minutes in, "The class could not be found", 2026-10-28)
+    stamp("ghidra scripts compile")
+    if step("checkscripts", [py, str(RH / "ghidra" / "checkscripts.py")], tail=2)[0]:
+        return False
     # (the function extents, names and import prototypes as Ghidra has them now, first: the last
     # session's renames and the functions made since, which every step below reads)
     stamp("ghidra.sh functions")
