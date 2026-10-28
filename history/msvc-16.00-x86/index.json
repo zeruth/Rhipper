@@ -1210,5 +1210,17 @@
   "stubs": 244,
   "perfect": 15709,
   "translated": 17525
+ },
+ {
+  "sha": "e93c80b89d12ca557330d6810f5101f18d3dd801",
+  "date": "2026-10-28T17:11:15-04:00",
+  "subject": "fix(translate32): an indirect call's x87 result read past later calls, found back through them",
+  "run": "2026-10-28 22:28 UTC",
+  "file": "e93c80b89d12ca557330d6810f5101f18d3dd801.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 244,
+  "perfect": 15709,
+  "translated": 17525
  }
 ]
