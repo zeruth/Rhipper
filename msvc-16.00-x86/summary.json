@@ -1,6 +1,6 @@
 {
  "calls-GL": {
-  "detail": "--- expected\n+++ actual\n@@ -1,31 +1,2 @@\n-cd3 = 789 (0x00000315)\n-sd3 = 629 (0x00000275)\n-fc1 = 22 (0x00000016)\n-fc2 = -207 (0xffffff31)\n-fc4 = 100 (0x00000064)\n-fc_byte = 126003 (0x0001ec33)\n-sd_i64 = 0x00000060:0x5ec479cf\n-fc_i64 = 0x00000700:0x00000093\n-sd_dbl = 295 (0x00000127)\n-fc_dbl = 74 (0x0000004a)\n-sd8 = 17272 (0x00004378)\n-pt_add = 9944 (0x000026d8)\n-quad_mix = 38409 (0x00009609)\n-sum_va = 90 (0x0000005a)\n-mixed_va = 0x00000498:0x000003d4\n-sum_via = 11 (0x0000000b)\n-run_ops = 2949732 (0x002d0264)\n-call_sd = 712 (0x000002c8)\n-call_fc = -16 (0xfffffff0)\n-handlers = 883 (0x00000373)\n-tri = 2016 (0x000007e0)\n-call_va = 105 (0x00000069)\n-sort_desc = 503814886 (0x1e079ae6)\n-sort_mod = 727280130 (0x2b596a02)\n-boxes = 101531 (0x00018c9b)\n-open_helper = 7 (0x00000007)\n-com_calls = 2401498 (0x0024a4da)\n-com_release_last = 9491 (0x00002513)\n-tree_search = 4291 (0x000010c3)\n-checksum = 0x5e7c34bf\n-exit = 63\n+checksum = 0x811c9dc5\n+exit = 69\n\nstderr:\nrhtest: reference mapped at 0x400000 (0x10000 bytes): 264 entry jumps (5 too close to the next), 55 imports resolved, 0 missing\nrhtest: running the reference's entry 0x4024b7\nrhtest: not translated: 00401b60\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  0000000060019091  F_00401b60+0x31\n   2  000000006001bf08  F_00402356+0x458\n   3  000000000059dd37  BaseThreadInitThunk+0x17\n   4  00007ffb772ff2bc  RtlUserThreadStart+0x2c\nrhtest: ExitProcess(0x45) on thread 3016\n   0  0000000060009c6b  ExitReport+0x8b\n   1  000000006000a1e6  gen_imp_ExitProcess+0x16\n   2  000000006001cd3b  F_0040275a+0x28b\n   3  000000006001bf9c  F_00402356+0x4ec\n   4  000000000059dd37  BaseThreadInitThunk+0x17\n   5  00007ffb772ff2bc  RtlUserThreadStart+0x2c",
+  "detail": "--- expected\n+++ actual\n@@ -1,31 +1,2 @@\n-cd3 = 789 (0x00000315)\n-sd3 = 629 (0x00000275)\n-fc1 = 22 (0x00000016)\n-fc2 = -207 (0xffffff31)\n-fc4 = 100 (0x00000064)\n-fc_byte = 126003 (0x0001ec33)\n-sd_i64 = 0x00000060:0x5ec479cf\n-fc_i64 = 0x00000700:0x00000093\n-sd_dbl = 295 (0x00000127)\n-fc_dbl = 74 (0x0000004a)\n-sd8 = 17272 (0x00004378)\n-pt_add = 9944 (0x000026d8)\n-quad_mix = 38409 (0x00009609)\n-sum_va = 90 (0x0000005a)\n-mixed_va = 0x00000498:0x000003d4\n-sum_via = 11 (0x0000000b)\n-run_ops = 2949732 (0x002d0264)\n-call_sd = 712 (0x000002c8)\n-call_fc = -16 (0xfffffff0)\n-handlers = 883 (0x00000373)\n-tri = 2016 (0x000007e0)\n-call_va = 105 (0x00000069)\n-sort_desc = 503814886 (0x1e079ae6)\n-sort_mod = 727280130 (0x2b596a02)\n-boxes = 101531 (0x00018c9b)\n-open_helper = 7 (0x00000007)\n-com_calls = 2401498 (0x0024a4da)\n-com_release_last = 9491 (0x00002513)\n-tree_search = 4291 (0x000010c3)\n-checksum = 0x5e7c34bf\n-exit = 63\n+checksum = 0x811c9dc5\n+exit = 69\n\nstderr:\nrhtest: reference mapped at 0x400000 (0x10000 bytes): 264 entry jumps (5 too close to the next), 55 imports resolved, 0 missing\nrhtest: running the reference's entry 0x4024b7\nrhtest: not translated: 00401b60\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  0000000060019091  F_00401b60+0x31\n   2  000000006001bf08  F_00402356+0x458\n   3  000000000046dd37  BaseThreadInitThunk+0x17\n   4  00007ff93aedf2bc  RtlUserThreadStart+0x2c\nrhtest: ExitProcess(0x45) on thread 7800\n   0  0000000060009c6b  ExitReport+0x8b\n   1  000000006000a1e6  gen_imp_ExitProcess+0x16\n   2  000000006001cd3b  F_0040275a+0x28b\n   3  000000006001bf9c  F_00402356+0x4ec\n   4  000000000046dd37  BaseThreadInitThunk+0x17\n   5  00007ff93aedf2bc  RtlUserThreadStart+0x2c",
   "fidelity": {
    "by_size": 0.954,
    "functions": 269,
@@ -11,7 +11,7 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "calls-O2": {
   "fidelity": {
@@ -23,7 +23,7 @@
    "translated": 270
   },
   "status": "PASS",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "calls-Od": {
   "fidelity": {
@@ -35,10 +35,10 @@
    "translated": 275
   },
   "status": "PASS",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "calls-client": {
-  "detail": "--- expected\n+++ actual\n@@ -1,31 +1,2 @@\n-cd3 = 789 (0x00000315)\n-sd3 = 629 (0x00000275)\n-fc1 = 22 (0x00000016)\n-fc2 = -207 (0xffffff31)\n-fc4 = 100 (0x00000064)\n-fc_byte = 126003 (0x0001ec33)\n-sd_i64 = 0x00000060:0x5ec479cf\n-fc_i64 = 0x00000700:0x00000093\n-sd_dbl = 295 (0x00000127)\n-fc_dbl = 74 (0x0000004a)\n-sd8 = 17272 (0x00004378)\n-pt_add = 9944 (0x000026d8)\n-quad_mix = 38409 (0x00009609)\n-sum_va = 90 (0x0000005a)\n-mixed_va = 0x00000498:0x000003d4\n-sum_via = 11 (0x0000000b)\n-run_ops = 2949732 (0x002d0264)\n-call_sd = 712 (0x000002c8)\n-call_fc = -16 (0xfffffff0)\n-handlers = 883 (0x00000373)\n-tri = 2016 (0x000007e0)\n-call_va = 105 (0x00000069)\n-sort_desc = 503814886 (0x1e079ae6)\n-sort_mod = 727280130 (0x2b596a02)\n-boxes = 101531 (0x00018c9b)\n-open_helper = 7 (0x00000007)\n-com_calls = 2401498 (0x0024a4da)\n-com_release_last = 9491 (0x00002513)\n-tree_search = 4291 (0x000010c3)\n-checksum = 0x5e7c34bf\n-exit = 63\n+checksum = 0x811c9dc5\n+exit = 69\n\nstderr:\nrhtest: reference mapped at 0x400000 (0x10000 bytes): 264 entry jumps (5 too close to the next), 55 imports resolved, 0 missing\nrhtest: running the reference's entry 0x40248b\nrhtest: not translated: 00401b40\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  0000000060019091  F_00401b40+0x31\n   2  000000006001bef8  F_0040232a+0x458\n   3  00000000005bdd37  BaseThreadInitThunk+0x17\n   4  00007ffb772ff2bc  RtlUserThreadStart+0x2c\nrhtest: ExitProcess(0x45) on thread 5848\n   0  0000000060009c6b  ExitReport+0x8b\n   1  000000006000a1e6  gen_imp_ExitProcess+0x16\n   2  000000006001cd2b  F_0040272e+0x28b\n   3  000000006001bf8c  F_0040232a+0x4ec\n   4  00000000005bdd37  BaseThreadInitThunk+0x17\n   5  00007ffb772ff2bc  RtlUserThreadStart+0x2c",
+  "detail": "--- expected\n+++ actual\n@@ -1,31 +1,2 @@\n-cd3 = 789 (0x00000315)\n-sd3 = 629 (0x00000275)\n-fc1 = 22 (0x00000016)\n-fc2 = -207 (0xffffff31)\n-fc4 = 100 (0x00000064)\n-fc_byte = 126003 (0x0001ec33)\n-sd_i64 = 0x00000060:0x5ec479cf\n-fc_i64 = 0x00000700:0x00000093\n-sd_dbl = 295 (0x00000127)\n-fc_dbl = 74 (0x0000004a)\n-sd8 = 17272 (0x00004378)\n-pt_add = 9944 (0x000026d8)\n-quad_mix = 38409 (0x00009609)\n-sum_va = 90 (0x0000005a)\n-mixed_va = 0x00000498:0x000003d4\n-sum_via = 11 (0x0000000b)\n-run_ops = 2949732 (0x002d0264)\n-call_sd = 712 (0x000002c8)\n-call_fc = -16 (0xfffffff0)\n-handlers = 883 (0x00000373)\n-tri = 2016 (0x000007e0)\n-call_va = 105 (0x00000069)\n-sort_desc = 503814886 (0x1e079ae6)\n-sort_mod = 727280130 (0x2b596a02)\n-boxes = 101531 (0x00018c9b)\n-open_helper = 7 (0x00000007)\n-com_calls = 2401498 (0x0024a4da)\n-com_release_last = 9491 (0x00002513)\n-tree_search = 4291 (0x000010c3)\n-checksum = 0x5e7c34bf\n-exit = 63\n+checksum = 0x811c9dc5\n+exit = 69\n\nstderr:\nrhtest: reference mapped at 0x400000 (0x10000 bytes): 264 entry jumps (5 too close to the next), 55 imports resolved, 0 missing\nrhtest: running the reference's entry 0x40248b\nrhtest: not translated: 00401b40\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  0000000060019091  F_00401b40+0x31\n   2  000000006001bef8  F_0040232a+0x458\n   3  000000000057dd37  BaseThreadInitThunk+0x17\n   4  00007ff93aedf2bc  RtlUserThreadStart+0x2c\nrhtest: ExitProcess(0x45) on thread 5180\n   0  0000000060009c6b  ExitReport+0x8b\n   1  000000006000a1e6  gen_imp_ExitProcess+0x16\n   2  000000006001cd2b  F_0040272e+0x28b\n   3  000000006001bf8c  F_0040232a+0x4ec\n   4  000000000057dd37  BaseThreadInitThunk+0x17\n   5  00007ff93aedf2bc  RtlUserThreadStart+0x2c",
   "fidelity": {
    "by_size": 0.955,
    "functions": 269,
@@ -49,10 +49,10 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "com-O2": {
-  "detail": "--- expected\n+++ actual\n@@ -1,3 +1,3 @@\n co init = 1 (0x00000001)\n-own object = -1810673160 (0x941351f8)\n+own object = 0 (0x00000000)\n own refs = 1 (0x00000001)\n@@ -5,43 +5,3 @@\n stream made = 1 (0x00000001)\n-stream write = 1 (0x00000001)\n-stream seek = 1 (0x00000001)\n-stream pos = 8 (0x00000008)\n-stream read = 1 (0x00000001)\n-stream read n = 32 (0x00000020)\n-stream read ok = 1 (0x00000001)\n-stream stat = 1 (0x00000001)\n-stream stat size = 48 (0x00000030)\n-stream stat type = 2 (0x00000002)\n-stream hglobal = 1 (0x00000001)\n-stream global size = 1 (0x00000001)\n-stream released = 0 (0x00000000)\n-malloc got = 1 (0x00000001)\n-malloc size = 107 (0x0000006b)\n-malloc did = 1 (0x00000001)\n-malloc resize = 300 (0x0000012c)\n-task mem = 1 (0x00000001)\n-bstr len = 10 (0x0000000a)\n-bstr bytes = 20 (0x00000014)\n-bstr hash = 1466675498 (0x576bb12a)\n-variant to string = 1 (0x00000001)\n-variant string = 2026904977 (0x78d01d91)\n-variant back = 1 (0x00000001)\n-variant double = 2482 (0x000009b2)\n-safearray made = 1 (0x00000001)\n-safearray bounds = 307 (0x00000133)\n-safearray dims = 1 (0x00000001)\n-safearray elem size = 4 (0x00000004)\n-safearray sum = 170 (0x000000aa)\n-guid text = 39 (0x00000027)\n-guid hash = 1252762761 (0x4aaba489)\n\nstderr:\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  000000006001c6e1  F_00401070+0x31\n   2  000000006001dbd7  F_00401ca0+0x217\n   3  000000006001e2a4  F_00402020+0x74\n   4  000000006001f33f  F_004022e8+0x43f\n   5  000000000047dd37  BaseThreadInitThunk+0x17\n   6  00007ffb772ff2bc  RtlUserThreadStart+0x2c\nrhtest: exception c0000005 at 0000000000000000 (writing 0000000000000000)\n   0  0000000000000000  ?+0x0\n   1  000000006001c952  F_00401270+0x122\n   2  000000006001e2a9  F_00402020+0x79\n   3  000000006001f33f  F_004022e8+0x43f\n   4  000000000047dd37  BaseThreadInitThunk+0x17\n   5  00007ffb772ff2bc  RtlUserThreadStart+0x2c\nrhtest: thread 1748, rsp 00000000055FFCF8: 6001c952 30 0 1e60038630 0 55ffd3c 40ff08 590db0",
+  "detail": "--- expected\n+++ actual\n@@ -1,3 +1,3 @@\n co init = 1 (0x00000001)\n-own object = -1810673160 (0x941351f8)\n+own object = 0 (0x00000000)\n own refs = 1 (0x00000001)\n@@ -5,43 +5,3 @@\n stream made = 1 (0x00000001)\n-stream write = 1 (0x00000001)\n-stream seek = 1 (0x00000001)\n-stream pos = 8 (0x00000008)\n-stream read = 1 (0x00000001)\n-stream read n = 32 (0x00000020)\n-stream read ok = 1 (0x00000001)\n-stream stat = 1 (0x00000001)\n-stream stat size = 48 (0x00000030)\n-stream stat type = 2 (0x00000002)\n-stream hglobal = 1 (0x00000001)\n-stream global size = 1 (0x00000001)\n-stream released = 0 (0x00000000)\n-malloc got = 1 (0x00000001)\n-malloc size = 107 (0x0000006b)\n-malloc did = 1 (0x00000001)\n-malloc resize = 300 (0x0000012c)\n-task mem = 1 (0x00000001)\n-bstr len = 10 (0x0000000a)\n-bstr bytes = 20 (0x00000014)\n-bstr hash = 1466675498 (0x576bb12a)\n-variant to string = 1 (0x00000001)\n-variant string = 2026904977 (0x78d01d91)\n-variant back = 1 (0x00000001)\n-variant double = 2482 (0x000009b2)\n-safearray made = 1 (0x00000001)\n-safearray bounds = 307 (0x00000133)\n-safearray dims = 1 (0x00000001)\n-safearray elem size = 4 (0x00000004)\n-safearray sum = 170 (0x000000aa)\n-guid text = 39 (0x00000027)\n-guid hash = 1252762761 (0x4aaba489)\n\nstderr:\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  000000006001c6e1  F_00401070+0x31\n   2  000000006001dbd7  F_00401ca0+0x217\n   3  000000006001e2a4  F_00402020+0x74\n   4  000000006001f33f  F_004022e8+0x43f\n   5  00000000005bdd37  BaseThreadInitThunk+0x17\n   6  00007ff93aedf2bc  RtlUserThreadStart+0x2c\nrhtest: exception c0000005 at 0000000000000000 (writing 0000000000000000)\n   0  0000000000000000  ?+0x0\n   1  000000006001c952  F_00401270+0x122\n   2  000000006001e2a9  F_00402020+0x79\n   3  000000006001f33f  F_004022e8+0x43f\n   4  00000000005bdd37  BaseThreadInitThunk+0x17\n   5  00007ff93aedf2bc  RtlUserThreadStart+0x2c\nrhtest: thread 1560, rsp 000000000572FCF8: 6001c952 30 0 1e60038630 0 572fd3c 40ff08 4df690",
   "fidelity": {
    "by_size": 0.971,
    "functions": 257,
@@ -63,10 +63,10 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "com-Od": {
-  "detail": "--- expected\n+++ actual\n@@ -1,3 +1,3 @@\n co init = 1 (0x00000001)\n-own object = -1810673160 (0x941351f8)\n+own object = -1810728898 (0x9412783e)\n own refs = 1 (0x00000001)\n@@ -5,43 +5,3 @@\n stream made = 1 (0x00000001)\n-stream write = 1 (0x00000001)\n-stream seek = 1 (0x00000001)\n-stream pos = 8 (0x00000008)\n-stream read = 1 (0x00000001)\n-stream read n = 32 (0x00000020)\n-stream read ok = 1 (0x00000001)\n-stream stat = 1 (0x00000001)\n-stream stat size = 48 (0x00000030)\n-stream stat type = 2 (0x00000002)\n-stream hglobal = 1 (0x00000001)\n-stream global size = 1 (0x00000001)\n-stream released = 0 (0x00000000)\n-malloc got = 1 (0x00000001)\n-malloc size = 107 (0x0000006b)\n-malloc did = 1 (0x00000001)\n-malloc resize = 300 (0x0000012c)\n-task mem = 1 (0x00000001)\n-bstr len = 10 (0x0000000a)\n-bstr bytes = 20 (0x00000014)\n-bstr hash = 1466675498 (0x576bb12a)\n-variant to string = 1 (0x00000001)\n-variant string = 2026904977 (0x78d01d91)\n-variant back = 1 (0x00000001)\n-variant double = 2482 (0x000009b2)\n-safearray made = 1 (0x00000001)\n-safearray bounds = 307 (0x00000133)\n-safearray dims = 1 (0x00000001)\n-safearray elem size = 4 (0x00000004)\n-safearray sum = 170 (0x000000aa)\n-guid text = 39 (0x00000027)\n-guid hash = 1252762761 (0x4aaba489)\n\nstderr:\nrhtest: reference mapped at 0x400000 (0x13000 bytes): 320 entry jumps (8 too close to the next), 83 imports resolved, 0 missing\nrhtest: running the reference's entry 0x404419\nrhtest: exception c0000005 at 0000000000000000 (writing 0000000000000000)\n   0  0000000000000000  ?+0x0\n   1  000000006001d0f2  F_00401360+0x122\n   2  000000006001e701  F_004021e0+0x71\n   3  0000000060021c1f  F_004042b8+0x43f\n   4  00000000005cdd37  BaseThreadInitThunk+0x17\n   5  00007ffb772ff2bc  RtlUserThreadStart+0x2c\nrhtest: thread 6272, rsp 000000000561FCF8: 6001d0f2 30 0 35f7c44 0 561fd3c 6001e2c6 0",
+  "detail": "--- expected\n+++ actual\n@@ -1,3 +1,3 @@\n co init = 1 (0x00000001)\n-own object = -1810673160 (0x941351f8)\n+own object = -1810728898 (0x9412783e)\n own refs = 1 (0x00000001)\n@@ -5,43 +5,3 @@\n stream made = 1 (0x00000001)\n-stream write = 1 (0x00000001)\n-stream seek = 1 (0x00000001)\n-stream pos = 8 (0x00000008)\n-stream read = 1 (0x00000001)\n-stream read n = 32 (0x00000020)\n-stream read ok = 1 (0x00000001)\n-stream stat = 1 (0x00000001)\n-stream stat size = 48 (0x00000030)\n-stream stat type = 2 (0x00000002)\n-stream hglobal = 1 (0x00000001)\n-stream global size = 1 (0x00000001)\n-stream released = 0 (0x00000000)\n-malloc got = 1 (0x00000001)\n-malloc size = 107 (0x0000006b)\n-malloc did = 1 (0x00000001)\n-malloc resize = 300 (0x0000012c)\n-task mem = 1 (0x00000001)\n-bstr len = 10 (0x0000000a)\n-bstr bytes = 20 (0x00000014)\n-bstr hash = 1466675498 (0x576bb12a)\n-variant to string = 1 (0x00000001)\n-variant string = 2026904977 (0x78d01d91)\n-variant back = 1 (0x00000001)\n-variant double = 2482 (0x000009b2)\n-safearray made = 1 (0x00000001)\n-safearray bounds = 307 (0x00000133)\n-safearray dims = 1 (0x00000001)\n-safearray elem size = 4 (0x00000004)\n-safearray sum = 170 (0x000000aa)\n-guid text = 39 (0x00000027)\n-guid hash = 1252762761 (0x4aaba489)\n\nstderr:\nrhtest: reference mapped at 0x400000 (0x13000 bytes): 320 entry jumps (8 too close to the next), 83 imports resolved, 0 missing\nrhtest: running the reference's entry 0x404419\nrhtest: exception c0000005 at 0000000000000000 (writing 0000000000000000)\n   0  0000000000000000  ?+0x0\n   1  000000006001d0f2  F_00401360+0x122\n   2  000000006001e701  F_004021e0+0x71\n   3  0000000060021c1f  F_004042b8+0x43f\n   4  000000000057dd37  BaseThreadInitThunk+0x17\n   5  00007ff93aedf2bc  RtlUserThreadStart+0x2c\nrhtest: thread 9064, rsp 000000000547FCF8: 6001d0f2 30 0 57e7c04 0 547fd3c 6001e2c6 0",
   "fidelity": {
    "by_size": 0.956,
    "functions": 328,
@@ -77,10 +77,10 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "com-client": {
-  "detail": "--- expected\n+++ actual\n@@ -1,3 +1,3 @@\n co init = 1 (0x00000001)\n-own object = -1810673160 (0x941351f8)\n+own object = -1810728898 (0x9412783e)\n own refs = 1 (0x00000001)\n@@ -5,43 +5,3 @@\n stream made = 1 (0x00000001)\n-stream write = 1 (0x00000001)\n-stream seek = 1 (0x00000001)\n-stream pos = 8 (0x00000008)\n-stream read = 1 (0x00000001)\n-stream read n = 32 (0x00000020)\n-stream read ok = 1 (0x00000001)\n-stream stat = 1 (0x00000001)\n-stream stat size = 48 (0x00000030)\n-stream stat type = 2 (0x00000002)\n-stream hglobal = 1 (0x00000001)\n-stream global size = 1 (0x00000001)\n-stream released = 0 (0x00000000)\n-malloc got = 1 (0x00000001)\n-malloc size = 107 (0x0000006b)\n-malloc did = 1 (0x00000001)\n-malloc resize = 300 (0x0000012c)\n-task mem = 1 (0x00000001)\n-bstr len = 10 (0x0000000a)\n-bstr bytes = 20 (0x00000014)\n-bstr hash = 1466675498 (0x576bb12a)\n-variant to string = 1 (0x00000001)\n-variant string = 2026904977 (0x78d01d91)\n-variant back = 1 (0x00000001)\n-variant double = 2482 (0x000009b2)\n-safearray made = 1 (0x00000001)\n-safearray bounds = 307 (0x00000133)\n-safearray dims = 1 (0x00000001)\n-safearray elem size = 4 (0x00000004)\n-safearray sum = 170 (0x000000aa)\n-guid text = 39 (0x00000027)\n-guid hash = 1252762761 (0x4aaba489)\n\nstderr:\nrhtest: reference mapped at 0x400000 (0x11000 bytes): 250 entry jumps (5 too close to the next), 83 imports resolved, 0 missing\nrhtest: running the reference's entry 0x402270\nrhtest: exception c0000005 at 0000000000000000 (writing 0000000000000000)\n   0  0000000000000000  ?+0x0\n   1  000000006001d35a  F_00401480+0x31a\n   2  000000006001e4c7  F_00401f00+0x57\n   3  000000006001f3df  F_0040210f+0x43f\n   4  000000000047dd37  BaseThreadInitThunk+0x17\n   5  00007ffb772ff2bc  RtlUserThreadStart+0x2c\nrhtest: thread 3352, rsp 000000000551FCF8: 6001d35a 30 0 1e 0 551fd34 58312a0 0",
+  "detail": "--- expected\n+++ actual\n@@ -1,3 +1,3 @@\n co init = 1 (0x00000001)\n-own object = -1810673160 (0x941351f8)\n+own object = -1810728898 (0x9412783e)\n own refs = 1 (0x00000001)\n@@ -5,43 +5,3 @@\n stream made = 1 (0x00000001)\n-stream write = 1 (0x00000001)\n-stream seek = 1 (0x00000001)\n-stream pos = 8 (0x00000008)\n-stream read = 1 (0x00000001)\n-stream read n = 32 (0x00000020)\n-stream read ok = 1 (0x00000001)\n-stream stat = 1 (0x00000001)\n-stream stat size = 48 (0x00000030)\n-stream stat type = 2 (0x00000002)\n-stream hglobal = 1 (0x00000001)\n-stream global size = 1 (0x00000001)\n-stream released = 0 (0x00000000)\n-malloc got = 1 (0x00000001)\n-malloc size = 107 (0x0000006b)\n-malloc did = 1 (0x00000001)\n-malloc resize = 300 (0x0000012c)\n-task mem = 1 (0x00000001)\n-bstr len = 10 (0x0000000a)\n-bstr bytes = 20 (0x00000014)\n-bstr hash = 1466675498 (0x576bb12a)\n-variant to string = 1 (0x00000001)\n-variant string = 2026904977 (0x78d01d91)\n-variant back = 1 (0x00000001)\n-variant double = 2482 (0x000009b2)\n-safearray made = 1 (0x00000001)\n-safearray bounds = 307 (0x00000133)\n-safearray dims = 1 (0x00000001)\n-safearray elem size = 4 (0x00000004)\n-safearray sum = 170 (0x000000aa)\n-guid text = 39 (0x00000027)\n-guid hash = 1252762761 (0x4aaba489)\n\nstderr:\nrhtest: reference mapped at 0x400000 (0x11000 bytes): 250 entry jumps (5 too close to the next), 83 imports resolved, 0 missing\nrhtest: running the reference's entry 0x402270\nrhtest: exception c0000005 at 0000000000000000 (writing 0000000000000000)\n   0  0000000000000000  ?+0x0\n   1  000000006001d35a  F_00401480+0x31a\n   2  000000006001e4c7  F_00401f00+0x57\n   3  000000006001f3df  F_0040210f+0x43f\n   4  000000000047dd37  BaseThreadInitThunk+0x17\n   5  00007ff93aedf2bc  RtlUserThreadStart+0x2c\nrhtest: thread 2480, rsp 000000000557FCF8: 6001d35a 30 0 1e 0 557fd34 58412a0 0",
   "fidelity": {
    "by_size": 0.984,
    "functions": 255,
@@ -91,19 +91,13 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "core-O2": {
-  "fidelity": {
-   "by_size": 0.986,
-   "functions": 288,
-   "mean": 0.991,
-   "perfect": 260,
-   "stubs": 0,
-   "translated": 288
-  },
-  "status": "PASS",
-  "when": "2026-10-28 01:48"
+  "detail": "ghidra-import.log:\nINFO  Using log config file: jar:file:/D:/a/_temp/ghidra_12.1.3_PUBLIC/Ghidra/Framework/Generic/lib/Generic.jar!/generic.log4j.xml (LoggingInitialization)  \nINFO  Using log file: C:\\Users\\runneradmin\\AppData\\Roaming\\ghidra\\ghidra_12.1.3_PUBLIC\\application.log (LoggingInitialization)  \nINFO  Loading user preferences: C:\\Users\\runneradmin\\AppData\\Roaming\\ghidra\\ghidra_12.1.3_PUBLIC\\preferences (Preferences)  \nINFO  Searching for classes... (ClassSearcher)  \nINFO  Class search complete (2733 ms) (ClassSearcher)  \nINFO  Initializing SSL Context (DefaultSSLContextInitializer)  \nINFO  Initializing Random Number Generator... (SecureRandomFactory)  \nINFO  Random Number Generator initialization complete: SHA1PRNG (SecureRandomFactory)  \nINFO  Trust manager disabled, cacerts have not been set (DefaultTrustManagerFactory)  \nException in thread \"main\" java.lang.RuntimeException: Failed to init global cache C:\\Users\\runneradmin\\AppData\\Local\\ghidra\\fscache2\n\tat ghidra.formats.gfilesystem.FileSystemService.<init>(FileSystemService.java:176)\n\tat ghidra.formats.gfilesystem.FileSystemService.<init>(FileSystemService.java:156)\n\tat ghidra.formats.gfilesystem.FileSystemService.getInstance(FileSystemService.java:62)\n\tat ghidra.app.util.headless.HeadlessAnalyzer.<init>(HeadlessAnalyzer.java:216)\n\tat ghidra.app.util.headless.HeadlessAnalyzer.getLoggableInstance(HeadlessAnalyzer.java:139)\n\tat ghidra.app.util.headless.AnalyzeHeadless.launch(AnalyzeHeadless.java:184)\n\tat ghidra.GhidraLauncher.launch(GhidraLauncher.java:81)\n\tat ghidra.Ghidra.main(Ghidra.java:54)\nCaused by: java.io.IOException: Unable to initialize cache dir C:\\Users\\runneradmin\\AppData\\Local\\ghidra\\fscache2\n\tat ghidra.formats.gfilesystem.FileCache.<init>(FileCache.java:103)\n\tat ghidra.formats.gfilesystem.FileSystemService.<init>(FileSystemService.java:171)\n\t... 7 more\nPress any key to continue . . . ",
+  "status": "FAIL",
+  "stopped": "import",
+  "when": "2026-10-28 01:51"
  },
  "core-Od": {
   "fidelity": {
@@ -115,10 +109,10 @@
    "translated": 293
   },
   "status": "PASS",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "core-client": {
-  "detail": "--- expected\n+++ actual\n@@ -38,15 +38,2 @@\n matmul = -577458368 (0xdd94af40)\n-struct = 9971661 (0x009827cd)\n-items = 787150559 (0x2eeaf6df)\n-string = -1886974920 (0x8f870c38)\n-globals = 2162450 (0x0020ff12)\n-ticket = 33930 (0x0000848a)\n-list = 215704104 (0x0cdb6228)\n-buckets = 8398304 (0x008025e0)\n-high_mask = 1051573760 (0x3eadbe00)\n-packed = -1583360814 (0xa19fd4d2)\n-big = 908137 (0x000ddb69)\n-pun = 1047775108 (0x3e73c784)\n-narrow = 197497 (0x00030379)\n-checksum = 0xb5f00fdf\n-exit = 95\n+exit = 3221225477\n\nstderr:\nrhtest: reference mapped at 0x400000 (0x11000 bytes): 281 entry jumps (5 too close to the next), 55 imports resolved, 0 missing\nrhtest: running the reference's entry 0x402c50\nrhtest: exception c0000005 at 000000006001B493 (writing 0000000000000000)\n   0  000000006001b493  F_00401de0+0x103\n   1  000000006001d00e  F_00402580+0x4ee\n   2  000000006001e0ad  F_00402aef+0x45d\n   3  000000000047dd37  BaseThreadInitThunk+0x17\n   4  00007ffb772ff2bc  RtlUserThreadStart+0x2c\nrhtest: thread 6280, rsp 000000000386FCF0: 0 0 0 dd 0 386fea0 1400000021 35",
+  "detail": "--- expected\n+++ actual\n@@ -38,15 +38,2 @@\n matmul = -577458368 (0xdd94af40)\n-struct = 9971661 (0x009827cd)\n-items = 787150559 (0x2eeaf6df)\n-string = -1886974920 (0x8f870c38)\n-globals = 2162450 (0x0020ff12)\n-ticket = 33930 (0x0000848a)\n-list = 215704104 (0x0cdb6228)\n-buckets = 8398304 (0x008025e0)\n-high_mask = 1051573760 (0x3eadbe00)\n-packed = -1583360814 (0xa19fd4d2)\n-big = 908137 (0x000ddb69)\n-pun = 1047775108 (0x3e73c784)\n-narrow = 197497 (0x00030379)\n-checksum = 0xb5f00fdf\n-exit = 95\n+exit = 3221225477\n\nstderr:\nrhtest: reference mapped at 0x400000 (0x11000 bytes): 281 entry jumps (5 too close to the next), 55 imports resolved, 0 missing\nrhtest: running the reference's entry 0x402c50\nrhtest: exception c0000005 at 000000006001B493 (writing 0000000000000000)\n   0  000000006001b493  F_00401de0+0x103\n   1  000000006001d00e  F_00402580+0x4ee\n   2  000000006001e0ad  F_00402aef+0x45d\n   3  00000000005fdd37  BaseThreadInitThunk+0x17\n   4  00007ff93aedf2bc  RtlUserThreadStart+0x2c\nrhtest: thread 2000, rsp 000000000381FCF0: 0 0 0 dd 0 381fea0 1400000021 35",
   "fidelity": {
    "by_size": 0.984,
    "functions": 286,
@@ -129,7 +123,7 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "cpp-O2": {
   "fidelity": {
@@ -141,7 +135,7 @@
    "translated": 393
   },
   "status": "PASS",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "cpp-Od": {
   "fidelity": {
@@ -153,10 +147,10 @@
    "translated": 487
   },
   "status": "PASS",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "cpp-client": {
-  "detail": "--- expected\n+++ actual\n@@ -7,3 +7,3 @@\n refs = 2338 (0x00000922)\n-updates = 4229 (0x00001085)\n+updates = 0 (0x00000000)\n allocs = 718 (0x000002ce)\n@@ -11,8 +11,8 @@\n pools = 87 (0x00000057)\n-fronts = 21016 (0x00005218)\n+fronts = 16 (0x00000010)\n lazies = 167574 (0x00028e96)\n-sinks = 11501 (0x00002ced)\n-counteds = 2700 (0x00000a8c)\n-events = -417875423 (0xe717ba21)\n-checksum = 0x751aaac8\n-exit = 72\n+sinks = 301 (0x0000012d)\n+counteds = 0 (0x00000000)\n+events = -983310210 (0xc563e07e)\n+checksum = 0x2c6df599\n+exit = 25\n\nstderr:\nrhtest: running the reference's entry 0x402b8a\nrhtest: not translated: 00401b70\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  0000000060019401  F_00401b70+0x31\n   2  000000006001cc62  F_004021b0+0x3f2\n   3  000000006001ec58  F_00402a29+0x458\n   4  000000000047dd37  BaseThreadInitThunk+0x17\n   5  00007ffb772ff2bc  RtlUserThreadStart+0x2c\nrhtest: ExitProcess(0x19) on thread 7392\n   0  0000000060009e1b  ExitReport+0x8b\n   1  000000006000a396  gen_imp_ExitProcess+0x16\n   2  000000006001feab  F_00402eef+0x28b\n   3  000000006001ecec  F_00402a29+0x4ec\n   4  000000000047dd37  BaseThreadInitThunk+0x17\n   5  00007ffb772ff2bc  RtlUserThreadStart+0x2c",
+  "detail": "--- expected\n+++ actual\n@@ -7,3 +7,3 @@\n refs = 2338 (0x00000922)\n-updates = 4229 (0x00001085)\n+updates = 0 (0x00000000)\n allocs = 718 (0x000002ce)\n@@ -11,8 +11,8 @@\n pools = 87 (0x00000057)\n-fronts = 21016 (0x00005218)\n+fronts = 16 (0x00000010)\n lazies = 167574 (0x00028e96)\n-sinks = 11501 (0x00002ced)\n-counteds = 2700 (0x00000a8c)\n-events = -417875423 (0xe717ba21)\n-checksum = 0x751aaac8\n-exit = 72\n+sinks = 301 (0x0000012d)\n+counteds = 0 (0x00000000)\n+events = -983310210 (0xc563e07e)\n+checksum = 0x2c6df599\n+exit = 25\n\nstderr:\nrhtest: running the reference's entry 0x402b8a\nrhtest: not translated: 00401b70\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  0000000060019401  F_00401b70+0x31\n   2  000000006001cc62  F_004021b0+0x3f2\n   3  000000006001ec58  F_00402a29+0x458\n   4  000000000047dd37  BaseThreadInitThunk+0x17\n   5  00007ff93aedf2bc  RtlUserThreadStart+0x2c\nrhtest: ExitProcess(0x19) on thread 8160\n   0  0000000060009e1b  ExitReport+0x8b\n   1  000000006000a396  gen_imp_ExitProcess+0x16\n   2  000000006001feab  F_00402eef+0x28b\n   3  000000006001ecec  F_00402a29+0x4ec\n   4  000000000047dd37  BaseThreadInitThunk+0x17\n   5  00007ff93aedf2bc  RtlUserThreadStart+0x2c",
   "fidelity": {
    "by_size": 0.983,
    "functions": 399,
@@ -167,7 +161,7 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "crt-O2": {
   "fidelity": {
@@ -179,7 +173,7 @@
    "translated": 354
   },
   "status": "PASS",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "crt-Od": {
   "fidelity": {
@@ -191,10 +185,10 @@
    "translated": 365
   },
   "status": "PASS",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "crt-client": {
-  "detail": "--- expected\n+++ actual\n@@ -10,3 +10,3 @@\n heap = 78554544 (0x04aea5b0)\n-strings = 1372312099 (0x51cbd223)\n+strings = 0 (0x00000000)\n ctypes = 1599190844 (0x5f51b73c)\n@@ -16,3 +16,3 @@\n print = 20 (0x00000014)\n-checksum = 0x8f2821cd\n-exit = 77\n+checksum = 0x992a928c\n+exit = 12\n\nstderr:\nrhtest: running the reference's entry 0x403f6e\nrhtest: not translated: 00401710\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  0000000060019621  F_00401710+0x31\n   2  000000006001c06c  F_00401ae0+0x6ec\n   3  0000000060021ab8  F_00403e0d+0x458\n   4  000000000047dd37  BaseThreadInitThunk+0x17\n   5  00007ffb772ff2bc  RtlUserThreadStart+0x2c\nrhtest: ExitProcess(0xc) on thread 1412\n   0  0000000060009c6b  ExitReport+0x8b\n   1  000000006000a246  gen_imp_ExitProcess+0x16\n   2  000000006002836b  F_0040754c+0x28b\n   3  0000000060021b4c  F_00403e0d+0x4ec\n   4  000000000047dd37  BaseThreadInitThunk+0x17\n   5  00007ffb772ff2bc  RtlUserThreadStart+0x2c",
+  "detail": "--- expected\n+++ actual\n@@ -10,3 +10,3 @@\n heap = 78554544 (0x04aea5b0)\n-strings = 1372312099 (0x51cbd223)\n+strings = 0 (0x00000000)\n ctypes = 1599190844 (0x5f51b73c)\n@@ -16,3 +16,3 @@\n print = 20 (0x00000014)\n-checksum = 0x8f2821cd\n-exit = 77\n+checksum = 0x992a928c\n+exit = 12\n\nstderr:\nrhtest: running the reference's entry 0x403f6e\nrhtest: not translated: 00401710\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  0000000060019621  F_00401710+0x31\n   2  000000006001c06c  F_00401ae0+0x6ec\n   3  0000000060021ab8  F_00403e0d+0x458\n   4  00000000005bdd37  BaseThreadInitThunk+0x17\n   5  00007ff93aedf2bc  RtlUserThreadStart+0x2c\nrhtest: ExitProcess(0xc) on thread 8396\n   0  0000000060009c6b  ExitReport+0x8b\n   1  000000006000a246  gen_imp_ExitProcess+0x16\n   2  000000006002836b  F_0040754c+0x28b\n   3  0000000060021b4c  F_00403e0d+0x4ec\n   4  00000000005bdd37  BaseThreadInitThunk+0x17\n   5  00007ff93aedf2bc  RtlUserThreadStart+0x2c",
   "fidelity": {
    "by_size": 0.981,
    "functions": 353,
@@ -205,10 +199,10 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "eh-O2": {
-  "detail": "--- expected\n+++ actual\n@@ -10,3 +10,3 @@\n events = 1073179329 (0x3ff76ac1)\n-rethrows = 4243 (0x00001093)\n+rethrows = 0 (0x00000000)\n events = 964592513 (0x397e8381)\n@@ -18,3 +18,3 @@\n finally_param = 2107 (0x0000083b)\n-checksum = 0x5774e739\n-exit = 57\n+checksum = 0x1452bb02\n+exit = 2\n\nstderr:\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  00000000600193f1  F_0040138c+0x31\n   2  000000006000a2dc  gen_eh_resume+0x2c\n   3  0000000060019ec5  F_00401340+0x95\n   4  000000006001b461  F_00401b60+0x141\n   5  000000006001d26f  F_004023c8+0x43f\n   6  000000000046dd37  BaseThreadInitThunk+0x17\n   7  00007ffb772ff2bc  RtlUserThreadStart+0x2c\nrhtest: ExitProcess(0x2) on thread 3716\n   0  0000000060009e1b  ExitReport+0x8b\n   1  000000006000a396  gen_imp_ExitProcess+0x16\n   2  0000000060023f2b  F_00404b1f+0x28b\n   3  000000006001d2a7  F_004023c8+0x477\n   4  000000000046dd37  BaseThreadInitThunk+0x17\n   5  00007ffb772ff2bc  RtlUserThreadStart+0x2c",
+  "detail": "--- expected\n+++ actual\n@@ -10,3 +10,3 @@\n events = 1073179329 (0x3ff76ac1)\n-rethrows = 4243 (0x00001093)\n+rethrows = 0 (0x00000000)\n events = 964592513 (0x397e8381)\n@@ -18,3 +18,3 @@\n finally_param = 2107 (0x0000083b)\n-checksum = 0x5774e739\n-exit = 57\n+checksum = 0x1452bb02\n+exit = 2\n\nstderr:\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  00000000600193f1  F_0040138c+0x31\n   2  000000006000a2dc  gen_eh_resume+0x2c\n   3  0000000060019ec5  F_00401340+0x95\n   4  000000006001b461  F_00401b60+0x141\n   5  000000006001d26f  F_004023c8+0x43f\n   6  000000000046dd37  BaseThreadInitThunk+0x17\n   7  00007ff93aedf2bc  RtlUserThreadStart+0x2c\nrhtest: ExitProcess(0x2) on thread 7044\n   0  0000000060009e1b  ExitReport+0x8b\n   1  000000006000a396  gen_imp_ExitProcess+0x16\n   2  0000000060023f2b  F_00404b1f+0x28b\n   3  000000006001d2a7  F_004023c8+0x477\n   4  000000000046dd37  BaseThreadInitThunk+0x17\n   5  00007ff93aedf2bc  RtlUserThreadStart+0x2c",
   "fidelity": {
    "by_size": 0.985,
    "functions": 341,
@@ -219,10 +213,10 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "eh-Od": {
-  "detail": "--- expected\n+++ actual\n@@ -10,5 +10,5 @@\n events = 1073179329 (0x3ff76ac1)\n-rethrows = 4243 (0x00001093)\n+rethrows = 0 (0x00000000)\n events = 964592513 (0x397e8381)\n-nested = 7014 (0x00001b66)\n+nested = 0 (0x00000000)\n events = -282517251 (0xef2920fd)\n@@ -18,3 +18,3 @@\n finally_param = 2107 (0x0000083b)\n-checksum = 0x5774e739\n-exit = 57\n+checksum = 0x1e631a55\n+exit = 85\n\nstderr:\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  0000000060019491  F_00401479+0x31\n   2  000000006000a2dc  gen_eh_resume+0x2c\n   3  000000006001a1b6  F_00401370+0x96\n   4  000000006001bdc6  F_00401f50+0x166\n   5  000000006001dc1f  F_004027b8+0x43f\n   6  000000000061dd37  BaseThreadInitThunk+0x17\n   7  00007ffb772ff2bc  RtlUserThreadStart+0x2c\nrhtest: ExitProcess(0x55) on thread 3664\n   0  0000000060009e1b  ExitReport+0x8b\n   1  000000006000a396  gen_imp_ExitProcess+0x16\n   2  00000000600248db  F_00404f0f+0x28b\n   3  000000006001dc57  F_004027b8+0x477\n   4  000000000061dd37  BaseThreadInitThunk+0x17\n   5  00007ffb772ff2bc  RtlUserThreadStart+0x2c",
+  "detail": "--- expected\n+++ actual\n@@ -10,5 +10,5 @@\n events = 1073179329 (0x3ff76ac1)\n-rethrows = 4243 (0x00001093)\n+rethrows = 0 (0x00000000)\n events = 964592513 (0x397e8381)\n-nested = 7014 (0x00001b66)\n+nested = 0 (0x00000000)\n events = -282517251 (0xef2920fd)\n@@ -18,3 +18,3 @@\n finally_param = 2107 (0x0000083b)\n-checksum = 0x5774e739\n-exit = 57\n+checksum = 0x1e631a55\n+exit = 85\n\nstderr:\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  0000000060019491  F_00401479+0x31\n   2  000000006000a2dc  gen_eh_resume+0x2c\n   3  000000006001a1b6  F_00401370+0x96\n   4  000000006001bdc6  F_00401f50+0x166\n   5  000000006001dc1f  F_004027b8+0x43f\n   6  000000000063dd37  BaseThreadInitThunk+0x17\n   7  00007ff93aedf2bc  RtlUserThreadStart+0x2c\nrhtest: ExitProcess(0x55) on thread 5436\n   0  0000000060009e1b  ExitReport+0x8b\n   1  000000006000a396  gen_imp_ExitProcess+0x16\n   2  00000000600248db  F_00404f0f+0x28b\n   3  000000006001dc57  F_004027b8+0x477\n   4  000000000063dd37  BaseThreadInitThunk+0x17\n   5  00007ff93aedf2bc  RtlUserThreadStart+0x2c",
   "fidelity": {
    "by_size": 0.983,
    "functions": 368,
@@ -233,10 +227,10 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "eh-client": {
-  "detail": "--- expected\n+++ actual\n@@ -10,11 +10,11 @@\n events = 1073179329 (0x3ff76ac1)\n-rethrows = 4243 (0x00001093)\n+rethrows = 0 (0x00000000)\n events = 964592513 (0x397e8381)\n-nested = 7014 (0x00001b66)\n-events = -282517251 (0xef2920fd)\n+nested = 0 (0x00000000)\n+events = -2015934111 (0x87d74961)\n ctor = 67 (0x00000043)\n-events = 63148701 (0x03c3929d)\n+events = -828446463 (0xce9ee901)\n seh = -536865279 (0xe0001601)\n finally_param = 2107 (0x0000083b)\n-checksum = 0x5774e739\n-exit = 57\n+checksum = 0xd78f4e33\n+exit = 51\n\nstderr:\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  00000000600193f1  F_0040140c+0x31\n   2  000000006000a2dc  gen_eh_resume+0x2c\n   3  000000006001a045  F_004013c0+0x95\n   4  000000006001b3b3  F_00401b30+0x123\n   5  000000006001c25f  F_00401d55+0x43f\n   6  00000000005cdd37  BaseThreadInitThunk+0x17\n   7  00007ffb772ff2bc  RtlUserThreadStart+0x2c\nrhtest: ExitProcess(0x33) on thread 6840\n   0  0000000060009e1b  ExitReport+0x8b\n   1  000000006000a396  gen_imp_ExitProcess+0x16\n   2  000000006001d5eb  F_0040241b+0x28b\n   3  000000006001c297  F_00401d55+0x477\n   4  00000000005cdd37  BaseThreadInitThunk+0x17\n   5  00007ffb772ff2bc  RtlUserThreadStart+0x2c",
+  "detail": "--- expected\n+++ actual\n@@ -10,11 +10,11 @@\n events = 1073179329 (0x3ff76ac1)\n-rethrows = 4243 (0x00001093)\n+rethrows = 0 (0x00000000)\n events = 964592513 (0x397e8381)\n-nested = 7014 (0x00001b66)\n-events = -282517251 (0xef2920fd)\n+nested = 0 (0x00000000)\n+events = -2015934111 (0x87d74961)\n ctor = 67 (0x00000043)\n-events = 63148701 (0x03c3929d)\n+events = -828446463 (0xce9ee901)\n seh = -536865279 (0xe0001601)\n finally_param = 2107 (0x0000083b)\n-checksum = 0x5774e739\n-exit = 57\n+checksum = 0xd78f4e33\n+exit = 51\n\nstderr:\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  00000000600193f1  F_0040140c+0x31\n   2  000000006000a2dc  gen_eh_resume+0x2c\n   3  000000006001a045  F_004013c0+0x95\n   4  000000006001b3b3  F_00401b30+0x123\n   5  000000006001c25f  F_00401d55+0x43f\n   6  000000000057dd37  BaseThreadInitThunk+0x17\n   7  00007ff93aedf2bc  RtlUserThreadStart+0x2c\nrhtest: ExitProcess(0x33) on thread 9084\n   0  0000000060009e1b  ExitReport+0x8b\n   1  000000006000a396  gen_imp_ExitProcess+0x16\n   2  000000006001d5eb  F_0040241b+0x28b\n   3  000000006001c297  F_00401d55+0x477\n   4  000000000057dd37  BaseThreadInitThunk+0x17\n   5  00007ff93aedf2bc  RtlUserThreadStart+0x2c",
   "fidelity": {
    "by_size": 0.984,
    "functions": 340,
@@ -247,7 +241,7 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "engine-GL": {
   "detail": "--- expected\n+++ actual\n@@ -1,13 +1 @@\n-stream len = 51 (0x00000033)\n-stream hash = -1763984990 (0x96dbb9a2)\n-stream tail = 93 (0x0000005d)\n-own slot acc = 1255145753 (0x4ad00119)\n-own slot loads = 17 (0x00000011)\n-getter chain = 340455 (0x000531e7)\n-getter total = 389797 (0x0005f2a5)\n-reader sum x16 = 1920 (0x00000780)\n-reader pos = 12 (0x0000000c)\n-shared value = 376364 (0x0005be2c)\n-shared refs = 0 (0x00000000)\n-checksum = 0x93c339ef\n-exit = 111\n+exit = 3221225477\n\nstderr:\nrhtest: reference mapped at 0x400000 (0x11000 bytes): 321 entry jumps (8 too close to the next), 60 imports resolved, 0 missing\nrhtest: running the reference's entry 0x40201b\nrhipper: unhandled exception C0000005; the chain:\n  node 0381FE74 handler 0040B011 FuncInfo 0040E6DC scope table 00000000 state 2",
@@ -261,7 +255,7 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "engine-O2": {
   "fidelity": {
@@ -273,7 +267,7 @@
    "translated": 330
   },
   "status": "PASS",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "engine-Od": {
   "fidelity": {
@@ -285,10 +279,10 @@
    "translated": 350
   },
   "status": "PASS",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "engine-client": {
-  "detail": "--- expected\n+++ actual\n@@ -1,3 +1,3 @@\n-stream len = 51 (0x00000033)\n-stream hash = -1763984990 (0x96dbb9a2)\n+stream len = 46 (0x0000002e)\n+stream hash = 214635475 (0x0ccb13d3)\n stream tail = 93 (0x0000005d)\n@@ -5,4 +5,4 @@\n own slot loads = 17 (0x00000011)\n-getter chain = 340455 (0x000531e7)\n-getter total = 389797 (0x0005f2a5)\n+getter chain = -1439852857 (0xaa2d96c7)\n+getter total = 2053233465 (0x7a61db39)\n reader sum x16 = 1920 (0x00000780)\n@@ -10,4 +10,4 @@\n shared value = 376364 (0x0005be2c)\n-shared refs = 0 (0x00000000)\n-checksum = 0x93c339ef\n-exit = 111\n+shared refs = -3 (0xfffffffd)\n+checksum = 0x4250e0c7\n+exit = 71\n\nstderr:\nrhtest: not translated: 00401980\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  0000000060019641  F_00401980+0x31\n   2  000000006001ae46  F_00401a20+0x46\n   3  000000006001b5d5  F_00401d80+0x195\n   4  000000006001c033  F_00401eba+0x443\n   5  000000000062dd37  BaseThreadInitThunk+0x17\n   6  00007ffb772ff2bc  RtlUserThreadStart+0x2c\nrhtest: ExitProcess(0x47) on thread 2620\n   0  0000000060009e1b  ExitReport+0x8b\n   1  000000006000a396  gen_imp_ExitProcess+0x16\n   2  000000006001d98b  F_0040266b+0x28b\n   3  000000006001c073  F_00401eba+0x483\n   4  000000000062dd37  BaseThreadInitThunk+0x17\n   5  00007ffb772ff2bc  RtlUserThreadStart+0x2c",
+  "detail": "--- expected\n+++ actual\n@@ -1,3 +1,3 @@\n-stream len = 51 (0x00000033)\n-stream hash = -1763984990 (0x96dbb9a2)\n+stream len = 46 (0x0000002e)\n+stream hash = 214635475 (0x0ccb13d3)\n stream tail = 93 (0x0000005d)\n@@ -5,4 +5,4 @@\n own slot loads = 17 (0x00000011)\n-getter chain = 340455 (0x000531e7)\n-getter total = 389797 (0x0005f2a5)\n+getter chain = -1439852857 (0xaa2d96c7)\n+getter total = 2053233465 (0x7a61db39)\n reader sum x16 = 1920 (0x00000780)\n@@ -10,4 +10,4 @@\n shared value = 376364 (0x0005be2c)\n-shared refs = 0 (0x00000000)\n-checksum = 0x93c339ef\n-exit = 111\n+shared refs = -3 (0xfffffffd)\n+checksum = 0x4250e0c7\n+exit = 71\n\nstderr:\nrhtest: not translated: 00401980\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  0000000060019641  F_00401980+0x31\n   2  000000006001ae46  F_00401a20+0x46\n   3  000000006001b5d5  F_00401d80+0x195\n   4  000000006001c033  F_00401eba+0x443\n   5  00000000005fdd37  BaseThreadInitThunk+0x17\n   6  00007ff93aedf2bc  RtlUserThreadStart+0x2c\nrhtest: ExitProcess(0x47) on thread 3400\n   0  0000000060009e1b  ExitReport+0x8b\n   1  000000006000a396  gen_imp_ExitProcess+0x16\n   2  000000006001d98b  F_0040266b+0x28b\n   3  000000006001c073  F_00401eba+0x483\n   4  00000000005fdd37  BaseThreadInitThunk+0x17\n   5  00007ff93aedf2bc  RtlUserThreadStart+0x2c",
   "fidelity": {
    "by_size": 0.985,
    "functions": 329,
@@ -299,10 +293,10 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "float-O2": {
-  "detail": "--- expected\n+++ actual\n@@ -1,45 +1,2 @@\n-fadd3 = 1084437299 (0x40a33333)\n-fmuldiv = 1086834854 (0x40c7c8a6)\n-dadd3 = 0x40146666:0x66666666\n-dmuldiv = 0x4018f914:0xc1bacf90\n-dmix = 0xc0157777:0x70000000\n-fneg = -1059061760 (0xc0e00000)\n-dabs = 0x40288000:0x00000000\n-dsqrt = 0x4012548e:0xb9151e85\n-fsqrt = 1086148743 (0x40bd5087)\n-d2i = -8641 (0xffffde3f)\n-d2u = -94967296 (0xfa56ea00)\n-d2u_frac = -94967296 (0xfa56ea00)\n-d2l = 0xffe72189:0x7e928000\n-d2ul = 0x80000000:0x00000000\n-d2ul_neg = 0xffffffff:0xffffffef\n-d2ul_huge = 0x80000000:0x00000000\n-d2l_huge = 0x80000000:0x00000000\n-d2u_neg = -22 (0xffffffea)\n-d2i_huge = -2147483648 (0x80000000)\n-d2ul_nan = 0x80000000:0x00000000\n-i2d = 0xc1255cea:0x00000000\n-u2d = 0x41efffff:0xfee00000\n-l2d = 0xc29fdb97:0x530eb400\n-ul2d = 0x43f00000:0x00000000\n-d2f = 1075139925 (0x40155555)\n-f2d = 0x4002aaaa:0xa0000000\n-f2i = -699 (0xfffffd45)\n-dcmp_lt = 35 (0x00000023)\n-dcmp_eq = 26 (0x0000001a)\n-dcmp_nan = 32 (0x00000020)\n-dcmp_inf = 44 (0x0000002c)\n-fcmp_lt = 44 (0x0000002c)\n-fcmp_nan = 32 (0x00000020)\n-dmin = 0xc01c0000:0x00000000\n-dclamp = 0x40250000:0x00000000\n-horner = 0x401a3f55:0x6787bae8\n-series = 0x40091f0e:0x58c0b1a8\n\nstderr:\nrhtest: reference mapped at 0x400000 (0x11000 bytes): 271 entry jumps (5 too close to the next), 56 imports resolved, 0 missing\nrhtest: running the reference's entry 0x402a1e\nrhtest: not translated: 00401a00\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  0000000060019601  F_00401a00+0x31\n   2  000000006001c598  F_004028bd+0x458\n   3  000000000060dd37  BaseThreadInitThunk+0x17\n   4  00007ffb772ff2bc  RtlUserThreadStart+0x2c\nrhtest: ExitProcess(0x45) on thread 7288\n   0  0000000060009dfb  ExitReport+0x8b\n   1  000000006000a406  gen_imp_ExitProcess+0x16\n   2  000000006001f01b  F_00403c35+0x28b\n   3  000000006001c62c  F_004028bd+0x4ec\n   4  000000000060dd37  BaseThreadInitThunk+0x17\n   5  00007ffb772ff2bc  RtlUserThreadStart+0x2c",
+  "detail": "--- expected\n+++ actual\n@@ -1,45 +1,2 @@\n-fadd3 = 1084437299 (0x40a33333)\n-fmuldiv = 1086834854 (0x40c7c8a6)\n-dadd3 = 0x40146666:0x66666666\n-dmuldiv = 0x4018f914:0xc1bacf90\n-dmix = 0xc0157777:0x70000000\n-fneg = -1059061760 (0xc0e00000)\n-dabs = 0x40288000:0x00000000\n-dsqrt = 0x4012548e:0xb9151e85\n-fsqrt = 1086148743 (0x40bd5087)\n-d2i = -8641 (0xffffde3f)\n-d2u = -94967296 (0xfa56ea00)\n-d2u_frac = -94967296 (0xfa56ea00)\n-d2l = 0xffe72189:0x7e928000\n-d2ul = 0x80000000:0x00000000\n-d2ul_neg = 0xffffffff:0xffffffef\n-d2ul_huge = 0x80000000:0x00000000\n-d2l_huge = 0x80000000:0x00000000\n-d2u_neg = -22 (0xffffffea)\n-d2i_huge = -2147483648 (0x80000000)\n-d2ul_nan = 0x80000000:0x00000000\n-i2d = 0xc1255cea:0x00000000\n-u2d = 0x41efffff:0xfee00000\n-l2d = 0xc29fdb97:0x530eb400\n-ul2d = 0x43f00000:0x00000000\n-d2f = 1075139925 (0x40155555)\n-f2d = 0x4002aaaa:0xa0000000\n-f2i = -699 (0xfffffd45)\n-dcmp_lt = 35 (0x00000023)\n-dcmp_eq = 26 (0x0000001a)\n-dcmp_nan = 32 (0x00000020)\n-dcmp_inf = 44 (0x0000002c)\n-fcmp_lt = 44 (0x0000002c)\n-fcmp_nan = 32 (0x00000020)\n-dmin = 0xc01c0000:0x00000000\n-dclamp = 0x40250000:0x00000000\n-horner = 0x401a3f55:0x6787bae8\n-series = 0x40091f0e:0x58c0b1a8\n\nstderr:\nrhtest: reference mapped at 0x400000 (0x11000 bytes): 271 entry jumps (5 too close to the next), 56 imports resolved, 0 missing\nrhtest: running the reference's entry 0x402a1e\nrhtest: not translated: 00401a00\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  0000000060019601  F_00401a00+0x31\n   2  000000006001c598  F_004028bd+0x458\n   3  00000000005bdd37  BaseThreadInitThunk+0x17\n   4  00007ff93aedf2bc  RtlUserThreadStart+0x2c\nrhtest: ExitProcess(0x45) on thread 8388\n   0  0000000060009dfb  ExitReport+0x8b\n   1  000000006000a406  gen_imp_ExitProcess+0x16\n   2  000000006001f01b  F_00403c35+0x28b\n   3  000000006001c62c  F_004028bd+0x4ec\n   4  00000000005bdd37  BaseThreadInitThunk+0x17\n   5  00007ff93aedf2bc  RtlUserThreadStart+0x2c",
   "fidelity": {
    "by_size": 0.915,
    "functions": 276,
@@ -313,10 +307,10 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "float-Od": {
-  "detail": "--- expected\n+++ actual\n@@ -1,45 +1,2 @@\n-fadd3 = 1084437299 (0x40a33333)\n-fmuldiv = 1086834854 (0x40c7c8a6)\n-dadd3 = 0x40146666:0x66666666\n-dmuldiv = 0x4018f914:0xc1bacf90\n-dmix = 0xc0157777:0x70000000\n-fneg = -1059061760 (0xc0e00000)\n-dabs = 0x40288000:0x00000000\n-dsqrt = 0x4012548e:0xb9151e85\n-fsqrt = 1086148743 (0x40bd5087)\n-d2i = -8641 (0xffffde3f)\n-d2u = -94967296 (0xfa56ea00)\n-d2u_frac = -94967296 (0xfa56ea00)\n-d2l = 0xffe72189:0x7e928000\n-d2ul = 0x80000000:0x00000000\n-d2ul_neg = 0xffffffff:0xffffffef\n-d2ul_huge = 0x80000000:0x00000000\n-d2l_huge = 0x80000000:0x00000000\n-d2u_neg = -22 (0xffffffea)\n-d2i_huge = -2147483648 (0x80000000)\n-d2ul_nan = 0x80000000:0x00000000\n-i2d = 0xc1255cea:0x00000000\n-u2d = 0x41efffff:0xfee00000\n-l2d = 0xc29fdb97:0x530eb400\n-ul2d = 0x43f00000:0x00000000\n-d2f = 1075139925 (0x40155555)\n-f2d = 0x4002aaaa:0xa0000000\n-f2i = -699 (0xfffffd45)\n-dcmp_lt = 35 (0x00000023)\n-dcmp_eq = 26 (0x0000001a)\n-dcmp_nan = 32 (0x00000020)\n-dcmp_inf = 44 (0x0000002c)\n-fcmp_lt = 44 (0x0000002c)\n-fcmp_nan = 32 (0x00000020)\n-dmin = 0xc01c0000:0x00000000\n-dclamp = 0x40250000:0x00000000\n-horner = 0x401a3f55:0x6787bae8\n-series = 0x40091f0e:0x58c0b1a8\n\nstderr:\nrhtest: reference mapped at 0x400000 (0x12000 bytes): 287 entry jumps (5 too close to the next), 56 imports resolved, 0 missing\nrhtest: running the reference's entry 0x4029b9\nrhtest: not translated: 004018e0\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  0000000060019661  F_004018e0+0x31\n   2  000000006001c8d8  F_00402858+0x458\n   3  000000000047dd37  BaseThreadInitThunk+0x17\n   4  00007ffb772ff2bc  RtlUserThreadStart+0x2c\nrhtest: ExitProcess(0x45) on thread 8300\n   0  0000000060009dfb  ExitReport+0x8b\n   1  000000006000a406  gen_imp_ExitProcess+0x16\n   2  000000006002061b  F_00404545+0x28b\n   3  000000006001c93d  F_00402858+0x4bd\n   4  000000000047dd37  BaseThreadInitThunk+0x17\n   5  00007ffb772ff2bc  RtlUserThreadStart+0x2c",
+  "detail": "--- expected\n+++ actual\n@@ -1,45 +1,2 @@\n-fadd3 = 1084437299 (0x40a33333)\n-fmuldiv = 1086834854 (0x40c7c8a6)\n-dadd3 = 0x40146666:0x66666666\n-dmuldiv = 0x4018f914:0xc1bacf90\n-dmix = 0xc0157777:0x70000000\n-fneg = -1059061760 (0xc0e00000)\n-dabs = 0x40288000:0x00000000\n-dsqrt = 0x4012548e:0xb9151e85\n-fsqrt = 1086148743 (0x40bd5087)\n-d2i = -8641 (0xffffde3f)\n-d2u = -94967296 (0xfa56ea00)\n-d2u_frac = -94967296 (0xfa56ea00)\n-d2l = 0xffe72189:0x7e928000\n-d2ul = 0x80000000:0x00000000\n-d2ul_neg = 0xffffffff:0xffffffef\n-d2ul_huge = 0x80000000:0x00000000\n-d2l_huge = 0x80000000:0x00000000\n-d2u_neg = -22 (0xffffffea)\n-d2i_huge = -2147483648 (0x80000000)\n-d2ul_nan = 0x80000000:0x00000000\n-i2d = 0xc1255cea:0x00000000\n-u2d = 0x41efffff:0xfee00000\n-l2d = 0xc29fdb97:0x530eb400\n-ul2d = 0x43f00000:0x00000000\n-d2f = 1075139925 (0x40155555)\n-f2d = 0x4002aaaa:0xa0000000\n-f2i = -699 (0xfffffd45)\n-dcmp_lt = 35 (0x00000023)\n-dcmp_eq = 26 (0x0000001a)\n-dcmp_nan = 32 (0x00000020)\n-dcmp_inf = 44 (0x0000002c)\n-fcmp_lt = 44 (0x0000002c)\n-fcmp_nan = 32 (0x00000020)\n-dmin = 0xc01c0000:0x00000000\n-dclamp = 0x40250000:0x00000000\n-horner = 0x401a3f55:0x6787bae8\n-series = 0x40091f0e:0x58c0b1a8\n\nstderr:\nrhtest: reference mapped at 0x400000 (0x12000 bytes): 287 entry jumps (5 too close to the next), 56 imports resolved, 0 missing\nrhtest: running the reference's entry 0x4029b9\nrhtest: not translated: 004018e0\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  0000000060019661  F_004018e0+0x31\n   2  000000006001c8d8  F_00402858+0x458\n   3  000000000047dd37  BaseThreadInitThunk+0x17\n   4  00007ff93aedf2bc  RtlUserThreadStart+0x2c\nrhtest: ExitProcess(0x45) on thread 3896\n   0  0000000060009dfb  ExitReport+0x8b\n   1  000000006000a406  gen_imp_ExitProcess+0x16\n   2  000000006002061b  F_00404545+0x28b\n   3  000000006001c93d  F_00402858+0x4bd\n   4  000000000047dd37  BaseThreadInitThunk+0x17\n   5  00007ff93aedf2bc  RtlUserThreadStart+0x2c",
   "fidelity": {
    "by_size": 0.915,
    "functions": 292,
@@ -327,10 +321,10 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "float-SSE2": {
-  "detail": "--- expected\n+++ actual\n@@ -1,45 +1,2 @@\n-fadd3 = 1084437299 (0x40a33333)\n-fmuldiv = 1086834854 (0x40c7c8a6)\n-dadd3 = 0x40146666:0x66666666\n-dmuldiv = 0x4018f914:0xc1bacf90\n-dmix = 0xc0157777:0x70000000\n-fneg = -1059061760 (0xc0e00000)\n-dabs = 0x40288000:0x00000000\n-dsqrt = 0x4012548e:0xb9151e85\n-fsqrt = 1086148743 (0x40bd5087)\n-d2i = -8641 (0xffffde3f)\n-d2u = -94967296 (0xfa56ea00)\n-d2u_frac = -94967296 (0xfa56ea00)\n-d2l = 0xffe72189:0x7e928000\n-d2ul = 0x80000000:0x00000000\n-d2ul_neg = 0xffffffff:0xffffffef\n-d2ul_huge = 0x80000000:0x00000000\n-d2l_huge = 0x80000000:0x00000000\n-d2u_neg = -22 (0xffffffea)\n-d2i_huge = -2147483648 (0x80000000)\n-d2ul_nan = 0x80000000:0x00000000\n-i2d = 0xc1255cea:0x00000000\n-u2d = 0x41efffff:0xfee00000\n-l2d = 0xc29fdb97:0x530eb400\n-ul2d = 0x43f00000:0x00000000\n-d2f = 1075139925 (0x40155555)\n-f2d = 0x4002aaaa:0xa0000000\n-f2i = -699 (0xfffffd45)\n-dcmp_lt = 35 (0x00000023)\n-dcmp_eq = 26 (0x0000001a)\n-dcmp_nan = 32 (0x00000020)\n-dcmp_inf = 44 (0x0000002c)\n-fcmp_lt = 44 (0x0000002c)\n-fcmp_nan = 32 (0x00000020)\n-dmin = 0xc01c0000:0x00000000\n-dclamp = 0x40250000:0x00000000\n-horner = 0x401a3f55:0x6787bae8\n-series = 0x40091f0e:0x58c0b1a8\n\nstderr:\nrhtest: reference mapped at 0x400000 (0x11000 bytes): 270 entry jumps (5 too close to the next), 56 imports resolved, 0 missing\nrhtest: running the reference's entry 0x402d5e\nrhtest: not translated: 00401bd0\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  0000000060019611  F_00401bd0+0x31\n   2  000000006001c388  F_00402bfd+0x458\n   3  000000000059dd37  BaseThreadInitThunk+0x17\n   4  00007ffb772ff2bc  RtlUserThreadStart+0x2c\nrhtest: ExitProcess(0x45) on thread 5852\n   0  0000000060009dfb  ExitReport+0x8b\n   1  000000006000a406  gen_imp_ExitProcess+0x16\n   2  000000006001ee0b  F_00403f75+0x28b\n   3  000000006001c41c  F_00402bfd+0x4ec\n   4  000000000059dd37  BaseThreadInitThunk+0x17\n   5  00007ffb772ff2bc  RtlUserThreadStart+0x2c",
+  "detail": "--- expected\n+++ actual\n@@ -1,45 +1,2 @@\n-fadd3 = 1084437299 (0x40a33333)\n-fmuldiv = 1086834854 (0x40c7c8a6)\n-dadd3 = 0x40146666:0x66666666\n-dmuldiv = 0x4018f914:0xc1bacf90\n-dmix = 0xc0157777:0x70000000\n-fneg = -1059061760 (0xc0e00000)\n-dabs = 0x40288000:0x00000000\n-dsqrt = 0x4012548e:0xb9151e85\n-fsqrt = 1086148743 (0x40bd5087)\n-d2i = -8641 (0xffffde3f)\n-d2u = -94967296 (0xfa56ea00)\n-d2u_frac = -94967296 (0xfa56ea00)\n-d2l = 0xffe72189:0x7e928000\n-d2ul = 0x80000000:0x00000000\n-d2ul_neg = 0xffffffff:0xffffffef\n-d2ul_huge = 0x80000000:0x00000000\n-d2l_huge = 0x80000000:0x00000000\n-d2u_neg = -22 (0xffffffea)\n-d2i_huge = -2147483648 (0x80000000)\n-d2ul_nan = 0x80000000:0x00000000\n-i2d = 0xc1255cea:0x00000000\n-u2d = 0x41efffff:0xfee00000\n-l2d = 0xc29fdb97:0x530eb400\n-ul2d = 0x43f00000:0x00000000\n-d2f = 1075139925 (0x40155555)\n-f2d = 0x4002aaaa:0xa0000000\n-f2i = -699 (0xfffffd45)\n-dcmp_lt = 35 (0x00000023)\n-dcmp_eq = 26 (0x0000001a)\n-dcmp_nan = 32 (0x00000020)\n-dcmp_inf = 44 (0x0000002c)\n-fcmp_lt = 44 (0x0000002c)\n-fcmp_nan = 32 (0x00000020)\n-dmin = 0xc01c0000:0x00000000\n-dclamp = 0x40250000:0x00000000\n-horner = 0x401a3f55:0x6787bae8\n-series = 0x40091f0e:0x58c0b1a8\n\nstderr:\nrhtest: reference mapped at 0x400000 (0x11000 bytes): 270 entry jumps (5 too close to the next), 56 imports resolved, 0 missing\nrhtest: running the reference's entry 0x402d5e\nrhtest: not translated: 00401bd0\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  0000000060019611  F_00401bd0+0x31\n   2  000000006001c388  F_00402bfd+0x458\n   3  000000000047dd37  BaseThreadInitThunk+0x17\n   4  00007ff93aedf2bc  RtlUserThreadStart+0x2c\nrhtest: ExitProcess(0x45) on thread 6216\n   0  0000000060009dfb  ExitReport+0x8b\n   1  000000006000a406  gen_imp_ExitProcess+0x16\n   2  000000006001ee0b  F_00403f75+0x28b\n   3  000000006001c41c  F_00402bfd+0x4ec\n   4  000000000047dd37  BaseThreadInitThunk+0x17\n   5  00007ff93aedf2bc  RtlUserThreadStart+0x2c",
   "fidelity": {
    "by_size": 0.908,
    "functions": 275,
@@ -341,10 +335,10 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "float-client": {
-  "detail": "--- expected\n+++ actual\n@@ -1,45 +1,2 @@\n-fadd3 = 1084437299 (0x40a33333)\n-fmuldiv = 1086834854 (0x40c7c8a6)\n-dadd3 = 0x40146666:0x66666666\n-dmuldiv = 0x4018f914:0xc1bacf90\n-dmix = 0xc0157777:0x70000000\n-fneg = -1059061760 (0xc0e00000)\n-dabs = 0x40288000:0x00000000\n-dsqrt = 0x4012548e:0xb9151e85\n-fsqrt = 1086148743 (0x40bd5087)\n-d2i = -8641 (0xffffde3f)\n-d2u = -94967296 (0xfa56ea00)\n-d2u_frac = -94967296 (0xfa56ea00)\n-d2l = 0xffe72189:0x7e928000\n-d2ul = 0x80000000:0x00000000\n-d2ul_neg = 0xffffffff:0xffffffef\n-d2ul_huge = 0x80000000:0x00000000\n-d2l_huge = 0x80000000:0x00000000\n-d2u_neg = -22 (0xffffffea)\n-d2i_huge = -2147483648 (0x80000000)\n-d2ul_nan = 0x80000000:0x00000000\n-i2d = 0xc1255cea:0x00000000\n-u2d = 0x41efffff:0xfee00000\n-l2d = 0xc29fdb97:0x530eb400\n-ul2d = 0x43f00000:0x00000000\n-d2f = 1075139925 (0x40155555)\n-f2d = 0x4002aaaa:0xa0000000\n-f2i = -699 (0xfffffd45)\n-dcmp_lt = 35 (0x00000023)\n-dcmp_eq = 26 (0x0000001a)\n-dcmp_nan = 32 (0x00000020)\n-dcmp_inf = 44 (0x0000002c)\n-fcmp_lt = 44 (0x0000002c)\n-fcmp_nan = 32 (0x00000020)\n-dmin = 0xc01c0000:0x00000000\n-dclamp = 0x40250000:0x00000000\n-horner = 0x401a3f55:0x6787bae8\n-series = 0x40091f0e:0x58c0b1a8\n\nstderr:\nrhtest: reference mapped at 0x400000 (0x10000 bytes): 269 entry jumps (6 too close to the next), 56 imports resolved, 0 missing\nrhtest: running the reference's entry 0x4026bb\nrhtest: not translated: 004018f0\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  0000000060019601  F_004018f0+0x31\n   2  000000006001be18  F_0040255a+0x458\n   3  000000000046dd37  BaseThreadInitThunk+0x17\n   4  00007ffb772ff2bc  RtlUserThreadStart+0x2c\nrhtest: ExitProcess(0x45) on thread 6044\n   0  0000000060009dfb  ExitReport+0x8b\n   1  000000006000a406  gen_imp_ExitProcess+0x16\n   2  000000006001cc4b  F_0040295e+0x28b\n   3  000000006001beac  F_0040255a+0x4ec\n   4  000000000046dd37  BaseThreadInitThunk+0x17\n   5  00007ffb772ff2bc  RtlUserThreadStart+0x2c",
+  "detail": "--- expected\n+++ actual\n@@ -1,45 +1,2 @@\n-fadd3 = 1084437299 (0x40a33333)\n-fmuldiv = 1086834854 (0x40c7c8a6)\n-dadd3 = 0x40146666:0x66666666\n-dmuldiv = 0x4018f914:0xc1bacf90\n-dmix = 0xc0157777:0x70000000\n-fneg = -1059061760 (0xc0e00000)\n-dabs = 0x40288000:0x00000000\n-dsqrt = 0x4012548e:0xb9151e85\n-fsqrt = 1086148743 (0x40bd5087)\n-d2i = -8641 (0xffffde3f)\n-d2u = -94967296 (0xfa56ea00)\n-d2u_frac = -94967296 (0xfa56ea00)\n-d2l = 0xffe72189:0x7e928000\n-d2ul = 0x80000000:0x00000000\n-d2ul_neg = 0xffffffff:0xffffffef\n-d2ul_huge = 0x80000000:0x00000000\n-d2l_huge = 0x80000000:0x00000000\n-d2u_neg = -22 (0xffffffea)\n-d2i_huge = -2147483648 (0x80000000)\n-d2ul_nan = 0x80000000:0x00000000\n-i2d = 0xc1255cea:0x00000000\n-u2d = 0x41efffff:0xfee00000\n-l2d = 0xc29fdb97:0x530eb400\n-ul2d = 0x43f00000:0x00000000\n-d2f = 1075139925 (0x40155555)\n-f2d = 0x4002aaaa:0xa0000000\n-f2i = -699 (0xfffffd45)\n-dcmp_lt = 35 (0x00000023)\n-dcmp_eq = 26 (0x0000001a)\n-dcmp_nan = 32 (0x00000020)\n-dcmp_inf = 44 (0x0000002c)\n-fcmp_lt = 44 (0x0000002c)\n-fcmp_nan = 32 (0x00000020)\n-dmin = 0xc01c0000:0x00000000\n-dclamp = 0x40250000:0x00000000\n-horner = 0x401a3f55:0x6787bae8\n-series = 0x40091f0e:0x58c0b1a8\n\nstderr:\nrhtest: reference mapped at 0x400000 (0x10000 bytes): 269 entry jumps (6 too close to the next), 56 imports resolved, 0 missing\nrhtest: running the reference's entry 0x4026bb\nrhtest: not translated: 004018f0\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  0000000060019601  F_004018f0+0x31\n   2  000000006001be18  F_0040255a+0x458\n   3  000000000046dd37  BaseThreadInitThunk+0x17\n   4  00007ff93aedf2bc  RtlUserThreadStart+0x2c\nrhtest: ExitProcess(0x45) on thread 5384\n   0  0000000060009dfb  ExitReport+0x8b\n   1  000000006000a406  gen_imp_ExitProcess+0x16\n   2  000000006001cc4b  F_0040295e+0x28b\n   3  000000006001beac  F_0040255a+0x4ec\n   4  000000000046dd37  BaseThreadInitThunk+0x17\n   5  00007ff93aedf2bc  RtlUserThreadStart+0x2c",
   "fidelity": {
    "by_size": 0.914,
    "functions": 275,
@@ -355,10 +349,10 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "fpenv-O2": {
-  "detail": "--- expected\n+++ actual\n@@ -3,6 +3,6 @@\n third lo = 1431655765 (0x55555555)\n-pc set 24 = 131072 (0x00020000)\n+pc set 24 = 65536 (0x00010000)\n third pc24 hi = 1070945621 (0x3fd55555)\n-third pc24 lo = 1610612736 (0x60000000)\n-sqrt pc24 lo = 1073741824 (0x40000000)\n+third pc24 lo = 1431655765 (0x55555555)\n+sqrt pc24 lo = 987388755 (0x3ada5b53)\n third pc53 lo = 1431655765 (0x55555555)\n@@ -11,5 +11,5 @@\n round nearest = -286427646 (0xeeed7602)\n-round down = 1511314472 (0x5a14d428)\n-round up = 1693190220 (0x64ec084c)\n-round chop = 47042546 (0x02cdcff2)\n+round down = -286427646 (0xeeed7602)\n+round up = -286427646 (0xeeed7602)\n+round chop = -286427646 (0xeeed7602)\n cast under chop = 86 (0x00000056)\n@@ -18,3 +18,3 @@\n div by zero inf = 1 (0x00000001)\n-overflow flag = 1 (0x00000001)\n+overflow flag = 0 (0x00000000)\n underflow flag = 1 (0x00000001)\n@@ -26,4 +26,4 @@\n fmod floor pow = -2109440733 (0x82447d23)\n-hypot = 5000 (0x00001388)\n-ldexp = 1101529088 (0x41a80000)\n+hypot = 0 (0x00000000)\n+ldexp = 0 (0x00000000)\n frexp = 7804 (0x00001e7c)\n@@ -36,3 +36,3 @@\n double from u64 = 0 (0x00000000)\n-checksum = 0x34a24410\n-exit = 16\n+checksum = 0x25ff6ad3\n+exit = 83\n\nstderr:\nrhtest: not translated: 004029a6\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  0000000060019821  F_004029a6+0x31\n   2  000000006001ad00  F_00401490+0x580\n   3  000000006001b4d4  F_00401a60+0x2d4\n   4  000000006001e658  F_00403833+0x458\n   5  000000000060dd37  BaseThreadInitThunk+0x17\n   6  00007ffb772ff2bc  RtlUserThreadStart+0x2c\nrhtest: ExitProcess(0x53) on thread 5220\n   0  0000000060009dfb  ExitReport+0x8b\n   1  000000006000a406  gen_imp_ExitProcess+0x16\n   2  0000000060024cfb  F_00407c01+0x28b\n   3  000000006001e6ec  F_00403833+0x4ec\n   4  000000000060dd37  BaseThreadInitThunk+0x17\n   5  00007ffb772ff2bc  RtlUserThreadStart+0x2c",
+  "detail": "--- expected\n+++ actual\n@@ -3,6 +3,6 @@\n third lo = 1431655765 (0x55555555)\n-pc set 24 = 131072 (0x00020000)\n+pc set 24 = 65536 (0x00010000)\n third pc24 hi = 1070945621 (0x3fd55555)\n-third pc24 lo = 1610612736 (0x60000000)\n-sqrt pc24 lo = 1073741824 (0x40000000)\n+third pc24 lo = 1431655765 (0x55555555)\n+sqrt pc24 lo = 987388755 (0x3ada5b53)\n third pc53 lo = 1431655765 (0x55555555)\n@@ -11,5 +11,5 @@\n round nearest = -286427646 (0xeeed7602)\n-round down = 1511314472 (0x5a14d428)\n-round up = 1693190220 (0x64ec084c)\n-round chop = 47042546 (0x02cdcff2)\n+round down = -286427646 (0xeeed7602)\n+round up = -286427646 (0xeeed7602)\n+round chop = -286427646 (0xeeed7602)\n cast under chop = 86 (0x00000056)\n@@ -18,3 +18,3 @@\n div by zero inf = 1 (0x00000001)\n-overflow flag = 1 (0x00000001)\n+overflow flag = 0 (0x00000000)\n underflow flag = 1 (0x00000001)\n@@ -26,4 +26,4 @@\n fmod floor pow = -2109440733 (0x82447d23)\n-hypot = 5000 (0x00001388)\n-ldexp = 1101529088 (0x41a80000)\n+hypot = 0 (0x00000000)\n+ldexp = 0 (0x00000000)\n frexp = 7804 (0x00001e7c)\n@@ -36,3 +36,3 @@\n double from u64 = 0 (0x00000000)\n-checksum = 0x34a24410\n-exit = 16\n+checksum = 0x25ff6ad3\n+exit = 83\n\nstderr:\nrhtest: not translated: 004029a6\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  0000000060019821  F_004029a6+0x31\n   2  000000006001ad00  F_00401490+0x580\n   3  000000006001b4d4  F_00401a60+0x2d4\n   4  000000006001e658  F_00403833+0x458\n   5  000000000058dd37  BaseThreadInitThunk+0x17\n   6  00007ff93aedf2bc  RtlUserThreadStart+0x2c\nrhtest: ExitProcess(0x53) on thread 8844\n   0  0000000060009dfb  ExitReport+0x8b\n   1  000000006000a406  gen_imp_ExitProcess+0x16\n   2  0000000060024cfb  F_00407c01+0x28b\n   3  000000006001e6ec  F_00403833+0x4ec\n   4  000000000058dd37  BaseThreadInitThunk+0x17\n   5  00007ff93aedf2bc  RtlUserThreadStart+0x2c",
   "fidelity": {
    "by_size": 0.846,
    "functions": 318,
@@ -369,10 +363,10 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "fpenv-Od": {
-  "detail": "--- expected\n+++ actual\n@@ -3,6 +3,6 @@\n third lo = 1431655765 (0x55555555)\n-pc set 24 = 131072 (0x00020000)\n+pc set 24 = 65536 (0x00010000)\n third pc24 hi = 1070945621 (0x3fd55555)\n-third pc24 lo = 1610612736 (0x60000000)\n-sqrt pc24 lo = 1073741824 (0x40000000)\n+third pc24 lo = 1431655765 (0x55555555)\n+sqrt pc24 lo = 987388755 (0x3ada5b53)\n third pc53 lo = 1431655765 (0x55555555)\n@@ -11,5 +11,5 @@\n round nearest = -286427646 (0xeeed7602)\n-round down = 1511314472 (0x5a14d428)\n-round up = 1693190220 (0x64ec084c)\n-round chop = 47042546 (0x02cdcff2)\n+round down = -286427646 (0xeeed7602)\n+round up = -286427646 (0xeeed7602)\n+round chop = -286427646 (0xeeed7602)\n cast under chop = 86 (0x00000056)\n@@ -18,3 +18,3 @@\n div by zero inf = 1 (0x00000001)\n-overflow flag = 1 (0x00000001)\n+overflow flag = 0 (0x00000000)\n underflow flag = 1 (0x00000001)\n@@ -23,9 +23,2 @@\n nan = 1 (0x00000001)\n-trig = -920926769 (0xc91bc5cf)\n-exp log atan = -381418254 (0xe94404f2)\n-fmod floor pow = -2109440733 (0x82447d23)\n-hypot = 5000 (0x00001388)\n-ldexp = 1101529088 (0x41a80000)\n-frexp = 7804 (0x00001e7c)\n-modf = -7075 (0xffffe45d)\n float to double = -412182853 (0xe76e96bb)\n@@ -36,3 +29,3 @@\n double from u64 = 0 (0x00000000)\n-checksum = 0x9a3e6ea5\n-exit = 37\n\nstderr:\nrhtest: running the reference's entry 0x4039c2\nrhtest: not translated: 00401560\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  0000000060019891  F_00401560+0x31\n   2  000000006001a3c4  F_00401000+0x2a4\n   3  000000006001e8a8  F_00403861+0x458\n   4  000000000047dd37  BaseThreadInitThunk+0x17\n   5  00007ffb772ff2bc  RtlUserThreadStart+0x2c\nrhtest: ExitProcess(0x58) on thread 7848\n   0  0000000060009dfb  ExitReport+0x8b\n   1  000000006000a406  gen_imp_ExitProcess+0x16\n   2  000000006002600b  F_00407c21+0x28b\n   3  000000006001e90d  F_00403861+0x4bd\n   4  000000000047dd37  BaseThreadInitThunk+0x17\n   5  00007ffb772ff2bc  RtlUserThreadStart+0x2c",
+  "detail": "--- expected\n+++ actual\n@@ -3,6 +3,6 @@\n third lo = 1431655765 (0x55555555)\n-pc set 24 = 131072 (0x00020000)\n+pc set 24 = 65536 (0x00010000)\n third pc24 hi = 1070945621 (0x3fd55555)\n-third pc24 lo = 1610612736 (0x60000000)\n-sqrt pc24 lo = 1073741824 (0x40000000)\n+third pc24 lo = 1431655765 (0x55555555)\n+sqrt pc24 lo = 987388755 (0x3ada5b53)\n third pc53 lo = 1431655765 (0x55555555)\n@@ -11,5 +11,5 @@\n round nearest = -286427646 (0xeeed7602)\n-round down = 1511314472 (0x5a14d428)\n-round up = 1693190220 (0x64ec084c)\n-round chop = 47042546 (0x02cdcff2)\n+round down = -286427646 (0xeeed7602)\n+round up = -286427646 (0xeeed7602)\n+round chop = -286427646 (0xeeed7602)\n cast under chop = 86 (0x00000056)\n@@ -18,3 +18,3 @@\n div by zero inf = 1 (0x00000001)\n-overflow flag = 1 (0x00000001)\n+overflow flag = 0 (0x00000000)\n underflow flag = 1 (0x00000001)\n@@ -23,9 +23,2 @@\n nan = 1 (0x00000001)\n-trig = -920926769 (0xc91bc5cf)\n-exp log atan = -381418254 (0xe94404f2)\n-fmod floor pow = -2109440733 (0x82447d23)\n-hypot = 5000 (0x00001388)\n-ldexp = 1101529088 (0x41a80000)\n-frexp = 7804 (0x00001e7c)\n-modf = -7075 (0xffffe45d)\n float to double = -412182853 (0xe76e96bb)\n@@ -36,3 +29,3 @@\n double from u64 = 0 (0x00000000)\n-checksum = 0x9a3e6ea5\n-exit = 37\n\nstderr:\nrhtest: running the reference's entry 0x4039c2\nrhtest: not translated: 00401560\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  0000000060019891  F_00401560+0x31\n   2  000000006001a3c4  F_00401000+0x2a4\n   3  000000006001e8a8  F_00403861+0x458\n   4  000000000057dd37  BaseThreadInitThunk+0x17\n   5  00007ff93aedf2bc  RtlUserThreadStart+0x2c\nrhtest: ExitProcess(0x58) on thread 1264\n   0  0000000060009dfb  ExitReport+0x8b\n   1  000000006000a406  gen_imp_ExitProcess+0x16\n   2  000000006002600b  F_00407c21+0x28b\n   3  000000006001e90d  F_00403861+0x4bd\n   4  000000000057dd37  BaseThreadInitThunk+0x17\n   5  00007ff93aedf2bc  RtlUserThreadStart+0x2c",
   "fidelity": {
    "by_size": 0.83,
    "functions": 324,
@@ -383,10 +377,10 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "fpenv-SSE2": {
-  "detail": "--- expected\n+++ actual\n@@ -3,6 +3,6 @@\n third lo = 1431655765 (0x55555555)\n-pc set 24 = 131072 (0x00020000)\n+pc set 24 = 65536 (0x00010000)\n third pc24 hi = 1070945621 (0x3fd55555)\n-third pc24 lo = 1610612736 (0x60000000)\n-sqrt pc24 lo = 1073741824 (0x40000000)\n+third pc24 lo = 1431655765 (0x55555555)\n+sqrt pc24 lo = 987388755 (0x3ada5b53)\n third pc53 lo = 1431655765 (0x55555555)\n@@ -11,5 +11,5 @@\n round nearest = -286427646 (0xeeed7602)\n-round down = 1511314472 (0x5a14d428)\n-round up = 1693190220 (0x64ec084c)\n-round chop = 47042546 (0x02cdcff2)\n+round down = -286427646 (0xeeed7602)\n+round up = -286427646 (0xeeed7602)\n+round chop = -286427646 (0xeeed7602)\n cast under chop = 86 (0x00000056)\n@@ -18,3 +18,3 @@\n div by zero inf = 1 (0x00000001)\n-overflow flag = 1 (0x00000001)\n+overflow flag = 0 (0x00000000)\n underflow flag = 1 (0x00000001)\n@@ -26,13 +26,7 @@\n fmod floor pow = -2109440733 (0x82447d23)\n-hypot = 5000 (0x00001388)\n-ldexp = 1101529088 (0x41a80000)\n+hypot = 0 (0x00000000)\n+ldexp = 0 (0x00000000)\n frexp = 7804 (0x00001e7c)\n modf = -7075 (0xffffe45d)\n-float to double = -412182853 (0xe76e96bb)\n-u32 from float = -256 (0xffffff00)\n-i32 from float = -2147483648 (0x80000000)\n-u64 from double = 805306320 (0x2fffffd0)\n-float from u32 = 1106247679 (0x41efffff)\n-double from u64 = 0 (0x00000000)\n\nstderr:\n   5  000000000047dd37  BaseThreadInitThunk+0x17\n   6  00007ffb772ff2bc  RtlUserThreadStart+0x2c\nrhtest: not translated: 004018d0\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  0000000060019721  F_004018d0+0x31\n   2  000000006001e238  F_00403833+0x458\n   3  000000000047dd37  BaseThreadInitThunk+0x17\n   4  00007ffb772ff2bc  RtlUserThreadStart+0x2c\nrhtest: ExitProcess(0x73) on thread 3060\n   0  0000000060009dfb  ExitReport+0x8b\n   1  000000006000a406  gen_imp_ExitProcess+0x16\n   2  00000000600248db  F_00407c01+0x28b\n   3  000000006001e2cc  F_00403833+0x4ec\n   4  000000000047dd37  BaseThreadInitThunk+0x17\n   5  00007ffb772ff2bc  RtlUserThreadStart+0x2c",
+  "detail": "--- expected\n+++ actual\n@@ -3,6 +3,6 @@\n third lo = 1431655765 (0x55555555)\n-pc set 24 = 131072 (0x00020000)\n+pc set 24 = 65536 (0x00010000)\n third pc24 hi = 1070945621 (0x3fd55555)\n-third pc24 lo = 1610612736 (0x60000000)\n-sqrt pc24 lo = 1073741824 (0x40000000)\n+third pc24 lo = 1431655765 (0x55555555)\n+sqrt pc24 lo = 987388755 (0x3ada5b53)\n third pc53 lo = 1431655765 (0x55555555)\n@@ -11,5 +11,5 @@\n round nearest = -286427646 (0xeeed7602)\n-round down = 1511314472 (0x5a14d428)\n-round up = 1693190220 (0x64ec084c)\n-round chop = 47042546 (0x02cdcff2)\n+round down = -286427646 (0xeeed7602)\n+round up = -286427646 (0xeeed7602)\n+round chop = -286427646 (0xeeed7602)\n cast under chop = 86 (0x00000056)\n@@ -18,3 +18,3 @@\n div by zero inf = 1 (0x00000001)\n-overflow flag = 1 (0x00000001)\n+overflow flag = 0 (0x00000000)\n underflow flag = 1 (0x00000001)\n@@ -26,13 +26,7 @@\n fmod floor pow = -2109440733 (0x82447d23)\n-hypot = 5000 (0x00001388)\n-ldexp = 1101529088 (0x41a80000)\n+hypot = 0 (0x00000000)\n+ldexp = 0 (0x00000000)\n frexp = 7804 (0x00001e7c)\n modf = -7075 (0xffffe45d)\n-float to double = -412182853 (0xe76e96bb)\n-u32 from float = -256 (0xffffff00)\n-i32 from float = -2147483648 (0x80000000)\n-u64 from double = 805306320 (0x2fffffd0)\n-float from u32 = 1106247679 (0x41efffff)\n-double from u64 = 0 (0x00000000)\n\nstderr:\n   5  00000000005cdd37  BaseThreadInitThunk+0x17\n   6  00007ff93aedf2bc  RtlUserThreadStart+0x2c\nrhtest: not translated: 004018d0\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  0000000060019721  F_004018d0+0x31\n   2  000000006001e238  F_00403833+0x458\n   3  00000000005cdd37  BaseThreadInitThunk+0x17\n   4  00007ff93aedf2bc  RtlUserThreadStart+0x2c\nrhtest: ExitProcess(0x73) on thread 7444\n   0  0000000060009dfb  ExitReport+0x8b\n   1  000000006000a406  gen_imp_ExitProcess+0x16\n   2  00000000600248db  F_00407c01+0x28b\n   3  000000006001e2cc  F_00403833+0x4ec\n   4  00000000005cdd37  BaseThreadInitThunk+0x17\n   5  00007ff93aedf2bc  RtlUserThreadStart+0x2c",
   "fidelity": {
    "by_size": 0.84,
    "functions": 318,
@@ -397,10 +391,10 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "fpenv-client": {
-  "detail": "--- expected\n+++ actual\n@@ -3,6 +3,6 @@\n third lo = 1431655765 (0x55555555)\n-pc set 24 = 131072 (0x00020000)\n+pc set 24 = 65536 (0x00010000)\n third pc24 hi = 1070945621 (0x3fd55555)\n-third pc24 lo = 1610612736 (0x60000000)\n-sqrt pc24 lo = 1073741824 (0x40000000)\n+third pc24 lo = 1431655765 (0x55555555)\n+sqrt pc24 lo = 987388755 (0x3ada5b53)\n third pc53 lo = 1431655765 (0x55555555)\n@@ -11,5 +11,5 @@\n round nearest = -286427646 (0xeeed7602)\n-round down = 1511314472 (0x5a14d428)\n-round up = 1693190220 (0x64ec084c)\n-round chop = 47042546 (0x02cdcff2)\n+round down = -286427646 (0xeeed7602)\n+round up = -286427646 (0xeeed7602)\n+round chop = -286427646 (0xeeed7602)\n cast under chop = 86 (0x00000056)\n@@ -18,3 +18,3 @@\n div by zero inf = 1 (0x00000001)\n-overflow flag = 1 (0x00000001)\n+overflow flag = 0 (0x00000000)\n underflow flag = 1 (0x00000001)\n@@ -26,4 +26,4 @@\n fmod floor pow = -2109440733 (0x82447d23)\n-hypot = 5000 (0x00001388)\n-ldexp = 1101529088 (0x41a80000)\n+hypot = 0 (0x00000000)\n+ldexp = 0 (0x00000000)\n frexp = 7804 (0x00001e7c)\n@@ -36,3 +36,3 @@\n double from u64 = 0 (0x00000000)\n-checksum = 0x34a24410\n-exit = 16\n+checksum = 0x25ff6ad3\n+exit = 83\n\nstderr:\nrhtest: not translated: 00402928\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  0000000060019721  F_00402928+0x31\n   2  000000006001aaa2  F_00401470+0x382\n   3  000000006001b7a8  F_00401d70+0x288\n   4  000000006001d49f  F_00402e55+0x43f\n   5  000000000047dd37  BaseThreadInitThunk+0x17\n   6  00007ffb772ff2bc  RtlUserThreadStart+0x2c\nrhtest: ExitProcess(0x53) on thread 2368\n   0  0000000060009dfb  ExitReport+0x8b\n   1  000000006000a406  gen_imp_ExitProcess+0x16\n   2  0000000060020beb  F_0040486d+0x28b\n   3  000000006001d4d7  F_00402e55+0x477\n   4  000000000047dd37  BaseThreadInitThunk+0x17\n   5  00007ffb772ff2bc  RtlUserThreadStart+0x2c",
+  "detail": "--- expected\n+++ actual\n@@ -3,6 +3,6 @@\n third lo = 1431655765 (0x55555555)\n-pc set 24 = 131072 (0x00020000)\n+pc set 24 = 65536 (0x00010000)\n third pc24 hi = 1070945621 (0x3fd55555)\n-third pc24 lo = 1610612736 (0x60000000)\n-sqrt pc24 lo = 1073741824 (0x40000000)\n+third pc24 lo = 1431655765 (0x55555555)\n+sqrt pc24 lo = 987388755 (0x3ada5b53)\n third pc53 lo = 1431655765 (0x55555555)\n@@ -11,5 +11,5 @@\n round nearest = -286427646 (0xeeed7602)\n-round down = 1511314472 (0x5a14d428)\n-round up = 1693190220 (0x64ec084c)\n-round chop = 47042546 (0x02cdcff2)\n+round down = -286427646 (0xeeed7602)\n+round up = -286427646 (0xeeed7602)\n+round chop = -286427646 (0xeeed7602)\n cast under chop = 86 (0x00000056)\n@@ -18,3 +18,3 @@\n div by zero inf = 1 (0x00000001)\n-overflow flag = 1 (0x00000001)\n+overflow flag = 0 (0x00000000)\n underflow flag = 1 (0x00000001)\n@@ -26,4 +26,4 @@\n fmod floor pow = -2109440733 (0x82447d23)\n-hypot = 5000 (0x00001388)\n-ldexp = 1101529088 (0x41a80000)\n+hypot = 0 (0x00000000)\n+ldexp = 0 (0x00000000)\n frexp = 7804 (0x00001e7c)\n@@ -36,3 +36,3 @@\n double from u64 = 0 (0x00000000)\n-checksum = 0x34a24410\n-exit = 16\n+checksum = 0x25ff6ad3\n+exit = 83\n\nstderr:\nrhtest: not translated: 00402928\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  0000000060019721  F_00402928+0x31\n   2  000000006001aaa2  F_00401470+0x382\n   3  000000006001b7a8  F_00401d70+0x288\n   4  000000006001d49f  F_00402e55+0x43f\n   5  000000000047dd37  BaseThreadInitThunk+0x17\n   6  00007ff93aedf2bc  RtlUserThreadStart+0x2c\nrhtest: ExitProcess(0x53) on thread 6604\n   0  0000000060009dfb  ExitReport+0x8b\n   1  000000006000a406  gen_imp_ExitProcess+0x16\n   2  0000000060020beb  F_0040486d+0x28b\n   3  000000006001d4d7  F_00402e55+0x477\n   4  000000000047dd37  BaseThreadInitThunk+0x17\n   5  00007ff93aedf2bc  RtlUserThreadStart+0x2c",
   "fidelity": {
    "by_size": 0.845,
    "functions": 316,
@@ -411,7 +405,7 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "int64-O2": {
   "fidelity": {
@@ -423,7 +417,7 @@
    "translated": 209
   },
   "status": "PASS",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "int64-Od": {
   "fidelity": {
@@ -435,10 +429,10 @@
    "translated": 211
   },
   "status": "PASS",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "int64-client": {
-  "detail": "--- expected\n+++ actual\n@@ -1,41 +1,2 @@\n-add64 = 0x00000008:0xf6e5d4be\n-sub64 = 0xfffffff8:0x091a2b48\n-neg64 = 0xfffffff8:0x091a2b41\n-mul64 = 0xfb72ec38:0x3fb72ec7\n-mul32x32 = 0x8765431c:0x3d70a3d7\n-imul32x32 = 0xffffffcf:0x1b064c00\n-sdiv64 = 0xfffffffa:0xaaaaaaab\n-udiv64 = 0x00000000:0x2024923b\n-smod64 = 0xffffffff:0xfff25b97\n-umod64 = 0x00000000:0x0006f7b9\n-divmod64 = 0xfffffe35:0xef01df71\n-shl64 = 0xb72ea5f8:0x00000000\n-sar64 = 0xffffffff:0xfffffff1\n-shr64 = 0x00000000:0x1ffffff1\n-shl64_32 = 0x72ea5f80:0x00000000\n-shr64_32 = 0x00000000:0x01ffffff\n-shifts_const = 0xf58e1b23:0x18571233\n-sext = 0xffffffff:0xfffffff9\n-zext = 0x00000000:0xfffffff9\n-lo32 = -7 (0xfffffff9)\n-hi32 = -113 (0xffffff8f)\n-make64 = 0x07070707:0xdeadbeef\n-cmp64_a = 35 (0x00000023)\n-cmp64_b = 42 (0x0000002a)\n-cmp64_c = 48 (0x00000030)\n-cmp64_d = 35 (0x00000023)\n-min64 = 0xffffff8f:0xfffffff9\n-abs64 = 0x00000070:0x00000007\n-fib64 = 0x40abcfb3:0xc0325745\n-gcd64 = 0x00001500:0x00000000\n-popcount64 = 59 (0x0000003b)\n-sum_lcg = 0x354221b9:0x73a77666\n-rec = 0xfffffff9:0x8218e73c\n-seeks = 0xffffffd9:0x69d03708\n-shl64_big = 0x00000000:0x00000000\n-sar64_big = 0xffffffff:0xffffffff\n-shr64_big = 0x00000000:0x00000000\n\nstderr:\nrhtest: reference mapped at 0x400000 (0xc000 bytes): 203 entry jumps (5 too close to the next), 55 imports resolved, 0 missing\nrhtest: running the reference's entry 0x40200b\nrhtest: not translated: 004015c0\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  0000000060019071  F_004015c0+0x31\n   2  000000006001aefe  F_00401eaa+0x59e\n   3  00000000005edd37  BaseThreadInitThunk+0x17\n   4  00007ffb772ff2bc  RtlUserThreadStart+0x2c\nrhtest: ExitProcess(0x45) on thread 7816\n   0  0000000060009c6b  ExitReport+0x8b\n   1  000000006000a1e6  gen_imp_ExitProcess+0x16\n   2  000000006001bc3b  F_004022ae+0x28b\n   3  000000006001af92  F_00401eaa+0x632\n   4  00000000005edd37  BaseThreadInitThunk+0x17\n   5  00007ffb772ff2bc  RtlUserThreadStart+0x2c",
+  "detail": "--- expected\n+++ actual\n@@ -1,41 +1,2 @@\n-add64 = 0x00000008:0xf6e5d4be\n-sub64 = 0xfffffff8:0x091a2b48\n-neg64 = 0xfffffff8:0x091a2b41\n-mul64 = 0xfb72ec38:0x3fb72ec7\n-mul32x32 = 0x8765431c:0x3d70a3d7\n-imul32x32 = 0xffffffcf:0x1b064c00\n-sdiv64 = 0xfffffffa:0xaaaaaaab\n-udiv64 = 0x00000000:0x2024923b\n-smod64 = 0xffffffff:0xfff25b97\n-umod64 = 0x00000000:0x0006f7b9\n-divmod64 = 0xfffffe35:0xef01df71\n-shl64 = 0xb72ea5f8:0x00000000\n-sar64 = 0xffffffff:0xfffffff1\n-shr64 = 0x00000000:0x1ffffff1\n-shl64_32 = 0x72ea5f80:0x00000000\n-shr64_32 = 0x00000000:0x01ffffff\n-shifts_const = 0xf58e1b23:0x18571233\n-sext = 0xffffffff:0xfffffff9\n-zext = 0x00000000:0xfffffff9\n-lo32 = -7 (0xfffffff9)\n-hi32 = -113 (0xffffff8f)\n-make64 = 0x07070707:0xdeadbeef\n-cmp64_a = 35 (0x00000023)\n-cmp64_b = 42 (0x0000002a)\n-cmp64_c = 48 (0x00000030)\n-cmp64_d = 35 (0x00000023)\n-min64 = 0xffffff8f:0xfffffff9\n-abs64 = 0x00000070:0x00000007\n-fib64 = 0x40abcfb3:0xc0325745\n-gcd64 = 0x00001500:0x00000000\n-popcount64 = 59 (0x0000003b)\n-sum_lcg = 0x354221b9:0x73a77666\n-rec = 0xfffffff9:0x8218e73c\n-seeks = 0xffffffd9:0x69d03708\n-shl64_big = 0x00000000:0x00000000\n-sar64_big = 0xffffffff:0xffffffff\n-shr64_big = 0x00000000:0x00000000\n\nstderr:\nrhtest: reference mapped at 0x400000 (0xc000 bytes): 203 entry jumps (5 too close to the next), 55 imports resolved, 0 missing\nrhtest: running the reference's entry 0x40200b\nrhtest: not translated: 004015c0\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  0000000060019071  F_004015c0+0x31\n   2  000000006001aefe  F_00401eaa+0x59e\n   3  00000000005ddd37  BaseThreadInitThunk+0x17\n   4  00007ff93aedf2bc  RtlUserThreadStart+0x2c\nrhtest: ExitProcess(0x45) on thread 6812\n   0  0000000060009c6b  ExitReport+0x8b\n   1  000000006000a1e6  gen_imp_ExitProcess+0x16\n   2  000000006001bc3b  F_004022ae+0x28b\n   3  000000006001af92  F_00401eaa+0x632\n   4  00000000005ddd37  BaseThreadInitThunk+0x17\n   5  00007ff93aedf2bc  RtlUserThreadStart+0x2c",
   "fidelity": {
    "by_size": 0.927,
    "functions": 208,
@@ -449,7 +443,7 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "misc-O2": {
   "fidelity": {
@@ -461,7 +455,7 @@
    "translated": 310
   },
   "status": "PASS",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "misc-Od": {
   "fidelity": {
@@ -473,10 +467,10 @@
    "translated": 320
   },
   "status": "PASS",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "misc-client": {
-  "detail": "--- expected\n+++ actual\n@@ -10,3 +10,3 @@\n atomics = 821 (0x00000335)\n-bitfields = 458854128 (0x1b598ef0)\n+bitfields = 0 (0x00000000)\n stack_alloc = -1313235728 (0xb1b99cf0)\n@@ -21,6 +21,4 @@\n folded_index = 906954521 (0x360f0719)\n-lex_switch = -1356447612 (0xaf264084)\n+lex_switch = 7 (0x00000007)\n early_push = 7813470 (0x0077395e)\n-bom_kind = 960 (0x000003c0)\n-checksum = 0xca11979a\n-exit = 26\n+exit = 3221225477\n\nstderr:\nrhtest: not translated: 00401df0\n   0  0000000060007533  GenUnimplemented+0xd3\n   1  000000006001b1c1  F_00401df0+0x31\n   2  000000006001cddd  F_00402020+0x6d\n   3  000000006001ded9  F_00402170+0xa79\n   4  000000006001fa1e  F_00402dea+0x59e\n   5  00000000005edd37  BaseThreadInitThunk+0x17\n   6  00007ffb772ff2bc  RtlUserThreadStart+0x2c\nrhtest: exception c0000005 at 000000006001C228 (reading 000000010040DA08)\n   0  000000006001c228  F_00401800+0x58\n   1  000000006001df0b  F_00402170+0xaab\n   2  000000006001fa1e  F_00402dea+0x59e\n   3  00000000005edd37  BaseThreadInitThunk+0x17\n   4  00007ffb772ff2bc  RtlUserThreadStart+0x2c\nrhtest: thread 6076, rsp 00000000055DFB10: dad3ccc500000000 120b04fdf6efe8e1 4a433c352e272019 827b746d00000022 bab3aca59e979089 b04fdf6efe8e1da 30373433313837 0",
+  "detail": "--- expected\n+++ actual\n@@ -10,3 +10,3 @@\n atomics = 821 (0x00000335)\n-bitfields = 458854128 (0x1b598ef0)\n+bitfields = 0 (0x00000000)\n stack_alloc = -1313235728 (0xb1b99cf0)\n@@ -21,6 +21,4 @@\n folded_index = 906954521 (0x360f0719)\n-lex_switch = -1356447612 (0xaf264084)\n+lex_switch = 7 (0x00000007)\n early_push = 7813470 (0x0077395e)\n-bom_kind = 960 (0x000003c0)\n-checksum = 0xca11979a\n-exit = 26\n+exit = 3221225477\n\nstderr:\nrhtest: not translated: 00401df0\n   0  0000000060007533  GenUnimplemented+0xd3\n   1  000000006001b1c1  F_00401df0+0x31\n   2  000000006001cddd  F_00402020+0x6d\n   3  000000006001ded9  F_00402170+0xa79\n   4  000000006001fa1e  F_00402dea+0x59e\n   5  000000000047dd37  BaseThreadInitThunk+0x17\n   6  00007ff93aedf2bc  RtlUserThreadStart+0x2c\nrhtest: exception c0000005 at 000000006001C228 (reading 000000010040DA08)\n   0  000000006001c228  F_00401800+0x58\n   1  000000006001df0b  F_00402170+0xaab\n   2  000000006001fa1e  F_00402dea+0x59e\n   3  000000000047dd37  BaseThreadInitThunk+0x17\n   4  00007ff93aedf2bc  RtlUserThreadStart+0x2c\nrhtest: thread 7740, rsp 000000000568FB10: dad3ccc500000000 120b04fdf6efe8e1 4a433c352e272019 827b746d00000022 bab3aca59e979089 b04fdf6efe8e1da 30373433313837 0",
   "fidelity": {
    "by_size": 0.968,
    "functions": 321,
@@ -487,10 +481,10 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "seh-O2": {
-  "detail": "--- expected\n+++ actual\n@@ -12,18 +12,3 @@\n privileged code = -1073741674 (0xc0000096)\n-continued = 126 (0x0000007e)\n-continued fixes = 1 (0x00000001)\n-raised count = 4 (0x00000004)\n-raised flags = 1 (0x00000001)\n-raised arg0 = 24 (0x00000018)\n-raised arg1 = -1 (0xffffffff)\n-raised arg2 is pointer = 1 (0x00000001)\n-raised arg3 = 0 (0x00000000)\n-vectored added = 1 (0x00000001)\n-vectored count = 3 (0x00000003)\n-vectored caught = 11 (0x0000000b)\n-vectored removed = 1 (0x00000001)\n-finally return big = 10 (0x0000000a)\n-finally return small = 1 (0x00000001)\n-finally trail = 534411079 (0x1fda7747)\n-checksum = 0xa0097b1b\n-exit = 27\n+checksum = 0xecdea976\n+exit = 118\n\nstderr:\nrhtest: reference mapped at 0x400000 (0xc000 bytes): 207 entry jumps (5 too close to the next), 62 imports resolved, 0 missing\nrhtest: running the reference's entry 0x4021ac\nrhtest: ExitProcess(0x76) on thread 8232\n   0  0000000060009dfb  ExitReport+0x8b\n   1  000000006000a376  gen_imp_ExitProcess+0x16\n   2  000000006001dfbb  F_004026ea+0x28b\n   3  000000006001cc5c  F_0040204b+0x65c\n   4  000000000046dd37  BaseThreadInitThunk+0x17\n   5  00007ffb772ff2bc  RtlUserThreadStart+0x2c",
+  "detail": "--- expected\n+++ actual\n@@ -12,18 +12,3 @@\n privileged code = -1073741674 (0xc0000096)\n-continued = 126 (0x0000007e)\n-continued fixes = 1 (0x00000001)\n-raised count = 4 (0x00000004)\n-raised flags = 1 (0x00000001)\n-raised arg0 = 24 (0x00000018)\n-raised arg1 = -1 (0xffffffff)\n-raised arg2 is pointer = 1 (0x00000001)\n-raised arg3 = 0 (0x00000000)\n-vectored added = 1 (0x00000001)\n-vectored count = 3 (0x00000003)\n-vectored caught = 11 (0x0000000b)\n-vectored removed = 1 (0x00000001)\n-finally return big = 10 (0x0000000a)\n-finally return small = 1 (0x00000001)\n-finally trail = 534411079 (0x1fda7747)\n-checksum = 0xa0097b1b\n-exit = 27\n+checksum = 0xecdea976\n+exit = 118\n\nstderr:\nrhtest: reference mapped at 0x400000 (0xc000 bytes): 207 entry jumps (5 too close to the next), 62 imports resolved, 0 missing\nrhtest: running the reference's entry 0x4021ac\nrhtest: ExitProcess(0x76) on thread 8844\n   0  0000000060009dfb  ExitReport+0x8b\n   1  000000006000a376  gen_imp_ExitProcess+0x16\n   2  000000006001dfbb  F_004026ea+0x28b\n   3  000000006001cc5c  F_0040204b+0x65c\n   4  00000000005fdd37  BaseThreadInitThunk+0x17\n   5  00007ff93aedf2bc  RtlUserThreadStart+0x2c",
   "fidelity": {
    "by_size": 0.982,
    "functions": 212,
@@ -501,10 +495,10 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "seh-Od": {
-  "detail": "--- expected\n+++ actual\n@@ -12,18 +12,3 @@\n privileged code = -1073741674 (0xc0000096)\n-continued = 126 (0x0000007e)\n-continued fixes = 1 (0x00000001)\n-raised count = 4 (0x00000004)\n-raised flags = 1 (0x00000001)\n-raised arg0 = 24 (0x00000018)\n-raised arg1 = -1 (0xffffffff)\n-raised arg2 is pointer = 1 (0x00000001)\n-raised arg3 = 0 (0x00000000)\n-vectored added = 1 (0x00000001)\n-vectored count = 3 (0x00000003)\n-vectored caught = 11 (0x0000000b)\n-vectored removed = 1 (0x00000001)\n-finally return big = 10 (0x0000000a)\n-finally return small = 1 (0x00000001)\n-finally trail = 534411079 (0x1fda7747)\n-checksum = 0xa0097b1b\n-exit = 27\n+checksum = 0xecdea976\n+exit = 118\n\nstderr:\nrhtest: reference mapped at 0x400000 (0xc000 bytes): 212 entry jumps (5 too close to the next), 62 imports resolved, 0 missing\nrhtest: running the reference's entry 0x402389\nrhtest: ExitProcess(0x76) on thread 1480\n   0  0000000060009dfb  ExitReport+0x8b\n   1  000000006000a376  gen_imp_ExitProcess+0x16\n   2  000000006001e6ab  F_004028ca+0x28b\n   3  000000006001d34d  F_00402228+0x62d\n   4  000000000057dd37  BaseThreadInitThunk+0x17\n   5  00007ffb772ff2bc  RtlUserThreadStart+0x2c",
+  "detail": "--- expected\n+++ actual\n@@ -12,18 +12,3 @@\n privileged code = -1073741674 (0xc0000096)\n-continued = 126 (0x0000007e)\n-continued fixes = 1 (0x00000001)\n-raised count = 4 (0x00000004)\n-raised flags = 1 (0x00000001)\n-raised arg0 = 24 (0x00000018)\n-raised arg1 = -1 (0xffffffff)\n-raised arg2 is pointer = 1 (0x00000001)\n-raised arg3 = 0 (0x00000000)\n-vectored added = 1 (0x00000001)\n-vectored count = 3 (0x00000003)\n-vectored caught = 11 (0x0000000b)\n-vectored removed = 1 (0x00000001)\n-finally return big = 10 (0x0000000a)\n-finally return small = 1 (0x00000001)\n-finally trail = 534411079 (0x1fda7747)\n-checksum = 0xa0097b1b\n-exit = 27\n+checksum = 0xecdea976\n+exit = 118\n\nstderr:\nrhtest: reference mapped at 0x400000 (0xc000 bytes): 212 entry jumps (5 too close to the next), 62 imports resolved, 0 missing\nrhtest: running the reference's entry 0x402389\nrhtest: ExitProcess(0x76) on thread 7736\n   0  0000000060009dfb  ExitReport+0x8b\n   1  000000006000a376  gen_imp_ExitProcess+0x16\n   2  000000006001e6ab  F_004028ca+0x28b\n   3  000000006001d34d  F_00402228+0x62d\n   4  000000000057dd37  BaseThreadInitThunk+0x17\n   5  00007ff93aedf2bc  RtlUserThreadStart+0x2c",
   "fidelity": {
    "by_size": 0.982,
    "functions": 217,
@@ -515,7 +509,7 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "seh-client": {
   "detail": "--- expected\n+++ actual\n@@ -8,22 +8,6 @@\n div zero result = -1 (0xffffffff)\n-int overflow code = -1073741675 (0xc0000095)\n-int overflow result = -2 (0xfffffffe)\n+int overflow code = 0 (0x00000000)\n+int overflow result = -2147483648 (0x80000000)\n breakpoint code = -2147483645 (0x80000003)\n privileged code = -1073741674 (0xc0000096)\n-continued = 126 (0x0000007e)\n-continued fixes = 1 (0x00000001)\n-raised count = 4 (0x00000004)\n-raised flags = 1 (0x00000001)\n-raised arg0 = 24 (0x00000018)\n-raised arg1 = -1 (0xffffffff)\n-raised arg2 is pointer = 1 (0x00000001)\n-raised arg3 = 0 (0x00000000)\n-vectored added = 1 (0x00000001)\n-vectored count = 3 (0x00000003)\n-vectored caught = 11 (0x0000000b)\n-vectored removed = 1 (0x00000001)\n-finally return big = 10 (0x0000000a)\n-finally return small = 1 (0x00000001)\n-finally trail = 534411079 (0x1fda7747)\n-checksum = 0xa0097b1b\n-exit = 27\n+exit = 0\n\nstderr:\nrhtest: reference mapped at 0x400000 (0xc000 bytes): 205 entry jumps (5 too close to the next), 62 imports resolved, 0 missing\nrhtest: running the reference's entry 0x401e79",
@@ -529,10 +523,10 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "stl-O2": {
-  "detail": "--- expected\n+++ actual\n@@ -1,39 +1 @@\n-str a = -1560062330 (0xa3035686)\n-str a len = 13 (0x0000000d)\n-str b = -668773254 (0xd823547a)\n-str b len = 39 (0x00000027)\n-str find = 5 (0x00000005)\n-str rfind = 12 (0x0000000c)\n-str substr = -1172149291 (0xba226bd5)\n-str compare = 3 (0x00000003)\n-str swapped = 39 (0x00000027)\n-vec size = 102 (0x00000066)\n-vec sum = 1098699831 (0x417cd437)\n-vec back = 0 (0x00000000)\n-vec resized = 1030 (0x00000406)\n-vec strings = 106526433 (0x065976e1)\n-sort functor = 1068666994 (0x3fb29072)\n-sort lambda stable = 529766754 (0x1f939962)\n-lower bound = 57 (0x00000039)\n-nth = 8584619 (0x0082fdab)\n-minmax = 16490839 (0x00fba157)\n-map order = 1214150896 (0x485e78f0)\n-map find = 12 (0x0000000c)\n-map count = 60 (0x0000003c)\n-hash sum = 41583 (0x0000a26f)\n-hash size = 500 (0x000001f4)\n-hash erased = 499 (0x000001f3)\n-shared count = 2 (0x00000002)\n-shared after reset = 1 (0x00000001)\n-weak locked = 121 (0x00000079)\n-weak expired = 1 (0x00000001)\n-unique moved = 1 (0x00000001)\n-deleter ran = 27 (0x0000001b)\n-rtti rects = 21 (0x00000015)\n-rtti names = 1257631440 (0x4af5eed0)\n-functions = 156 (0x0000009c)\n-list splice = 369830286 (0x160b298e)\n-ostream = 631541188 (0x25a48dc4)\n-istream = 440921586 (0x1a47edf2)\n\nstderr:\nrhtest: reference mapped at 0x400000 (0x39000 bytes): 1223 entry jumps (23 too close to the next), 71 imports resolved, 0 missing\nrhtest: running the reference's entry 0x415f76\nrhtest: not translated: 00402540\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  0000000060019e01  F_00402540+0x31\n   2  0000000060021727  F_00404b00+0xf7\n   3  000000006002b57b  F_0040ae00+0x1eb\n   4  0000000060039bad  F_00413610+0x4d\n   5  0000000060040d5f  F_00415e15+0x43f\n   6  000000000060dd37  BaseThreadInitThunk+0x17\n   7  00007ffb772ff2bc  RtlUserThreadStart+0x2c\nrhipper: unhandled exception C0000005; the chain:\n  node 03A0FE34 handler 0042B7C0 FuncInfo 00432598 scope table 00000000 state 0",
+  "detail": "--- expected\n+++ actual\n@@ -1,39 +1 @@\n-str a = -1560062330 (0xa3035686)\n-str a len = 13 (0x0000000d)\n-str b = -668773254 (0xd823547a)\n-str b len = 39 (0x00000027)\n-str find = 5 (0x00000005)\n-str rfind = 12 (0x0000000c)\n-str substr = -1172149291 (0xba226bd5)\n-str compare = 3 (0x00000003)\n-str swapped = 39 (0x00000027)\n-vec size = 102 (0x00000066)\n-vec sum = 1098699831 (0x417cd437)\n-vec back = 0 (0x00000000)\n-vec resized = 1030 (0x00000406)\n-vec strings = 106526433 (0x065976e1)\n-sort functor = 1068666994 (0x3fb29072)\n-sort lambda stable = 529766754 (0x1f939962)\n-lower bound = 57 (0x00000039)\n-nth = 8584619 (0x0082fdab)\n-minmax = 16490839 (0x00fba157)\n-map order = 1214150896 (0x485e78f0)\n-map find = 12 (0x0000000c)\n-map count = 60 (0x0000003c)\n-hash sum = 41583 (0x0000a26f)\n-hash size = 500 (0x000001f4)\n-hash erased = 499 (0x000001f3)\n-shared count = 2 (0x00000002)\n-shared after reset = 1 (0x00000001)\n-weak locked = 121 (0x00000079)\n-weak expired = 1 (0x00000001)\n-unique moved = 1 (0x00000001)\n-deleter ran = 27 (0x0000001b)\n-rtti rects = 21 (0x00000015)\n-rtti names = 1257631440 (0x4af5eed0)\n-functions = 156 (0x0000009c)\n-list splice = 369830286 (0x160b298e)\n-ostream = 631541188 (0x25a48dc4)\n-istream = 440921586 (0x1a47edf2)\n\nstderr:\nrhtest: reference mapped at 0x400000 (0x39000 bytes): 1223 entry jumps (23 too close to the next), 71 imports resolved, 0 missing\nrhtest: running the reference's entry 0x415f76\nrhtest: not translated: 00402540\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  0000000060019e01  F_00402540+0x31\n   2  0000000060021727  F_00404b00+0xf7\n   3  000000006002b57b  F_0040ae00+0x1eb\n   4  0000000060039bad  F_00413610+0x4d\n   5  0000000060040d5f  F_00415e15+0x43f\n   6  000000000049dd37  BaseThreadInitThunk+0x17\n   7  00007ff93aedf2bc  RtlUserThreadStart+0x2c\nrhipper: unhandled exception C0000005; the chain:\n  node 0397FE34 handler 0042B7C0 FuncInfo 00432598 scope table 00000000 state 0",
   "fidelity": {
    "by_size": 0.97,
    "functions": 1244,
@@ -543,10 +537,10 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "stl-Od": {
-  "detail": "--- expected\n+++ actual\n@@ -1,39 +1 @@\n-str a = -1560062330 (0xa3035686)\n-str a len = 13 (0x0000000d)\n-str b = -668773254 (0xd823547a)\n-str b len = 39 (0x00000027)\n-str find = 5 (0x00000005)\n-str rfind = 12 (0x0000000c)\n-str substr = -1172149291 (0xba226bd5)\n-str compare = 3 (0x00000003)\n-str swapped = 39 (0x00000027)\n-vec size = 102 (0x00000066)\n-vec sum = 1098699831 (0x417cd437)\n-vec back = 0 (0x00000000)\n-vec resized = 1030 (0x00000406)\n-vec strings = 106526433 (0x065976e1)\n-sort functor = 1068666994 (0x3fb29072)\n-sort lambda stable = 529766754 (0x1f939962)\n-lower bound = 57 (0x00000039)\n-nth = 8584619 (0x0082fdab)\n-minmax = 16490839 (0x00fba157)\n-map order = 1214150896 (0x485e78f0)\n-map find = 12 (0x0000000c)\n-map count = 60 (0x0000003c)\n-hash sum = 41583 (0x0000a26f)\n-hash size = 500 (0x000001f4)\n-hash erased = 499 (0x000001f3)\n-shared count = 2 (0x00000002)\n-shared after reset = 1 (0x00000001)\n-weak locked = 121 (0x00000079)\n-weak expired = 1 (0x00000001)\n-unique moved = 1 (0x00000001)\n-deleter ran = 27 (0x0000001b)\n-rtti rects = 21 (0x00000015)\n-rtti names = 1257631440 (0x4af5eed0)\n-functions = 156 (0x0000009c)\n-list splice = 369830286 (0x160b298e)\n-ostream = 631541188 (0x25a48dc4)\n-istream = 440921586 (0x1a47edf2)\n\nstderr:\n   3  00000000600594bc  F_00421b78+0x1dc\n   4  00000000005cdd37  BaseThreadInitThunk+0x17\n   5  00007ffb772ff2bc  RtlUserThreadStart+0x2c\nrhtest: not translated: 0040a8d0\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  000000006001a541  F_0040a8d0+0x31\n   2  00000000600288b4  F_004080c0+0x124\n   3  000000006001b4ee  F_00401810+0x17e\n   4  000000006001b206  F_00401000+0x36\n   5  00000000600594bc  F_00421b78+0x1dc\n   6  00000000005cdd37  BaseThreadInitThunk+0x17\n   7  00007ffb772ff2bc  RtlUserThreadStart+0x2c\nrhipper: unhandled exception C0000005; the chain:\n  node 0374FD30 handler 00436CC1 FuncInfo 0043E714 scope table 00000000 state 0\n  node 0374FE60 handler 00435895 FuncInfo 0043CCB8 scope table 00000000 state 0",
+  "detail": "--- expected\n+++ actual\n@@ -1,39 +1 @@\n-str a = -1560062330 (0xa3035686)\n-str a len = 13 (0x0000000d)\n-str b = -668773254 (0xd823547a)\n-str b len = 39 (0x00000027)\n-str find = 5 (0x00000005)\n-str rfind = 12 (0x0000000c)\n-str substr = -1172149291 (0xba226bd5)\n-str compare = 3 (0x00000003)\n-str swapped = 39 (0x00000027)\n-vec size = 102 (0x00000066)\n-vec sum = 1098699831 (0x417cd437)\n-vec back = 0 (0x00000000)\n-vec resized = 1030 (0x00000406)\n-vec strings = 106526433 (0x065976e1)\n-sort functor = 1068666994 (0x3fb29072)\n-sort lambda stable = 529766754 (0x1f939962)\n-lower bound = 57 (0x00000039)\n-nth = 8584619 (0x0082fdab)\n-minmax = 16490839 (0x00fba157)\n-map order = 1214150896 (0x485e78f0)\n-map find = 12 (0x0000000c)\n-map count = 60 (0x0000003c)\n-hash sum = 41583 (0x0000a26f)\n-hash size = 500 (0x000001f4)\n-hash erased = 499 (0x000001f3)\n-shared count = 2 (0x00000002)\n-shared after reset = 1 (0x00000001)\n-weak locked = 121 (0x00000079)\n-weak expired = 1 (0x00000001)\n-unique moved = 1 (0x00000001)\n-deleter ran = 27 (0x0000001b)\n-rtti rects = 21 (0x00000015)\n-rtti names = 1257631440 (0x4af5eed0)\n-functions = 156 (0x0000009c)\n-list splice = 369830286 (0x160b298e)\n-ostream = 631541188 (0x25a48dc4)\n-istream = 440921586 (0x1a47edf2)\n\nstderr:\n   3  00000000600594bc  F_00421b78+0x1dc\n   4  00000000005cdd37  BaseThreadInitThunk+0x17\n   5  00007ff93aedf2bc  RtlUserThreadStart+0x2c\nrhtest: not translated: 0040a8d0\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  000000006001a541  F_0040a8d0+0x31\n   2  00000000600288b4  F_004080c0+0x124\n   3  000000006001b4ee  F_00401810+0x17e\n   4  000000006001b206  F_00401000+0x36\n   5  00000000600594bc  F_00421b78+0x1dc\n   6  00000000005cdd37  BaseThreadInitThunk+0x17\n   7  00007ff93aedf2bc  RtlUserThreadStart+0x2c\nrhipper: unhandled exception C0000005; the chain:\n  node 0384FD30 handler 00436CC1 FuncInfo 0043E714 scope table 00000000 state 0\n  node 0384FE60 handler 00435895 FuncInfo 0043CCB8 scope table 00000000 state 0",
   "fidelity": {
    "by_size": 0.885,
    "functions": 2026,
@@ -557,10 +551,10 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "stl-client": {
-  "detail": "--- expected\n+++ actual\n@@ -1,39 +1 @@\n-str a = -1560062330 (0xa3035686)\n-str a len = 13 (0x0000000d)\n-str b = -668773254 (0xd823547a)\n-str b len = 39 (0x00000027)\n-str find = 5 (0x00000005)\n-str rfind = 12 (0x0000000c)\n-str substr = -1172149291 (0xba226bd5)\n-str compare = 3 (0x00000003)\n-str swapped = 39 (0x00000027)\n-vec size = 102 (0x00000066)\n-vec sum = 1098699831 (0x417cd437)\n-vec back = 0 (0x00000000)\n-vec resized = 1030 (0x00000406)\n-vec strings = 106526433 (0x065976e1)\n-sort functor = 1068666994 (0x3fb29072)\n-sort lambda stable = 529766754 (0x1f939962)\n-lower bound = 57 (0x00000039)\n-nth = 8584619 (0x0082fdab)\n-minmax = 16490839 (0x00fba157)\n-map order = 1214150896 (0x485e78f0)\n-map find = 12 (0x0000000c)\n-map count = 60 (0x0000003c)\n-hash sum = 41583 (0x0000a26f)\n-hash size = 500 (0x000001f4)\n-hash erased = 499 (0x000001f3)\n-shared count = 2 (0x00000002)\n-shared after reset = 1 (0x00000001)\n-weak locked = 121 (0x00000079)\n-weak expired = 1 (0x00000001)\n-unique moved = 1 (0x00000001)\n-deleter ran = 27 (0x0000001b)\n-rtti rects = 21 (0x00000015)\n-rtti names = 1257631440 (0x4af5eed0)\n-functions = 156 (0x0000009c)\n-list splice = 369830286 (0x160b298e)\n-ostream = 631541188 (0x25a48dc4)\n-istream = 440921586 (0x1a47edf2)\n\nstderr:\nrhtest: reference mapped at 0x400000 (0x39000 bytes): 1222 entry jumps (29 too close to the next), 71 imports resolved, 0 missing\nrhtest: running the reference's entry 0x41536f\nrhtest: not translated: 0040bb00\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  000000006001a0a1  F_0040bb00+0x31\n   2  0000000060021f63  F_00405fb0+0x103\n   3  000000006001bb88  F_00401800+0x1c8\n   4  000000006003850e  F_00413280+0x2e\n   5  000000006003e0ef  F_0041520e+0x43f\n   6  00000000005ddd37  BaseThreadInitThunk+0x17\n   7  00007ffb772ff2bc  RtlUserThreadStart+0x2c",
+  "detail": "--- expected\n+++ actual\n@@ -1,39 +1 @@\n-str a = -1560062330 (0xa3035686)\n-str a len = 13 (0x0000000d)\n-str b = -668773254 (0xd823547a)\n-str b len = 39 (0x00000027)\n-str find = 5 (0x00000005)\n-str rfind = 12 (0x0000000c)\n-str substr = -1172149291 (0xba226bd5)\n-str compare = 3 (0x00000003)\n-str swapped = 39 (0x00000027)\n-vec size = 102 (0x00000066)\n-vec sum = 1098699831 (0x417cd437)\n-vec back = 0 (0x00000000)\n-vec resized = 1030 (0x00000406)\n-vec strings = 106526433 (0x065976e1)\n-sort functor = 1068666994 (0x3fb29072)\n-sort lambda stable = 529766754 (0x1f939962)\n-lower bound = 57 (0x00000039)\n-nth = 8584619 (0x0082fdab)\n-minmax = 16490839 (0x00fba157)\n-map order = 1214150896 (0x485e78f0)\n-map find = 12 (0x0000000c)\n-map count = 60 (0x0000003c)\n-hash sum = 41583 (0x0000a26f)\n-hash size = 500 (0x000001f4)\n-hash erased = 499 (0x000001f3)\n-shared count = 2 (0x00000002)\n-shared after reset = 1 (0x00000001)\n-weak locked = 121 (0x00000079)\n-weak expired = 1 (0x00000001)\n-unique moved = 1 (0x00000001)\n-deleter ran = 27 (0x0000001b)\n-rtti rects = 21 (0x00000015)\n-rtti names = 1257631440 (0x4af5eed0)\n-functions = 156 (0x0000009c)\n-list splice = 369830286 (0x160b298e)\n-ostream = 631541188 (0x25a48dc4)\n-istream = 440921586 (0x1a47edf2)\n\nstderr:\nrhtest: reference mapped at 0x400000 (0x39000 bytes): 1222 entry jumps (29 too close to the next), 71 imports resolved, 0 missing\nrhtest: running the reference's entry 0x41536f\nrhtest: not translated: 0040bb00\n   0  00000000600072e3  GenUnimplemented+0xd3\n   1  000000006001a0a1  F_0040bb00+0x31\n   2  0000000060021f63  F_00405fb0+0x103\n   3  000000006001bb88  F_00401800+0x1c8\n   4  000000006003850e  F_00413280+0x2e\n   5  000000006003e0ef  F_0041520e+0x43f\n   6  000000000049dd37  BaseThreadInitThunk+0x17\n   7  00007ff93aedf2bc  RtlUserThreadStart+0x2c",
   "fidelity": {
    "by_size": 0.95,
    "functions": 1248,
@@ -571,10 +565,10 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "sys-O2": {
-  "detail": "--- expected\n+++ actual\n@@ -54,15 +54,2 @@\n work queued = 1 (0x00000001)\n-work sum = 48 (0x00000030)\n-timer set = 1 (0x00000001)\n-ticks = 3 (0x00000003)\n-fls index = 1 (0x00000001)\n-fls freed = 44 (0x0000002c)\n-found lstrlenA = 1 (0x00000001)\n-lstrlenA = 17 (0x00000011)\n-pid same = 1 (0x00000001)\n-env set = 1 (0x00000001)\n-env get = 5 (0x00000005)\n-env value = 897821950 (0x3583acfe)\n-missing proc = 1 (0x00000001)\n-checksum = 0x497b0494\n-exit = 20\n+exit = timeout\n\nstderr:\nrhtest: reference mapped at 0x400000 (0xc000 bytes): 185 entry jumps (4 too close to the next), 93 imports resolved, 0 missing\nrhtest: running the reference's entry 0x40230d\nrhtest: the reference thread after 20 s:\n   0  00007ffb77422344  NtWaitForSingleObject+0x14\n   1  000000000070d01f  WaitForSingleObjectEx+0xaf\n   2  000000006001a380  gen_imp_WaitForSingleObject+0x90\n   3  000000006001be8a  F_00401ce0+0x42a\n   4  000000006001d0ae  F_004021ac+0x59e\n   5  000000000046dd37  BaseThreadInitThunk+0x17\n   6  00007ffb772ff2bc  RtlUserThreadStart+0x2c\n\n(timed out after 60 s)",
+  "detail": "--- expected\n+++ actual\n@@ -54,15 +54,2 @@\n work queued = 1 (0x00000001)\n-work sum = 48 (0x00000030)\n-timer set = 1 (0x00000001)\n-ticks = 3 (0x00000003)\n-fls index = 1 (0x00000001)\n-fls freed = 44 (0x0000002c)\n-found lstrlenA = 1 (0x00000001)\n-lstrlenA = 17 (0x00000011)\n-pid same = 1 (0x00000001)\n-env set = 1 (0x00000001)\n-env get = 5 (0x00000005)\n-env value = 897821950 (0x3583acfe)\n-missing proc = 1 (0x00000001)\n-checksum = 0x497b0494\n-exit = 20\n+exit = timeout\n\nstderr:\nrhtest: reference mapped at 0x400000 (0xc000 bytes): 185 entry jumps (4 too close to the next), 93 imports resolved, 0 missing\nrhtest: running the reference's entry 0x40230d\nrhtest: the reference thread after 20 s:\n   0  00007ff93b002344  NtWaitForSingleObject+0x14\n   1  00000000006bd01f  WaitForSingleObjectEx+0xaf\n   2  000000006001a380  gen_imp_WaitForSingleObject+0x90\n   3  000000006001be8a  F_00401ce0+0x42a\n   4  000000006001d0ae  F_004021ac+0x59e\n   5  00000000005edd37  BaseThreadInitThunk+0x17\n   6  00007ff93aedf2bc  RtlUserThreadStart+0x2c\n\n(timed out after 60 s)",
   "fidelity": {
    "by_size": 0.981,
    "functions": 189,
@@ -585,10 +579,10 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "sys-Od": {
-  "detail": "--- expected\n+++ actual\n@@ -54,15 +54,2 @@\n work queued = 1 (0x00000001)\n-work sum = 48 (0x00000030)\n-timer set = 1 (0x00000001)\n-ticks = 3 (0x00000003)\n-fls index = 1 (0x00000001)\n-fls freed = 44 (0x0000002c)\n-found lstrlenA = 1 (0x00000001)\n-lstrlenA = 17 (0x00000011)\n-pid same = 1 (0x00000001)\n-env set = 1 (0x00000001)\n-env get = 5 (0x00000005)\n-env value = 897821950 (0x3583acfe)\n-missing proc = 1 (0x00000001)\n-checksum = 0x497b0494\n-exit = 20\n+exit = timeout\n\nstderr:\nrhtest: reference mapped at 0x400000 (0xd000 bytes): 191 entry jumps (4 too close to the next), 93 imports resolved, 0 missing\nrhtest: running the reference's entry 0x403b19\nrhtest: the reference thread after 20 s:\n   0  00007ffb77422344  NtWaitForSingleObject+0x14\n   1  000000000069d01f  WaitForSingleObjectEx+0xaf\n   2  000000006001a380  gen_imp_WaitForSingleObject+0x90\n   3  000000006001a7e6  F_00401000+0x2f6\n   4  000000006001e62e  F_004039b8+0x59e\n   5  000000000046dd37  BaseThreadInitThunk+0x17\n   6  00007ffb772ff2bc  RtlUserThreadStart+0x2c\n\n(timed out after 60 s)",
+  "detail": "--- expected\n+++ actual\n@@ -54,15 +54,2 @@\n work queued = 1 (0x00000001)\n-work sum = 48 (0x00000030)\n-timer set = 1 (0x00000001)\n-ticks = 3 (0x00000003)\n-fls index = 1 (0x00000001)\n-fls freed = 44 (0x0000002c)\n-found lstrlenA = 1 (0x00000001)\n-lstrlenA = 17 (0x00000011)\n-pid same = 1 (0x00000001)\n-env set = 1 (0x00000001)\n-env get = 5 (0x00000005)\n-env value = 897821950 (0x3583acfe)\n-missing proc = 1 (0x00000001)\n-checksum = 0x497b0494\n-exit = 20\n+exit = timeout\n\nstderr:\nrhtest: reference mapped at 0x400000 (0xd000 bytes): 191 entry jumps (4 too close to the next), 93 imports resolved, 0 missing\nrhtest: running the reference's entry 0x403b19\nrhtest: the reference thread after 20 s:\n   0  00007ff93b002344  NtWaitForSingleObject+0x14\n   1  000000000069d01f  WaitForSingleObjectEx+0xaf\n   2  000000006001a380  gen_imp_WaitForSingleObject+0x90\n   3  000000006001a7e6  F_00401000+0x2f6\n   4  000000006001e62e  F_004039b8+0x59e\n   5  00000000005cdd37  BaseThreadInitThunk+0x17\n   6  00007ff93aedf2bc  RtlUserThreadStart+0x2c\n\n(timed out after 60 s)",
   "fidelity": {
    "by_size": 0.957,
    "functions": 195,
@@ -599,10 +593,10 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "sys-client": {
-  "detail": "--- expected\n+++ actual\n@@ -54,15 +54,2 @@\n work queued = 1 (0x00000001)\n-work sum = 48 (0x00000030)\n-timer set = 1 (0x00000001)\n-ticks = 3 (0x00000003)\n-fls index = 1 (0x00000001)\n-fls freed = 44 (0x0000002c)\n-found lstrlenA = 1 (0x00000001)\n-lstrlenA = 17 (0x00000011)\n-pid same = 1 (0x00000001)\n-env set = 1 (0x00000001)\n-env get = 5 (0x00000005)\n-env value = 897821950 (0x3583acfe)\n-missing proc = 1 (0x00000001)\n-checksum = 0x497b0494\n-exit = 20\n+exit = timeout\n\nstderr:\nrhtest: reference mapped at 0x400000 (0xc000 bytes): 183 entry jumps (4 too close to the next), 93 imports resolved, 0 missing\nrhtest: running the reference's entry 0x402436\nrhtest: the reference thread after 20 s:\n   0  00007ffb77422344  NtWaitForSingleObject+0x14\n   1  000000000070d01f  WaitForSingleObjectEx+0xaf\n   2  000000006001a380  gen_imp_WaitForSingleObject+0x90\n   3  000000006001c365  F_00402140+0x345\n   4  000000006001cf95  F_004022d5+0x585\n   5  000000000046dd37  BaseThreadInitThunk+0x17\n   6  00007ffb772ff2bc  RtlUserThreadStart+0x2c\n\n(timed out after 60 s)",
+  "detail": "--- expected\n+++ actual\n@@ -54,15 +54,2 @@\n work queued = 1 (0x00000001)\n-work sum = 48 (0x00000030)\n-timer set = 1 (0x00000001)\n-ticks = 3 (0x00000003)\n-fls index = 1 (0x00000001)\n-fls freed = 44 (0x0000002c)\n-found lstrlenA = 1 (0x00000001)\n-lstrlenA = 17 (0x00000011)\n-pid same = 1 (0x00000001)\n-env set = 1 (0x00000001)\n-env get = 5 (0x00000005)\n-env value = 897821950 (0x3583acfe)\n-missing proc = 1 (0x00000001)\n-checksum = 0x497b0494\n-exit = 20\n+exit = timeout\n\nstderr:\nrhtest: reference mapped at 0x400000 (0xc000 bytes): 183 entry jumps (4 too close to the next), 93 imports resolved, 0 missing\nrhtest: running the reference's entry 0x402436\nrhtest: the reference thread after 20 s:\n   0  00007ff93b002344  NtWaitForSingleObject+0x14\n   1  00000000006cd01f  WaitForSingleObjectEx+0xaf\n   2  000000006001a380  gen_imp_WaitForSingleObject+0x90\n   3  000000006001c365  F_00402140+0x345\n   4  000000006001cf95  F_004022d5+0x585\n   5  00000000005fdd37  BaseThreadInitThunk+0x17\n   6  00007ff93aedf2bc  RtlUserThreadStart+0x2c\n\n(timed out after 60 s)",
   "fidelity": {
    "by_size": 0.981,
    "functions": 187,
@@ -613,7 +607,7 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "win-O2": {
   "fidelity": {
@@ -625,7 +619,7 @@
    "translated": 179
   },
   "status": "PASS",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "win-Od": {
   "fidelity": {
@@ -637,7 +631,7 @@
    "translated": 184
   },
   "status": "PASS",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  },
  "win-client": {
   "fidelity": {
@@ -649,6 +643,6 @@
    "translated": 177
   },
   "status": "PASS",
-  "when": "2026-10-28 01:48"
+  "when": "2026-10-28 01:51"
  }
 }
