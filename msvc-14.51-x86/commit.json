@@ -1,1 +1,1 @@
-{"sha": "23201a729ee1c700a08241bfd1d2a436c0b24fa8", "date": "2026-10-27T21:21:34-04:00", "subject": "feat(shadow32): --watch, hardware write watches at an object a global points to; --watch-only at full speed"}
+{"sha": "b427e220ce7024545e48bf00f222320622f64f3e", "date": "2026-10-28T01:07:40-04:00", "subject": "fix(translate32): a field the reference read before its store, kept and not re-read, is the old value"}

@@ -682,5 +682,17 @@
   "stubs": 172,
   "perfect": 4360,
   "translated": 4427
+ },
+ {
+  "sha": "b427e220ce7024545e48bf00f222320622f64f3e",
+  "date": "2026-10-28T01:07:40-04:00",
+  "subject": "fix(translate32): a field the reference read before its store, kept and not re-read, is the old value",
+  "run": "2026-10-28 05:40 UTC",
+  "file": "b427e220ce7024545e48bf00f222320622f64f3e.json",
+  "passing": 21,
+  "projects": 34,
+  "stubs": 172,
+  "perfect": 4360,
+  "translated": 4427
  }
 ]
