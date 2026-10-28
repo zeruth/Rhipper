@@ -1222,5 +1222,17 @@
   "stubs": 244,
   "perfect": 15709,
   "translated": 17525
+ },
+ {
+  "sha": "b104fb51d7d603e69b285cb79501e5ed64971b2e",
+  "date": "2026-10-28T17:46:13-04:00",
+  "subject": "fix(protos32): a push that reserves a float's slot, seen up to the call, not eight instructions on",
+  "run": "2026-10-28 23:06 UTC",
+  "file": "b104fb51d7d603e69b285cb79501e5ed64971b2e.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 244,
+  "perfect": 15709,
+  "translated": 17525
  }
 ]
