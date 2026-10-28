@@ -1174,5 +1174,17 @@
   "stubs": 244,
   "perfect": 15709,
   "translated": 17525
+ },
+ {
+  "sha": "c021336d57578450d8762d776e9ca0b7f70f72f9",
+  "date": "2026-10-28T17:07:11-04:00",
+  "subject": "fix(protos32): a callee's st0 worked on after its call, not handed on as the caller's result",
+  "run": "2026-10-28 22:03 UTC",
+  "file": "c021336d57578450d8762d776e9ca0b7f70f72f9.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 244,
+  "perfect": 15709,
+  "translated": 17525
  }
 ]
