@@ -158,7 +158,15 @@ def parse(sdk):
         for m in re.finditer(r"DECLARE_INTERFACE(?:_\(\s*(\w+)\s*,\s*(\w+)\s*\)|\(\s*(\w+)\s*\))\s*\{(.*?)\}\s*;",
                              text, flags=re.S):
             name, base = (m.group(1), m.group(2)) if m.group(1) else (m.group(3), None)
-            ifaces.setdefault(name, (base, methods_of(m.group(4), name, macros)))
+            # (each method once: XAudio2 2.7's voice macro expanded in each branch of the header's
+            # #ifdefs made IXAudio2Voice 57 methods for its 19, and every source voice method's
+            # slot 57 too far. No COM interface here overloads a name)
+            seen, ms = set(), []
+            for meth in methods_of(m.group(4), name, macros):
+                if meth[2] not in seen:
+                    seen.add(meth[2])
+                    ms.append(meth)
+            ifaces.setdefault(name, (base, ms))
         for m in re.finditer(r"DEFINE_GUID\(\s*IID_(\w+)\s*,([^)]*)\)", text):
             iids.setdefault(m.group(1), guid(m.group(2)))
         for m in re.finditer(r"DEFINE_IID\(\s*(\w+)\s*,([^)]*)\)", text):
@@ -185,7 +193,14 @@ def full_methods(name, ifaces):
     # list only their own after the base's macro)
     if ms and ms[0][2] == "QueryInterface" or base is None or base not in ifaces:
         return ms
-    return full_methods(base, ifaces) + ms
+    # (nor one whose list already begins with its base's, the base's Declare_..._Methods() macro
+    # expanded in place: counted twice, IXAudio2SourceVoice's own methods sat 57 slots past its
+    # vtable's end, SetFrequencyRatio at 83 for 26, and a sound voice's update called through
+    # garbage, 2026-10-28)
+    bm = full_methods(base, ifaces)
+    if [m[2] for m in ms[:len(bm)]] == [m[2] for m in bm]:
+        return ms
+    return bm + ms
 
 
 def resolve(t, stars, typedefs):

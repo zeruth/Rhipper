@@ -2658,146 +2658,51 @@ static void* const IXAudio2Voice_thunks[] = {
     reinterpret_cast<void*>(T_IXAudio2Voice_SetOutputMatrix),
     reinterpret_cast<void*>(T_IXAudio2Voice_GetOutputMatrix),
     reinterpret_cast<void*>(T_IXAudio2Voice_DestroyVoice),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetVoiceDetails),
-    reinterpret_cast<void*>(S_IXAudio2Voice_SetOutputVoices),
-    reinterpret_cast<void*>(S_IXAudio2Voice_SetEffectChain),
-    reinterpret_cast<void*>(T_IXAudio2Voice_EnableEffect),
-    reinterpret_cast<void*>(T_IXAudio2Voice_DisableEffect),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetEffectState),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetEffectParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetEffectParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetOutputFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetOutputFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetVolume),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetVolume),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetChannelVolumes),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetChannelVolumes),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetOutputMatrix),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetOutputMatrix),
-    reinterpret_cast<void*>(T_IXAudio2Voice_DestroyVoice),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetVoiceDetails),
-    reinterpret_cast<void*>(S_IXAudio2Voice_SetOutputVoices),
-    reinterpret_cast<void*>(S_IXAudio2Voice_SetEffectChain),
-    reinterpret_cast<void*>(T_IXAudio2Voice_EnableEffect),
-    reinterpret_cast<void*>(T_IXAudio2Voice_DisableEffect),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetEffectState),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetEffectParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetEffectParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetOutputFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetOutputFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetVolume),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetVolume),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetChannelVolumes),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetChannelVolumes),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetOutputMatrix),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetOutputMatrix),
-    reinterpret_cast<void*>(T_IXAudio2Voice_DestroyVoice),
 };
 
-Type32 IXAudio2Voice_32 = {"IXAudio2Voice", nullptr, nullptr, IXAudio2Voice_thunks, 57, 0};
+Type32 IXAudio2Voice_32 = {"IXAudio2Voice", nullptr, nullptr, IXAudio2Voice_thunks, 19, 0};
 
 static unsigned int T_IXAudio2SourceVoice_Start(uint32_t self, uint32_t a0, uint32_t a1) {
     void* n = Unwrap(self);
-    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t)>(Slot(n, 76))(n, a0, a1);
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t)>(Slot(n, 19))(n, a0, a1);
     return r;
 }
 static unsigned int T_IXAudio2SourceVoice_Stop(uint32_t self, uint32_t a0, uint32_t a1) {
     void* n = Unwrap(self);
-    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t)>(Slot(n, 77))(n, a0, a1);
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t)>(Slot(n, 20))(n, a0, a1);
     return r;
 }
 static unsigned int T_IXAudio2SourceVoice_FlushSourceBuffers(uint32_t self) {
     void* n = Unwrap(self);
-    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 79))(n);
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 22))(n);
     return r;
 }
 static unsigned int T_IXAudio2SourceVoice_Discontinuity(uint32_t self) {
     void* n = Unwrap(self);
-    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 80))(n);
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 23))(n);
     return r;
 }
 static unsigned int T_IXAudio2SourceVoice_ExitLoop(uint32_t self, uint32_t a0) {
     void* n = Unwrap(self);
-    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 81))(n, a0);
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 24))(n, a0);
     return r;
 }
 static unsigned int T_IXAudio2SourceVoice_SetFrequencyRatio(uint32_t self, uint64_t a0, uint32_t a1) {
     void* n = Unwrap(self);
-    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, float, uint32_t)>(Slot(n, 83))(n, Float32(a0), a1);
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, float, uint32_t)>(Slot(n, 26))(n, Float32(a0), a1);
     return r;
 }
 static unsigned int T_IXAudio2SourceVoice_GetFrequencyRatio(uint32_t self, uint32_t a0) {
     void* n = Unwrap(self);
-    reinterpret_cast<void (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 84))(n, At<void>(a0));
+    reinterpret_cast<void (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 27))(n, At<void>(a0));
     return 0;
 }
 static unsigned int T_IXAudio2SourceVoice_SetSourceSampleRate(uint32_t self, uint32_t a0) {
     void* n = Unwrap(self);
-    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 85))(n, a0);
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 28))(n, a0);
     return r;
 }
 static void* const IXAudio2SourceVoice_thunks[] = {
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetVoiceDetails),
-    reinterpret_cast<void*>(S_IXAudio2Voice_SetOutputVoices),
-    reinterpret_cast<void*>(S_IXAudio2Voice_SetEffectChain),
-    reinterpret_cast<void*>(T_IXAudio2Voice_EnableEffect),
-    reinterpret_cast<void*>(T_IXAudio2Voice_DisableEffect),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetEffectState),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetEffectParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetEffectParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetOutputFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetOutputFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetVolume),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetVolume),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetChannelVolumes),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetChannelVolumes),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetOutputMatrix),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetOutputMatrix),
-    reinterpret_cast<void*>(T_IXAudio2Voice_DestroyVoice),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetVoiceDetails),
-    reinterpret_cast<void*>(S_IXAudio2Voice_SetOutputVoices),
-    reinterpret_cast<void*>(S_IXAudio2Voice_SetEffectChain),
-    reinterpret_cast<void*>(T_IXAudio2Voice_EnableEffect),
-    reinterpret_cast<void*>(T_IXAudio2Voice_DisableEffect),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetEffectState),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetEffectParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetEffectParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetOutputFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetOutputFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetVolume),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetVolume),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetChannelVolumes),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetChannelVolumes),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetOutputMatrix),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetOutputMatrix),
-    reinterpret_cast<void*>(T_IXAudio2Voice_DestroyVoice),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetVoiceDetails),
-    reinterpret_cast<void*>(S_IXAudio2Voice_SetOutputVoices),
-    reinterpret_cast<void*>(S_IXAudio2Voice_SetEffectChain),
-    reinterpret_cast<void*>(T_IXAudio2Voice_EnableEffect),
-    reinterpret_cast<void*>(T_IXAudio2Voice_DisableEffect),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetEffectState),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetEffectParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetEffectParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetOutputFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetOutputFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetVolume),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetVolume),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetChannelVolumes),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetChannelVolumes),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetOutputMatrix),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetOutputMatrix),
-    reinterpret_cast<void*>(T_IXAudio2Voice_DestroyVoice),
     reinterpret_cast<void*>(T_IXAudio2Voice_GetVoiceDetails),
     reinterpret_cast<void*>(S_IXAudio2Voice_SetOutputVoices),
     reinterpret_cast<void*>(S_IXAudio2Voice_SetEffectChain),
@@ -2829,7 +2734,7 @@ static void* const IXAudio2SourceVoice_thunks[] = {
     reinterpret_cast<void*>(T_IXAudio2SourceVoice_SetSourceSampleRate),
 };
 
-Type32 IXAudio2SourceVoice_32 = {"IXAudio2SourceVoice", nullptr, &IXAudio2Voice_32, IXAudio2SourceVoice_thunks, 86, 0};
+Type32 IXAudio2SourceVoice_32 = {"IXAudio2SourceVoice", nullptr, &IXAudio2Voice_32, IXAudio2SourceVoice_thunks, 29, 0};
 
 static void* const IXAudio2SubmixVoice_thunks[] = {
     reinterpret_cast<void*>(T_IXAudio2Voice_GetVoiceDetails),
@@ -2851,66 +2756,9 @@ static void* const IXAudio2SubmixVoice_thunks[] = {
     reinterpret_cast<void*>(T_IXAudio2Voice_SetOutputMatrix),
     reinterpret_cast<void*>(T_IXAudio2Voice_GetOutputMatrix),
     reinterpret_cast<void*>(T_IXAudio2Voice_DestroyVoice),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetVoiceDetails),
-    reinterpret_cast<void*>(S_IXAudio2Voice_SetOutputVoices),
-    reinterpret_cast<void*>(S_IXAudio2Voice_SetEffectChain),
-    reinterpret_cast<void*>(T_IXAudio2Voice_EnableEffect),
-    reinterpret_cast<void*>(T_IXAudio2Voice_DisableEffect),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetEffectState),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetEffectParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetEffectParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetOutputFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetOutputFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetVolume),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetVolume),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetChannelVolumes),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetChannelVolumes),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetOutputMatrix),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetOutputMatrix),
-    reinterpret_cast<void*>(T_IXAudio2Voice_DestroyVoice),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetVoiceDetails),
-    reinterpret_cast<void*>(S_IXAudio2Voice_SetOutputVoices),
-    reinterpret_cast<void*>(S_IXAudio2Voice_SetEffectChain),
-    reinterpret_cast<void*>(T_IXAudio2Voice_EnableEffect),
-    reinterpret_cast<void*>(T_IXAudio2Voice_DisableEffect),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetEffectState),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetEffectParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetEffectParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetOutputFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetOutputFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetVolume),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetVolume),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetChannelVolumes),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetChannelVolumes),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetOutputMatrix),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetOutputMatrix),
-    reinterpret_cast<void*>(T_IXAudio2Voice_DestroyVoice),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetVoiceDetails),
-    reinterpret_cast<void*>(S_IXAudio2Voice_SetOutputVoices),
-    reinterpret_cast<void*>(S_IXAudio2Voice_SetEffectChain),
-    reinterpret_cast<void*>(T_IXAudio2Voice_EnableEffect),
-    reinterpret_cast<void*>(T_IXAudio2Voice_DisableEffect),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetEffectState),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetEffectParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetEffectParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetOutputFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetOutputFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetVolume),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetVolume),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetChannelVolumes),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetChannelVolumes),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetOutputMatrix),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetOutputMatrix),
-    reinterpret_cast<void*>(T_IXAudio2Voice_DestroyVoice),
 };
 
-Type32 IXAudio2SubmixVoice_32 = {"IXAudio2SubmixVoice", nullptr, &IXAudio2Voice_32, IXAudio2SubmixVoice_thunks, 76, 0};
+Type32 IXAudio2SubmixVoice_32 = {"IXAudio2SubmixVoice", nullptr, &IXAudio2Voice_32, IXAudio2SubmixVoice_thunks, 19, 0};
 
 static void* const IXAudio2MasteringVoice_thunks[] = {
     reinterpret_cast<void*>(T_IXAudio2Voice_GetVoiceDetails),
@@ -2932,66 +2780,9 @@ static void* const IXAudio2MasteringVoice_thunks[] = {
     reinterpret_cast<void*>(T_IXAudio2Voice_SetOutputMatrix),
     reinterpret_cast<void*>(T_IXAudio2Voice_GetOutputMatrix),
     reinterpret_cast<void*>(T_IXAudio2Voice_DestroyVoice),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetVoiceDetails),
-    reinterpret_cast<void*>(S_IXAudio2Voice_SetOutputVoices),
-    reinterpret_cast<void*>(S_IXAudio2Voice_SetEffectChain),
-    reinterpret_cast<void*>(T_IXAudio2Voice_EnableEffect),
-    reinterpret_cast<void*>(T_IXAudio2Voice_DisableEffect),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetEffectState),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetEffectParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetEffectParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetOutputFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetOutputFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetVolume),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetVolume),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetChannelVolumes),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetChannelVolumes),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetOutputMatrix),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetOutputMatrix),
-    reinterpret_cast<void*>(T_IXAudio2Voice_DestroyVoice),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetVoiceDetails),
-    reinterpret_cast<void*>(S_IXAudio2Voice_SetOutputVoices),
-    reinterpret_cast<void*>(S_IXAudio2Voice_SetEffectChain),
-    reinterpret_cast<void*>(T_IXAudio2Voice_EnableEffect),
-    reinterpret_cast<void*>(T_IXAudio2Voice_DisableEffect),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetEffectState),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetEffectParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetEffectParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetOutputFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetOutputFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetVolume),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetVolume),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetChannelVolumes),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetChannelVolumes),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetOutputMatrix),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetOutputMatrix),
-    reinterpret_cast<void*>(T_IXAudio2Voice_DestroyVoice),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetVoiceDetails),
-    reinterpret_cast<void*>(S_IXAudio2Voice_SetOutputVoices),
-    reinterpret_cast<void*>(S_IXAudio2Voice_SetEffectChain),
-    reinterpret_cast<void*>(T_IXAudio2Voice_EnableEffect),
-    reinterpret_cast<void*>(T_IXAudio2Voice_DisableEffect),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetEffectState),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetEffectParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetEffectParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetOutputFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetOutputFilterParameters),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetVolume),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetVolume),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetChannelVolumes),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetChannelVolumes),
-    reinterpret_cast<void*>(T_IXAudio2Voice_SetOutputMatrix),
-    reinterpret_cast<void*>(T_IXAudio2Voice_GetOutputMatrix),
-    reinterpret_cast<void*>(T_IXAudio2Voice_DestroyVoice),
 };
 
-Type32 IXAudio2MasteringVoice_32 = {"IXAudio2MasteringVoice", nullptr, &IXAudio2Voice_32, IXAudio2MasteringVoice_thunks, 76, 0};
+Type32 IXAudio2MasteringVoice_32 = {"IXAudio2MasteringVoice", nullptr, &IXAudio2Voice_32, IXAudio2MasteringVoice_thunks, 19, 0};
 
 static unsigned int T_IDxDiagProvider_QueryInterface(uint32_t self, uint32_t a0, uint32_t a1) {
     void* n = Unwrap(self);
