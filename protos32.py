@@ -4068,6 +4068,12 @@ def main() -> None:
     # each indirect call's convention and arguments: ApplyFacts' call-site signatures
     calls, ccs, rets = {}, {}, {}
     jumps = []
+    # (the indirect calls' targets as a reference run saw them, the project's data/icall_targets.json)
+    icall_targets: dict[int, list[int]] = {}
+    observed = 0
+    it_path = project.ROOT / "data" / "icall_targets.json"
+    if it_path.exists():
+        icall_targets = {int(k, 16): [int(t, 16) for t in v] for k, v in json.loads(it_path.read_text()).items()}
     # (a member-function pointer kept in an object, `mov eax, [esi + 0x1ec]; call eax` in a method
     # with its own ecx untouched: __thiscall where every function the image stores at that
     # displacement is one. Given nothing in ecx, a scheduler's update called its instance's
@@ -4102,6 +4108,32 @@ def main() -> None:
             calls[hexa(a)] = [["i", 4]] * (words + (1 if ecx else 0))
             ccs[hexa(a)] = "__thiscall" if ecx else "__stdcall"
         for a, (cc, n) in v.get("icalls", {}).items():
+            # (the callees the reference really reached here, shadow32 --sites: where every one
+            # that pops its own arguments pops the same, the call passes that many words. Counted
+            # from the pushes since the last call, floats pushed before getters for the outer call,
+            # `push ecx; fstp [esp]; call [vt + 0x10]` thrice, then `call [vt + 0x3c]`, went to
+            # the getters: a sound filter's set got its frequency from a register, 16384, and
+            # asserted, 0xcd0a33 2026-10-28)
+            ts = [t for t in icall_targets.get(a, ()) if t in local]
+            # (each target's words: what it pops; or none, a plain `ret` reading no stack argument,
+            # the float getters themselves; a tail-jumping one hands on the next's; anything else
+            # unknown, no evidence)
+            pops, known = set(), bool(ts)
+            for t in ts:
+                if cleanup.get(t):
+                    pops.add(cleanup[t])
+                elif local[t].get("tail_jumps") or local[t].get("tail_ijmps"):
+                    continue
+                elif cleanup.get(t) == 0 and stack_hi.get(t, 0) <= 4:
+                    pops.add(0)
+                else:
+                    known = False
+            # (not a __cdecl one: the caller's own `add esp, k` is its count)
+            if known and len(pops) == 1 and cc != "__cdecl":
+                n2 = next(iter(pops)) // 4
+                if n2 != n:
+                    observed += 1
+                    n = n2
             calls[hexa(a)] = [["i", 4]] * (n + {"__thiscall": 1, "__fastcall": 2}.get(cc, 0))
             ccs[hexa(a)] = cc
             # (and its x87 result, where the caller reads one: `call edx; fcomp [x]`. Looked up in
@@ -4133,7 +4165,8 @@ def main() -> None:
                 "__thiscall, `this` first; `add esp, k` after the call -> __cdecl of k bytes; else "
                 "the callee pops the arguments pushed since the last call",
         "arch": "x86", "calls": calls, "cc": ccs, "rets": rets, "jumps": jumps})
-    print(f"indirect calls: {shapes}", file=sys.stderr)
+    print(f"indirect calls: {shapes}; {observed} sized by the targets a reference run saw "
+          f"({len(icall_targets)} sites in data/icall_targets.json)", file=sys.stderr)
 
     print(f"returns read by callers: {dict((k, sum(1 for x in ret_of.values() if x == k)) for k in rank)}",
           file=sys.stderr)

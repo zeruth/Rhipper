@@ -84,11 +84,43 @@ extern "C" void gen_trace_enter(unsigned int addr, unsigned int a0, unsigned int
     // <ENV>_STACKAT=<hex address>: the stack at that function's first entry, its callers (a
     // function reached only through a pointer has no caller the trace names)
     static unsigned int stack_at = 0;
+    // <ENV>_DUMPAT=<hex address>[,<calls>[,<bytes>]]: at each of that function's first calls (8),
+    // its arguments and the object its first points to (0x40 bytes): the state of the third of
+    // three objects a chain of calls reads, which a write watch armed at the first call cannot
+    // reach (a sound filter's DynamicValue, 2026-10-28)
+    static unsigned int dump_at = 0, dump_left = 0, dump_bytes = 0x40;
+    static int dump_from = 0;                  // (,<start>: from a0 + start, a signed hex offset)
     if (first) {
         first = false;
         RefWatchStart();
         wchar_t at[24] = {};
         if (RefEnv("STACKAT", at, 24)) stack_at = static_cast<unsigned int>(wcstoul(at, nullptr, 16));
+        wchar_t d[48] = {};
+        if (RefEnv("DUMPAT", d, 48)) {
+            wchar_t* end = nullptr;
+            dump_at = static_cast<unsigned int>(wcstoul(d, &end, 16));
+            dump_left = 8;
+            if (end && *end == L',') dump_left = static_cast<unsigned int>(wcstoul(end + 1, &end, 10));
+            if (end && *end == L',') dump_bytes = static_cast<unsigned int>(wcstoul(end + 1, &end, 16));
+            if (end && *end == L',') dump_from = static_cast<int>(wcstol(end + 1, &end, 16));
+        }
+    }
+    if (dump_left && addr == dump_at) {
+        dump_left--;
+        fprintf(stderr, "%s: DUMPAT %x(%x, %x, %x, %x) on thread %lu:\n", RHIPPER_NAME, addr, a0, a1, a2, a3,
+                GetCurrentThreadId());
+        MEMORY_BASIC_INFORMATION mbi;
+        auto p = reinterpret_cast<const unsigned char*>(static_cast<uintptr_t>(a0) + dump_from);
+        if (a0 && VirtualQuery(p, &mbi, sizeof mbi) && mbi.State == MEM_COMMIT) {
+            for (unsigned int k = 0; k < dump_bytes; k += 16) {
+                int o = dump_from + static_cast<int>(k);
+                fprintf(stderr, "  %c%03x ", o < 0 ? '-' : '+', o < 0 ? -o : o);
+                for (unsigned int j = 0; j < 16; j += 4)
+                    fprintf(stderr, " %08x", *reinterpret_cast<const unsigned int*>(p + k + j));
+                fprintf(stderr, "\n");
+            }
+        }
+        fflush(stderr);
     }
     if (stack_at && addr == stack_at) {
         stack_at = 0;

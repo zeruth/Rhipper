@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import ctypes
 import json
+import os
 import struct
 import sys
 import time
@@ -323,6 +324,8 @@ class Shadow:
     def __init__(self, exe, cmdline, cwd, args):
         self.exe, self.cmdline, self.cwd = exe, cmdline, cwd
         self.limit, self.per_function, self.until = args.max, args.per_function, args.until
+        # (--sites FILE: each indirect call site and the functions it reached, merged into FILE)
+        self.sites = {} if getattr(args, "sites", None) else None
         self.start = getattr(args, "start", None)      # --from: the address recording starts at
         self.recording = self.start is None
         self.hproc = None
@@ -474,6 +477,29 @@ class Shadow:
             self.out.flush()
             self.records = bytearray()
 
+    def _site(self, ref_addr, ctx):
+        """--sites: the indirect call that reached this function, by its return address: `call
+        reg` / `call [reg]` (2 bytes), `call [reg + d8]` (3, 4 with a SIB byte), `call [reg + d32]`
+        / `call [abs]` (6, 7 with a SIB byte). site -> the functions it reached."""
+        ret = self._u32(ctx.Esp)
+        if not ret:
+            return
+        live = ret
+        for n in (2, 3, 4, 6, 7):
+            buf = (ctypes.c_char * 2)()
+            if not k32.ReadProcessMemory(self.hproc, ctypes.c_void_p(live - n), buf, 2, None):
+                return
+            op, modrm = buf.raw[0], buf.raw[1]
+            if op != 0xFF or (modrm >> 3) & 7 != 2:
+                continue
+            mod, rm = modrm >> 6, modrm & 7
+            want = {3: 2, 0: 2 if rm not in (4, 5) else (3 if rm == 4 else 6), 1: 3 if rm != 4 else 4,
+                    2: 6 if rm != 4 else 7}.get(mod)
+            if want == n:
+                site = live - n - self.delta
+                self.sites.setdefault(site, set()).add(ref_addr)
+                return
+
     def _on_breakpoint(self, tid, live_addr):
         """A CC we planted (live_addr is its address). Record, restore, single-step to re-arm."""
         if live_addr not in self.orig:
@@ -494,6 +520,8 @@ class Shadow:
         if self.hits.get(ref_addr, 0) < self.per_function:
             self.hits[ref_addr] = self.hits.get(ref_addr, 0) + 1
             self._record(tid, ref_addr, ctx)
+            if self.sites is not None:
+                self._site(ref_addr, ctx)
         # restore the byte and step; re-arm on the step unless the function has had its fill
         self._write_byte(live_addr, self.orig[live_addr])
         rearm = live_addr if self.hits.get(ref_addr, 0) < self.per_function else None
@@ -670,6 +698,9 @@ def main():
                          "plus each offset, all hex: 1371288:48,4c,50,54. Armed once the global is set "
                          "(checked at each breakpoint); each write logged with the instruction after it")
     ap.add_argument("--secs", type=int, default=0, help="stop after this many seconds (0: no limit)")
+    ap.add_argument("--sites", metavar="FILE",
+                    help="each indirect call site and the functions it reached, merged into FILE (JSON): "
+                         "protos32's call-site shapes from the callees the reference really called")
     ap.add_argument("--watch-only", action="store_true",
                     help="with --watch and --from: arm the watch when --from's function is reached and "
                          "nothing else, recording no calls: the reference at full speed")
@@ -701,6 +732,16 @@ def main():
             f.write(sh.records)
             sh.records = bytearray()
     print(f"shadow32: wrote {sh.n} calls to {a.out}", file=sys.stderr)
+    if a.sites and sh.sites is not None:
+        path = Path(a.sites)
+        have = json.loads(path.read_text()) if path.exists() else {}
+        for site, ts in sh.sites.items():
+            k = f"0x{site:x}"
+            have[k] = sorted(set(have.get(k, [])) | {f"0x{t:x}" for t in ts})
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(dict(sorted(have.items(), key=lambda x: int(x[0], 16))), indent=0))
+        os.replace(tmp, path)
+        print(f"shadow32: {len(sh.sites)} indirect call sites seen, {len(have)} in {path}", file=sys.stderr)
 
 
 if __name__ == "__main__":
