@@ -2778,7 +2778,7 @@ def argument_store(insns, nxt, a) -> bool:
     return False
 
 
-def saved_before(insns, prv, a, limit=12) -> bool:
+def saved_before(insns, prv, a, limit=40) -> bool:
     """Whether a register is pushed between `mov ebp, esp` and the instruction at `a` (straight
     back): the prologue's saves done, a `sub esp` there is no frame allocation."""
     p = prv.get(a)
