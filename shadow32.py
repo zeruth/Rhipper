@@ -348,6 +348,10 @@ class Shadow:
             g, offs = args.watch.split(":")
             self.watch = (int(g, 16), [int(x, 16) for x in offs.split(",")])
         self.done = False
+        # (--fake-cursor X,Y: the reference's GetCursorPos answers with that client point)
+        self.fake = tuple(int(v) for v in args.fake_cursor.split(",")) if getattr(args, "fake_cursor", None) else None
+        self.fake_hwnd_slot = None
+        self.pid = 0
         self._load_facts()
 
     # ---- the functions and their conventions -----------------------------------------------------
@@ -534,6 +538,70 @@ class Shadow:
             self.done = True
         return True
 
+    # ---- --fake-cursor: the reference's cursor where a run says, as the port's <ENV>_VCURSOR ---------
+    def _import_slot(self, name: str) -> int | None:
+        """the live address of the reference's import slot for `name`"""
+        import pefile
+        pe = pefile.PE(str(project.EXE), fast_load=True)
+        pe.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_IMPORT"]])
+        for dll in getattr(pe, "DIRECTORY_ENTRY_IMPORT", []):
+            for imp in dll.imports:
+                if imp.name and imp.name.decode() == name:
+                    return imp.address - pe.OPTIONAL_HEADER.ImageBase + self.base
+        return None
+
+    def _fake_install(self):
+        """GetCursorPos's import slot pointed at a stub of our own in the reference: the point the
+        run gave, through ClientToScreen on the game's window (its handle filled in once it exists,
+        _fake_window): the title menu's hover and clicks tried on the reference as on the port, the
+        user's mouse untouched (2026-10-28)."""
+        gcp, c2s = self._import_slot("GetCursorPos"), self._import_slot("ClientToScreen")
+        if gcp is None or c2s is None:
+            print("shadow32: --fake-cursor: no GetCursorPos or ClientToScreen import", file=sys.stderr, flush=True)
+            self.fake = None
+            return
+        page = k32.VirtualAllocEx(self.hproc, None, 0x1000, 0x3000, 0x40)
+        hwnd_slot = page + 0x80
+        x, y = self.fake
+        code = (b"\x8b\x44\x24\x04"                                   # mov eax, [esp+4]
+                + b"\xc7\x00" + struct.pack("<i", x)                  # mov dword [eax], x
+                + b"\xc7\x40\x04" + struct.pack("<i", y)              # mov dword [eax+4], y
+                + b"\x50"                                             # push eax
+                + b"\xff\x35" + struct.pack("<I", hwnd_slot)          # push dword [hwnd]
+                + b"\xff\x15" + struct.pack("<I", c2s)                # call [ClientToScreen]
+                + b"\xb8\x01\x00\x00\x00"                             # mov eax, 1
+                + b"\xc2\x04\x00")                                    # ret 4
+        buf = ctypes.create_string_buffer(code + bytes(0x84 - len(code)))
+        k32.WriteProcessMemory(self.hproc, ctypes.c_void_p(page), buf, 0x84, None)
+        old = W.DWORD()
+        k32.VirtualProtectEx(self.hproc, ctypes.c_void_p(gcp), 4, PAGE_EXECUTE_READWRITE, ctypes.byref(old))
+        v = ctypes.c_uint32(page)
+        k32.WriteProcessMemory(self.hproc, ctypes.c_void_p(gcp), ctypes.byref(v), 4, None)
+        k32.VirtualProtectEx(self.hproc, ctypes.c_void_p(gcp), 4, old.value, ctypes.byref(old))
+        self.fake_hwnd_slot = hwnd_slot
+        print(f"shadow32: --fake-cursor {x},{y}: GetCursorPos's slot {gcp:#x} -> {page:#x}", file=sys.stderr, flush=True)
+
+    def _fake_window(self):
+        """the game's window handle into the stub, once it has one (its class FFXIVGAME)"""
+        if not self.fake_hwnd_slot:
+            return
+        u32 = ctypes.windll.user32
+        found = []
+        proc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+
+        def each(h, _l):
+            pid = ctypes.c_ulong()
+            u32.GetWindowThreadProcessId(ctypes.c_void_p(h), ctypes.byref(pid))
+            if pid.value == self.pid and u32.IsWindowVisible(ctypes.c_void_p(h)):
+                found.append(h)
+            return True
+        u32.EnumWindows(proc(each), None)
+        if found:
+            v = ctypes.c_uint32(found[0] & 0xFFFFFFFF)
+            k32.WriteProcessMemory(self.hproc, ctypes.c_void_p(self.fake_hwnd_slot), ctypes.byref(v), 4, None)
+            print(f"shadow32: --fake-cursor: the window {found[0]:#x}", file=sys.stderr, flush=True)
+            self.fake_hwnd_slot = None
+
     # ---- --watch: hardware write watches on an object a global points to -------------------------
     def _watch_poll(self):
         """Once the watched global holds a pointer, debug registers 0-3 watch 4-byte writes at
@@ -619,8 +687,16 @@ class Shadow:
                                   None, self.cwd, ctypes.byref(si), ctypes.byref(pi)):
             sys.exit(f"shadow32: cannot start {self.exe} ({ctypes.get_last_error()})")
         t0 = time.time()
+        self.pid = pi.dwProcessId
+        fake_installed, fake_next = False, 0.0
         ev = DEBUG_EVENT()
         while not self.done:
+            # (--fake-cursor: the stub once the image's imports are bound, its first breakpoint of
+            # ours or the loader's; the window's handle when there is one, every 2 s until then)
+            if self.fake and self.hproc and time.time() >= fake_next:
+                fake_next = time.time() + 2
+                if fake_installed:
+                    self._fake_window()
             # (a second at a time, so --secs ends a run that records nothing, --watch-only's)
             if not k32.WaitForDebugEvent(ctypes.byref(ev), 1000):
                 if self.secs and time.time() - t0 > self.secs:
@@ -654,6 +730,11 @@ class Shadow:
                 ec = rec.ExceptionCode & 0xFFFFFFFF
                 at = rec.ExceptionAddress or 0
                 if ec in (STATUS_BREAKPOINT, STATUS_WX86_BREAKPOINT):
+                    # (at a breakpoint of ours in the image, not the loader's first: that comes before
+                    # the imports are bound, and the binding wrote GetCursorPos's slot over the stub)
+                    if self.fake and not fake_installed and self.base <= at < self.base + self.image_size:
+                        self._fake_install()
+                        fake_installed = True
                     if not self._on_breakpoint(ev.dwThreadId, at):
                         # the loader's initial breakpoint and anything not ours: let it run
                         pass
@@ -704,7 +785,11 @@ def main():
     ap.add_argument("--watch-only", action="store_true",
                     help="with --watch and --from: arm the watch when --from's function is reached and "
                          "nothing else, recording no calls: the reference at full speed")
-    ap.add_argument("--from", dest="start", help="start recording when this reference address (hex) is first "
+    ap.add_argument("--fake-cursor", metavar="X,Y",
+                    help="the reference's GetCursorPos answers with this client point of its window: hover and "
+                         "clicks (posted to the window) tried without moving anyone's mouse, as the port's "
+                         "<ENV>_VCURSOR")
+    ap.add_argument("--from", dest="start",help="start recording when this reference address (hex) is first "
                                                   "called, running at full speed until then")
     ap.add_argument("--inproc", action="store_true",
                     help="record in the reference itself (shadow32dll): many times faster. The trace goes to "

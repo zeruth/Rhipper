@@ -797,6 +797,36 @@ public class ApplyFacts extends GhidraScript {
         for (Function f : junk) {
             if (currentProgram.getFunctionManager().removeFunction(f.getEntryPoint())) removed++;
         }
+        // (and a DEFAULT-named function at a jump target inside the function before it, nothing
+        // else reaching it: no call, no pointer, only that function's own jumps. Its parent's body
+        // ended at it, and what the parent did past it went without the parent's facts: a UI
+        // reset 0x594d90 lost its loop to FUN_00594da8 (the `je` past its early `ret 4`), the
+        // loop's `call [eax + 8]` went out with no `this`, and a mouse-over called 0xcccccccc.
+        // jumppieces.py lists them, 21 on a client, 2026-10-28)
+        List<Function[]> pieces = new ArrayList<>();
+        for (Function f : currentProgram.getFunctionManager().getFunctions(true)) {
+            if (f.isExternal() || f.isThunk() || f.getSymbol().getSource() != SourceType.DEFAULT) continue;
+            Function prev = currentProgram.getFunctionManager().getFunctionBefore(f.getEntryPoint());
+            if (prev == null || prev.isThunk()) continue;
+            boolean onlyPrevJumps = false;
+            for (ghidra.program.model.symbol.Reference r : getReferencesTo(f.getEntryPoint())) {
+                Function from = getFunctionContaining(r.getFromAddress());
+                if (!r.getReferenceType().isJump() || from == null || !from.equals(prev)) {
+                    onlyPrevJumps = false;
+                    break;
+                }
+                onlyPrevJumps = true;
+            }
+            if (onlyPrevJumps) pieces.add(new Function[] {f, prev});
+        }
+        int merged = 0;
+        for (Function[] fp : pieces) {
+            if (currentProgram.getFunctionManager().removeFunction(fp[0].getEntryPoint())) {
+                CreateFunctionCmd.fixupFunctionBody(currentProgram, fp[1], monitor);
+                merged++;
+            }
+        }
+        println("ApplyFacts: functions at a jump target of the function before them merged into it " + merged);
         // (the bodies cut short, looked for once the junk is gone: a function ending where a junk
         // one began runs on now)
         for (Function f : currentProgram.getFunctionManager().getFunctions(true)) {
