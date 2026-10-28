@@ -1044,6 +1044,18 @@
   "translated": 17527
  },
  {
+  "sha": "bc6b8425f4e3651c760087612b6bd54bf7698cb0",
+  "date": "2026-10-28T13:23:13-04:00",
+  "subject": "feat: the traps that keep costing runs, caught: GEN_SUSPECT, gotchas.py, uninit.py, FREECHECK, DUMPAT_IF, WATCH_DEREF",
+  "run": "2026-10-28 18:40 UTC",
+  "file": "bc6b8425f4e3651c760087612b6bd54bf7698cb0.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 244,
+  "perfect": 15709,
+  "translated": 17527
+ },
+ {
   "sha": "6c48b4b524a31abf3e2b75825b0c1385f851f80a",
   "date": "2026-10-28T13:27:54-04:00",
   "subject": "fix(runtime32): getaddrinfo, freeaddrinfo and gethostbyname in the x86 layouts",
