@@ -1,0 +1,1 @@
+{"sha": "83a8d39699495622614f1a0176c6979cfde5cb71", "date": "2026-10-27T20:17:36-04:00", "subject": "ci: every push its own rhtest run, each run's results kept on gh-pages by commit"}
