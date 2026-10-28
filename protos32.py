@@ -3050,7 +3050,16 @@ def next_call_deficit(insns, prv, nxt, a, depth=0) -> int:
             # mov ecx, eax; call f (ret 8)` is f(getter(), a(), edx), the getter's 0 words and f's
             # two. As unknown, the first call kept edx and f took its caller's saved edi, a stub
             # on a VS2010 client's frame path, 0x46d690 2026-10-26)
-            if t is None and not take and calls_seen == 0 and depth < 3:
+            # (and one after the first whose result the next call is made on, `call eax; mov ecx,
+            # eax; call f`: a getter in a chain, the same count from there. A settings agent's
+            # `push ...14 words; call [vt + 0x18]; mov ecx, eax; call 0x43bd00; push eax; call
+            # [vt + 0x1c]; mov ecx, eax; call 0x866a60` (ret 0x3c): stopped at the second getter,
+            # the first took 0x866a60's 14 words, and 0x8ab050 read its caller's saved registers
+            # for them, a stub when the client's settings opened, 2026-10-28)
+            q0 = nxt.get(p)
+            getter_chain = calls_seen and q0 in insns and insns[q0].mnemonic == "mov" and insns[q0].op_str == "ecx, eax" \
+                and nxt.get(q0) in insns and insns[nxt[q0]].mnemonic == "call" and _target(insns[nxt[q0]]) is not None
+            if t is None and not take and (calls_seen == 0 or getter_chain) and depth < 3:
                 inner = next_call_deficit(insns, prv, nxt, p, depth + 1)
                 # (and what the calls past it still want beyond the words pushed between is wanted
                 # from before `a` too, whatever comes of the call's result: a stream's `s << name()
@@ -3060,10 +3069,10 @@ def next_call_deficit(insns, prv, nxt, a, depth=0) -> int:
                 if inner > after:
                     return deficit + inner - after
                 take = after - inner
-            known = t is not None or bool(take) or (t is None and calls_seen == 0 and depth < 3)
+            known = t is not None or bool(take) or (t is None and (calls_seen == 0 or getter_chain) and depth < 3)
             # (a call through a pointer after the first: what it takes is not known here, so the
-            # count stops there, as before)
-            if calls_seen and t is None:
+            # count stops there, as before -- but for a getter in a chain, counted above)
+            if calls_seen and t is None and not getter_chain:
                 return deficit
             take = take or 0
             # (a chain of calls each on the last one's result, `mov ecx, eax` right after: a
