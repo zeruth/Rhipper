@@ -888,6 +888,18 @@
   "translated": 17527
  },
  {
+  "sha": "1801d9fed4e897d1df3f08d10541ea84546f886f",
+  "date": "2026-10-28T08:27:33-04:00",
+  "subject": "fix(translate32): a switch on its byte table's entry, the cases labelled by the original values, switches on those",
+  "run": "2026-10-28 13:44 UTC",
+  "file": "1801d9fed4e897d1df3f08d10541ea84546f886f.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 244,
+  "perfect": 15709,
+  "translated": 17527
+ },
+ {
   "sha": "bd642242c17f0ee0696ee7d58dd06595b2be4121",
   "date": "2026-10-28T08:39:43-04:00",
   "subject": "feat(covdiff, runtime32): thunks left out of the coverage diff; DUMPAT through any argument",
