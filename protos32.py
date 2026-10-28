@@ -3747,6 +3747,21 @@ def main() -> None:
     for v in local.values():
         methods.update(t for t in v.get("member_ptrs", ()) if t in local)
     methods |= image_member_ptrs(b, set(local))
+    # (and the functions stored in an object's field that a method calls with its own ecx, where
+    # some function stored at that displacement reads `this`: each a method, one that ignores its
+    # `this` too. A no-op step, `ret 4`, a __stdcall beside __thiscall ones at +0x2c8, kept the
+    # call site __stdcall and its `this` unpassed: the step 0x97f440 took its first argument for
+    # its object and read through null, 0x97f590 2026-10-28)
+    called_fields = {d for v in local.values() for d in v.get("field_calls", {}).values()}
+    stored_at: dict[int, set[int]] = {}
+    for v in local.values():
+        for d, ts in v.get("field_stores", {}).items():
+            if d in called_fields:
+                stored_at.setdefault(d, set()).update(ts)
+    for d, ts in stored_at.items():
+        ts = {t for t in ts if t in local}
+        if any(inputs.get(t, 0) & ECX for t in ts):
+            methods.update(t for t in ts if not inputs.get(t, 0) and cleanup.get(t))
 
     # (the callees a float-returning caller calls with that result live in st0, analyse's st0_live;
     # and whether a function, or anything it calls, runs x87 code: a call through a pointer might)
