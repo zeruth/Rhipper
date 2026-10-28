@@ -2272,6 +2272,118 @@ class Translator32:
             return body
         return re.sub(r"do\s*\{\s*(?:/\*[^*]*\*/\s*)?\}\s*while\(\s*true\s*\);", "gen_hlt();", body)
 
+    STALE_CAST = re.compile(r"\*\((float|double|int|uint|undefined4|undefined8|short|ushort|undefined2)\s*\*\)"
+                            r"\(([A-Za-z_]\w*) \+ (0x[0-9a-f]+|\d+)\)")
+    STALE_IDX = re.compile(r"\b([A-Za-z_]\w*)\[(0x[0-9a-f]+|\d+)\]")
+    STALE_SIZES = {"float": 4, "int": 4, "uint": 4, "undefined4": 4, "double": 8, "undefined8": 8,
+                   "short": 2, "ushort": 2, "undefined2": 2}
+    STALE_BREAK = re.compile(r"[{}]|^\s*(?:if|else|while|do|for|switch|case|default|goto|return)\b|^\s*\w+\s*:(?!:)")
+
+    def stale_loads(self, a: int, body: str) -> str:
+        """A field read again after it is stored, in straight-line code, where the reference read
+        it once before the store and kept the value (an x87 temporary on the stack, `fld [esi+0x28];
+        fstp [ebp-8]`, then `[ebp-8]` after the `movss [esi+0x28], xmm0`): the decompiler prints
+        the temporary as the field, read after the store. The value before the store, saved there,
+        `gen_staleN`. Only a displacement the function never loads after its first store to it
+        (a client's x-axis rotation matrix, its row 2 from the new row 1: the camera's up vector
+        (0, 0, 0) for (0, -1, 0), 2026-10-28)."""
+        decl: dict[str, str] = {}
+        for m in re.finditer(r"(?m)^\s*(\w+)\s*\*\s*([A-Za-z_]\w*);", body):
+            decl[m.group(2)] = m.group(1)
+        for m in re.finditer(r"\b(\w+)\s*\*\s*(param_\d+)[,)]", self.corpus[a]["c"].partition("{")[0]):
+            decl[m.group(2)] = m.group(1)
+
+        def keys(text: str, at: int):
+            """(key, base, type, displacement, start) of each field read or written in text"""
+            for m in self.STALE_CAST.finditer(text):
+                yield m.group(0), m.group(2), m.group(1), int(m.group(3), 0), at + m.start()
+            for m in self.STALE_IDX.finditer(text):
+                t = decl.get(m.group(1))
+                if t in self.STALE_SIZES:
+                    yield m.group(0), m.group(1), t, int(m.group(2), 0) * self.STALE_SIZES[t], at + m.start()
+
+        # statements: (start, end) spans, split at ; { }
+        stmts, s = [], 0
+        for m in re.finditer(r"[;{}]", body):
+            stmts.append((s, m.end()))
+            s = m.end()
+        stored: dict[str, tuple] = {}   # key -> (type, displacement, statement start)
+        found: dict[tuple, list] = {}   # (key, store start) -> [read starts]
+        for s, e in stmts:
+            text = body[s:e]
+            if self.STALE_BREAK.search(text.strip()) or text.strip() in ("{", "}"):
+                stored = {}
+                continue
+            m = re.match(r"(\s*)(.+?)\s=(?!=)\s(.*)$", text, re.S)
+            lhs, rhs, roff = (m.group(2), m.group(3), s + m.start(3)) if m else ("", text, s)
+            for k, _b, _t, _d, at in keys(rhs, roff):
+                if k in stored:
+                    found.setdefault((k, stored[k][2]), []).append(at)
+            if m:
+                lead = s + len(m.group(1))
+                if re.fullmatch(r"[A-Za-z_]\w*", lhs.strip()):
+                    # (a base reassigned: its fields are another object's)
+                    stored = {k: v for k, v in stored.items() if not re.search(r"\b" + lhs.strip() + r"\b", k)}
+                for k, _b, t, d, _at in keys(lhs, lead):
+                    if lhs.strip() == k and k not in stored:
+                        stored[k] = (t, d, lead)
+        if not found:
+            return body
+        # the reference: displacement -> first store, last load (any base but the frame's)
+        import capstone
+        from capstone import x86 as X86
+        import pefile
+        if self._pe is None:
+            self._pe = pefile.PE(str(project.EXE), fast_load=True)
+        code = self._pe.get_data(a - self._pe.OPTIONAL_HEADER.ImageBase, self.corpus[a].get("size") or 0)
+        md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+        md.detail = True
+        # (base register, displacement) -> first store; -> its loads; and where control leaves the
+        # straight line (a jump or a return between a load and the store: another path's load)
+        first_w, loads, breaks = {}, {}, []
+        rmw = ("add", "sub", "and", "or", "xor", "inc", "dec", "neg", "not")
+        for ins in md.disasm(code, a):
+            if ins.mnemonic.startswith(("j", "ret", "call")):
+                breaks.append(ins.address)
+            for i, op in enumerate(ins.operands):
+                if op.type != X86.X86_OP_MEM or op.mem.base in (0, X86.X86_REG_EBP, X86.X86_REG_ESP):
+                    continue
+                bd = (op.mem.base, op.mem.disp & 0xFFFFFFFF)
+                write = i == 0 and (ins.mnemonic.startswith(("mov", "fst", "fist")) or ins.mnemonic in rmw)
+                if write:
+                    first_w.setdefault(bd, ins.address)
+                if not write or ins.mnemonic in rmw:
+                    loads.setdefault(bd, []).append(ins.address)
+
+        def kept(d: int) -> bool:
+            """a field of displacement d loaded before its store, on the same straight line, by the
+            same base register, and never loaded after"""
+            for (base, dd), w in first_w.items():
+                ls = loads.get((base, dd), [])
+                if dd != d or not ls or max(ls) > w:
+                    continue
+                if not any(max(ls) < x < w for x in breaks):
+                    return True
+            return False
+        edits = []   # (position, length, replacement)
+        decls = []
+        for (k, at), reads in found.items():
+            t, d, _ = next((stored_t, stored_d, 0) for kk, _b, stored_t, stored_d, _a in keys(k, 0) if kk == k)
+            # (a field never loaded at all is a value the function stored and kept: read back, the
+            # new one)
+            if not kept(d):
+                continue
+            n = f"gen_stale{len(decls)}"
+            decls.append(f"  {t} {n};" + ("\r\n" if "\r\n" in body else "\n"))
+            edits.append((at, 0, f"{n} = {k}; "))
+            edits += [(r, len(k), n) for r in reads]
+        if not edits:
+            return body
+        for pos, ln, rep in sorted(edits, key=lambda x: x[0], reverse=True):
+            body = body[:pos] + rep + body[pos + ln:]
+        # (among the locals, first after the brace)
+        return re.sub(r"\{[ \t]*\r?\n", lambda m: m.group(0) + "".join(decls), body, count=1)
+
     def eh_funcinfos(self) -> dict[int, int]:
         """handler -> FuncInfo for each function whose first instructions load a FuncInfo into eax
         (`mov eax, 0x4037d8`, its magic 0x1993052x there) before jumping on to __CxxFrameHandler3."""
@@ -3135,6 +3247,7 @@ class Translator32:
         # local_8 [2]`, or read whole, `(ushort)local_8`: Ghidra's word store into a byte array,
         # FUN_005b2c00 in a VS2010 client 2026-10-25)
         body = self.small_arrays(body)
+        body = self.stale_loads(a, body)
         # (the entry esp itself, in a function whose frame frame_locals lays out: the frame's top,
         # GEN_SLOT(0), each local GEN_SLOT(N) below it. Ghidra folds a sum of `p - buf` over a local
         # buffer into `(int)&stack0x00000000 * -8`, strings()'s strchr and strrchr offsets, rhtest

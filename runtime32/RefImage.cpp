@@ -170,11 +170,16 @@ void PrintStack(HANDLE thread, CONTEXT c) {
 // <ENV>_WATCH=<function>+<offset> (hex): the word at the function's first argument plus the offset,
 // from its first call on (a heap object's field: its address differs from run to run). Trace.cpp
 // arms it, the trace on.
-volatile uint64_t g_watch = 0;
+// Up to four words at once (debug registers 0-3), commas between: <address>,<address> or
+// <function>+<offset>,<offset> (two inputs of one computation in one run).
+volatile uint64_t g_watch = 0;        // the first watched word: nonzero, the watch is on
+volatile uint64_t g_watches[4] = {};
+volatile int g_nWatches = 0;
 volatile uint64_t g_watchArmed = 0;   // the address every thread's register held after a pass
 volatile LONG g_watchHits = 0;
+unsigned int g_watchOffsets[4] = {};
 }  // namespace
-unsigned int g_watchFn = 0, g_watchOffset = 0;
+unsigned int g_watchFn = 0;
 // (Trace.cpp: the watched function entered, its first argument)
 // (Trace.cpp, at the first call traced: an address watched from the start armed on this thread
 // before the reference goes on, the watcher's passes slower than its first few thousand calls)
@@ -186,15 +191,21 @@ void RefWatchStart() {
 }
 void RefWatchEnter(unsigned int a0) {
     if (g_watch) return;
-    g_watch = static_cast<uint64_t>(a0) + g_watchOffset;
-    fprintf(stderr, "%s: watch armed at %llx\n", RHIPPER_NAME, g_watch);
+    for (int i = 0; i < g_nWatches; i++) {
+        g_watches[i] = static_cast<uint64_t>(a0) + g_watchOffsets[i];
+        fprintf(stderr, "%s: watch armed at %llx (now %08x)\n", RHIPPER_NAME, g_watches[i],
+                *reinterpret_cast<volatile uint32_t*>(g_watches[i]));
+    }
+    g_watch = g_watches[0];
     fflush(stderr);
     // (the watcher thread arms every thread, this one too, meanwhile: a pass over the system's
     // threads takes longer than the 2,500 calls from here to the corruption it was set to catch)
     for (int k = 0; k < 5000 && g_watchArmed != g_watch; k++) Sleep(1);
     // (the word written back as it is: the first hit shows the watch armed on this thread)
-    auto w = reinterpret_cast<volatile uint32_t*>(g_watch);
-    *w = *w;
+    for (int i = 0; i < g_nWatches; i++) {
+        auto w = reinterpret_cast<volatile uint32_t*>(g_watches[i]);
+        *w = *w;
+    }
 }
 namespace {
 
@@ -219,12 +230,16 @@ DWORD WINAPI WatchThreads(void*) {
             CONTEXT c = {};
             c.ContextFlags = CONTEXT_DEBUG_REGISTERS;
             GetThreadContext(t, &c);
-            c.Dr0 = g_watch;
-            c.Dr7 = (c.Dr7 & ~0xF0003ull) | 1 | (1ull << 16) | (3ull << 18);   // L0, on writes, 4 bytes
+            DWORD64* dr[4] = {&c.Dr0, &c.Dr1, &c.Dr2, &c.Dr3};
+            c.Dr7 &= ~0xFFFF00FFull;
+            for (int i = 0; i < g_nWatches; i++) {
+                *dr[i] = g_watches[i];
+                c.Dr7 |= (1ull << (2 * i)) | (1ull << (16 + 4 * i)) | (3ull << (18 + 4 * i));   // Li, on writes, 4 bytes
+            }
             SetThreadContext(t, &c);
             ResumeThread(t);
             CloseHandle(t);
-            armed[te.th32ThreadID] = c.Dr0;
+            armed[te.th32ThreadID] = want;
         }
         CloseHandle(snap);
         g_watchArmed = want;
@@ -237,12 +252,15 @@ DWORD WINAPI WatchThreads(void*) {
 LONG CALLBACK OnException(EXCEPTION_POINTERS* info) {
     auto rec = info->ExceptionRecord;
     uint64_t at = reinterpret_cast<uint64_t>(rec->ExceptionAddress);
-    if (g_watch && rec->ExceptionCode == EXCEPTION_SINGLE_STEP && (info->ContextRecord->Dr6 & 1)) {
+    if (g_watch && rec->ExceptionCode == EXCEPTION_SINGLE_STEP && (info->ContextRecord->Dr6 & 0xF)) {
+        int i = 0;
+        while (!(info->ContextRecord->Dr6 & (1ull << i))) i++;
         info->ContextRecord->Dr6 = 0;
-        if (InterlockedIncrement(&g_watchHits) <= 40) {
+        uint64_t at = g_watches[i];
+        if (InterlockedIncrement(&g_watchHits) <= 40 * g_nWatches) {
             const CONTEXT* c = info->ContextRecord;
             fprintf(stderr, "%s: watch: thread %lu wrote %08x to %llx (rcx %llx rdx %llx r8 %llx r9 %llx rdi %llx "
-                    "rsi %llx)\n", RHIPPER_NAME, GetCurrentThreadId(), *reinterpret_cast<uint32_t*>(g_watch), g_watch,
+                    "rsi %llx)\n", RHIPPER_NAME, GetCurrentThreadId(), *reinterpret_cast<uint32_t*>(at), at,
                     c->Rcx, c->Rdx, c->R8, c->R9, c->Rdi, c->Rsi);
             PrintStack(GetCurrentThread(), *info->ContextRecord);
         }
@@ -772,12 +790,17 @@ bool RefMapImage(const wchar_t* path) {
         uint64_t v = wcstoull(watch, &end, 16);
         if (end && *end == L'+') {
             g_watchFn = static_cast<unsigned int>(v);
-            g_watchOffset = static_cast<unsigned int>(wcstoul(end + 1, nullptr, 16));
-            fprintf(stderr, "%s: watching writes to %x's first argument + 0x%x, from its first call\n", RHIPPER_NAME,
-                    g_watchFn, g_watchOffset);
+            for (; end && (*end == L'+' || *end == L',') && g_nWatches < 4; g_nWatches++) {
+                g_watchOffsets[g_nWatches] = static_cast<unsigned int>(wcstoul(end + 1, &end, 16));
+                fprintf(stderr, "%s: watching writes to %x's first argument + 0x%x, from its first call\n",
+                        RHIPPER_NAME, g_watchFn, g_watchOffsets[g_nWatches]);
+            }
         } else {
+            for (g_watches[g_nWatches++] = v; end && *end == L',' && g_nWatches < 4; g_nWatches++)
+                g_watches[g_nWatches] = wcstoull(end + 1, &end, 16);
+            for (int i = 0; i < g_nWatches; i++)
+                fprintf(stderr, "%s: watching writes to %llx\n", RHIPPER_NAME, g_watches[i]);
             g_watch = v;
-            fprintf(stderr, "%s: watching writes to %llx\n", RHIPPER_NAME, v);
         }
         CreateThread(nullptr, 0, WatchThreads, nullptr, 0, nullptr);
     }

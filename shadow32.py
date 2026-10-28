@@ -516,7 +516,7 @@ class Shadow:
         if not ptr:
             return
         self.watch_at = [(ptr + off) & 0xFFFFFFFF for off in self.watch[1][:4]]
-        print("shadow32: watching writes at " + ", ".join(f"{a:#x}" for a in self.watch_at)
+        print("shadow32: watching writes at " + ", ".join(f"{a:#x} (now {self._u32(a):#010x})" for a in self.watch_at)
               + f" ([{self.watch[0]:#x}] = {ptr:#x})", file=sys.stderr, flush=True)
         for tid in list(self.threads):
             self._watch_arm(tid)
