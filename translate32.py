@@ -1596,6 +1596,26 @@ def x87_icall_results(c: str) -> str:
             i -= 1
         return i
 
+    def static_guard(k):
+        """the first line of a function-static's one-time init block ending on line k, `if
+        ((*(uint *)&DAT_014a22e8 & 1) == 0) { DAT |= 1; ctor(&obj); _atexit(dtor); }`, or None: the
+        compiler stores an x87 result before it (`call edx; mov eax, 1; fstp [ebp + 0xc]`), the
+        decompiler reading it after as extraout_ST0. A VFX camera curve's evaluation, 0x9b1200, a
+        stub a client's logo effect went through, 2026-10-28"""
+        if lines[k].strip() != "}":
+            return None
+        depth, s = 0, k
+        while s >= 0 and s > k - 24:
+            depth += lines[s].count("}") - lines[s].count("{")
+            if depth == 0:
+                break
+            s -= 1
+        if s < 0 or depth != 0 or not re.match(r"\s*if \(\(\(?\*?\(?u?int \*\)?&?DAT_[0-9a-f]+\)? & \d+\) == 0\) \{\s*$",
+                                                lines[s]):
+            return None
+        body = "\n".join(lines[s + 1:k])
+        return s if re.search(r"\b_?atexit\(", body) and "{" not in body else None
+
     firsts = {}
     for v in names:
         decl = re.compile(r"^\s*float10\s+" + v + r"\s*;\s*$")
@@ -1614,6 +1634,10 @@ def x87_icall_results(c: str) -> str:
             if cs:
                 calls.append((cs[0], k, cs[1]))
                 k = cs[0] - 1
+                continue
+            g = static_guard(k)
+            if g is not None:
+                k = g - 1
                 continue
             if not plain(l):
                 break
