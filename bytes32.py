@@ -172,6 +172,16 @@ def tokens(md, code: bytes, base: int, masked: set[int], lo: int, hi: int) -> tu
             s = ins.mnemonic + (" L" if re.fullmatch(r"0x[0-9a-f]+", ins.op_str) else " " + ins.op_str)
         if any(off <= r < off + ins.size for r in masked):
             s = re.sub(r"0x[0-9a-f]{5,}", "A", s)
+        # (and an address in the reference's image on either side: the port's REFG and REFP are
+        # its plain constants, `mov [esi], 0x1090754`, the reference's a relocated word)
+        lo_i, hi_i = IMAGE
+        for v in set(int(h, 16) for h in re.findall(r"0x[0-9a-f]{5,8}\b", s)):
+            if lo_i <= v < hi_i:
+                s = re.sub(r"0x0*" + f"{v:x}" + r"\b", "A", s)
+                raw = struct.pack("<I", v)
+                k = bytes(mb[off:off + ins.size]).find(raw)
+                if k >= 0:
+                    mb[off + k:off + k + 4] = b"\0\0\0\0"
         # (`ret 0` is `ret`: the newest cl's c2 00 00 for a function that only returns, VS2010's c3)
         if s.strip() == "ret 0":
             s = "ret "
@@ -182,6 +192,13 @@ def tokens(md, code: bytes, base: int, masked: set[int], lo: int, hi: int) -> tu
 
 
 POOL = BUILD / "x86pool"
+# the reference image's address range, set once the binary is open: values in it are addresses
+IMAGE = (0, 0)
+
+
+def set_image(b) -> None:
+    global IMAGE
+    IMAGE = (b.base, b.base + len(b.image))
 
 
 def run_pool(a) -> None:
@@ -273,7 +290,8 @@ def run_pool(a) -> None:
             rows.append(row)
             continue
         rcode = bytes(b.image[b.off(lo):b.off(hi)])
-        row, shown = compare((row, rcode, lo, hi, {va - lo for va in range(lo, hi) if va in relocs}, *port[x], x in show))
+        row, shown = compare((row, rcode, lo, hi, {va - lo for va in range(lo, hi) if va in relocs}, *port[x], x in show,
+                              (b.base, b.base + len(b.image))))
         rows.append(row)
         if shown:
             print(shown)
@@ -303,12 +321,12 @@ _MD = None
 
 def compare(task) -> tuple[dict, str]:
     """One function's scores (a worker process's, its own disassembler), and its side-by-side if asked."""
-    global _MD
+    global _MD, IMAGE
     if _MD is None:
         _MD = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
         _MD.detail = True
         _MD.skipdata = True
-    row, rcode, lo, hi, rmask, pcode, prel, show = task
+    row, rcode, lo, hi, rmask, pcode, prel, show, IMAGE = task
     rt, rb = tokens(_MD, rcode, lo, rmask, lo, hi)
     pt, pb = tokens(_MD, pcode, 0, prel, 0, len(pcode))
     sm = difflib.SequenceMatcher(None, rt, pt, autojunk=False)
@@ -375,7 +393,8 @@ def main() -> None:
             continue
         rcode = bytes(b.image[b.off(lo):b.off(hi)])
         pcode, prel = port[ent]
-        tasks.append((row, rcode, lo, hi, {va - lo for va in range(lo, hi) if va in relocs}, pcode, prel, ent in show))
+        tasks.append((row, rcode, lo, hi, {va - lo for va in range(lo, hi) if va in relocs}, pcode, prel, ent in show,
+                      (b.base, b.base + len(b.image))))
     # (the comparisons in parallel: difflib over 87k functions' instructions took minutes on one)
     from multiprocessing import Pool
     with Pool(a.jobs) as pool:

@@ -1024,7 +1024,7 @@ WORD4 = r"(?:undefined4|uint|int|ulong|long|LONG|DWORD|UINT)"
 def interlocked(c: str) -> str:
     """A `lock`-prefixed read-modify-write on a 4-byte word, Ghidra's `LOCK(); ...; UNLOCK();`, as
     the intrinsic it is: `lock xadd` an _InterlockedExchangeAdd, `xchg` an _InterlockedExchange, a
-    locked read (`lock or [p], 0`, `V = *p; *p = *p;`) an _InterlockedCompareExchange(p, 0, 0).
+    locked read (`lock xadd [p], 0`, `V = *p; *p = *p;`) an _InterlockedExchangeAdd(p, 0).
     Under Ghidra32.h's one process-wide lock it was atomic only against other LOCK() sections, not
     the runtime's own interlocked calls, and slower; and the reference's x86 is the instruction
     (bytes32.py, 1,152 sections in a client, 2026-10-27). Any other shape keeps the lock."""
@@ -1092,7 +1092,8 @@ def interlocked(c: str) -> str:
             if a is None or not same(lv, lv2) or not re.fullmatch(r"[A-Za-z_]\w*", v.strip()):
                 return None
             if same(rhs, lv):
-                return f"{v} = _InterlockedCompareExchange((volatile long *)({a}), 0, 0);"
+                # (`lock xadd [p], 0`, the reference's locked read: an add of 0, not a cmpxchg)
+                return f"{v} = _InterlockedExchangeAdd((volatile long *)({a}), 0);"
             m = re.fullmatch(re.escape(lv) + r"\s*\+\s*(.+)", rhs)
             if m:
                 return f"{v} = _InterlockedExchangeAdd((volatile long *)({a}), (long)({m.group(1)}));"
@@ -4511,7 +4512,11 @@ class Translator32:
             # (a stub records its call in the shadow trace too: what the port could not do is a
             # place the two runs part)
             ps = d[d.index("(") + 1:d.rindex(")")].split(", ")
-            args = [p.split()[-1] if p.startswith("unsigned int gen_a") else "0u" for p in ps[:4] if p not in ("void", "...")]
+            # (the parameter's name, not a convention macro after it: `gen_a0 GEN_EDX_PARAM`)
+            args = [re.search(r"\bgen_a\d+\b", p).group(0) if p.startswith("unsigned int gen_a") else "0u"
+                    for p in ps[:4] if p not in ("void", "...")]
+            # (and the return type without the convention: `uint GEN_THISCALL F_x(...)`)
+            ret = re.sub(r"\s*\bGEN_(?:THIS|STD|FAST)CALL\b", "", ret)
             args += ["0u"] * (4 - len(args))
             body = "GEN_ENTER(0x%xu, %s); GenUnimplemented(0x%x);" % (a, ", ".join(args), a)
             r = "" if ret == "void" else (" return 0;" if "*" not in ret else " return 0;")
