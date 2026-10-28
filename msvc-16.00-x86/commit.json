@@ -1,1 +1,1 @@
-{"sha": "da908ecbb82e24b2efa2e80ed12f5bee7d3dafe1", "date": "2026-10-28T05:31:47-04:00", "subject": "fix(translate32): a float table's element with a bracketed index is a float for flt_to too"}
+{"sha": "17c106ff247ced56a61f540ba1937fa5276d1828", "date": "2026-10-28T05:57:43-04:00", "subject": "fix(protos32): functions stored in a field a method calls with its own ecx are methods, an ecx-ignoring one too"}
