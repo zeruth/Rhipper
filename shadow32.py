@@ -47,6 +47,7 @@ STATUS_BREAKPOINT, STATUS_SINGLE_STEP = 0x80000003, 0x80000004
 STATUS_WX86_BREAKPOINT, STATUS_WX86_SINGLE_STEP = 0x4000001F, 0x4000001E
 WOW64_CONTEXT_CONTROL, WOW64_CONTEXT_INTEGER = 0x00010001, 0x00010002
 WOW64_CONTEXT_FULL = WOW64_CONTEXT_CONTROL | WOW64_CONTEXT_INTEGER | 0x00010004
+WOW64_CONTEXT_DEBUG_REGISTERS = 0x00010010
 TRAP_FLAG = 0x100
 PAGE_EXECUTE_READWRITE = 0x40
 INFINITE = 0xFFFFFFFF
@@ -336,6 +337,13 @@ class Shadow:
         self.n = 0
         self.out = None                         # the trace file, written as it grows (run())
         self.faults = 0
+        # (--watch GLOBAL:OFF,...: the global and the offsets; the addresses once it is set)
+        self.watch, self.watch_at = None, None
+        self.watch_only = bool(getattr(args, "watch_only", False))
+        self.secs = getattr(args, "secs", 0) or 0
+        if getattr(args, "watch", None):
+            g, offs = args.watch.split(":")
+            self.watch = (int(g, 16), [int(x, 16) for x in offs.split(",")])
         self.done = False
         self._load_facts()
 
@@ -471,11 +479,17 @@ class Shadow:
         if live_addr not in self.orig:
             return False                         # the loader's own breakpoint, or not ours
         ref_addr = live_addr - self.delta
+        self._watch_poll()
         h, ctx = self._context(tid)
         if ctx is None:
             return True
         if not self.recording and ref_addr == self.start:
-            self._arm_rest()
+            if self.watch_only:
+                # (only the watch from here: no function breakpoints, the reference at full speed.
+                # Recording every call from --from made a loading screen hang, 2026-10-27)
+                self._watch_poll()
+            else:
+                self._arm_rest()
         ctx.Eip = live_addr                      # back onto the real instruction
         if self.hits.get(ref_addr, 0) < self.per_function:
             self.hits[ref_addr] = self.hits.get(ref_addr, 0) + 1
@@ -492,7 +506,73 @@ class Shadow:
             self.done = True
         return True
 
+    # ---- --watch: hardware write watches on an object a global points to -------------------------
+    def _watch_poll(self):
+        """Once the watched global holds a pointer, debug registers 0-3 watch 4-byte writes at
+        pointer + each offset, on every thread (a new thread is armed as it starts)."""
+        if not self.watch or self.watch_at:
+            return
+        ptr = self._u32(self.watch[0] + self.delta)
+        if not ptr:
+            return
+        self.watch_at = [(ptr + off) & 0xFFFFFFFF for off in self.watch[1][:4]]
+        print("shadow32: watching writes at " + ", ".join(f"{a:#x}" for a in self.watch_at)
+              + f" ([{self.watch[0]:#x}] = {ptr:#x})", file=sys.stderr, flush=True)
+        for tid in list(self.threads):
+            self._watch_arm(tid)
+
+    def _watch_arm(self, tid):
+        if not self.watch_at:
+            return
+        h = self.threads.get(tid)
+        if h is None:
+            return
+        ctx = WOW64_CONTEXT()
+        ctx.ContextFlags = WOW64_CONTEXT_DEBUG_REGISTERS
+        if not k32.Wow64GetThreadContext(h, ctypes.byref(ctx)):
+            return
+        dr7 = 0
+        for k, a in enumerate(self.watch_at):
+            setattr(ctx, f"Dr{k}", a)
+            # (local enable; RW 01 a write; LEN 11 four bytes)
+            dr7 |= (1 << (2 * k)) | (0b01 << (16 + 4 * k)) | (0b11 << (18 + 4 * k))
+        ctx.Dr7 = dr7
+        k32.Wow64SetThreadContext(h, ctypes.byref(ctx))
+
+    def _watch_hit(self, tid) -> bool:
+        """A debug-register trap: a watched write. Logged with the writing instruction's next
+        address (the trap comes after the write) and the value now there."""
+        h = self.threads.get(tid)
+        if h is None or not self.watch_at:
+            return False
+        ctx = WOW64_CONTEXT()
+        ctx.ContextFlags = WOW64_CONTEXT_DEBUG_REGISTERS | WOW64_CONTEXT_CONTROL
+        if not k32.Wow64GetThreadContext(h, ctypes.byref(ctx)) or not ctx.Dr6 & 0xF:
+            return False
+        for k, a in enumerate(self.watch_at):
+            if ctx.Dr6 & (1 << k):
+                eip = ctx.Eip - self.delta if self.base <= ctx.Eip < self.base + self.image_size else ctx.Eip
+                # (and the callers, cheaply: the stack's words that point into the image's code)
+                ictx = WOW64_CONTEXT()
+                ictx.ContextFlags = WOW64_CONTEXT_CONTROL
+                k32.Wow64GetThreadContext(h, ctypes.byref(ictx))
+                lo, hi = self.text_lo + self.delta, self.text_hi + self.delta
+                chain = []
+                for s in range(48):
+                    w = self._u32(ictx.Esp + 4 * s)
+                    if lo <= w < hi:
+                        chain.append(f"{w - self.delta:#x}")
+                    if len(chain) >= 10:
+                        break
+                print(f"shadow32: watch: thread {tid} wrote {self._u32(a):#010x} to {a:#x} (+{self.watch[1][k]:#x}), "
+                      f"after the instruction before {eip:#x}; stack {' '.join(chain)}", file=sys.stderr, flush=True)
+        ctx.Dr6 = 0
+        k32.Wow64SetThreadContext(h, ctypes.byref(ctx))
+        return True
+
     def _on_singlestep(self, tid):
+        if self._watch_hit(tid) and tid not in self.stepping:
+            return
         rearm = self.stepping.pop(tid, None)
         if rearm is not None:
             self._write_byte(rearm, CC)
@@ -513,8 +593,14 @@ class Shadow:
         t0 = time.time()
         ev = DEBUG_EVENT()
         while not self.done:
-            if not k32.WaitForDebugEvent(ctypes.byref(ev), INFINITE):
-                break
+            # (a second at a time, so --secs ends a run that records nothing, --watch-only's)
+            if not k32.WaitForDebugEvent(ctypes.byref(ev), 1000):
+                if self.secs and time.time() - t0 > self.secs:
+                    print(f"shadow32: {self.secs}s up", file=sys.stderr, flush=True)
+                    break
+                continue
+            if self.secs and time.time() - t0 > self.secs:
+                self.done = True
             code = ev.dwDebugEventCode
             status = DBG_CONTINUE
             if code == CREATE_PROCESS_DEBUG_EVENT:
@@ -526,6 +612,7 @@ class Shadow:
                 self._arm_all()
             elif code == CREATE_THREAD_DEBUG_EVENT:
                 self.threads[ev.dwThreadId] = ev.u.CreateThread.hThread
+                self._watch_arm(ev.dwThreadId)
             elif code == EXIT_THREAD_DEBUG_EVENT:
                 self.threads.pop(ev.dwThreadId, None)
             elif code == EXIT_PROCESS_DEBUG_EVENT:
@@ -578,6 +665,14 @@ def main():
     ap.add_argument("--per-function", type=int, default=2000,
                     help="record each function at most this many times, then remove its breakpoint")
     ap.add_argument("--until", help="stop when this reference address (hex) is first reached")
+    ap.add_argument("--watch", metavar="GLOBAL:OFF,...",
+                    help="hardware write watches (up to 4) at the object a reference global points to, "
+                         "plus each offset, all hex: 1371288:48,4c,50,54. Armed once the global is set "
+                         "(checked at each breakpoint); each write logged with the instruction after it")
+    ap.add_argument("--secs", type=int, default=0, help="stop after this many seconds (0: no limit)")
+    ap.add_argument("--watch-only", action="store_true",
+                    help="with --watch and --from: arm the watch when --from's function is reached and "
+                         "nothing else, recording no calls: the reference at full speed")
     ap.add_argument("--from", dest="start", help="start recording when this reference address (hex) is first "
                                                   "called, running at full speed until then")
     ap.add_argument("--inproc", action="store_true",
