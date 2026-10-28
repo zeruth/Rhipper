@@ -10,6 +10,9 @@ What it looks for:
   a code address, a crash on a click (2026-10-28).
 - stubs that ran ("not translated"), by their manifest reason: what the run could not do.
 - COM: methods the runtime has no proxy for yet, classes it refused.
+- faults: what the address's shape says (null + a field, a round float's bits, a reference address
+  carried into bit 32, a debug fill), and the gen's lines the top frames are at (llvm-symbolizer
+  on the build's exe): three crashes on a client's sound path, each read off by hand, 2026-10-28.
 - imports passed through the generic adapter that take or return what differs between x86 and x64
   (a structure with pointers, handles or SOCKETs in it; a pointer that may sit above 4 GB): each
   needs an adapter of its own. select's fd_set kept a lobby connection's failure from being seen
@@ -84,6 +87,57 @@ RISKY = {
 }
 
 
+def fault_hint(v: int) -> str:
+    """what an access violation's address most often means in a port, by its shape"""
+    lo = v & 0xFFFFFFFF
+    if v >> 32 and 0x400000 <= lo < 0x4000000:
+        # (a client's sound table read at 0x1_0134f86c, `&DAT + u * -4`, 2026-10-28)
+        return ("a reference address with a carry into bit 32: a 32-bit sum done in 64 bits (an unsigned"
+                " term scaled by a negative constant, a negative index as uint, added to a pointer)")
+    if v >> 32:
+        return "above 4 GB: a host pointer truncated or a 32-bit word read as a pointer's half"
+    if v < 0x10000:
+        return f"a field of a null pointer, +0x{v:x}: an object never set, or an argument one word off"
+    if lo in (0xCCCCCCCC, 0xCDCDCDCD, 0xDDDDDDDD, 0xFEEEFEEE, 0xBAADF00D) or lo >> 16 in (0xCCCC, 0xCDCD):
+        return "a debug fill pattern: an uninitialized local or freed memory"
+    # (a round float's bits, 1.0f = 0x3f800000, plus a small field offset: a float argument where
+    # a pointer was read, the words one off; a DynamicValue's set took 1.0f for `this`, 2026-10-28)
+    if 0x70 <= (lo >> 23 & 0xFF) <= 0x90 and lo & 0x7FFFF < 0x400:
+        f = re.sub(r"0+$", "", f"{lo & 0xFFFFFC00:08x}")
+        return (f"a round float's bits (0x{f}..., +0x{lo & 0x3ff:x}): a float where a pointer was read,"
+                " arguments one word off or a lost `this` (unless the heap is there)")
+    return ""
+
+
+def symbolize(addrs: list[str]) -> list[str]:
+    """gen file:line and its text for port addresses, through llvm-symbolizer and the build's exe"""
+    import shutil
+    import subprocess
+    from pathlib import Path
+    tool = shutil.which("llvm-symbolizer") or next(
+        (str(p) for p in [Path(r"C:\Program Files\LLVM\bin\llvm-symbolizer.exe")] if p.exists()), None)
+    b = project.CONFIG.get("build", {})
+    exes = sorted((project.ROOT / b.get("dir", "build/cmake") / "bin" / b.get("config", "Release")).glob("*.exe"),
+                  key=lambda p: p.stat().st_mtime)
+    if not tool or not exes or not addrs:
+        return []
+    r = subprocess.run([tool, f"--obj={exes[-1]}", *addrs], capture_output=True, text=True)
+    out = []
+    for block in r.stdout.strip().split("\n\n"):
+        ls = block.strip().split("\n")
+        if len(ls) < 2:
+            continue
+        m = re.match(r"(.*):(\d+):\d+$", ls[1])
+        text = ""
+        if m and Path(m.group(1)).exists():
+            src = Path(m.group(1)).read_text(encoding="utf-8", errors="replace").split("\n")
+            n = int(m.group(2))
+            text = src[n - 1].strip()[:160] if 0 < n <= len(src) else ""
+        where = f"{Path(m.group(1)).name}:{m.group(2)}" if m else ls[1]
+        out.append(f"{ls[0]} {where}  {text}")
+    return out
+
+
 def generic_imports() -> set[str]:
     """the imports imports.c passes through the generic adapter (not the runtime's own)"""
     p = GEN / "imports.c"
@@ -126,11 +180,18 @@ def main() -> None:
         print(f"COM the runtime refused: {len(com)}")
         for c in com:
             print(f"  {c}")
-        faults = re.findall(r"exception (\w+) at \w+[^\n]*\n\s*0\s+\w+\s+(\S+)", text)
+        faults = re.findall(r"exception (\w+) at \w+(?: \((reading|writing|executing) (\w+)\))?[^\n]*\n"
+                            r"((?:\s*\d+\s+[0-9a-f]{8,16}\s+\S+\n?){1,4})", text)
         if faults:
             print(f"faults: {len(faults)}")
-            for code, where in faults[:5]:
-                print(f"  {code} at {where}")
+            for code, how, at, frames in faults[:5]:
+                fr = re.findall(r"\d+\s+([0-9a-f]{8,16})\s+(\S+)", frames)
+                print(f"  {code} at {fr[0][1] if fr else '?'}" + (f", {how} {at}" if how else ""))
+                # (what the address's shape says, and the gen's lines the top frames are at)
+                if at and fault_hint(int(at, 16)):
+                    print(f"    {fault_hint(int(at, 16))}")
+                for line in symbolize(["0x" + x for x, _n in fr[:3]]):
+                    print(f"    {line}")
             problems += len(faults)
     # (the ones a project has looked at and found harmless as used, rhipper.json "gotchas_reviewed":
     # {name: why}, shown apart so the rest stand out)
