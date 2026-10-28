@@ -231,7 +231,16 @@ class Project:
         self.fidelity: dict | None = None
 
     def ghidra_sh(self, *args: str, log: str, tail: int = 4) -> bool:
-        return run([str(GIT_BASH), str(RHIPPER / "ghidra" / "ghidra.sh"), *args], self.root, self.env,
+        # (Ghidra's file cache the project's own, %LOCALAPPDATA%\ghidra: --parallel's projects
+        # starting Ghidra at once raced to create the shared one, "Unable to initialize cache dir
+        # ... fscache2", and a whole project failed on CI, core-O2 at one commit and core-Od at
+        # another, 2026-10-27)
+        env = self.env
+        if os.name == "nt":
+            cache = self.root / "build" / "ghidra-local"
+            cache.mkdir(parents=True, exist_ok=True)
+            env = {**env, "LOCALAPPDATA": str(cache)}
+        return run([str(GIT_BASH), str(RHIPPER / "ghidra" / "ghidra.sh"), *args], self.root, env,
                    self.build / log, tail) == 0
 
     # ---- steps ----------------------------------------------------------------------------------
