@@ -1054,5 +1054,17 @@
   "stubs": 172,
   "perfect": 4360,
   "translated": 4427
+ },
+ {
+  "sha": "efd22830b030f3743111b1c427836da101dd5d51",
+  "date": "2026-10-28T09:52:10-04:00",
+  "subject": "fix(protos32): x87 values kept below what the code after a call loads",
+  "run": "2026-10-28 14:32 UTC",
+  "file": "efd22830b030f3743111b1c427836da101dd5d51.json",
+  "passing": 21,
+  "projects": 34,
+  "stubs": 172,
+  "perfect": 4360,
+  "translated": 4427
  }
 ]
