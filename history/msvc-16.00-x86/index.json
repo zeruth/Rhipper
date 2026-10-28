@@ -730,5 +730,17 @@
   "stubs": 244,
   "perfect": 15709,
   "translated": 17527
+ },
+ {
+  "sha": "8b323265728f7afa35f98fbeebd2c10280e05360",
+  "date": "2026-10-28T04:50:10-04:00",
+  "subject": "fix(translate32): x87_icall_results takes a call whose ; the decompiler wrapped onto the next line",
+  "run": "2026-10-28 10:02 UTC",
+  "file": "8b323265728f7afa35f98fbeebd2c10280e05360.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 244,
+  "perfect": 15709,
+  "translated": 17527
  }
 ]
