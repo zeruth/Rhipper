@@ -1,1 +1,1 @@
-{"sha": "5cd60ceec1ccad3b229a63bb80452ba193ed9d6d", "date": "2026-10-28T13:36:20-04:00", "subject": "feat(runtime32): <ENV>_VCURSOR, a virtual cursor for scripted input"}
+{"sha": "f91de27a34d945e6d09fc1bff4bb2b8779ce46a1", "date": "2026-10-28T15:58:54-04:00", "subject": "fix(ApplyFacts): a function at a jump target inside the function before it merged back; shadow32 --fake-cursor; jumppieces.py"}

@@ -1210,5 +1210,17 @@
   "stubs": 172,
   "perfect": 4360,
   "translated": 4427
+ },
+ {
+  "sha": "f91de27a34d945e6d09fc1bff4bb2b8779ce46a1",
+  "date": "2026-10-28T15:58:54-04:00",
+  "subject": "fix(ApplyFacts): a function at a jump target inside the function before it merged back; shadow32 --fake-cursor; jumppieces.py",
+  "run": "2026-10-28 20:20 UTC",
+  "file": "f91de27a34d945e6d09fc1bff4bb2b8779ce46a1.json",
+  "passing": 0,
+  "projects": 34,
+  "stubs": 0,
+  "perfect": 0,
+  "translated": 0
  }
 ]
