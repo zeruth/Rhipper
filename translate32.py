@@ -3601,6 +3601,24 @@ class Translator32:
         prologue = [f"  GEN_ENTER(0x{a:x}u, {', '.join(args)});"] + prologue
         # (the parameters' names are locals now, declared first in the body)
         body = body.replace("{", "{\n" + "\n".join(prologue), 1)
+        # (a 4-byte integer parameter whose address is taken is the argument itself, not a local
+        # copy of it: `lea eax, [ebp + 8]; push eax`, where the copy was `mov [ebp - 4], eax; lea
+        # eax, [ebp - 4]`, bytes32. Its uses the argument's storage, `*(T *)&gen_aN`)
+        for k, (t, n) in enumerate(sig.params):
+            if not re.search(r"&\s*\(?\s*" + re.escape(n) + r"\b", body):
+                continue
+            try:
+                tt = self.type_text(t)
+            except ValueError:
+                continue
+            if not re.fullmatch(WORD4, tt.strip()):
+                continue
+            copy = re.compile(r"(?m)^[ \t]*" + re.escape(tt) + r"\s+" + re.escape(n) + r"\s*=\s*\(" + re.escape(tt)
+                              + r"\)gen_a" + str(k) + r";[ \t]*\n")
+            if not copy.search(body):
+                continue
+            body = copy.sub("", body, count=1)
+            body = re.sub(r"\b" + re.escape(n) + r"\b", f"(*({tt} *)&gen_a{k})", body)
         # (the frame as the reference's, for the x86 fidelity build: GEN_FRAME, GEN_NOFRAME)
         frame = "GEN_FRAME " if self.has_frame(a) else "GEN_NOFRAME "
         return f"/* ref: {self.corpus[a]['name']} */\n{frame}{decl}\n{body.strip()}\n"
