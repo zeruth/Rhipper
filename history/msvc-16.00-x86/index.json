@@ -610,5 +610,17 @@
   "stubs": 244,
   "perfect": 15709,
   "translated": 17527
+ },
+ {
+  "sha": "50e61fb3fbaac6c2c9a1a4d8c90996b2bae624ee",
+  "date": "2026-10-28T01:45:13-04:00",
+  "subject": "feat(stubcheck): --footprint REGEX, a pass's reach over the whole corpus before a pipeline",
+  "run": "2026-10-28 07:03 UTC",
+  "file": "50e61fb3fbaac6c2c9a1a4d8c90996b2bae624ee.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 244,
+  "perfect": 15709,
+  "translated": 17527
  }
 ]
