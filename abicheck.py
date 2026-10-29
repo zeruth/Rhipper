@@ -69,6 +69,8 @@ def main() -> None:
             print(f"      {site} -> {t} {n}  (site {w} stack words, target {tw})")
         if len(rows) > 12:
             print(f"      ... {len(rows) - 12} more")
+    # (the count again last, the line a pipeline's log shows of the step)
+    print(f"{total} (site, target) pairs disagree on ecx")
 
 
 if __name__ == "__main__":
