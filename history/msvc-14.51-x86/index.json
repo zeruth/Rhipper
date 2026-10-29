@@ -1476,6 +1476,18 @@
   "translated": 4427
  },
  {
+  "sha": "3d25c79e7892723f22d8f37588d03739b4d26775",
+  "date": "2026-10-28T21:26:05-04:00",
+  "subject": "fix(protos32): a __stdcall site whose observed targets read ecx, a __thiscall one",
+  "run": "2026-10-29 02:06 UTC",
+  "file": "3d25c79e7892723f22d8f37588d03739b4d26775.json",
+  "passing": 21,
+  "projects": 34,
+  "stubs": 172,
+  "perfect": 4360,
+  "translated": 4427
+ },
+ {
   "sha": "ea2970bebbb69c8b195beb6d4a999d4326c60c0c",
   "date": "2026-10-28T21:26:20-04:00",
   "subject": "feat(pipeline32): abicheck after protos32, the indirect calls whose convention disagrees with an observed target, in the run's log",
