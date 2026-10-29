@@ -103,8 +103,11 @@ def build(jobs: int) -> list[Path]:
             o.unlink()
         stamp.write_text(" ".join(CL_FLAGS), encoding="utf-8")
     # (an empty object is a compile that died, the compiler's internal error on one file: built again)
+    # (newer than its source, the prototypes, or the header of the macros it is written in:
+    # Ghidra32.h's GEN_FIDELITY forms changed, and nothing rebuilt)
+    deps = max((p.stat().st_mtime for p in (GEN / "translated.h", GEN / "Ghidra32.h") if p.exists()), default=0)
     stale = [s for s in srcs if not (OBJ / (s.stem + ".obj")).exists() or (OBJ / (s.stem + ".obj")).stat().st_size < 20
-             or (OBJ / (s.stem + ".obj")).stat().st_mtime < max(s.stat().st_mtime, (GEN / "translated.h").stat().st_mtime)]
+             or (OBJ / (s.stem + ".obj")).stat().st_mtime < max(s.stat().st_mtime, deps)]
     if stale:
         print(f"bytes32: compiling {len(stale)} of {len(srcs)} files for x86", flush=True)
         env = cl_env()
