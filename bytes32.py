@@ -40,6 +40,7 @@ from pathlib import Path
 import capstone
 
 from pebin import FACTS, Binary
+import project
 from project import BUILD, GEN, ROOT
 
 HERE = Path(__file__).resolve().parent
@@ -53,7 +54,12 @@ VCVARS = os.environ.get("RHIPPER_VCVARS32", "")
 # are `push ebp; mov ebp, esp; ...; pop ebp`), the shadow trace compiled out (GEN_FIDELITY)
 # (frames per function since: GEN_FRAME / GEN_NOFRAME, translate32 reading the reference's
 # `push ebp; mov ebp, esp`, which VS2010's libraries mixed; /Oy- left them all with frames)
-CL_FLAGS = ["/nologo", "/c", "/O2", "/Gy", "/arch:IA32", "/std:c17", "/w", "/DGEN_FIDELITY"]
+# (the code generation flags the reference itself was built with, where the project knows them:
+# rhipper.json "bytes" "cl_flags". The default, /O2 /arch:IA32, is a VS2010 client's; a reference
+# built by the newest cl with its own default, SSE2, vectorizes structure updates and does its
+# floats in xmm registers, and as x87 every such function of rhtest's core-O2 differed, 2026-10-28)
+OPT_FLAGS = project.CONFIG.get("bytes", {}).get("cl_flags") or ["/O2", "/arch:IA32"]
+CL_FLAGS = ["/nologo", "/c", *OPT_FLAGS, "/Gy", "/std:c17", "/w", "/DGEN_FIDELITY"]
 
 
 def vcvars32() -> str:
@@ -90,6 +96,12 @@ def build(jobs: int) -> list[Path]:
     """Every translated_*.c compiled for x86 into build/x86obj, the ones newer than their object."""
     OBJ.mkdir(parents=True, exist_ok=True)
     srcs = sorted(GEN.glob("translated_*.c"))
+    # (built with other flags: every object again, the cache keyed on them too)
+    stamp = OBJ / "flags.txt"
+    if not stamp.exists() or stamp.read_text(encoding="utf-8") != " ".join(CL_FLAGS):
+        for o in OBJ.glob("*.obj"):
+            o.unlink()
+        stamp.write_text(" ".join(CL_FLAGS), encoding="utf-8")
     # (an empty object is a compile that died, the compiler's internal error on one file: built again)
     stale = [s for s in srcs if not (OBJ / (s.stem + ".obj")).exists() or (OBJ / (s.stem + ".obj")).stat().st_size < 20
              or (OBJ / (s.stem + ".obj")).stat().st_mtime < max(s.stat().st_mtime, (GEN / "translated.h").stat().st_mtime)]

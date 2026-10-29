@@ -157,7 +157,7 @@ def splice(t, addrs: list[int]) -> list[Path]:
             print(f"  {a:08x} STUB: {why[:100]}")
         # (its prototype, which a changed signature changes)
         hi = next((k for k, l in enumerate(header) if name in l and l.rstrip().endswith(";")), None)
-        decl = t.stub_decl(a) + ";"
+        decl = ((ok and translate32.definition_decl(text)) or t.stub_decl(a)) + ";"
         if hi is not None and header[hi] != decl:
             header[hi] = decl
     # (and jumps.c's wrapper of each, which calls it with its parameters: a prototype changed, the

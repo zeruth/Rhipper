@@ -118,6 +118,17 @@ typedef unsigned int __fastcall gen_tcode();
 #define GEN_EDX_PARAM
 #define GEN_EDX_ARG
 #endif
+/* a parameter, translate32.py's: in the x86 fidelity build the typed parameter itself, as the
+   reference's source had it (a /Od build keeps every local in a stack slot, and the port's copy of
+   each word into its type was a store and a load more); in the port its 32-bit word, and the copy
+   into Ghidra's type a local (GEN_PIN) */
+#ifdef GEN_FIDELITY
+#define GEN_P(typed, abi) typed
+#define GEN_PIN(...)
+#else
+#define GEN_P(typed, abi) abi
+#define GEN_PIN(...) __VA_ARGS__
+#endif
 /* (GEN_FIDELITY: nothing, bytes32.py's x86 build, compared byte for byte with the reference) */
 #ifdef GEN_FIDELITY
 #define GEN_ENTER(addr, a0, a1, a2, a3) ((void)0)

@@ -220,6 +220,11 @@ class Project:
             "run": {"exe": "build/port/bin/Release/rhtest-port.exe", "cwd": "ref"},
             "ghidra": {"install": GHIDRA, "projects": GHIDRA_PROJECTS, "project": self.gproject,
                        "program": f"{program}.exe", "maxmem": "2G", "shards": 1},
+            # (bytes32's x86 build of the translation, with the reference's own code generation: its
+            # variant's flags, not /GL (bytes32 reads COFF code), x87 where the toolset's default
+            # is (VS2010's). As /O2 /arch:IA32 for every one, a 14.51 SSE2 reference's vectorized
+            # structure updates matched nothing)
+            "bytes": {"cl_flags": self.bytes_flags(variant)},
         }
         path = self.root / "rhipper.json"
         text = json.dumps(self.config, indent=2) + "\n"
@@ -230,6 +235,13 @@ class Project:
         self.stubs: dict | None = None
         self.fidelity: dict | None = None
         self.bytes: dict | None = None
+
+    @staticmethod
+    def bytes_flags(variant: str) -> list[str]:
+        flags = [f for f in VARIANTS[variant][0] if f != "/GL"]
+        if TOOLSETS[TOOLSET]["vs"] == "2010" and not any(f.startswith("/arch") for f in flags):
+            flags.append("/arch:IA32")
+        return flags
 
     def ghidra_sh(self, *args: str, log: str, tail: int = 4) -> bool:
         # (Ghidra's file cache the project's own, %LOCALAPPDATA%\ghidra: --parallel's projects
