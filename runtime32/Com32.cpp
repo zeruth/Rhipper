@@ -27,7 +27,8 @@ extern "C" void gen_set_x87_cw(unsigned short cw);
 namespace com32 {
 
 extern Type32 IUnknown_32, IClassFactory_32, IDirect3D9_32, IDirect3DDevice9_32, IDirect3DSwapChain9_32,
-    IDirectInput8A_32, IXAudio2SourceVoice_32, IXAudio2SubmixVoice_32, IXAudio2MasteringVoice_32;
+    IDirectInput8A_32, IXAudio2SourceVoice_32, IXAudio2SubmixVoice_32, IXAudio2MasteringVoice_32,
+    IStream_32;
 
 namespace {
 
@@ -1129,6 +1130,8 @@ bool Supported(const GUID& clsid) {
         // of no document manager. Refused, IME stayed as Windows had it and the refusal printed at
         // every start, 2026-10-28)
         {0x529a9e6b, 0x6587, 0x4f23, {0xab, 0x9e, 0x9c, 0x7d, 0x68, 0x3e, 0x3c, 0x50}},   // TF_ThreadMgr
+        // (the shell's link, IShellLinkA and IPersist: rhtest com)
+        {0x00021401, 0x0000, 0x0000, {0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}},   // ShellLink
     };
     for (const GUID& g : known)
         if (IsEqualGUID(g, clsid)) return true;
@@ -1174,6 +1177,57 @@ unsigned int gen_imp_CoCreateInstance(uint32_t clsid, uint32_t outer, uint32_t c
                      ? DxDiagBridgeCreate(*At<IID>(riid), &o)
                      : CoCreateInstance(*At<CLSID>(clsid), static_cast<LPUNKNOWN>(Unwrap(outer)), context, *At<IID>(riid), &o);
     if (out) *At<uint32_t>(out) = Wrap(o, TypeOf(riid));
+    return static_cast<unsigned int>(hr);
+}
+
+// ---- the system's own objects: a stream on memory (the task allocator is Adapters.cpp's) ------
+// (each handed to the reference as a proxy: through the generic adapter a native IStream* was
+// written 8 bytes into its 4-byte slot, and its 8-byte vtable read as 4-byte slots, Write calling
+// Release and a Seek through nothing, rhtest com-Od)
+unsigned int gen_imp_CreateStreamOnHGlobal(uint32_t hglobal, uint32_t release, uint32_t out) {
+    IStream* s = nullptr;
+    HRESULT hr = CreateStreamOnHGlobal(static_cast<HGLOBAL>(Handle32(hglobal)), release, &s);
+    if (out) *At<uint32_t>(out) = SUCCEEDED(hr) ? Wrap(s, &IStream_32) : 0;
+    return static_cast<unsigned int>(hr);
+}
+unsigned int gen_imp_GetHGlobalFromStream(uint32_t stream, uint32_t out) {
+    HGLOBAL g = nullptr;
+    HRESULT hr = GetHGlobalFromStream(static_cast<IStream*>(Unwrap(stream)), &g);
+    if (out) *At<uint32_t>(out) = Low(g);
+    return static_cast<unsigned int>(hr);
+}
+
+// IStream::Stat: x86's STATSTG, its name pointer 4 bytes and so every field after it 4 bytes
+// earlier than x64's (72 bytes to 80)
+#pragma pack(push, 4)
+struct StatStg32 {
+    uint32_t name;
+    DWORD type;
+    ULARGE_INTEGER size;     // (at 8: 8-aligned on x86 too)
+    FILETIME mtime, ctime, atime;
+    DWORD mode, locks;
+    CLSID clsid;
+    DWORD state, reserved;
+};
+#pragma pack(pop)
+static_assert(sizeof(StatStg32) == 72, "STATSTG, x86");
+unsigned int S_IStream_Stat(uint32_t self, uint32_t out, uint32_t flags) {
+    STATSTG n = {};
+    HRESULT hr = static_cast<IStream*>(Unwrap(self))->Stat(&n, flags);
+    if (SUCCEEDED(hr) && out) {
+        StatStg32& o = *At<StatStg32>(out);
+        o.name = Low(n.pwcsName);
+        o.type = n.type;
+        o.size = n.cbSize;
+        o.mtime = n.mtime;
+        o.ctime = n.ctime;
+        o.atime = n.atime;
+        o.mode = n.grfMode;
+        o.locks = n.grfLocksSupported;
+        o.clsid = n.clsid;
+        o.state = n.grfStateBits;
+        o.reserved = n.reserved;
+    }
     return static_cast<unsigned int>(hr);
 }
 

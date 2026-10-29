@@ -452,8 +452,12 @@ def analyse(root: int, ranges):
             esp = None if esp is None else esp - (op_size(ops[0]) if ops else 4)
             # (outstanding argument bytes: a register saved while it holds its entry value is no
             # argument, nor is a local reserved so)
-            # (nor the frame pointer's save, `push ebp`)
-            frame = ops and ops[0].type == X.X86_OP_REG and ops[0].reg == X.X86_REG_EBP
+            # (nor the frame pointer's save, `push ebp`: while ebp holds its entry value. /O2 uses
+            # ebp as any register, `mov ebp, [esp + 0x48]; ...; push ebp; call [eax]`, a COM
+            # interface pushed as `this`; as the save, QueryInterface had two words of three and
+            # the frame was a word off after it, the interface read as unaff_EBX, rhtest com-O2)
+            frame = ops and ops[0].type == X.X86_OP_REG and ops[0].reg == X.X86_REG_EBP \
+                and not ebp_written_before(insns, prv, a)
             # (nor the /GS cookie a frame with an EH record saves, `xor eax, ebp; push eax`)
             p0 = insns.get(prv[a]) if prv[a] is not None else None
             cookie = ops and ops[0].type == X.X86_OP_REG and p0 is not None and p0.mnemonic == "xor" \
@@ -2619,6 +2623,20 @@ def indirect_tail_jump(ins) -> bool:
         return False
     op = ins.operands[0]
     return not (op.type == X.X86_OP_MEM and op.mem.index != 0)
+
+
+def ebp_written_before(insns, prv, a, budget: int = 4000) -> bool:
+    """Whether an instruction before a, back to the function's entry, writes ebp (other than a
+    push or pop of it): ebp then a register like any, not the caller's frame pointer"""
+    p = prv.get(a)
+    for _ in range(budget):
+        if p is None or p not in insns:
+            return False
+        ins = insns[p]
+        if ins.mnemonic not in ("push", "pop") and X.X86_REG_EBP in _regs_access(ins)[1]:
+            return True
+        p = prv.get(p)
+    return False
 
 
 def x87_discards(m: str) -> bool:

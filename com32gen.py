@@ -90,6 +90,58 @@ DECLARE_INTERFACE_(ITfThreadMgrEx, ITfThreadMgr) {
     STDMETHOD(ActivateEx)(THIS_ DWORD* ptid, DWORD dwFlags) PURE;
     STDMETHOD(GetActiveFlags)(THIS_ DWORD* lpdwFlags) PURE;
 };
+DECLARE_INTERFACE_(ISequentialStream, IUnknown) {
+    STDMETHOD(QueryInterface)(THIS_ REFIID riid, void** ppvObj) PURE;
+    STDMETHOD_(ULONG,AddRef)(THIS) PURE;
+    STDMETHOD_(ULONG,Release)(THIS) PURE;
+    STDMETHOD(Read)(THIS_ void* pv, ULONG cb, ULONG* pcbRead) PURE;
+    STDMETHOD(Write)(THIS_ const void* pv, ULONG cb, ULONG* pcbWritten) PURE;
+};
+DECLARE_INTERFACE_(IStream, ISequentialStream) {
+    STDMETHOD(QueryInterface)(THIS_ REFIID riid, void** ppvObj) PURE;
+    STDMETHOD_(ULONG,AddRef)(THIS) PURE;
+    STDMETHOD_(ULONG,Release)(THIS) PURE;
+    STDMETHOD(Read)(THIS_ void* pv, ULONG cb, ULONG* pcbRead) PURE;
+    STDMETHOD(Write)(THIS_ const void* pv, ULONG cb, ULONG* pcbWritten) PURE;
+    STDMETHOD(Seek)(THIS_ LARGE_INTEGER dlibMove, DWORD dwOrigin, ULARGE_INTEGER* plibNewPosition) PURE;
+    STDMETHOD(SetSize)(THIS_ ULARGE_INTEGER libNewSize) PURE;
+    STDMETHOD(CopyTo)(THIS_ IStream* pstm, ULARGE_INTEGER cb, ULARGE_INTEGER* pcbRead, ULARGE_INTEGER* pcbWritten) PURE;
+    STDMETHOD(Commit)(THIS_ DWORD grfCommitFlags) PURE;
+    STDMETHOD(Revert)(THIS) PURE;
+    STDMETHOD(LockRegion)(THIS_ ULARGE_INTEGER libOffset, ULARGE_INTEGER cb, DWORD dwLockType) PURE;
+    STDMETHOD(UnlockRegion)(THIS_ ULARGE_INTEGER libOffset, ULARGE_INTEGER cb, DWORD dwLockType) PURE;
+    STDMETHOD(Stat)(THIS_ STATSTG* pstatstg, DWORD grfStatFlag) PURE;
+    STDMETHOD(Clone)(THIS_ IStream** ppstm) PURE;
+};
+DECLARE_INTERFACE_(IPersist, IUnknown) {
+    STDMETHOD(QueryInterface)(THIS_ REFIID riid, void** ppvObj) PURE;
+    STDMETHOD_(ULONG,AddRef)(THIS) PURE;
+    STDMETHOD_(ULONG,Release)(THIS) PURE;
+    STDMETHOD(GetClassID)(THIS_ CLSID* pClassID) PURE;
+};
+DECLARE_INTERFACE_(IShellLinkA, IUnknown) {
+    STDMETHOD(QueryInterface)(THIS_ REFIID riid, void** ppvObj) PURE;
+    STDMETHOD_(ULONG,AddRef)(THIS) PURE;
+    STDMETHOD_(ULONG,Release)(THIS) PURE;
+    STDMETHOD(GetPath)(THIS_ LPSTR pszFile, int cch, WIN32_FIND_DATAA* pfd, DWORD fFlags) PURE;
+    STDMETHOD(GetIDList)(THIS_ void** ppidl) PURE;
+    STDMETHOD(SetIDList)(THIS_ const void* pidl) PURE;
+    STDMETHOD(GetDescription)(THIS_ LPSTR pszName, int cch) PURE;
+    STDMETHOD(SetDescription)(THIS_ LPCSTR pszName) PURE;
+    STDMETHOD(GetWorkingDirectory)(THIS_ LPSTR pszDir, int cch) PURE;
+    STDMETHOD(SetWorkingDirectory)(THIS_ LPCSTR pszDir) PURE;
+    STDMETHOD(GetArguments)(THIS_ LPSTR pszArgs, int cch) PURE;
+    STDMETHOD(SetArguments)(THIS_ LPCSTR pszArgs) PURE;
+    STDMETHOD(GetHotkey)(THIS_ WORD* pwHotkey) PURE;
+    STDMETHOD(SetHotkey)(THIS_ WORD wHotkey) PURE;
+    STDMETHOD(GetShowCmd)(THIS_ int* piShowCmd) PURE;
+    STDMETHOD(SetShowCmd)(THIS_ int iShowCmd) PURE;
+    STDMETHOD(GetIconLocation)(THIS_ LPSTR pszIconPath, int cch, int* piIcon) PURE;
+    STDMETHOD(SetIconLocation)(THIS_ LPCSTR pszIconPath, int iIcon) PURE;
+    STDMETHOD(SetRelativePath)(THIS_ LPCSTR pszPathRel, DWORD dwReserved) PURE;
+    STDMETHOD(Resolve)(THIS_ HWND hwnd, DWORD fFlags) PURE;
+    STDMETHOD(SetPath)(THIS_ LPCSTR pszFile) PURE;
+};
 """
 EXTRA_IIDS = {
     "IUnknown": "00000000-0000-0000-C000-000000000046",
@@ -100,9 +152,16 @@ EXTRA_IIDS = {
     "ITfThreadMgrEx": "3E90ADE3-7594-4CB0-BB58-69628F5F458C",
     "ITfDocumentMgr": "AA80E7F4-2021-11D2-93E0-0060B067B86E",
     "ITfSource": "4EA48A35-60AE-446F-8FD6-E6A8D82459F7",
+    # (the system's own objects a program makes and is handed: a stream on memory, the shell's link
+    # and its persistence, rhtest com. The task allocator is Adapters.cpp's own, Malloc32)
+    "ISequentialStream": "0C733A30-2A1C-11CE-ADE5-00AA0044773D",
+    "IStream": "0000000C-0000-0000-C000-000000000046",
+    "IPersist": "0000010C-0000-0000-C000-000000000046",
+    "IShellLinkA": "000214EE-0000-0000-C000-000000000046",
 }
 # (and the interfaces EXTRA declares that get proxies)
-EXTRA_WANTED = ["ITfDocumentMgr", "ITfThreadMgr", "ITfThreadMgrEx", "ITfSource"]
+EXTRA_WANTED = ["ITfDocumentMgr", "ITfThreadMgr", "ITfThreadMgrEx", "ITfSource",
+                "ISequentialStream", "IStream", "IPersist", "IShellLinkA"]
 
 # methods whose arguments hold a pointer or handle inside a structure: Com32.cpp's S_<iface>_<method>
 SPECIAL = {
@@ -123,6 +182,8 @@ SPECIAL = {
     ("IDxDiagProvider", "Initialize"), ("IDxDiagContainer", "GetProp"),
     # (a sink the reference implements, behind a native face: Com32.cpp's UIElementSinkFace)
     ("ITfSource", "AdviseSink"),
+    # (STATSTG: its name pointer first, every field after it 4 bytes on on x64)
+    ("IStream", "Stat"),
 }
 # methods not given to the reference yet (structures with pointers inside: force feedback, action
 # maps, effect files): logged, E_NOTIMPL
@@ -142,9 +203,13 @@ NONFLAT = {"D3DPRESENT_PARAMETERS", "D3DDEVICE_CREATION_PARAMETERS", "D3DLOCKED_
            "DIFILEEFFECT", "DICONFIGUREDEVICESPARAMSA", "DIDEVICEIMAGEINFOHEADERA",
            "XAUDIO2_VOICE_SENDS", "XAUDIO2_EFFECT_CHAIN", "XAUDIO2_BUFFER", "XAUDIO2_BUFFER_WMA",
            "XAUDIO2_VOICE_STATE", "IXAudio2EngineCallback", "IXAudio2VoiceCallback",
-           "DXDIAG_INIT_PARAMS", "VARIANT"}
+           "DXDIAG_INIT_PARAMS", "VARIANT", "STATSTG"}
 
 FLOATS = {"float", "FLOAT"}
+# (an 8-byte integer by value: two of the reference's stack words, low first, one x64 argument)
+WIDE8 = {"LARGE_INTEGER", "ULARGE_INTEGER"}
+# (a pointer-sized integer: x64's whole register, the reference's word zero-extended into it)
+SIZES = {"SIZE_T", "ULONG_PTR", "UINT_PTR", "DWORD_PTR"}
 HANDLES = {"HWND", "HANDLE", "HDC", "HMONITOR", "HICON", "HMENU", "HKEY"}
 BASIC_PTRS = {"LPVOID": "void", "LPCVOID": "void", "PVOID": "void", "LPDWORD": "DWORD",
               "LPUNKNOWN": "IUnknown", "LPGUID": "GUID", "LPCGUID": "GUID", "LPRECT": "RECT",
@@ -315,6 +380,14 @@ def generate(ifaces, iids, typedefs, callbacks):
                     sig.append(f"uint32_t {a}")
                     ntypes.append("void*")
                     call.append(f"Handle32({a})")
+                elif st == 0 and bt in WIDE8:
+                    sig += [f"uint32_t {a}", f"uint32_t {a}h"]
+                    ntypes.append("uint64_t")
+                    call.append(f"(static_cast<uint64_t>({a}h) << 32 | {a})")
+                elif st == 0 and bt in SIZES:
+                    sig.append(f"uint32_t {a}")
+                    ntypes.append("uintptr_t")
+                    call.append(f"static_cast<uintptr_t>({a})")
                 elif st == 0:
                     sig.append(f"uint32_t {a}")
                     ntypes.append("uint32_t")

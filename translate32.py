@@ -4019,6 +4019,12 @@ class Translator32:
         body = re.sub(r"REFG\(float, (0x[0-9a-f]+)\)(?=\s*(?:\^|\||&(?!&)|>>|<<))", r"REFG(uint, \1)", body)
         body = re.sub(r"([\^|]\s*|&\s+)REFG\(double, (0x[0-9a-f]+)\)", r"\1REFG(ulonglong, \2)", body)
         body = re.sub(r"REFG\(double, (0x[0-9a-f]+)\)(?=\s*(?:\^|\||&(?!&)|>>|<<))", r"REFG(ulonglong, \1)", body)
+        # (and its low word beside its high one, a double passed as the two stack words it is:
+        # `f(this, (int)DAT_004034a0, (int)((ulonglong)DAT_004034a0 >> 0x20), ...)`, the decompiler's
+        # 8 bytes cut in two. `(int)` of the double was its value, 9, not its low bits, and a COM
+        # method's `a / b` divided 0, rhtest com's Ratio(9.0, 2.0f))
+        for x in set(re.findall(r"REFG\(ulonglong, (0x[0-9a-f]+)\)\s*>>\s*0x20", body)):
+            body = re.sub(r"\((u?int|undefined4)\)\s*REFG\(double, " + x + r"\)", r"(\1)REFG(ulonglong, " + x + ")", body)
         # a float global copied whole into whatever Ghidra typed the target (a mov of its 4 bytes
         # into a pointer slot): the value into a float, the bits into anything else
         def flt_to(m):
@@ -4181,6 +4187,9 @@ class Translator32:
         # `x << (n & 31)` a /Od build keeps, prints the same, rhtest core-Od's rotl)
         if b"\x83\xe1\x1f" not in self.ref_code(a):
             body = shift_counts(body)
+        # (a float argument of a call through a pointer, its bits: late, the globals REFG and the
+        # x87 result's calls gen_fcode by now)
+        body = self.pointer_call_args(body, var_types)
         # (the shadow trace's record of the call, first: its address and first four integer
         # arguments, as shadow32.py records the reference's: its words, a float's bits and an
         # 8-byte argument's two words)
@@ -4543,6 +4552,45 @@ class Translator32:
                         x = f"(unsigned int)gen_fl2bits((float)({x.strip()}))"
                     new_args.append(x)
             out.append(body[i:open_ + 1])
+            out.append(",".join(new_args))
+            out.append(")")
+            i = close
+        out.append(body[i:])
+        return "".join(out)
+
+    def pointer_call_args(self, body: str, var_types: dict[str, str]) -> str:
+        """Each float argument of a call through a pointer as its 4 bytes, the word the reference
+        pushed: the call is unprototyped, a float there promoted to a double, and the callee's entry
+        (jumps.c's wrapper) takes the word's bits. As a value, `((gen_fcode *)vt[4])(this, lo, hi,
+        REFG(float, 0x4044e0))` gave Ratio's 2.0f the double's low word, 0, and it divided by it
+        (rhtest com-Od)"""
+        out, i = [], 0
+        for m in re.finditer(r"\(\((?:code|gen_fcode|GEN_TCODE)\s*\*\)", body):
+            if m.start() < i:
+                continue
+            callee_end = match_paren(body, m.start())
+            # (the arguments' parenthesis after it, a line break between as the decompiler wraps)
+            while 0 < callee_end < len(body) and body[callee_end] in " \t\r\n":
+                callee_end += 1
+            if callee_end <= 0 or callee_end >= len(body) or body[callee_end] != "(":
+                continue
+            close = match_paren(body, callee_end)
+            if close <= 0:
+                continue
+            inner = body[callee_end + 1:close - 1]
+            args = split_top(inner) if inner.strip() else []
+            new_args = []
+            for x in args:
+                x = self.pointer_call_args(x, var_types)
+                s = x.strip()
+                # (a float plainly: a float global, variable or cast, or a literal with f. Not a
+                # double: its words are two arguments, the decompiler's own split)
+                single = re.fullmatch(r"REFG\(float, 0x[0-9a-f]+\)|\(float\)[^,]+|-?\d+\.\d*(?:[eE][-+]?\d+)?f", s) \
+                    or var_types.get(s, "").strip() == "float"
+                if single:
+                    x = f"(unsigned int)gen_fl2bits((float)({s}))"
+                new_args.append(x)
+            out.append(body[i:callee_end + 1])
             out.append(",".join(new_args))
             out.append(")")
             i = close
@@ -5291,8 +5339,13 @@ class Translator32:
                         wps.append(f"unsigned int {m.group(2)}")
                         names[names.index(nm)] = f"gen_bits2f({m.group(2)})"
                     else:
-                        wps.append(f"unsigned long long {m.group(2)}")
-                        names[names.index(nm)] = f"gen_bits2d({m.group(2)})"
+                        # (a double its two stack words, low first, as an indirect caller passes
+                        # them, each an integer argument: as one 64-bit word, the low word was the
+                        # double and the high one the next parameter, a COM method's Ratio(9.0,
+                        # 2.0f) dividing 0 by 2.53, rhtest com)
+                        wps += [f"unsigned int {m.group(2)}", f"unsigned int {m.group(2)}_h"]
+                        names[names.index(nm)] = \
+                            f"gen_bits2d((unsigned long long){m.group(2)}_h << 32 | {m.group(2)})"
                 else:
                     wps.append(p)
         else:
