@@ -517,6 +517,8 @@ extern "C" unsigned int gen_imp_GetProcAddress(uint32_t module, uint32_t name) {
 
 unsigned RefEnv(const char* suffix, wchar_t* buf, unsigned size);
 
+void RefPrintStack(HANDLE thread, CONTEXT c);   // (below: HEAPCHECK's)
+
 // <ENV>_GUARDHEAP=1: the reference's heap blocks (up to 256 KB) each end against a page nothing may
 // touch, and a freed one's pages are taken away, so an overrun or a use after free faults at the
 // instruction that does it, with its stack, not in a later heap check that fails fast without one
@@ -637,6 +639,71 @@ void GuardHeapStart() {
     }
     fprintf(stderr, "%s: guarded heap at %llx-%llx\n", RHIPPER_NAME, static_cast<unsigned long long>(g_guard.lo),
             static_cast<unsigned long long>(g_guard.hi));
+}
+
+// <ENV>_HEAPCHECK=<n>: every n-th call to the reference's heap imports validates that heap first
+// (HeapValidate), and the first that finds it corrupt prints its stack and how many heap calls back
+// the last good check was, then ends the run: a corruption narrowed to a window, where the heap's own
+// check fails fast much later at whatever free next walks the damage. GUARDHEAP is the precise one,
+// too slow for a UI 20 s in (a client's title screen never drew under it, 2026-10-28).
+struct HeapCheck {
+    unsigned every = 0;
+    volatile long calls = 0;
+    gen_real_fn alloc = nullptr, free = nullptr, realloc = nullptr;
+    void Check(intptr_t heap, const char* what) {
+        long n = InterlockedIncrement(&calls);
+        if (n % static_cast<long>(every)) return;
+        if (HeapValidate(reinterpret_cast<HANDLE>(heap), 0, nullptr)) return;
+        fprintf(stderr, "%s: HEAPCHECK: heap %llx corrupt at heap call %ld (%s), last good at %ld:\n", RHIPPER_NAME,
+                static_cast<unsigned long long>(heap), n, what, n - static_cast<long>(every));
+        CONTEXT c = {};
+        RtlCaptureContext(&c);
+        ::RefPrintStack(GetCurrentThread(), c);
+        fflush(stderr);
+        TerminateProcess(GetCurrentProcess(), 0xC0000374);
+    }
+};
+HeapCheck g_heapcheck;
+
+intptr_t CheckHeapAlloc(intptr_t heap, intptr_t flags, intptr_t n, intptr_t a3, intptr_t a4, intptr_t a5, intptr_t a6,
+                        intptr_t a7, intptr_t a8, intptr_t a9, intptr_t a10, intptr_t a11, intptr_t a12, intptr_t a13) {
+    g_heapcheck.Check(heap, "HeapAlloc");
+    return g_heapcheck.alloc(heap, flags, n, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13);
+}
+intptr_t CheckHeapFree(intptr_t heap, intptr_t flags, intptr_t p, intptr_t a3, intptr_t a4, intptr_t a5, intptr_t a6,
+                       intptr_t a7, intptr_t a8, intptr_t a9, intptr_t a10, intptr_t a11, intptr_t a12, intptr_t a13) {
+    g_heapcheck.Check(heap, "HeapFree");
+    return g_heapcheck.free(heap, flags, p, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13);
+}
+intptr_t CheckHeapReAlloc(intptr_t heap, intptr_t flags, intptr_t p, intptr_t n, intptr_t a4, intptr_t a5, intptr_t a6,
+                          intptr_t a7, intptr_t a8, intptr_t a9, intptr_t a10, intptr_t a11, intptr_t a12, intptr_t a13) {
+    g_heapcheck.Check(heap, "HeapReAlloc");
+    return g_heapcheck.realloc(heap, flags, p, n, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13);
+}
+
+void HeapCheckStart() {
+    wchar_t v[16] = {};
+    if (RefEnv("HEAPCHECK", v, 16) == 0) return;
+    g_heapcheck.every = static_cast<unsigned>(wcstoul(v, nullptr, 10));
+    if (!g_heapcheck.every) return;
+    for (unsigned k = 0; k < g_genImportCount; k++) {
+        const GEN_IMPORT& im = g_genImports[k];
+        if (!im.real || !*im.real) continue;
+        struct { const char* name; gen_real_fn* keep; gen_real_fn check; } hooks[] = {
+            {"HeapAlloc", &g_heapcheck.alloc, CheckHeapAlloc}, {"HeapFree", &g_heapcheck.free, CheckHeapFree},
+            {"HeapReAlloc", &g_heapcheck.realloc, CheckHeapReAlloc}};
+        for (auto& h : hooks)
+            if (strcmp(im.name, h.name) == 0) {
+                *h.keep = *im.real;
+                *im.real = h.check;
+            }
+    }
+    if (!g_heapcheck.alloc || !g_heapcheck.free || !g_heapcheck.realloc) {
+        fprintf(stderr, "%s: HEAPCHECK: the heap imports are not all the reference's; off\n", RHIPPER_NAME);
+        g_heapcheck.every = 0;
+        return;
+    }
+    fprintf(stderr, "%s: HEAPCHECK every %u heap calls\n", RHIPPER_NAME, g_heapcheck.every);
 }
 
 // <ENV>_FREECHECK=1: each block the reference frees remembered with its freer's stack until the heap
@@ -922,6 +989,7 @@ bool RefMapImage(const wchar_t* path) {
     }
     GuardHeapStart();
     FreeCheckStart();
+    HeapCheckStart();
     DumpAfterStart();
 
     DWORD old;
