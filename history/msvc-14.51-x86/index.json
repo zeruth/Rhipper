@@ -1606,5 +1606,17 @@
   "stubs": 0,
   "perfect": 248,
   "translated": 249
+ },
+ {
+  "sha": "3cc407d5df5b158cefdb29149d60a9c23140d961",
+  "date": "2026-10-29T00:03:45-04:00",
+  "subject": "feat(bytes): a branch layout as equivalent; noreturn imports and inlined helpers in the x86 build",
+  "run": "2026-10-29 04:15 UTC",
+  "file": "3cc407d5df5b158cefdb29149d60a9c23140d961.json",
+  "passing": 2,
+  "projects": 2,
+  "stubs": 0,
+  "perfect": 248,
+  "translated": 249
  }
 ]

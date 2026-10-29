@@ -1,1 +1,1 @@
-{"sha": "a7374240cad083a61b5394bef155cb582e84a875", "date": "2026-10-28T23:52:17-04:00", "subject": "feat(bytes): no translation inlined into another in the x86 build"}
+{"sha": "3cc407d5df5b158cefdb29149d60a9c23140d961", "date": "2026-10-29T00:03:45-04:00", "subject": "feat(bytes): a branch layout as equivalent; noreturn imports and inlined helpers in the x86 build"}
