@@ -2238,6 +2238,7 @@ class Translator32:
                            # std::ios_base::_Callfns a stub on a client's path, "type event")
                            for w in re.findall(r"\benum\s+(?:[A-Za-z_]\w*::)*([A-Za-z_]\w*)", r["c"])}
         self._pe = None                           # (truncates: the image, opened when first read)
+        self._library_from = None                 # (is_library's start, found when first asked)
         # (the image's own setjmp and longjmp, a static C runtime's: jump_calls)
         self.linked_jumps = {a: "longjmp" if "longjmp" in m.group(1) else "setjmp" for a, r in self.corpus.items()
                              if (m := SETJMP_NAME.fullmatch(r["name"]))}
@@ -4112,7 +4113,24 @@ class Translator32:
                     decl = decl.replace(ab, f"GEN_P({self.type_text(t)} {n}, {ab})", 1)
         # (the frame as the reference's, for the x86 fidelity build: GEN_FRAME, GEN_NOFRAME)
         frame = "GEN_FRAME " if self.has_frame(a) else "GEN_NOFRAME "
+        # (and its code generation, the program's or a library's: GEN_OWN, GEN_LIB)
+        frame = ("GEN_LIB " if self.is_library(a) else "GEN_OWN ") + frame
         return f"/* ref: {self.corpus[a]['name']} */\n{frame}{decl}\n{body.strip()}\n"
+
+    def is_library(self, a: int) -> bool:
+        """Whether a function is the static libraries' (the C runtime's), built by their vendor with
+        its own optimization, not the program's options: from the lowest function the decompiler
+        names a library function, or a C runtime name, on. The linker places the program's objects
+        first and the libraries' after (rhtest core-Od: __security_check_cookie at 0x403490, then
+        the runtime's startup to the end; built /Od as the program, 35 of them scored under 0.3)"""
+        if self._library_from is None:
+            crt = re.compile(r"^_{1,3}(?:security_check_cookie|scrt_|except_handler|report_gsfailure|"
+                             r"aull|alldiv|allmul|allrem|allshl|allshr|aullshr|ftol|chkstk|EH_prolog|SEH_prolog|"
+                             r"SEH_epilog|CRT_|crt|onexit|initterm|guard_)")
+            libs = [x for x, r in self.corpus.items()
+                    if "Library Function" in r.get("c", "")[:400] or crt.match(r.get("name", ""))]
+            self._library_from = min(libs) if libs else 1 << 32
+        return a >= self._library_from
 
     def has_frame(self, a: int) -> bool:
         """Whether the reference function opens an ebp frame, `push ebp; mov ebp, esp` (55 8b ec)."""
@@ -5337,7 +5355,7 @@ NORETURN_IMPORTS = {"terminate", "abort", "exit", "Exit", "quick_exit", "CxxThro
 
 def definition_decl(text: str) -> str | None:
     """A translated function's declaration as its definition writes it, the frame macro aside"""
-    m = re.search(r"(?m)^(?:GEN_FRAME |GEN_NOFRAME )(.+F_[0-9a-f]{8}\(.*\))[ \t]*$", text)
+    m = re.search(r"(?m)^(?:GEN_(?:LIB|OWN) )?(?:GEN_FRAME |GEN_NOFRAME )(.+F_[0-9a-f]{8}\(.*\))[ \t]*$", text)
     return m.group(1) if m else None
 
 

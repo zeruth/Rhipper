@@ -133,6 +133,16 @@ typedef unsigned int __fastcall gen_tcode();
    reference's source had it (a /Od build keeps every local in a stack slot, and the port's copy of
    each word into its type was a store and a load more); in the port its 32-bit word, and the copy
    into Ghidra's type a local (GEN_PIN) */
+/* (a function's code generation in the x86 fidelity build: the program's own, as its command line
+   gives it, GEN_OWN; or a static library's, the C runtime's, which its vendor built optimized
+   whatever the program's options, GEN_LIB. The port: nothing) */
+#ifdef GEN_FIDELITY
+#define GEN_OWN __pragma(optimize("", on))
+#define GEN_LIB __pragma(optimize("gt", on))
+#else
+#define GEN_OWN
+#define GEN_LIB
+#endif
 /* (a function that never returns, so declared where the reference's compiler knew it: the x86
    fidelity build's code after the call as the reference's, none) */
 #ifdef GEN_FIDELITY
