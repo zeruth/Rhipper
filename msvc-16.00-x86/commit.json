@@ -1,1 +1,1 @@
-{"sha": "5019cb07dbde4036cdc58922d4f9f41567eb9e51", "date": "2026-10-28T19:24:07-04:00", "subject": "fix(protos32, ApplyFacts): a funclet's result in a callee-saved register; delegates' callbacks as methods"}
+{"sha": "6ac0d3fe2fe5314749bf593b65e96ec9fb420338", "date": "2026-10-28T21:01:17-04:00", "subject": "fix(translate32): a void callee's eax a function only returns, where no caller reads its result"}
