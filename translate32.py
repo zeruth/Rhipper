@@ -1237,7 +1237,28 @@ def stack_vs_const(c: str) -> str:
     small = r"(?:&DAT_0000[0-9a-f]{4}|\(\w+ \*\)0x[0-9a-f]{1,4}|0x[0-9a-f]{1,4}|\d{1,5})"
     st = r"(?:\(\w+ \*\))?&stack0x[0-9a-f]{8}"
     c = re.sub(rf"{st}\s*!=\s*{small}|{small}\s*!=\s*{st}", "1", c)
-    return re.sub(rf"{st}\s*==\s*{small}|{small}\s*==\s*{st}", "0", c)
+    c = re.sub(rf"{st}\s*==\s*{small}|{small}\s*==\s*{st}", "0", c)
+    return malloca_marker(c)
+
+
+def malloca_marker(c: str) -> str:
+    """_malloca's stack marker, which the decompiler drops: its buffer's header is 0xcccc
+    (_ALLOCA_S_STACK_MARKER) on the stack path, 0xdddd (_ALLOCA_S_HEAP_MARKER) from malloc, and
+    _freea frees only the second. The stack path's `mov [edx], 0xcccc` stores at a slot the
+    decompiler places after the alloca fixup at a fixed `&stack0x...`, read back only through the
+    pointer both paths join in (`p[-2] == 0xdddd`): a dead store to it, gone. Without it the header
+    was whatever the port's frame held there (rhtest crt-O2's malloca). The store again, where one
+    path sets the pointer to a stack address and the other stores 0xdddd through it"""
+    for p in dict.fromkeys(re.findall(r"\*\s*(\w+)\s*=\s*0xdddd\s*;", c)):
+        if re.search(r"\*\s*" + re.escape(p) + r"\s*=\s*0xcccc\b", c):
+            continue
+        # (the stack path's assignment of it, `p = (undefined4 *)&stack0xffffffec;`, before the
+        # heap path's store)
+        heap = re.search(r"\*\s*" + re.escape(p) + r"\s*=\s*0xdddd\s*;", c)
+        s = re.search(r"(?m)^([ \t]*)" + re.escape(p) + r"\s*=\s*(?:\([^()]*\))?\s*&stack0x[0-9a-f]{8}\s*;[ \t]*$", c)
+        if s and heap and s.start() < heap.start():
+            c = c[:s.end()] + f"\n{s.group(1)}*{p} = 0xcccc;" + c[s.end():]
+    return c
 
 
 def neg_scaled(c: str) -> str:
