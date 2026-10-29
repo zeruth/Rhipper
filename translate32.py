@@ -2267,6 +2267,8 @@ class Translator32:
         self.keeps = {int(k, 16): set(v["keep"]) for k, v in protos.items() if v.get("keep")}
         # (the functions no caller reads a result of: protos32's "v")
         self.ret_void = {int(k, 16) for k, v in protos.items() if v.get("ret") == "v"}
+        # (and those it gave no result at all, no caller seen reading one: unread_result)
+        self.ret_unread = {int(k, 16) for k, v in protos.items() if "ret" not in v}
         # (and each one's calling convention for the x86 fidelity build, Ghidra32.h's GEN_THISCALL
         # and the rest: what the reference's code does with ecx and edx and who pops the stack)
         self.conv = {}
@@ -2663,6 +2665,22 @@ class Translator32:
             return name
         return "_" + name if "_" + name in self.imports else None
 
+    def unread_result(self, a: int, c: str) -> set[str]:
+        """The eax a void callee left that a function no caller reads a result of (protos32 gave it
+        none, its int Ghidra's own) only copies or returns: `iVar3 = extraout_EAX;` beside a
+        quotient on another path, `return iVar3;`. What reaches the return there is nothing anyone
+        reads: 0. A sound buffer's flush 0xce1f50 kept EnterCriticalSection's eax, a stub on a
+        client's sound path, 2026-10-28."""
+        if a not in self.ret_unread:
+            return set()
+        out = set()
+        for n in set(re.findall(r"\bextraout_EAX(?:_\d+)?\b", c)):
+            uses = [l.strip() for l in c.split("\n") if re.search(r"\b" + n + r"\b", l)
+                    and not re.match(r"\s*[A-Za-z_][\w ]*?[\s*]+" + n + r"\s*;", l)]
+            if uses and all(re.fullmatch(r"(?:[A-Za-z_]\w* = |return )(?:\([\w ]+\**\))?" + n + r";", u) for u in uses):
+                out.add(n)
+        return out
+
     def noreturn_args_only(self, a: int, c: str) -> set[str]:
         """The registers the decompiler lost that are read only as the arguments of a call that does
         not return (Ghidra marks it `WARNING: Subroutine does not return`): what they hold cannot
@@ -3046,7 +3064,7 @@ class Translator32:
                 return f"a register the decompiler lost ({n})"
         # (and a full xmm register as an SSE pseudo-op's destination found it: zeroed, sse_ops)
         # (and a call's x87 result made its assignment, x87_icall_results)
-        ok = returned_only(c) | self.noreturn_args_only(a, c) | filler_args(c) | upper_only(c) | declared_only(c) | \
+        ok = returned_only(c) | self.unread_result(a, c) | self.noreturn_args_only(a, c) | filler_args(c) | upper_only(c) | declared_only(c) | \
             context_capture(c) | {"in_FPUControlWord", "in_FPUStatusWord"} | ({"in_ZF"} if libm_flag(c) else set()) | \
             set(re.findall(r"(?m)^\s*(extraout_ST0(?:_\d+)?) = \(\*", c)) | \
             set(re.findall(r"(?m)^[ \t]+undefined1\s+(in_XMM\d+)\s*\[\s*16\s*\]\s*;", c)) | \
@@ -3962,7 +3980,7 @@ class Translator32:
         # (the lost result registers it only returns: 0 where nothing set them, why_not. Last, as
         # the passes above read the declarations as `type name;`)
         # (and those only a call that does not return is given, noreturn_args_only)
-        for n in returned_only(c) | self.noreturn_args_only(a, c) | filler_args(c) | upper_only(c) | context_capture(c):
+        for n in returned_only(c) | self.unread_result(a, c) | self.noreturn_args_only(a, c) | filler_args(c) | upper_only(c) | context_capture(c):
             # (a pointer's too, `undefined * extraout_EAX;`: as no match it stayed uninitialized)
             body = re.sub(r"(?m)^(\s*[A-Za-z_][\w ]*?[\s*]+" + n + r")\s*;", r"\1 = 0;", body, count=1)
         body = re.sub(r"(?m)^([ \t]*[A-Za-z_][\w ]*?[ \t*]+cap_(?:[A-Z]{2,3}|EBP|retaddr))\s*;", r"\1 = 0;", body)
