@@ -249,6 +249,7 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
     held: dict = {}                         # register -> the address a `mov r, imm` put in it
     stackp: set = set()                     # registers holding an address in the frame
     pushed: list = []                       # the integer immediates pushed since the last call
+    ecx_fields: list = []                   # the fields read into ecx since the last call
 
     def inside(t):
         return any(lo <= t < hi for lo, hi in ranges)
@@ -399,9 +400,17 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
                         f.consts[k] -= 1
                         if f.consts[k] <= 0:
                             del f.consts[k]
+                    # (and the fields read into ecx for it, its register argument: an EH handler's
+                    # `mov ecx, [edx + 0x74]; xor ecx, eax; call __security_check_cookie`, the
+                    # frame's cookie, rhtest engine-O2's 0x402c5d)
+                    for d in ecx_fields if mn == "call" else []:
+                        f.fields[d] -= 1
+                        if f.fields[d] <= 0:
+                            del f.fields[d]
                 last_cl = None
                 if mn == "call":
                     pushed = []
+                    ecx_fields = []
                 if ops and ops[0].type == x86.X86_OP_IMM:
                     t = ops[0].imm
                     if not inside(t):
@@ -447,6 +456,8 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
                         for d in range(disp, disp + max(op.size, 4), 4):
                             if d > 0:
                                 f.fields[d] += 1
+                                if ops[0].type == x86.X86_OP_REG and insn.reg_name(ops[0].reg) == "ecx":
+                                    ecx_fields.append(d)
                 elif op.type == x86.X86_OP_IMM:
                     v = op.imm & 0xFFFFFFFF
                     if v == own:
