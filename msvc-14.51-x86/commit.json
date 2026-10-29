@@ -1,1 +1,1 @@
-{"sha": "6ac0d3fe2fe5314749bf593b65e96ec9fb420338", "date": "2026-10-28T21:01:17-04:00", "subject": "fix(translate32): a void callee's eax a function only returns, where no caller reads its result"}
+{"sha": "ea2970bebbb69c8b195beb6d4a999d4326c60c0c", "date": "2026-10-28T21:26:20-04:00", "subject": "feat(pipeline32): abicheck after protos32, the indirect calls whose convention disagrees with an observed target, in the run's log"}
