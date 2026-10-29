@@ -1548,6 +1548,18 @@
   "translated": 4427
  },
  {
+  "sha": "9f7c608e87def97957c52130b414f9e626cb23d1",
+  "date": "2026-10-28T23:14:41-04:00",
+  "subject": "feat(fidelity): the report in grouped bars, fidelity and byte-for-byte by percent, its table rendered by the page",
+  "run": "2026-10-29 04:06 UTC",
+  "file": "9f7c608e87def97957c52130b414f9e626cb23d1.json",
+  "passing": 21,
+  "projects": 34,
+  "stubs": 172,
+  "perfect": 4360,
+  "translated": 4427
+ },
+ {
   "sha": "262cc2c37e289c8292ad16d1995c093ff7cd01f6",
   "date": "2026-10-28T23:38:59-04:00",
   "subject": "feat(rhtest): a bytes step, byte-for-byte per project; CI one program at a time",
