@@ -4119,16 +4119,18 @@ class Translator32:
 
     def is_library(self, a: int) -> bool:
         """Whether a function is the static libraries' (the C runtime's), built by their vendor with
-        its own optimization, not the program's options: from the lowest function the decompiler
-        names a library function, or a C runtime name, on. The linker places the program's objects
+        its own optimization, not the program's options: from the lowest function with a C runtime
+        name on. The linker places the program's objects
         first and the libraries' after (rhtest core-Od: __security_check_cookie at 0x403490, then
         the runtime's startup to the end; built /Od as the program, 35 of them scored under 0.3)"""
         if self._library_from is None:
             crt = re.compile(r"^_{1,3}(?:security_check_cookie|scrt_|except_handler|report_gsfailure|"
                              r"aull|alldiv|allmul|allrem|allshl|allshr|aullshr|ftol|chkstk|EH_prolog|SEH_prolog|"
                              r"SEH_epilog|CRT_|crt|onexit|initterm|guard_)")
-            libs = [x for x, r in self.corpus.items()
-                    if "Library Function" in r.get("c", "")[:400] or crt.match(r.get("name", ""))]
+            # (by the C runtime's own names only: the decompiler's "Library Function" marks templates
+            # instantiated in the program's code too, a client's std::basic_string at 0x40e080 among
+            # its own, where its runtime starts at __security_check_cookie, 0xc47745)
+            libs = [x for x, r in self.corpus.items() if crt.match(r.get("name", ""))]
             self._library_from = min(libs) if libs else 1 << 32
         return a >= self._library_from
 
