@@ -1,0 +1,75 @@
+# The Rhipper bundle for rhipper-ide: on a push to main whose VERSION has no release yet, a GitHub
+# release v<VERSION> with rhipper-<VERSION>.zip (the tracked toolkit, `git archive`, less what
+# .gitattributes marks export-ignore: tests/ and .github/), version.txt and the zip's sha256.
+# VERSION is bumped by hand; a push that leaves it as it is publishes nothing.
+#
+# Where a client finds them:
+#   https://api.github.com/repos/zeruth/Rhipper/releases/latest     (tag_name, assets)
+#   https://github.com/zeruth/Rhipper/releases/latest/download/version.txt
+#   https://github.com/zeruth/Rhipper/releases/download/v<VERSION>/rhipper-<VERSION>.zip
+name: release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# (one release at a time: two pushes of the same bump would race to create its tag)
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Version
+        id: version
+        run: |
+          v="$(tr -d ' \t\r\n' < VERSION)"
+          if ! printf '%s' "$v" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$'; then
+            echo "VERSION '$v' is not a version (MAJOR.MINOR.PATCH)" >&2
+            exit 1
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "tag=v$v" >> "$GITHUB_OUTPUT"
+          # (already released: this push left VERSION as it was)
+          if git ls-remote --exit-code --tags origin "refs/tags/v$v" > /dev/null; then
+            echo "new=false" >> "$GITHUB_OUTPUT"
+            echo "v$v is released already; bump VERSION to publish"
+          else
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Bundle
+        if: steps.version.outputs.new == 'true'
+        run: |
+          v="${{ steps.version.outputs.version }}"
+          mkdir -p dist
+          git archive --format=tar --prefix="rhipper-$v/" HEAD | tar -x -C dist
+          # (what the bundle is, for a client that unpacked it)
+          printf '{\n  "name": "rhipper",\n  "version": "%s",\n  "commit": "%s",\n  "built": "%s"\n}\n' \
+            "$v" "$GITHUB_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "dist/rhipper-$v/BUILD.json"
+          (cd dist && zip -qr "rhipper-$v.zip" "rhipper-$v")
+          (cd dist && sha256sum "rhipper-$v.zip" > "rhipper-$v.zip.sha256")
+          printf '%s\n' "$v" > dist/version.txt
+          ls -l dist
+
+      - name: Release
+        if: steps.version.outputs.new == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="${{ steps.version.outputs.version }}"
+          gh release create "v$v" \
+            "dist/rhipper-$v.zip" "dist/rhipper-$v.zip.sha256" dist/version.txt \
+            --target "$GITHUB_SHA" --title "Rhipper $v" \
+            --notes "Rhipper $v at ${GITHUB_SHA::7}: rhipper-$v.zip (the toolkit, BUILD.json inside), its sha256, and version.txt." \
+            --latest

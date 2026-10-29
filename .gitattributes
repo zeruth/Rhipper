@@ -3,3 +3,6 @@
 *.jar binary
 # (rhtest's committed references, byte for byte: their map files and expected output too)
 tests/rhtest/bins/** -text
+# (the release bundle, release.yml's `git archive`: the toolkit, not its tests or CI)
+tests/ export-ignore
+.github/ export-ignore
