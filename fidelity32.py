@@ -54,6 +54,7 @@ OUT_JSON = ROOT / "build/fidelity.json"
 OUT_HTML = ROOT / "build/fidelity.html"
 JCC = re.compile(r"^j(?!mp)\w+$")
 STACK_REGS = {"esp", "ebp", "rsp", "rbp"}
+STACK_PTRS = {"rsp", "rbp"}                  # (STACK_REGS by canon_reg's names)
 # Ghidra32.h's traps, the reference's `int 3` / `int 0x29`
 TRAPS = {"gen_swi_break": "trap:3", "gen_swi_fastfail": "trap:29", "gen_ud2": "trap:ud2"}
 # the port's own setjmp and longjmp (Ghidra32.h GEN_SETJMP, GEN_LONGJMP), the reference's imports
@@ -152,6 +153,8 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
     last_cl = None
     select: dict = {}                       # register -> the mask of an `sbb r, r; and r, -k` select
     held: dict = {}                         # register -> the address a `mov r, imm` put in it
+    stackp: set = set()                     # registers holding an address in the frame
+    pushed: list = []                       # the integer immediates pushed since the last call
 
     def inside(t):
         return any(lo <= t < hi for lo, hi in ranges)
@@ -247,17 +250,37 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
                     held[r0] = ops[1].imm & 0xFFFFFFFF
                 else:
                     held.pop(r0, None)
+                # (a register holding a stack address, `lea esi, [esp + 0x10]`, and stepped from it:
+                # an access through it is the frame's, as one through esp, not a structure's field.
+                # The reference walked its frame's packed records through esi, [esi + 5], the port
+                # at [rsp + k] (rhtest core-O2 0x401ff0))
+                src = ops[1] if len(ops) == 2 else None
+                if mn == "lea" and src is not None and src.mem.base and \
+                        canon_reg(insn.reg_name(src.mem.base)) in STACK_PTRS | stackp:
+                    stackp.add(r0)
+                elif mn == "mov" and src is not None and src.type == x86.X86_OP_REG and \
+                        canon_reg(insn.reg_name(src.reg)) in stackp:
+                    stackp.add(r0)
+                elif r0 in stackp and not (mn in ("add", "sub", "inc", "dec", "cmp", "test", "push")
+                                           and (src is None or src.type != x86.X86_OP_MEM)):
+                    stackp.discard(r0)
             for op in ops:
                 if op.type == x86.X86_OP_MEM and select.get(op.mem.base) and not op.mem.index:
                     k = global_or_const((op.mem.disp + select[op.mem.base]) & 0xFFFFFFFF, mn, op.size)
                     if k is not None and k != "code":
                         f.consts[k] += 1
             if mn in ("call", "jmp") or JCC.match(mn):
-                if ops and ops[0].type == x86.X86_OP_IMM and ops[0].imm in injected and last_cl:
-                    f.consts[last_cl] -= 1
-                    if f.consts[last_cl] <= 0:
-                        del f.consts[last_cl]
+                # (and the immediates pushed as its operands since the last call: `push 0x100;
+                # push 0; ...; call __allmul` for `* 0x10000000000`, which the decompiler folds
+                # with the next multiply into `* 0x600`, rhtest int64-Od's gcd64 operands)
+                if ops and ops[0].type == x86.X86_OP_IMM and ops[0].imm in injected:
+                    for k in ([last_cl] if last_cl else []) + (pushed if mn == "call" else []):
+                        f.consts[k] -= 1
+                        if f.consts[k] <= 0:
+                            del f.consts[k]
                 last_cl = None
+                if mn == "call":
+                    pushed = []
                 if ops and ops[0].type == x86.X86_OP_IMM:
                     t = ops[0].imm
                     if not inside(t):
@@ -296,7 +319,8 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
                         continue
                     # (not an indexed operand's: `[esi + eax*4 + 4]` is an array offset, which the
                     # other compiler folds as it likes)
-                    if base not in STACK_REGS and mn != "lea" and op.mem.base and not op.mem.index:
+                    if base not in STACK_REGS and canon_reg(base) not in stackp and mn != "lea" \
+                            and op.mem.base and not op.mem.index:
                         # (a wide access is the 4-byte ones x86 makes of it: a 64-bit value at
                         # [rcx] is the reference's [esi] and [esi + 4])
                         for d in range(disp, disp + max(op.size, 4), 4):
@@ -319,6 +343,8 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
                         f.consts[f"i:{v:x}"] += 1
                         if mn == "mov" and ops[0].type == x86.X86_OP_REG and insn.reg_name(ops[0].reg) in ("cl", "ecx"):
                             last_cl = f"i:{v:x}"
+                        if mn == "push":
+                            pushed.append(f"i:{v:x}")
     return f
 
 
