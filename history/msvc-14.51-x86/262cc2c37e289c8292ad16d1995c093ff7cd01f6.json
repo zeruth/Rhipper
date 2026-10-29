@@ -1,0 +1,42 @@
+{
+ "sha": "262cc2c37e289c8292ad16d1995c093ff7cd01f6",
+ "date": "2026-10-28T23:38:59-04:00",
+ "subject": "feat(rhtest): a bytes step, byte-for-byte per project; CI one program at a time",
+ "run": "2026-10-29 03:45 UTC",
+ "summary": {
+  "core-O2": {
+   "bytes": {
+    "by_size": 0.3519,
+    "identical": 26,
+    "mean": 0.5674
+   },
+   "fidelity": {
+    "by_size": 0.991,
+    "functions": 122,
+    "mean": 0.997,
+    "perfect": 121,
+    "stubs": 0,
+    "translated": 122
+   },
+   "status": "PASS",
+   "when": "2026-10-29 03:44"
+  },
+  "core-Od": {
+   "bytes": {
+    "by_size": 0.2428,
+    "identical": 17,
+    "mean": 0.4448
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 127,
+    "mean": 1.0,
+    "perfect": 127,
+    "stubs": 0,
+    "translated": 127
+   },
+   "status": "PASS",
+   "when": "2026-10-29 03:44"
+  }
+ }
+}

@@ -1,1 +1,1 @@
-{"sha": "ee378872523f3c58435ac60262c9c59d9e2fe6ab", "date": "2026-10-28T22:31:39-04:00", "subject": "feat(runtime32): a COM method's float argument checked, NaN, infinite or past 1e8 reported with the method"}
+{"sha": "262cc2c37e289c8292ad16d1995c093ff7cd01f6", "date": "2026-10-28T23:38:59-04:00", "subject": "feat(rhtest): a bytes step, byte-for-byte per project; CI one program at a time"}

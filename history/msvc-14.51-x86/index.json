@@ -1546,5 +1546,17 @@
   "stubs": 172,
   "perfect": 4360,
   "translated": 4427
+ },
+ {
+  "sha": "262cc2c37e289c8292ad16d1995c093ff7cd01f6",
+  "date": "2026-10-28T23:38:59-04:00",
+  "subject": "feat(rhtest): a bytes step, byte-for-byte per project; CI one program at a time",
+  "run": "2026-10-29 03:45 UTC",
+  "file": "262cc2c37e289c8292ad16d1995c093ff7cd01f6.json",
+  "passing": 2,
+  "projects": 2,
+  "stubs": 0,
+  "perfect": 248,
+  "translated": 249
  }
 ]
