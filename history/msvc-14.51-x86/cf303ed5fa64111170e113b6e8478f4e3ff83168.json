@@ -1,0 +1,46 @@
+{
+ "sha": "cf303ed5fa64111170e113b6e8478f4e3ff83168",
+ "date": "2026-10-29T00:45:09-04:00",
+ "subject": "fix(translate32): the static library's start by the C runtime's names only",
+ "run": "2026-10-29 04:51 UTC",
+ "summary": {
+  "core-O2": {
+   "bytes": {
+    "by_size": 0.5527,
+    "bytes_identical": 37,
+    "equivalent": 4,
+    "identical": 41,
+    "mean": 0.657
+   },
+   "fidelity": {
+    "by_size": 0.991,
+    "functions": 122,
+    "mean": 0.997,
+    "perfect": 121,
+    "stubs": 0,
+    "translated": 122
+   },
+   "status": "PASS",
+   "when": "2026-10-29 04:51"
+  },
+  "core-Od": {
+   "bytes": {
+    "by_size": 0.4792,
+    "bytes_identical": 37,
+    "equivalent": 1,
+    "identical": 38,
+    "mean": 0.6406
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 127,
+    "mean": 1.0,
+    "perfect": 127,
+    "stubs": 0,
+    "translated": 127
+   },
+   "status": "PASS",
+   "when": "2026-10-29 04:51"
+  }
+ }
+}

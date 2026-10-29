@@ -1642,5 +1642,17 @@
   "stubs": 0,
   "perfect": 248,
   "translated": 249
+ },
+ {
+  "sha": "cf303ed5fa64111170e113b6e8478f4e3ff83168",
+  "date": "2026-10-29T00:45:09-04:00",
+  "subject": "fix(translate32): the static library's start by the C runtime's names only",
+  "run": "2026-10-29 04:51 UTC",
+  "file": "cf303ed5fa64111170e113b6e8478f4e3ff83168.json",
+  "passing": 2,
+  "projects": 2,
+  "stubs": 0,
+  "perfect": 248,
+  "translated": 249
  }
 ]

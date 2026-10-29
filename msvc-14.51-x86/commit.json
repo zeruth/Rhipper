@@ -1,1 +1,1 @@
-{"sha": "bba953c85f584e8b7fe9483ccace5c5223f88863", "date": "2026-10-29T00:21:32-04:00", "subject": "feat(bytes): a static library's functions built optimized in the x86 build, the program's with its own options"}
+{"sha": "cf303ed5fa64111170e113b6e8478f4e3ff83168", "date": "2026-10-29T00:45:09-04:00", "subject": "fix(translate32): the static library's start by the C runtime's names only"}
