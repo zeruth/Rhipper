@@ -526,7 +526,7 @@ static unsigned int T_IDirect3DDevice9_Clear(uint32_t self, uint32_t a0, uint32_
     static ComStat stat = {"IDirect3DDevice9::Clear", 0, 0, nullptr};
     ComCount(&stat);
     void* n = Unwrap(self);
-    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*, uint32_t, uint32_t, float, uint32_t)>(Slot(n, 43))(n, a0, At<void>(a1), a2, a3, Float32(a4), a5);
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, void*, uint32_t, uint32_t, float, uint32_t)>(Slot(n, 43))(n, a0, At<void>(a1), a2, a3, FloatArg(a4, "IDirect3DDevice9::Clear"), a5);
     return r;
 }
 static unsigned int T_IDirect3DDevice9_SetTransform(uint32_t self, uint32_t a0, uint32_t a1) {
@@ -784,7 +784,7 @@ static unsigned int T_IDirect3DDevice9_SetNPatchMode(uint32_t self, uint64_t a0)
     static ComStat stat = {"IDirect3DDevice9::SetNPatchMode", 0, 0, nullptr};
     ComCount(&stat);
     void* n = Unwrap(self);
-    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, float)>(Slot(n, 79))(n, Float32(a0));
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, float)>(Slot(n, 79))(n, FloatArg(a0, "IDirect3DDevice9::SetNPatchMode"));
     return r;
 }
 static unsigned int T_IDirect3DDevice9_GetNPatchMode(uint32_t self) {
@@ -3347,7 +3347,7 @@ static unsigned int T_IXAudio2Voice_SetVolume(uint32_t self, uint64_t a0, uint32
     static ComStat stat = {"IXAudio2Voice::SetVolume", 0, 0, nullptr};
     ComCount(&stat);
     void* n = Unwrap(self);
-    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, float, uint32_t)>(Slot(n, 12))(n, Float32(a0), a1);
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, float, uint32_t)>(Slot(n, 12))(n, FloatArg(a0, "IXAudio2Voice::SetVolume"), a1);
     return r;
 }
 static unsigned int T_IXAudio2Voice_GetVolume(uint32_t self, uint32_t a0) {
@@ -3455,7 +3455,7 @@ static unsigned int T_IXAudio2SourceVoice_SetFrequencyRatio(uint32_t self, uint6
     static ComStat stat = {"IXAudio2SourceVoice::SetFrequencyRatio", 0, 0, nullptr};
     ComCount(&stat);
     void* n = Unwrap(self);
-    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, float, uint32_t)>(Slot(n, 26))(n, Float32(a0), a1);
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, float, uint32_t)>(Slot(n, 26))(n, FloatArg(a0, "IXAudio2SourceVoice::SetFrequencyRatio"), a1);
     return r;
 }
 static unsigned int T_IXAudio2SourceVoice_GetFrequencyRatio(uint32_t self, uint32_t a0) {

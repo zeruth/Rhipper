@@ -80,6 +80,15 @@ inline float Float32(uint64_t raw) {
     }
     return f;
 }
+// a COM method's float argument, and one no system API means, NaN, infinite or past 1e8, reported
+// with the method (the first few, Com32.cpp): a volume or a frequency ratio gone bad clicks, a
+// shader constant gone bad draws wrong, and neither says so (a client's music popped, 2026-10-28)
+void FloatOdd(const char* method, float f);
+inline float FloatArg(uint64_t raw, const char* method) {
+    float f = Float32(raw);
+    if (!(f <= 1e8f && f >= -1e8f)) FloatOdd(method, f);
+    return f;
+}
 // a handle the reference holds, sign-extended (INVALID_HANDLE_VALUE, the pseudo-handles)
 inline void* Handle32(uint32_t h) {
     return reinterpret_cast<void*>(static_cast<intptr_t>(static_cast<int32_t>(h)));

@@ -258,7 +258,7 @@ def generate(ifaces, iids, typedefs, callbacks):
                 if st == 0 and bt in FLOATS:
                     sig.append(f"uint64_t {a}")
                     ntypes.append("float")
-                    call.append(f"Float32({a})")
+                    call.append(f"FloatArg({a}, \"{owner}::{mname}\")")
                 elif st == 0 and bt == "HINSTANCE":
                     sig.append(f"uint32_t {a}")
                     ntypes.append("void*")

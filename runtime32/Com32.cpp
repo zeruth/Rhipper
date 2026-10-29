@@ -53,6 +53,12 @@ void PrintStats(unsigned secs) {
 
 }  // namespace
 
+void FloatOdd(const char* method, float f) {
+    static volatile long n = 0;
+    long k = InterlockedIncrement(&n);
+    if (k <= 8) fprintf(stderr, "%s: COM float argument %g to %s (%ld so far)\n", RHIPPER_NAME, f, method, k);
+}
+
 void ComCountFirst(ComStat* s) {
     std::call_once(g_statsOnce, [] {
         wchar_t v[16] = {};
