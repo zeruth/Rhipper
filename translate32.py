@@ -524,6 +524,56 @@ FRAME_DECL = re.compile(r"(?m)^[ \t]+(?!(?:return|goto|case|else|do)\b)(?!(?:loc
                         r"[ \t]*\b(" + FRAME_LOCAL + r")[ \t]*(\[[ \t]*(?:0x)?[0-9a-f]+[ \t]*\])?[ \t]*;[ \t]*\n")
 
 
+def top_level(s: str, ops: str) -> bool:
+    """Whether s has one of the characters ops outside its parentheses (and literals)"""
+    depth, i = 0, 0
+    while i < len(s):
+        ch = s[i]
+        if ch in "\"'":
+            k = i + 1
+            while k < len(s) and s[k] != ch:
+                k += 2 if s[k] == "\\" else 1
+            i = k + 1
+            continue
+        depth += {"(": 1, "[": 1, ")": -1, "]": -1}.get(ch, 0)
+        if depth == 0 and ch in ops:
+            return True
+        i += 1
+    return False
+
+
+def shift_counts(body: str) -> str:
+    """A 32-bit shift's count as the decompiler reads `shr r32, cl`, masked: `x >> (n & 0x1f)`,
+    `1 << ((byte)k & 0x1f)`. The instruction masks it itself; in C the mask stays, the x86 build's
+    `and ecx, 0x1f` before each shift the reference never had. GEN_SHC(masked, bare): the port's
+    the mask as it is, the x86 fidelity build's the count bare (and its `(byte)` cast, cl, off)"""
+    out, i = [], 0
+    for m in re.finditer(r"(?:<<|>>) \(", body):
+        if m.start() < i:
+            continue
+        start = m.end() - 1
+        end = match_paren(body, start)
+        if end <= start:
+            continue
+        inner = body[start + 1:end - 1]
+        mm = re.fullmatch(r"(.+) & 0x1f", inner, re.S)
+        # (the mask the group's last operator, nothing looser beside it: `a - b & 0x1f`, not
+        # `a | b & 0x1f`)
+        if not mm or top_level(mm.group(1), "&|^?,=") or "&&" in mm.group(1) or "||" in mm.group(1):
+            continue
+        count = mm.group(1).strip()
+        # (a rotate's two halves, `x >> (-n & 0x1f) | x << (n & 0x1f)`, a count the body also
+        # shifts by negated: masked, the compiler's `ror`, bare two shifts and an or)
+        if count.startswith("-") or ("(-" + count + " & 0x1f)") in body or ("(-" + count + ") & 0x1f)") in body:
+            continue
+        bare =re.sub(r"^\(byte\)\s*(?=[A-Za-z_]\w*$)", "", count)
+        out.append(body[i:start])
+        out.append(f"GEN_SHC({count}, {bare})")
+        i = end
+    out.append(body[i:])
+    return "".join(out)
+
+
 def binary_amp(body: str, at: int) -> bool:
     """Whether the `&` at `at` is the binary and, an operand before it (a name, a number, a
     subscript or a parenthesized expression), not the unary address-of: `a & b` no address,
@@ -4106,6 +4156,10 @@ class Translator32:
         # (an integer added negated as the subtraction it was, `(int)this + -4` -> `- 4`: the same
         # value, and the compiler's `sub ecx, 4` for it where `+ -4` was `add ecx, -4`, bytes32)
         body = re.sub(r"\+ -((?:0x[0-9a-f]+|\d+)\b)(?![.\w])", r"- \1", body)
+        # (where the reference's code masks no count itself, `and ecx, 0x1f`: the source's own mask,
+        # `x << (n & 31)` a /Od build keeps, prints the same, rhtest core-Od's rotl)
+        if b"\x83\xe1\x1f" not in self.ref_code(a):
+            body = shift_counts(body)
         # (the shadow trace's record of the call, first: its address and first four integer
         # arguments, as shadow32.py records the reference's: its words, a float's bits and an
         # 8-byte argument's two words)
@@ -4188,6 +4242,16 @@ class Translator32:
             libs = [x for x, r in self.corpus.items() if crt.match(r.get("name", ""))]
             self._library_from = min(libs) if libs else 1 << 32
         return a >= self._library_from
+
+    def ref_code(self, a: int) -> bytes:
+        """The reference function's bytes, its decompiled size of them (b"" where unread)"""
+        import pefile
+        if self._pe is None:
+            self._pe = pefile.PE(str(project.EXE), fast_load=True)
+        try:
+            return self._pe.get_data(a - self._pe.OPTIONAL_HEADER.ImageBase, int(self.corpus[a].get("size") or 0))
+        except Exception:
+            return b""
 
     def has_frame(self, a: int) -> bool:
         """Whether the reference function opens an ebp frame, `push ebp; mov ebp, esp` (55 8b ec)."""

@@ -192,6 +192,14 @@ typedef unsigned int __fastcall gen_tcode();
 #define GEN_FRAME_DECL_GS(n, pad, top) GEN_FRAME_DECL(n, pad)
 #define GEN_COOKIE(...) __VA_ARGS__
 #endif
+/* a 32-bit shift's count, translate32's shift_counts: the decompiler's `n & 0x1f` for `shr r32,
+   cl`, which masks it itself. The port keeps the mask; the x86 fidelity build shifts by the count
+   bare, the instruction's own masking, as the reference's code has no `and ecx, 0x1f` */
+#ifdef GEN_FIDELITY
+#define GEN_SHC(masked, bare) (bare)
+#else
+#define GEN_SHC(masked, bare) ((masked) & 0x1f)
+#endif
 /* (GEN_FIDELITY: nothing, bytes32.py's x86 build, compared byte for byte with the reference) */
 #ifdef GEN_FIDELITY
 #define GEN_ENTER(addr, a0, a1, a2, a3) ((void)0)
