@@ -2,10 +2,12 @@
 project has them (build/bytes32.json).
 
 Two groupings, each a stacked bar of the whole and a row per band, by functions and by code size:
+    accuracy       identical (the x86 build's bytes the reference's), equivalent bytes (bytes32's
+                   rules), the same behavior (bytes differ, fidelity 100%: the compiler's choices),
+                   behavior differs, stub. The first three are accurate
     fidelity       fidelity32's score: 100% (the reference's calls, fields and constants all there),
                    90-99%, ... 0-9%, and the stubs apart
-    byte for byte  bytes32's similarity of the gen built for x86 against the reference's own bytes:
-                   identical, 90-99%, ... 0-9%, and the functions the x86 build has none of
+Byte similarity is the table's bytes column, a measure of the code, not of its accuracy.
 Then every function in a table the page renders itself (search, kind, sort, pages): 87,000 rows
 as HTML froze a browser.
 
@@ -22,6 +24,40 @@ from pathlib import Path
 SCORE_BANDS = [("100%", 0.999, "b10"), ("90–99%", 0.9, "b9"), ("80–89%", 0.8, "b8"), ("70–79%", 0.7, "b7"),
                ("60–69%", 0.6, "b6"), ("50–59%", 0.5, "b5"), ("40–49%", 0.4, "b4"), ("30–39%", 0.3, "b3"),
                ("20–29%", 0.2, "b2"), ("10–19%", 0.1, "b1"), ("0–9%", 0.0, "b0")]
+
+
+# each function's accuracy, best first: (label, colour class). A function is accurate when its x86
+# build is the reference's bytes, bytes that mean the same (bytes32's equivalence), or code that
+# behaves the same, fidelity32 at 100% (the compiler's own choices of registers, order and forms
+# are no fault). It differs where its behavior does, and a stub is none
+ACCURACY = [("identical", "a3"), ("equivalent bytes", "a2"), ("same behavior", "a1"),
+            ("behavior differs", "b2"), ("stub", "stub")]
+ACCURATE = {"identical", "equivalent bytes", "same behavior"}
+
+
+def accuracy(frow: dict, brow: dict | None) -> str:
+    """a function's ACCURACY label from its fidelity32 row and its bytes32 row (None: no x86 build)"""
+    if frow.get("kind") == "stub":
+        return "stub"
+    if brow is not None and brow.get("same"):
+        return "identical"
+    if brow is not None and brow.get("equiv"):
+        return "equivalent bytes"
+    return "same behavior" if frow.get("score", 0) >= 0.999 else "behavior differs"
+
+
+def accuracy_counts(rows: list, bytes_path: Path | None) -> dict:
+    """{label: [functions, bytes of code]} over fidelity32's rows, with bytes32's where it ran"""
+    byt = {}
+    if bytes_path is not None and bytes_path.exists():
+        for r in json.loads(bytes_path.read_text(encoding="utf-8")):
+            byt[f"{r['addr']:08x}" if isinstance(r["addr"], int) else r["addr"].lower()] = r
+    out = {l: [0, 0] for l, _c in ACCURACY}
+    for r in rows:
+        g = out[accuracy(r, byt.get(r["addr"].lower()))]
+        g[0] += 1
+        g[1] += r.get("size") or 0
+    return out
 
 
 def band_of(v: float) -> int:
@@ -65,44 +101,35 @@ def page(name: str, rows: list, bytes_path: Path | None = None) -> str:
     mean = sum(r["score"] for r in rows) / total_n if total_n else 0.0
     weighted = sum(r["score"] * (r.get("size") or 0) for r in rows) / total_size
 
+    # accuracy first: identical, equivalent bytes, the same behavior, then what differs
+    acc = {l: [0, 0] for l, _c in ACCURACY}
+    labels = {}
+    for r in rows:
+        labels[r["addr"]] = l = accuracy(r, byt.get(r["addr"].lower()))
+        acc[l][0] += 1
+        acc[l][1] += r.get("size") or 0
+    good_n = sum(acc[l][0] for l in ACCURATE)
+    good_size = sum(acc[l][1] for l in ACCURATE)
+    groups = [(l, c, *acc[l]) for l, c in ACCURACY if byt or l not in ("identical", "equivalent bytes")]
+    sections = [grouping("Accuracy", "identical or equivalent bytes (bytes32), else the same behavior "
+                         "(fidelity 100%): the compiler's own choices are no fault", groups, total_n, total_size)]
+    tiles_bytes = (f'<div class="tile"><b>{good_n:,} / {total_n:,}</b><span>accurate</span></div>'
+                   f'<div class="tile"><b>{100 * good_size / total_size:.1f}%</b><span>accurate by size</span></div>')
+    if byt:
+        tiles_bytes += f'<div class="tile"><b>{acc["identical"][0] + acc["equivalent bytes"][0]:,}</b>' \
+                       f'<span>byte-identical or equivalent</span></div>'
+
     # fidelity: each band, the stubs apart
     fg = [[l, c, 0, 0] for l, _lo, c in SCORE_BANDS] + [["stub", "stub", 0, 0]]
     for r in rows:
         g = fg[-1] if r["kind"] == "stub" else fg[band_of(r["score"])]
         g[2] += 1
         g[3] += r.get("size") or 0
-    sections = [grouping("Fidelity", "each function's calls, fields and constants against the reference's",
-                         [tuple(g) for g in fg], total_n, total_size)]
+    sections.append(grouping("Fidelity", "each function's calls, fields and constants against the reference's",
+                             [tuple(g) for g in fg], total_n, total_size))
 
-    # byte for byte: bytes32's similarity, identical apart from 100%, and those it has none of
-    tiles_bytes = ""
-    if byt:
-        bg = [["identical or equivalent", "b10", 0, 0]] + [[l, c, 0, 0] for l, _lo, c in SCORE_BANDS] + \
-            [["not built", "stub", 0, 0]]
-        same = 0
-        sims = []
-        for r in rows:
-            b = byt.get(r["addr"].lower())
-            size = r.get("size") or 0
-            if b is None or b.get("kind") in ("stub", "absent"):
-                g = bg[-1]
-            elif b.get("same") or b.get("equiv"):
-                g = bg[0]
-                same += 1
-            else:
-                g = bg[1 + band_of(min(b.get("sim", 0.0), 0.9989))]
-            if b is not None:
-                sims.append(b.get("sim", 0.0))
-            g[2] += 1
-            g[3] += size
-        bg = [g for g in bg if g[0] != "100%" or g[2]]
-        sections.append(grouping("Byte for byte", "the gen built for x86 against the reference's own bytes "
-                                 "(bytes32), addresses masked", [tuple(g) for g in bg], total_n, total_size))
-        smean = sum(sims) / len(sims) if sims else 0.0
-        tiles_bytes = (f'<div class="tile"><b>{same:,}</b><span>byte-identical or equivalent</span></div>'
-                       f'<div class="tile"><b>{100 * smean:.1f}%</b><span>mean byte similarity</span></div>')
-
-    # the table's data, compact: [addr, name, size, kind, score, calls, fields, consts, bytes sim, notes]
+    # the table's data, compact: [addr, name, size, kind, score, calls, fields, consts, bytes sim, notes,
+    # accuracy]
     data = []
     for r in rows:
         p = r.get("parts") or {}
@@ -113,7 +140,7 @@ def page(name: str, rows: list, bytes_path: Path | None = None) -> str:
         data.append([r["addr"], r["name"], r.get("size") or 0, r["kind"], round(r["score"], 3),
                      p.get("calls"), p.get("fields"), p.get("consts"),
                      None if b is None or b.get("kind") in ("stub", "absent") else round(b.get("sim", 0.0), 3),
-                     notes])
+                     notes, labels[r["addr"]]])
     title = html.escape(f"{name} fidelity")
     when = f"{datetime.datetime.now():%Y-%m-%d %H:%M}"
     blob = json.dumps(data, separators=(",", ":")).replace("</", "<\\/")
@@ -129,7 +156,8 @@ PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <style>
 :root {{ --bg:#f7f7f5; --card:#fff; --fg:#1b1b19; --muted:#6d6c66; --line:#e6e5e0; --track:#efeee9;
   --b10:#1f9d55; --b9:#56b04a; --b8:#8cbd3f; --b7:#b8c13a; --b6:#d8b532; --b5:#e39a2c; --b4:#e57f2a;
-  --b3:#e0632c; --b2:#d84b33; --b1:#c9393b; --b0:#b02a3f; --stub:#8b8a95; }}
+  --b3:#e0632c; --b2:#d84b33; --b1:#c9393b; --b0:#b02a3f; --stub:#8b8a95;
+  --a3:#17834a; --a2:#2fa565; --a1:#79c28e; }}
 @media (prefers-color-scheme: dark) {{ :root {{ --bg:#141416; --card:#1c1c20; --fg:#ecebe7; --muted:#9b9a94;
   --line:#2b2b31; --track:#26262c; --stub:#5f5e6a; }} }}
 * {{ box-sizing:border-box; }}
@@ -155,6 +183,8 @@ section {{ background:var(--card); border:1px solid var(--line); border-radius:1
 .b10 {{ background:var(--b10); }} .b9 {{ background:var(--b9); }} .b8 {{ background:var(--b8); }} .b7 {{ background:var(--b7); }}
 .b6 {{ background:var(--b6); }} .b5 {{ background:var(--b5); }} .b4 {{ background:var(--b4); }} .b3 {{ background:var(--b3); }}
 .b2 {{ background:var(--b2); }} .b1 {{ background:var(--b1); }} .b0 {{ background:var(--b0); }} .stub {{ background:var(--stub); }}
+.a3 {{ background:var(--a3); }} .a2 {{ background:var(--a2); }} .a1 {{ background:var(--a1); }}
+.row {{ grid-template-columns:150px 1fr 80px 64px 64px; }}
 .controls {{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; align-items:center; }}
 input, select, button {{ font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:8px;
   padding:6px 10px; }}
@@ -185,11 +215,12 @@ td.notes {{ color:var(--muted); max-width:420px; }}
 <div class="controls">
 <input id="q" placeholder="search address, name or what differs" autocomplete="off">
 <select id="kind"><option value="">all kinds</option><option value="translated">translated</option>
-<option value="stub">stubs</option><option value="folded">folded</option><option value="imperfect">below 100%</option></select>
+<option value="stub">stubs</option><option value="folded">folded</option><option value="imperfect">below 100%</option>
+<option value="inaccurate">not accurate</option></select>
 <button id="prev">‹</button><span class="muted" id="pg"></span><button id="next">›</button>
 </div>
 <div class="wrap"><table><thead><tr><th data-k="0">address</th><th data-k="1">function</th>
-<th data-k="2" class="num">size</th><th data-k="4" class="num on up">fidelity</th><th data-k="5" class="num">calls</th>
+<th data-k="2" class="num">size</th><th data-k="10">accuracy</th><th data-k="4" class="num on up">fidelity</th><th data-k="5" class="num">calls</th>
 <th data-k="6" class="num">fields</th><th data-k="7" class="num">consts</th>{bytes_col}<th>what differs</th></tr></thead>
 <tbody id="rows"></tbody></table></div></section>
 </main>
@@ -197,6 +228,8 @@ td.notes {{ color:var(--muted); max-width:420px; }}
 const D = {data};
 const HAS_BYTES = {has_bytes};
 const PER = 200;
+const GOOD = new Set(['identical', 'equivalent bytes', 'same behavior']);
+const ACC = {{'identical': 'a3', 'equivalent bytes': 'a2', 'same behavior': 'a1', 'behavior differs': 'b2', 'stub': 'stub'}};
 let key = 4, up = true, page = 0, view = D;
 const css = getComputedStyle(document.documentElement);
 const band = v => v >= .999 ? 'b10' : 'b' + Math.max(0, Math.floor(v * 10));
@@ -205,7 +238,8 @@ const num = v => v === null || v === undefined ? '<td class="num muted">–</td>
 function apply() {{
   const q = document.getElementById('q').value.trim().toLowerCase();
   const k = document.getElementById('kind').value;
-  view = D.filter(r => (!k || (k === 'imperfect' ? r[3] !== 'folded' && r[4] < .999 : r[3] === k))
+  view = D.filter(r => (!k || (k === 'imperfect' ? r[3] !== 'folded' && r[4] < .999
+      : k === 'inaccurate' ? !GOOD.has(r[10]) : r[3] === k))
     && (!q || r[0].includes(q) || r[1].toLowerCase().includes(q) || String(r[9]).toLowerCase().includes(q)));
   view.sort((a, b) => {{
     const x = a[key], y = b[key];
@@ -226,7 +260,8 @@ function draw() {{
       : `<span class="pill ${{band(r[4])}}">${{(100 * r[4]).toFixed(1)}}%</span>`;
     const by = HAS_BYTES ? (r[8] === null ? '<td class="num muted">–</td>'
       : `<td class="num"><span class="pill ${{band(r[8])}}">${{(100 * r[8]).toFixed(0)}}%</span></td>`) : '';
-    return `<tr><td class="addr">${{r[0]}}</td><td>${{esc(r[1])}}</td><td class="num">${{r[2]}}</td>
+    const acc = `<td><span class="pill ${{ACC[r[10]]}}">${{esc(r[10])}}</span></td>`;
+    return `<tr><td class="addr">${{r[0]}}</td><td>${{esc(r[1])}}</td><td class="num">${{r[2]}}</td>${{acc}}
       <td class="num">${{score}}</td>${{num(r[5])}}${{num(r[6])}}${{num(r[7])}}${{by}}<td class="notes">${{esc(r[9])}}</td></tr>`;
   }}).join('');
 }}

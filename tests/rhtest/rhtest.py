@@ -50,6 +50,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 RHIPPER = HERE.parents[1]
+sys.path.insert(0, str(RHIPPER))
+import fidelity_html  # noqa: E402  (the reports' accuracy, one definition for both pages)
 SRC = HERE / "src"
 WORK = HERE / "work"
 BINS = HERE / "bins"
@@ -629,8 +631,12 @@ def main() -> None:
         s = f"translated {p.stubs['translated']}, stubbed {p.stubs['stubbed']}" if p.stubs else ""
         if p.fidelity:
             s += f"  fidelity {p.fidelity['mean']:.3f}/{p.fidelity['by_size']:.3f} (mean/by size)"
-        if p.bytes:
-            s += f"  bytes {p.bytes['mean']:.3f}/{p.bytes['by_size']:.3f}, {p.bytes['identical']} identical"
+        fj = p.build / "fidelity.json"
+        if p.fidelity and fj.exists():
+            acc = fidelity_html.accuracy_counts(json.loads(fj.read_text(encoding="utf-8")), p.build / "bytes32.json")
+            good = sum(acc[l][0] for l in fidelity_html.ACCURATE)
+            s += (f"  accurate {good}/{sum(v[0] for v in acc.values())} ({acc['identical'][0]} identical, "
+                  f"{acc['equivalent bytes'][0]} equivalent, {acc['same behavior'][0]} same behavior)")
         print(f"  {name:<12} {status[name]}  {s}")
         for why in (p.stubs or {}).get("stubs", {}).values():
             reasons[re.sub(r"\(.*", "", why).strip()] += 1
@@ -751,24 +757,29 @@ def write_report(results: dict, status: dict, ran_port: bool) -> None:
             return f'<td class="bars"><div class="stack">{segs}</div></td>'
 
         groups = '<td class="muted">–</td>'
+        # (and its accuracy, fidelity_html's: identical, equivalent bytes, the same behavior, what
+        # differs, stubs. The run's result beside it: a failed run is a behavior that differs)
+        bdata = work / name / "build" / "bytes32.json"
+        acells = '<td colspan="3" class="muted">–</td>'
         if data.exists():
             frows = json.loads(data.read_text(encoding="utf-8"))
             groups = stack(Counter("stub" if r["kind"] == "stub" else
                                    "b10" if r["score"] >= 0.999 else f"b{max(0, min(9, int(r['score'] * 10)))}"
                                    for r in frows))
-        # (and by byte similarity, bytes32's: identical as 100%, the ones it has none of as stubs)
-        bdata = work / name / "build" / "bytes32.json"
-        bgroups = '<td class="muted">–</td>'
-        if bdata.exists():
-            brows = json.loads(bdata.read_text(encoding="utf-8"))
-            bgroups = stack(Counter("stub" if r.get("kind") in ("stub", "absent") else
-                                    "b10" if r.get("same") or r.get("equiv") else f"b{max(0, min(9, int(r.get('sim', 0) * 10)))}"
-                                    for r in brows))
-        b = e.get("bytes")
-        bcells = (f'<td class="num">{b["mean"]:.3f}</td><td class="num">{b["identical"]}</td>' if b
-                  else '<td colspan="2" class="muted">–</td>')
+            acc = fidelity_html.accuracy_counts(frows, bdata)
+            n = sum(v[0] for v in acc.values()) or 1
+            good = sum(acc[l][0] for l in fidelity_html.ACCURATE)
+            segs = "".join(f'<span class="seg {c}" style="width:{100 * acc[l][0] / n:.2f}%" title="{l}: {acc[l][0]}"></span>'
+                           for l, c in fidelity_html.ACCURACY if acc[l][0])
+            same = acc["identical"][0] + acc["equivalent bytes"][0]
+            totals.update(accurate=good, byte_same=same)
+            acells = (f'<td class="num {"pass" if good == n else ""}">{good}/{n}</td>'
+                      f'<td class="bars"><div class="stack">{segs}</div></td>'
+                      f'<td class="num">{same if bdata.exists() else "–"}</td>')
+            e["accuracy"] = {"accurate": good, "functions": n, "byte_identical_or_equivalent": same,
+                             **{l: acc[l][0] for l, _c in fidelity_html.ACCURACY}}
         rows.append(f'<tr><td><a href="#{name}">{html.escape(name)}</a></td><td class="{cls}">{html.escape(shown)}</td>{cells}'
-                    f'{groups}{bcells}{bgroups}<td class="muted">{e["when"]}</td><td class="muted">{scored_at}</td></tr>')
+                    f'{acells}{groups}<td class="muted">{e["when"]}</td><td class="muted">{scored_at}</td></tr>')
         # (what the stopped step left: the run's diff against the reference, or its log's end)
         stopped = (f'<p>stopped at {html.escape(e["stopped"])}</p><pre>{html.escape(e.get("detail", ""))}</pre>'
                    if e.get("stopped") else "")
@@ -820,21 +831,27 @@ td.bars {{ min-width:180px; vertical-align:middle; }}
 .b10 {{ background:#1f9d55; }} .b9 {{ background:#56b04a; }} .b8 {{ background:#8cbd3f; }} .b7 {{ background:#b8c13a; }}
 .b6 {{ background:#d8b532; }} .b5 {{ background:#e39a2c; }} .b4 {{ background:#e57f2a; }} .b3 {{ background:#e0632c; }}
 .b2 {{ background:#d84b33; }} .b1 {{ background:#c9393b; }} .b0 {{ background:#b02a3f; }} .stub {{ background:#8b8a95; }}
+.a3 {{ background:#17834a; }} .a2 {{ background:#2fa565; }} .a1 {{ background:#79c28e; }}
 </style></head><body><main><h1>rhtest fidelity: {TOOLSET}</h1>
-<div class="sub">{len(summary)} projects, {totals['functions']} functions: {totals['perfect']} of {totals['translated']}
-translated at 1.0, {totals['stubs']} stubs. Written {now}; a project shows the scores of its last run (scored column).</div>
-<div class="legend">{"".join(f'<span><i class="{k}"></i>{BAND_NAMES[k]}</span>' for k in ["b10"] + [f"b{i}" for i in range(9, -1, -1)] + ["stub"])}</div>
+<div class="sub">{len(summary)} projects, {totals['functions']} functions: <b>{totals['accurate']} accurate</b>
+({totals['byte_same']} byte-identical or equivalent, the rest the same behavior: fidelity 1.0, the compiler's own
+choices); {totals['perfect']} of {totals['translated']} translated at fidelity 1.0, {totals['stubs']} stubs.
+Written {now}; a project shows the scores of its last run (scored column).</div>
+<div class="legend">accuracy: {"".join(f'<span><i class="{c}"></i>{l}</span>' for l, c in fidelity_html.ACCURACY)}</div>
+<div class="legend">fidelity: {"".join(f'<span><i class="{k}"></i>{BAND_NAMES[k]}</span>' for k in ["b10"] + [f"b{i}" for i in range(9, -1, -1)] + ["stub"])}</div>
 <div class="wrap"><table>
 <thead><tr><th>project</th><th>result</th><th class="num">fidelity</th><th class="num">by size</th>
-<th class="num">at 1.0</th><th class="num">stubs</th><th>fidelity grouping</th><th class="num">bytes</th>
-<th class="num">identical</th><th>byte grouping</th><th>run</th><th>scored</th></tr></thead><tbody>
+<th class="num">at 1.0</th><th class="num">stubs</th><th class="num">accurate</th><th>accuracy</th>
+<th class="num">bytes same</th><th>fidelity grouping</th><th>run</th><th>scored</th></tr></thead><tbody>
 {"".join(rows)}
 </tbody></table></div>
-<h2>Below 1.0, by project</h2>
+<h2>Behavior that differs (fidelity below 1.0) and stubs, by project</h2>
 {"".join(sections)}
 </main></body></html>
 """
     REPORT.write_text(page, encoding="utf-8")
+    # (again, with each project's accuracy)
+    path.write_text(json.dumps(summary, indent=1, sort_keys=True), encoding="utf-8")
     old = work / "index.html"
     if old.exists():
         old.unlink()
