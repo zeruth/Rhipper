@@ -34,8 +34,6 @@ Writes build/fidelity.json.
 from __future__ import annotations
 
 import argparse
-import datetime
-import html
 import json
 import re
 import sys
@@ -434,11 +432,17 @@ def main() -> None:
     ap.add_argument("--show", nargs="*", default=[], help="these reference addresses in full")
     ap.add_argument("--limit", type=int, default=25)
     ap.add_argument("--html", action="store_true", help="also write build/fidelity.html")
+    ap.add_argument("--html-only", action="store_true",
+                    help="only build/fidelity.html, from the last build/fidelity.json (and bytes32.json)")
     ap.add_argument("--quiet", action="store_true", help="the totals only")
     ap.add_argument("--port", type=Path, help="the port to measure (default rhipper.json \"run\" \"exe\"): "
                                               "best one with its translation built /Od /Ob0")
     args = ap.parse_args()
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if args.html_only:
+        write_html(json.loads(OUT_JSON.read_text(encoding="utf-8")))
+        print(f"wrote {OUT_HTML}")
+        return
 
     run_exe = args.port or project.CONFIG["run"].get("exe")
     if not run_exe:
@@ -707,83 +711,14 @@ def main() -> None:
                              if r[k])
             print(f"  {r['addr']}  {r['score']:.3f}  {r['name'][:28]:<28} {ps}  {what[:110]}")
     if args.html:
-        write_html(rows, mean, weighted, perfect, stubs)
+        write_html(rows)
         print(f"wrote {OUT_HTML}")
 
 
-def write_html(rows: list, mean: float, weighted: float, perfect: int, stubs: list) -> None:
-    hist = [0] * 10
-    for r in rows:
-        hist[min(9, int(r["score"] * 10))] += 1
-    peak = max(hist) or 1
-    bars = "".join(
-        f'<div class="col"><div class="bar" style="height:{100 * n / peak:.1f}%"></div>'
-        f'<div class="n">{n}</div><div class="k">{i / 10:.1f}</div></div>' for i, n in enumerate(hist))
-
-    def cell(v):
-        return '<td class="num muted">–</td>' if v is None else f'<td class="num">{v:.2f}</td>'
-
-    body = []
-    for r in sorted(rows, key=lambda r: (r["score"], -r["size"])):
-        if r["kind"] == "folded":
-            body.append(f'<tr><td>{r["addr"]}</td><td>{html.escape(r["name"])}</td>'
-                        f'<td class="num">{r["size"]}</td><td class="num score s3">1.000</td>'
-                        f'<td colspan="4" class="muted">{html.escape(r["why"])}</td></tr>')
-            continue
-        if r["kind"] == "stub":
-            body.append(f'<tr class="stub"><td>{r["addr"]}</td><td>{html.escape(r["name"])}</td>'
-                        f'<td class="num">{r["size"]}</td><td class="num score s0">stub</td>'
-                        f'<td colspan="4" class="muted">{html.escape(r["why"])}</td></tr>')
-            continue
-        p = r["parts"]
-        notes = "; ".join(f"{k.replace('_', ' ')}: {', '.join(map(str, r[k][:4]))}"
-                          for k in ("missing_calls", "extra_calls", "missing_fields", "missing_consts") if r[k])
-        band = "s3" if r["score"] >= 0.999 else "s2" if r["score"] >= 0.9 else "s1" if r["score"] >= 0.6 else "s0"
-        body.append(f'<tr><td>{r["addr"]}</td><td>{html.escape(r["name"])}</td><td class="num">{r["size"]}</td>'
-                    f'<td class="num score {band}">{r["score"]:.3f}</td>{cell(p["calls"])}{cell(p["fields"])}'
-                    f'{cell(p["consts"])}<td class="muted">{html.escape(notes)}</td></tr>')
-    title = html.escape(f"{project.NAME} fidelity")
-    page = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>{title}</title>
-<style>
-:root {{ --bg:#fbfbfa; --fg:#1d1d1b; --muted:#6b6b66; --line:#e4e3df; --bar:#5b6cf0;
-  --s3:#2f9e5b; --s2:#7aa83a; --s1:#d49a2a; --s0:#d0503c; }}
-@media (prefers-color-scheme: dark) {{ :root {{ --bg:#17171a; --fg:#e9e8e4; --muted:#9a9993; --line:#2c2c31;
-  --bar:#8592ff; }} }}
-body {{ background:var(--bg); color:var(--fg); font:14px/1.45 system-ui,sans-serif; margin:0; padding:24px 16px; }}
-main {{ max-width:1200px; margin:0 auto; }}
-h1 {{ font-size:20px; margin:0 0 4px; }} .sub {{ color:var(--muted); margin-bottom:20px; }}
-.tiles {{ display:flex; gap:12px; flex-wrap:wrap; margin-bottom:20px; }}
-.tile {{ border:1px solid var(--line); border-radius:8px; padding:10px 14px; min-width:120px; }}
-.tile b {{ display:block; font-size:22px; font-variant-numeric:tabular-nums; }} .tile span {{ color:var(--muted); font-size:12px; }}
-.hist {{ display:flex; align-items:flex-end; gap:6px; height:120px; margin:8px 0 28px; }}
-.col {{ flex:1; display:flex; flex-direction:column; justify-content:flex-end; height:100%; text-align:center; font-size:11px; }}
-.bar {{ background:var(--bar); border-radius:3px 3px 0 0; min-height:1px; }} .n {{ font-variant-numeric:tabular-nums; }}
-.k {{ color:var(--muted); }}
-.wrap {{ overflow-x:auto; }} table {{ border-collapse:collapse; width:100%; font-size:13px; }}
-th,td {{ text-align:left; padding:5px 8px; border-bottom:1px solid var(--line); vertical-align:top; }}
-th {{ color:var(--muted); font-weight:600; }} .num {{ text-align:right; font-variant-numeric:tabular-nums; }}
-.muted {{ color:var(--muted); }} td:first-child {{ font-family:ui-monospace,monospace; }}
-.score {{ font-weight:600; }} .s3 {{ color:var(--s3); }} .s2 {{ color:var(--s2); }} .s1 {{ color:var(--s1); }} .s0 {{ color:var(--s0); }}
-</style></head><body><main>
-<h1>{title}</h1>
-<div class="sub">Each reference function against its translation: calls in order, fields, constants
-(shape is reported only: x86 against x64). {datetime.datetime.now():%Y-%m-%d %H:%M}</div>
-<div class="tiles">
-<div class="tile"><b>{len(rows)}</b><span>functions</span></div>
-<div class="tile"><b>{perfect}</b><span>at 1.0</span></div>
-<div class="tile"><b>{len(stubs)}</b><span>stubs</span></div>
-<div class="tile"><b>{mean:.3f}</b><span>mean score</span></div>
-<div class="tile"><b>{weighted:.3f}</b><span>by size</span></div>
-</div>
-<div class="hist">{bars}</div>
-<div class="wrap"><table><thead><tr><th>address</th><th>function</th><th class="num">size</th>
-<th class="num">score</th><th class="num">calls</th><th class="num">fields</th><th class="num">consts</th>
-<th>what differs</th></tr></thead><tbody>
-{"".join(body)}
-</tbody></table></div></main></body></html>
-"""
-    OUT_HTML.write_text(page, encoding="utf-8")
+def write_html(rows: list) -> None:
+    """build/fidelity.html from the rows (and build/bytes32.json beside them): fidelity_html.py"""
+    import fidelity_html
+    OUT_HTML.write_text(fidelity_html.page(project.NAME, rows, ROOT / "build/bytes32.json"), encoding="utf-8")
 
 
 if __name__ == "__main__":
