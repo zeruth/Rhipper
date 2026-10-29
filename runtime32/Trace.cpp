@@ -42,7 +42,17 @@ void FlushLocked() {
 
 void RefTraceStart() {
     wchar_t path[MAX_PATH] = {};
-    if (RefEnv("TRACE", path, MAX_PATH) == 0) return;
+    if (RefEnv("TRACE", path, MAX_PATH) == 0) {
+        // (DUMPAT, STACKAT and WATCH ride the entry hooks, with no trace file of their own: set
+        // without TRACE, they did nothing, silently, and a dump that never printed read as a
+        // function that never ran, 2026-10-28)
+        wchar_t v[48] = {};
+        if (RefEnv("DUMPAT", v, 48) || RefEnv("STACKAT", v, 48) || RefEnv("WATCH", v, 48)) {
+            fprintf(stderr, "%s: entry hooks on for DUMPAT/STACKAT/WATCH (no trace file)\n", RHIPPER_NAME);
+            gen_trace_on = 1;
+        }
+        return;
+    }
     if (_wfopen_s(&g_file, path, L"wb") != 0 || g_file == nullptr) {
         fprintf(stderr, "%s: cannot write the trace %ls\n", RHIPPER_NAME, path);
         return;
@@ -177,6 +187,7 @@ dumped:
         fflush(stderr);
     }
     if (addr == g_watchFn && addr) RefWatchEnter(a0);
+    if (g_file == nullptr) return;              // (the hooks on without a trace, RefTraceStart)
     std::lock_guard<std::mutex> hold(g_lock);
     if (!g_started) {
         if (addr != g_from) return;
