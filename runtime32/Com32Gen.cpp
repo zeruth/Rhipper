@@ -33,6 +33,10 @@ extern Type32 IDxDiagProvider_32;
 extern Type32 IDxDiagContainer_32;
 extern Type32 IUnknown_32;
 extern Type32 IClassFactory_32;
+extern Type32 ITfDocumentMgr_32;
+extern Type32 ITfThreadMgr_32;
+extern Type32 ITfThreadMgrEx_32;
+extern Type32 ITfSource_32;
 
 extern "C" unsigned int S_IDirect3D9_CreateDevice(void);
 extern "C" unsigned int S_IDirect3DDevice9_GetCreationParameters(void);
@@ -60,6 +64,7 @@ extern "C" unsigned int S_IXAudio2SourceVoice_SubmitSourceBuffer(void);
 extern "C" unsigned int S_IXAudio2SourceVoice_GetState(void);
 extern "C" unsigned int S_IDxDiagProvider_Initialize(void);
 extern "C" unsigned int S_IDxDiagContainer_GetProp(void);
+extern "C" unsigned int S_ITfSource_AdviseSink(void);
 
 
 static unsigned int T_IDirect3D9_QueryInterface(uint32_t self, uint32_t a0, uint32_t a1) {
@@ -3750,6 +3755,301 @@ static void* const IClassFactory_thunks[] = {
 static const GUID IClassFactory_iid = {0x00000001, 0x0000, 0x0000, {0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}};
 Type32 IClassFactory_32 = {"IClassFactory", &IClassFactory_iid, &IUnknown_32, IClassFactory_thunks, 5, 0};
 
+static unsigned int T_ITfDocumentMgr_QueryInterface(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"ITfDocumentMgr::QueryInterface", 0, 0, nullptr};
+    ComCount(&stat);
+    void* n = Unwrap(self);
+    void* o1 = nullptr;
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 0))(n, At<void>(a0), a1 ? &o1 : nullptr);
+    if (a1) *At<uint32_t>(a1) = Wrap(o1, TypeOf(a0));
+    return r;
+}
+static unsigned int T_ITfDocumentMgr_AddRef(uint32_t self) {
+    static ComStat stat = {"ITfDocumentMgr::AddRef", 0, 0, nullptr};
+    ComCount(&stat);
+    void* n = Unwrap(self);
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 1))(n);
+    return r;
+}
+static unsigned int T_ITfDocumentMgr_Release(uint32_t self) {
+    static ComStat stat = {"ITfDocumentMgr::Release", 0, 0, nullptr};
+    ComCount(&stat);
+    void* n = Unwrap(self);
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 2))(n);
+    return r;
+}
+static unsigned int T_ITfDocumentMgr_CreateContext(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4) {
+    static ComStat stat = {"ITfDocumentMgr::CreateContext", 0, 0, nullptr};
+    ComCount(&stat);
+    void* n = Unwrap(self);
+    void* o3 = nullptr;
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t, uint32_t, void*, void*, void*)>(Slot(n, 3))(n, a0, a1, Unwrap(a2), a3 ? &o3 : nullptr, At<void>(a4));
+    if (a3) *At<uint32_t>(a3) = Wrap(o3, &IUnknown_32);
+    return r;
+}
+static unsigned int T_ITfDocumentMgr_Push(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"ITfDocumentMgr::Push", 0, 0, nullptr};
+    ComCount(&stat);
+    void* n = Unwrap(self);
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 4))(n, Unwrap(a0));
+    return r;
+}
+static unsigned int T_ITfDocumentMgr_Pop(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"ITfDocumentMgr::Pop", 0, 0, nullptr};
+    ComCount(&stat);
+    void* n = Unwrap(self);
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 5))(n, a0);
+    return r;
+}
+static unsigned int T_ITfDocumentMgr_GetTop(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"ITfDocumentMgr::GetTop", 0, 0, nullptr};
+    ComCount(&stat);
+    void* n = Unwrap(self);
+    void* o0 = nullptr;
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 6))(n, a0 ? &o0 : nullptr);
+    if (a0) *At<uint32_t>(a0) = Wrap(o0, &IUnknown_32);
+    return r;
+}
+static unsigned int T_ITfDocumentMgr_GetBase(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"ITfDocumentMgr::GetBase", 0, 0, nullptr};
+    ComCount(&stat);
+    void* n = Unwrap(self);
+    void* o0 = nullptr;
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 7))(n, a0 ? &o0 : nullptr);
+    if (a0) *At<uint32_t>(a0) = Wrap(o0, &IUnknown_32);
+    return r;
+}
+static unsigned int T_ITfDocumentMgr_EnumContexts(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"ITfDocumentMgr::EnumContexts", 0, 0, nullptr};
+    ComCount(&stat);
+    void* n = Unwrap(self);
+    void* o0 = nullptr;
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 8))(n, a0 ? &o0 : nullptr);
+    if (a0) *At<uint32_t>(a0) = Wrap(o0, &IUnknown_32);
+    return r;
+}
+static void* const ITfDocumentMgr_thunks[] = {
+    reinterpret_cast<void*>(T_ITfDocumentMgr_QueryInterface),
+    reinterpret_cast<void*>(T_ITfDocumentMgr_AddRef),
+    reinterpret_cast<void*>(T_ITfDocumentMgr_Release),
+    reinterpret_cast<void*>(T_ITfDocumentMgr_CreateContext),
+    reinterpret_cast<void*>(T_ITfDocumentMgr_Push),
+    reinterpret_cast<void*>(T_ITfDocumentMgr_Pop),
+    reinterpret_cast<void*>(T_ITfDocumentMgr_GetTop),
+    reinterpret_cast<void*>(T_ITfDocumentMgr_GetBase),
+    reinterpret_cast<void*>(T_ITfDocumentMgr_EnumContexts),
+};
+static const GUID ITfDocumentMgr_iid = {0xAA80E7F4, 0x2021, 0x11D2, {0x93, 0xE0, 0x00, 0x60, 0xB0, 0x67, 0xB8, 0x6E}};
+Type32 ITfDocumentMgr_32 = {"ITfDocumentMgr", &ITfDocumentMgr_iid, &IUnknown_32, ITfDocumentMgr_thunks, 9, 0};
+
+static unsigned int T_ITfThreadMgr_QueryInterface(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"ITfThreadMgr::QueryInterface", 0, 0, nullptr};
+    ComCount(&stat);
+    void* n = Unwrap(self);
+    void* o1 = nullptr;
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 0))(n, At<void>(a0), a1 ? &o1 : nullptr);
+    if (a1) *At<uint32_t>(a1) = Wrap(o1, TypeOf(a0));
+    return r;
+}
+static unsigned int T_ITfThreadMgr_AddRef(uint32_t self) {
+    static ComStat stat = {"ITfThreadMgr::AddRef", 0, 0, nullptr};
+    ComCount(&stat);
+    void* n = Unwrap(self);
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 1))(n);
+    return r;
+}
+static unsigned int T_ITfThreadMgr_Release(uint32_t self) {
+    static ComStat stat = {"ITfThreadMgr::Release", 0, 0, nullptr};
+    ComCount(&stat);
+    void* n = Unwrap(self);
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 2))(n);
+    return r;
+}
+static unsigned int T_ITfThreadMgr_Activate(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"ITfThreadMgr::Activate", 0, 0, nullptr};
+    ComCount(&stat);
+    void* n = Unwrap(self);
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 3))(n, At<void>(a0));
+    return r;
+}
+static unsigned int T_ITfThreadMgr_Deactivate(uint32_t self) {
+    static ComStat stat = {"ITfThreadMgr::Deactivate", 0, 0, nullptr};
+    ComCount(&stat);
+    void* n = Unwrap(self);
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 4))(n);
+    return r;
+}
+static unsigned int T_ITfThreadMgr_CreateDocumentMgr(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"ITfThreadMgr::CreateDocumentMgr", 0, 0, nullptr};
+    ComCount(&stat);
+    void* n = Unwrap(self);
+    void* o0 = nullptr;
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 5))(n, a0 ? &o0 : nullptr);
+    if (a0) *At<uint32_t>(a0) = Wrap(o0, &ITfDocumentMgr_32);
+    return r;
+}
+static unsigned int T_ITfThreadMgr_EnumDocumentMgrs(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"ITfThreadMgr::EnumDocumentMgrs", 0, 0, nullptr};
+    ComCount(&stat);
+    void* n = Unwrap(self);
+    void* o0 = nullptr;
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 6))(n, a0 ? &o0 : nullptr);
+    if (a0) *At<uint32_t>(a0) = Wrap(o0, &IUnknown_32);
+    return r;
+}
+static unsigned int T_ITfThreadMgr_GetFocus(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"ITfThreadMgr::GetFocus", 0, 0, nullptr};
+    ComCount(&stat);
+    void* n = Unwrap(self);
+    void* o0 = nullptr;
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 7))(n, a0 ? &o0 : nullptr);
+    if (a0) *At<uint32_t>(a0) = Wrap(o0, &ITfDocumentMgr_32);
+    return r;
+}
+static unsigned int T_ITfThreadMgr_SetFocus(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"ITfThreadMgr::SetFocus", 0, 0, nullptr};
+    ComCount(&stat);
+    void* n = Unwrap(self);
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 8))(n, Unwrap(a0));
+    return r;
+}
+static unsigned int T_ITfThreadMgr_AssociateFocus(uint32_t self, uint32_t a0, uint32_t a1, uint32_t a2) {
+    static ComStat stat = {"ITfThreadMgr::AssociateFocus", 0, 0, nullptr};
+    ComCount(&stat);
+    void* n = Unwrap(self);
+    void* o2 = nullptr;
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*, void*)>(Slot(n, 9))(n, Handle32(a0), Unwrap(a1), a2 ? &o2 : nullptr);
+    if (a2) *At<uint32_t>(a2) = Wrap(o2, &ITfDocumentMgr_32);
+    return r;
+}
+static unsigned int T_ITfThreadMgr_IsThreadFocus(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"ITfThreadMgr::IsThreadFocus", 0, 0, nullptr};
+    ComCount(&stat);
+    void* n = Unwrap(self);
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 10))(n, At<void>(a0));
+    return r;
+}
+static unsigned int T_ITfThreadMgr_GetFunctionProvider(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"ITfThreadMgr::GetFunctionProvider", 0, 0, nullptr};
+    ComCount(&stat);
+    void* n = Unwrap(self);
+    void* o1 = nullptr;
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 11))(n, At<void>(a0), a1 ? &o1 : nullptr);
+    if (a1) *At<uint32_t>(a1) = Wrap(o1, &IUnknown_32);
+    return r;
+}
+static unsigned int T_ITfThreadMgr_EnumFunctionProviders(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"ITfThreadMgr::EnumFunctionProviders", 0, 0, nullptr};
+    ComCount(&stat);
+    void* n = Unwrap(self);
+    void* o0 = nullptr;
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 12))(n, a0 ? &o0 : nullptr);
+    if (a0) *At<uint32_t>(a0) = Wrap(o0, &IUnknown_32);
+    return r;
+}
+static unsigned int T_ITfThreadMgr_GetGlobalCompartment(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"ITfThreadMgr::GetGlobalCompartment", 0, 0, nullptr};
+    ComCount(&stat);
+    void* n = Unwrap(self);
+    void* o0 = nullptr;
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 13))(n, a0 ? &o0 : nullptr);
+    if (a0) *At<uint32_t>(a0) = Wrap(o0, &IUnknown_32);
+    return r;
+}
+static void* const ITfThreadMgr_thunks[] = {
+    reinterpret_cast<void*>(T_ITfThreadMgr_QueryInterface),
+    reinterpret_cast<void*>(T_ITfThreadMgr_AddRef),
+    reinterpret_cast<void*>(T_ITfThreadMgr_Release),
+    reinterpret_cast<void*>(T_ITfThreadMgr_Activate),
+    reinterpret_cast<void*>(T_ITfThreadMgr_Deactivate),
+    reinterpret_cast<void*>(T_ITfThreadMgr_CreateDocumentMgr),
+    reinterpret_cast<void*>(T_ITfThreadMgr_EnumDocumentMgrs),
+    reinterpret_cast<void*>(T_ITfThreadMgr_GetFocus),
+    reinterpret_cast<void*>(T_ITfThreadMgr_SetFocus),
+    reinterpret_cast<void*>(T_ITfThreadMgr_AssociateFocus),
+    reinterpret_cast<void*>(T_ITfThreadMgr_IsThreadFocus),
+    reinterpret_cast<void*>(T_ITfThreadMgr_GetFunctionProvider),
+    reinterpret_cast<void*>(T_ITfThreadMgr_EnumFunctionProviders),
+    reinterpret_cast<void*>(T_ITfThreadMgr_GetGlobalCompartment),
+};
+static const GUID ITfThreadMgr_iid = {0xAA80E801, 0x2021, 0x11D2, {0x93, 0xE0, 0x00, 0x60, 0xB0, 0x67, 0xB8, 0x6E}};
+Type32 ITfThreadMgr_32 = {"ITfThreadMgr", &ITfThreadMgr_iid, &IUnknown_32, ITfThreadMgr_thunks, 14, 0};
+
+static unsigned int T_ITfThreadMgrEx_ActivateEx(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"ITfThreadMgrEx::ActivateEx", 0, 0, nullptr};
+    ComCount(&stat);
+    void* n = Unwrap(self);
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, uint32_t)>(Slot(n, 14))(n, At<void>(a0), a1);
+    return r;
+}
+static unsigned int T_ITfThreadMgrEx_GetActiveFlags(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"ITfThreadMgrEx::GetActiveFlags", 0, 0, nullptr};
+    ComCount(&stat);
+    void* n = Unwrap(self);
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*)>(Slot(n, 15))(n, At<void>(a0));
+    return r;
+}
+static void* const ITfThreadMgrEx_thunks[] = {
+    reinterpret_cast<void*>(T_ITfThreadMgr_QueryInterface),
+    reinterpret_cast<void*>(T_ITfThreadMgr_AddRef),
+    reinterpret_cast<void*>(T_ITfThreadMgr_Release),
+    reinterpret_cast<void*>(T_ITfThreadMgr_Activate),
+    reinterpret_cast<void*>(T_ITfThreadMgr_Deactivate),
+    reinterpret_cast<void*>(T_ITfThreadMgr_CreateDocumentMgr),
+    reinterpret_cast<void*>(T_ITfThreadMgr_EnumDocumentMgrs),
+    reinterpret_cast<void*>(T_ITfThreadMgr_GetFocus),
+    reinterpret_cast<void*>(T_ITfThreadMgr_SetFocus),
+    reinterpret_cast<void*>(T_ITfThreadMgr_AssociateFocus),
+    reinterpret_cast<void*>(T_ITfThreadMgr_IsThreadFocus),
+    reinterpret_cast<void*>(T_ITfThreadMgr_GetFunctionProvider),
+    reinterpret_cast<void*>(T_ITfThreadMgr_EnumFunctionProviders),
+    reinterpret_cast<void*>(T_ITfThreadMgr_GetGlobalCompartment),
+    reinterpret_cast<void*>(T_ITfThreadMgrEx_ActivateEx),
+    reinterpret_cast<void*>(T_ITfThreadMgrEx_GetActiveFlags),
+};
+static const GUID ITfThreadMgrEx_iid = {0x3E90ADE3, 0x7594, 0x4CB0, {0xBB, 0x58, 0x69, 0x62, 0x8F, 0x5F, 0x45, 0x8C}};
+Type32 ITfThreadMgrEx_32 = {"ITfThreadMgrEx", &ITfThreadMgrEx_iid, &ITfThreadMgr_32, ITfThreadMgrEx_thunks, 16, 0};
+
+static unsigned int T_ITfSource_QueryInterface(uint32_t self, uint32_t a0, uint32_t a1) {
+    static ComStat stat = {"ITfSource::QueryInterface", 0, 0, nullptr};
+    ComCount(&stat);
+    void* n = Unwrap(self);
+    void* o1 = nullptr;
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, void*, void*)>(Slot(n, 0))(n, At<void>(a0), a1 ? &o1 : nullptr);
+    if (a1) *At<uint32_t>(a1) = Wrap(o1, TypeOf(a0));
+    return r;
+}
+static unsigned int T_ITfSource_AddRef(uint32_t self) {
+    static ComStat stat = {"ITfSource::AddRef", 0, 0, nullptr};
+    ComCount(&stat);
+    void* n = Unwrap(self);
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 1))(n);
+    return r;
+}
+static unsigned int T_ITfSource_Release(uint32_t self) {
+    static ComStat stat = {"ITfSource::Release", 0, 0, nullptr};
+    ComCount(&stat);
+    void* n = Unwrap(self);
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*)>(Slot(n, 2))(n);
+    return r;
+}
+static unsigned int T_ITfSource_UnadviseSink(uint32_t self, uint32_t a0) {
+    static ComStat stat = {"ITfSource::UnadviseSink", 0, 0, nullptr};
+    ComCount(&stat);
+    void* n = Unwrap(self);
+    uint32_t r = reinterpret_cast<uint32_t (STDMETHODCALLTYPE*)(void*, uint32_t)>(Slot(n, 4))(n, a0);
+    return r;
+}
+static void* const ITfSource_thunks[] = {
+    reinterpret_cast<void*>(T_ITfSource_QueryInterface),
+    reinterpret_cast<void*>(T_ITfSource_AddRef),
+    reinterpret_cast<void*>(T_ITfSource_Release),
+    reinterpret_cast<void*>(S_ITfSource_AdviseSink),
+    reinterpret_cast<void*>(T_ITfSource_UnadviseSink),
+};
+static const GUID ITfSource_iid = {0x4EA48A35, 0x60AE, 0x446F, {0x8F, 0xD6, 0xE6, 0xA8, 0xD8, 0x24, 0x59, 0xF7}};
+Type32 ITfSource_32 = {"ITfSource", &ITfSource_iid, &IUnknown_32, ITfSource_thunks, 5, 0};
+
 Type32* const kTypes[] = {
     &IDirect3D9_32,
     &IDirect3DDevice9_32,
@@ -3780,6 +4080,10 @@ Type32* const kTypes[] = {
     &IDxDiagContainer_32,
     &IUnknown_32,
     &IClassFactory_32,
+    &ITfDocumentMgr_32,
+    &ITfThreadMgr_32,
+    &ITfThreadMgrEx_32,
+    &ITfSource_32,
     nullptr,
 };
 

@@ -794,6 +794,31 @@ R Native(void* n, unsigned k, A... args) {
     return reinterpret_cast<R(STDMETHODCALLTYPE*)(void*, A...)>(Slot(n, k))(n, args...);
 }
 
+// the text services' UI element sink a client hands ITfSource::AdviseSink, its 32-bit object behind a
+// native face: the IME's candidate and reading windows reported to it, which draws them itself
+const GUID kIID_ITfUIElementSink = {0xea1ea136, 0x19df, 0x11d7, {0xa6, 0xd2, 0x00, 0x06, 0x5b, 0x84, 0x43, 0x5c}};
+struct UIElementSinkFace {
+    virtual HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** out) {
+        if (!out) return E_POINTER;
+        *out = nullptr;
+        if (!IsEqualGUID(riid, IID_IUnknown) && !IsEqualGUID(riid, kIID_ITfUIElementSink)) return E_NOINTERFACE;
+        AddRef();
+        *out = this;
+        return S_OK;
+    }
+    virtual ULONG STDMETHODCALLTYPE AddRef() { return CallMethod(obj, 1); }
+    virtual ULONG STDMETHODCALLTYPE Release() { return CallMethod(obj, 2); }
+    virtual HRESULT STDMETHODCALLTYPE BeginUIElement(DWORD id, BOOL* show) {
+        uint32_t s = show ? static_cast<uint32_t>(*show) : 0;   // (on this stack: below 4 GB)
+        HRESULT hr = static_cast<HRESULT>(CallMethod(obj, 3, static_cast<uint32_t>(id), show ? Low(&s) : 0u));
+        if (show) *show = static_cast<BOOL>(s);
+        return hr;
+    }
+    virtual HRESULT STDMETHODCALLTYPE UpdateUIElement(DWORD id) { return static_cast<HRESULT>(CallMethod(obj, 4, static_cast<uint32_t>(id))); }
+    virtual HRESULT STDMETHODCALLTYPE EndUIElement(DWORD id) { return static_cast<HRESULT>(CallMethod(obj, 5, static_cast<uint32_t>(id))); }
+    uint32_t obj = 0;
+};
+
 // (the hand-written methods counted too, COMSTATS, and their failures apart: a create that fails
 // leaves a sound silent with nothing in the log)
 #define COM_COUNTED(name, expr)                                                    \
@@ -813,6 +838,18 @@ R Native(void* n, unsigned k, A... args) {
 }  // namespace
 
 extern "C" {
+
+// (a sink the reference implements, given to the native source behind a face: the UI element sink's
+// UIElementSinkFace; any other kind refused, as the client registers no other)
+unsigned int S_ITfSource_AdviseSink(uint32_t self, uint32_t riid, uint32_t punk, uint32_t cookie) {
+    const GUID& iid = *At<GUID>(riid);
+    if (!IsEqualGUID(iid, kIID_ITfUIElementSink) || !punk) return 0x80040202u;   // (CONNECT_E_CANNOTCONNECT)
+    DWORD c = 0;
+    uint32_t hr = COM_COUNTED("ITfSource::AdviseSink",
+                              Native<uint32_t>(Unwrap(self), 3, &iid, static_cast<void*>(FaceOf<UIElementSinkFace>(punk)), &c));
+    if (cookie) *At<uint32_t>(cookie) = c;
+    return hr;
+}
 
 unsigned int S_IXAudio2_RegisterForCallbacks(uint32_t self, uint32_t cb) {
     void* n = Unwrap(self);
@@ -1077,8 +1114,9 @@ FARPROC Real(const wchar_t* dll, const char* name) {
     return m ? GetProcAddress(m, name) : nullptr;
 }
 
-// the classes the reference may make: those with proxies (DirectInput, XAudio2 2.7 and its effects).
-// The rest (DirectShow's filters, the text services) are refused, as on a system without them
+// the classes the reference may make: those with proxies (DirectInput, XAudio2 2.7 and its effects,
+// DxDiag, the text services' thread manager). The rest (DirectShow's filters) are refused, as on a
+// system without them
 bool Supported(const GUID& clsid) {
     static const GUID known[] = {
         {0x25e609e4, 0xb259, 0x11cf, {0xbf, 0xc7, 0x44, 0x45, 0x53, 0x54, 0x00, 0x00}},   // DirectInput8
@@ -1087,6 +1125,10 @@ bool Supported(const GUID& clsid) {
         {0x6a93130e, 0x1d53, 0x41d1, {0xa9, 0xcf, 0xe7, 0x58, 0x80, 0x0b, 0xb1, 0x79}},   // AudioReverb 2.7
         {0xcac1105f, 0x619b, 0x4d04, {0x83, 0x1a, 0x44, 0xe1, 0xcb, 0xf1, 0x2d, 0x57}},   // AudioVolumeMeter 2.7
         {0xa65b8071, 0x3bfe, 0x4213, {0x9a, 0x5b, 0x49, 0x1d, 0xa4, 0x46, 0x1c, 0xa7}},   // DxDiagProvider
+        // (the text services' thread manager: a client turns them off for its window, AssociateFocus
+        // of no document manager. Refused, IME stayed as Windows had it and the refusal printed at
+        // every start, 2026-10-28)
+        {0x529a9e6b, 0x6587, 0x4f23, {0xab, 0x9e, 0x9c, 0x7d, 0x68, 0x3e, 0x3c, 0x50}},   // TF_ThreadMgr
     };
     for (const GUID& g : known)
         if (IsEqualGUID(g, clsid)) return true;
