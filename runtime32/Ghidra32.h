@@ -105,8 +105,11 @@ typedef unsigned int __fastcall gen_tcode();
 #define GEN_EDX_FWD , gen_edx
 /* (and each function's frame as the reference's: `push ebp; mov ebp, esp` or none, which
    VS2010's libraries mixed, per function as translate32 reads it off the reference) */
-#define GEN_FRAME __pragma(optimize("y", off))
-#define GEN_NOFRAME __pragma(optimize("y", on))
+/* (and never inlined into another: each translation is a function the reference kept apart, its
+   callers call it. Inlined, a test program's main was its callees' loops, 2.5 times the
+   reference's size, rhtest core-O2's 0x4024d0) */
+#define GEN_FRAME __pragma(optimize("y", off)) __declspec(noinline)
+#define GEN_NOFRAME __pragma(optimize("y", on)) __declspec(noinline)
 #else
 #define GEN_EDX_FWD
 #define GEN_FRAME
