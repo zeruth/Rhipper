@@ -94,6 +94,10 @@ def facts(jobs: int) -> bool:
         stamp(f"{n} code no function covers: ghidra.sh apply-functions")
         if step(f"apply-functions-{rnd}", [bash(), str(RH / "ghidra" / "ghidra.sh"), "apply-functions"], tail=2)[0]:
             return False
+    # (the indirect calls whose convention disagrees with a target a reference run saw there,
+    # abicheck: on x64 each is arguments one word off. Reported, not fatal)
+    stamp("abicheck")
+    step("abicheck", [py, str(RH / "abicheck.py")], tail=1)
     stamp("helpers32")
     if step("helpers32", [py, str(RH / "helpers32.py")], tail=1)[0]:
         return False
