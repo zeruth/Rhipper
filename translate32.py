@@ -524,10 +524,23 @@ FRAME_DECL = re.compile(r"(?m)^[ \t]+(?!(?:return|goto|case|else|do)\b)(?!(?:loc
                         r"[ \t]*\b(" + FRAME_LOCAL + r")[ \t]*(\[[ \t]*(?:0x)?[0-9a-f]+[ \t]*\])?[ \t]*;[ \t]*\n")
 
 
+def binary_amp(body: str, at: int) -> bool:
+    """Whether the `&` at `at` is the binary and, an operand before it (a name, a number, a
+    subscript or a parenthesized expression), not the unary address-of: `a & b` no address,
+    `(int)&b` (a cast) and `f(&b)` one"""
+    before = body[:at].rstrip()
+    if not before or not re.fullmatch(r"[\w)\]]", before[-1]):
+        return False
+    # (a cast's parenthesis, `(int)`, `(uint *)`, `(undefined4 * PTR32)`: the unary after it)
+    return not re.search(r"\(\s*(?:(?:const|unsigned|signed|struct)\s+)*[A-Za-z_]\w*(?:\s*\*+)?"
+                         r"(?:\s*PTR32(?:\s*\*+)?)?\s*\)\Z", before)
+
+
 def has_frame(body: str) -> bool:
     """Whether frame_locals lays the function's frame out: its code takes a local's address or
     uses a local array."""
-    return bool(re.search(r"&\s*" + FRAME_LOCAL + r"\b", body) or
+    # (the unary `&`: `uVar1 & local_8` takes no address)
+    return bool(any(not binary_amp(body, m.start()) for m in re.finditer(r"(?<!&)&\s*" + FRAME_LOCAL + r"\b", body)) or
                 re.search(r"(?m)^[ \t]+[A-Za-z_][\w \t*]*?\b" + FRAME_LOCAL + r"[ \t]*\[", body))
 
 
@@ -3818,8 +3831,11 @@ class Translator32:
         # FUN_00414960 passed its by-value string's first word to FUN_0042cbc0, which copied a
         # garbage length from the next local, 2026-10-24)
         param_names = [n for _t, n in sig.params]
-        param_addressed = bool(param_names) and re.search(
-            r"(?<![&\w])&\s*(?:" + "|".join(map(re.escape, param_names)) + r")\b(?!\s*(?:\[|\.|->))", body)
+        # (the unary `&` only: `param_1 & param_2` is no address, and its parameters' slots for it
+        # were the x86 build's every read a load from a copy, rhtest core-Od's bits)
+        param_addressed = bool(param_names) and any(
+            not binary_amp(body, m.start()) for m in re.finditer(r"(?<![&\w])&\s*(?:" + "|".join(map(re.escape, param_names)) +
+                                 r")\b(?!\s*(?:\[|\.|->))", body))
         # (a function that links an EH frame: its arguments in its frame, above the return address,
         # as the reference's are, its funclets reaching them through ebp. deep()'s Guard lives in
         # its parameter's slot, [ebp + 8], and the unwind funclet read past the frame, rhtest eh)
@@ -4112,7 +4128,8 @@ class Translator32:
         # copy of it: `lea eax, [ebp + 8]; push eax`, where the copy was `mov [ebp - 4], eax; lea
         # eax, [ebp - 4]`, bytes32. Its uses the argument's storage, `*(T *)&gen_aN`)
         for k, (t, n) in enumerate(sig.params):
-            if not re.search(r"&\s*\(?\s*" + re.escape(n) + r"\b", body):
+            if not any(not binary_amp(body, m.start())
+                       for m in re.finditer(r"(?<!&)&\s*\(?\s*" + re.escape(n) + r"\b", body)):
                 continue
             try:
                 tt = self.type_text(t)
@@ -4811,7 +4828,7 @@ class Translator32:
         address_only = {n for n in set(re.findall(r"(?<![\w$])DAT_[0-9a-f]{8}(?![\w$])", body))
                         if int(n[4:], 16) not in self.refdata
                         and len(re.findall(r"(?<![\w$])" + n + r"(?![\w$])", body))
-                        == len(re.findall(r"&\s*" + n + r"(?![\w$])", body))}
+                        == sum(not binary_amp(body, m.start()) for m in re.finditer(r"(?<!&)&\s*" + n + r"(?![\w$])", body))}
 
         def sym(m):
             name, addr = m.group(1), int(m.group(2), 16)
