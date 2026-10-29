@@ -909,7 +909,7 @@ def analyse(root: int, ranges):
                 break
             qm = insns[q].mnemonic
             if qm.startswith("f") and not qm.startswith(("fn", "fwait")):
-                if not (qm.endswith("p") or qm in ("fcompp", "fucompp")):
+                if not x87_discards(qm):
                     x87_ret_live = True
                 break
             if qm == "call" or qm.startswith("j"):
@@ -935,7 +935,7 @@ def analyse(root: int, ranges):
                     break
                 qm = insns[q].mnemonic
                 if qm.startswith("f") and not qm.startswith(("fn", "fwait")):
-                    end = qm.endswith("p")
+                    end = x87_discards(qm)
                     break
                 if qm in ("call", "jmp") or qm.startswith("loop"):
                     break
@@ -2621,6 +2621,15 @@ def indirect_tail_jump(ins) -> bool:
     return not (op.type == X.X86_OP_MEM and op.mem.index != 0)
 
 
+def x87_discards(m: str) -> bool:
+    """Whether an x87 instruction pops its value with no result left in st0: a store or a
+    comparison that pops (`fstp`, `fistp`, `fcompp`, `fucomip`). An arithmetic one that pops,
+    `faddp st(1)`, leaves its result there: a dot product's last `faddp` is its return value, and
+    taken for empty, the function was typed to return eax, `return param_2` (rhtest float-O2 dot)"""
+    return m in ("fstp", "fistp", "fisttp", "fbstp", "fcomp", "fcompp", "fucomp", "fucompp",
+                 "fcomip", "fucomip", "ffreep", "ficomp")
+
+
 def x87_depth_at_rets(insns, nxt, state, root=None) -> set:
     """The x87 stack depths each ret is reached with, along every way from the entry (falling
     through and jumping): loads push one, a popping instruction pops one (fcompp two). A call on a
@@ -3710,9 +3719,11 @@ def main() -> None:
 
     def reaches_x87(f, seen=()):
         """whether a function's result can be an x87 value: it runs x87 code itself, or returns
-        what a callee that can returns (its passes; an indirect call's might)"""
+        what a callee that can returns (its passes; an indirect call's might), or is opaque, an
+        import's thunk `jmp [__imp_fabs]`: the C runtime's math returns st0 (a /Od dabs's `call
+        fabs; ret` typed void, its caller's fstp of it extraout_ST0, rhtest float-Od main)"""
         v = local.get(f)
-        if v is None or v.get("x87_use") or f in seen or len(seen) > 8:
+        if v is None or v.get("x87_use") or v.get("opaque") or f in seen or len(seen) > 8:
             return True
         return any(isinstance(t, tuple) or reaches_x87(t, (*seen, f)) for t in v.get("passes", ()))
 

@@ -379,6 +379,10 @@ def presence(ref: Counter, port: Counter, source: set[int] = frozenset(),
     def kept(k):
         if near(k, have):
             return True
+        # (0.0, the reference's constant in memory: the x64 compiler's is `xorps xmm0, xmm0`, no
+        # constant at all, rhtest float-O2's 0x402320)
+        if k in ("f:0", "f:-0", "f:0.0"):
+            return True
         if isinstance(k, int):
             # (a field: its offset in the translation's address arithmetic, `*(int *)(p + 8)`,
             # or an index scaled by its element, `param_1[3]` of an int *)
@@ -509,6 +513,20 @@ def main() -> None:
     # the functions the decompiler injects as p-code (call fixups), by the warnings it leaves
     # (one the decompiler failed on has an "error" and no C: none injected there)
     fixed_up = {x for e in cor.values() for x in injections(e.get("c", "")) if isinstance(x, int)}
+    # (where the static libraries' code starts, the C runtime's names, translate32's is_library: a
+    # program function's piece beyond it is a runtime helper's tail the decompiler took in, `jmp
+    # __dtoul3`, whose dispatch it models as the operation (its feature test `test [__isa], 0x20`
+    # and tables no constants of the function's), rhtest float-O2 d2ul)
+    crt = re.compile(r"^_{1,3}(?:security_check_cookie|scrt_|except_handler|report_gsfailure|"
+                     r"aull|alldiv|allmul|allrem|allshl|allshr|aullshr|ftol|chkstk|EH_prolog|SEH_prolog|"
+                     r"SEH_epilog|CRT_|crt|onexit|initterm|guard_)")
+    library_from = min([a for a, e in cor.items() if crt.match(e.get("name", ""))] or [1 << 32])
+
+    def own_pieces(a: int, ps: list) -> list:
+        """a function's pieces, a program function's without those in the libraries' code"""
+        if a >= library_from:
+            return ps
+        return [p for p in ps if p[0] < library_from] or ps
     # each translation's C, by its reference address (gen/translated_*.c, `/* ref: */` headed)
     translations: dict[int, str] = {}
     for path in sorted(gen.glob("translated_*.c")):
@@ -647,7 +665,7 @@ def main() -> None:
             rows.append(row)
             continue
         dead = {int(x, 16) for x in re.findall(r"Removing unreachable block \(ram,0x([0-9a-f]+)\)", e["c"])}
-        rf = scan(ref, ref, md32, sorted(pieces.get(a, [(a, a + size)])), a, False, dead, fixed_up)
+        rf = scan(ref, ref, md32, own_pieces(a, sorted(pieces.get(a, [(a, a + size)]))), a, False, dead, fixed_up)
         pva = f_of_ref[a]
         psize = proc_at[pva][0]
         pf = scan(port, ref, md64, [(pva, pva + psize)], a, True)
