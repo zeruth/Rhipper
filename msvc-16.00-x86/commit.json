@@ -1,1 +1,1 @@
-{"sha": "fe5cee3e8e1c96f9550f3b61c6464b66a08376c6", "date": "2026-10-28T23:18:29-04:00", "subject": "fix(translate32): a stack local the reference never writes either, 0 and no suspect"}
+{"sha": "07783c3321e6f3ef840eb90e10ebe646f6e688d7", "date": "2026-10-28T23:25:26-04:00", "subject": "feat(runtime32): the text services' thread manager given to the reference, its UI element sink behind a face"}
