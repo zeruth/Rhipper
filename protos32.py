@@ -3965,10 +3965,29 @@ def main() -> None:
         if seen_path.exists() else {}
     for v in local.values():
         for a, shape in v.get("icalls", {}).items():
-            if shape is None or shape[0] != "__thiscall" or a not in seen_at:
+            if shape is None or a not in seen_at:
                 continue
-            methods.update(t for t in seen_at[a] if t in local and not inputs.get(t, 0)
-                           and cleanup.get(t) == 4 * shape[1])
+            if shape[0] == "__thiscall":
+                methods.update(t for t in seen_at[a] if t in local and not inputs.get(t, 0)
+                               and cleanup.get(t) == 4 * shape[1])
+            # (and the other way: a __stdcall site whose every observed target reads ecx for its
+            # `this` and pops the site's words is a __thiscall one, whatever pushes or index use
+            # hid ecx's write. `mov ecx, [ecx + 0x10]; push ecx; call eax` passed no ecx in the port,
+            # and its targets 0x548f30 / 0x548ff0 took whatever rcx held for their object, abicheck)
+            elif shape[0] == "__stdcall":
+                # (their words what they pop, all alike: `push ecx; call eax; pop ecx` cleans its
+                # own push, the targets popping none)
+                ts = [t for t in seen_at[a] if t in local]
+                pops = {cleanup.get(t) or 0 for t in ts}
+                if ts and len(pops) == 1 and all(inputs.get(t, 0) == ECX for t in ts) \
+                        and next(iter(pops)) <= 4 * shape[1]:
+                    v["icalls"][a] = ("__thiscall", next(iter(pops)) // 4)
+                # (or a callback given its context both ways, `mov ecx, [ecx + 0x10]; push ecx; call
+                # eax; pop ecx`: targets that read ecx beside ones that read that one word, none
+                # popping. As __thiscall of none the port passes it where both look first)
+                elif ts and pops == {0} and shape[1] == 1 and any(inputs.get(t, 0) == ECX for t in ts) \
+                        and all(inputs.get(t, 0) in (0, ECX) for t in ts):
+                    v["icalls"][a] = ("__thiscall", 0)
     # (and the callbacks one registration call is given, `push 0x75e100; push 0x17; mov ecx, esi;
     # call 0x5919f0`, its table later called with `this` in ecx: where some read `this`, the ones
     # that ignore it and pop the same bytes are methods of the same shape. 0x75e100, a __stdcall of
