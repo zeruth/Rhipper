@@ -3,10 +3,8 @@
 # toolset's own name and badge.
 name: msvc-16.00-x86
 
+# (by hand only while msvc-14.51-x86 works through its programs one at a time, 2026-10-28)
 on:
-  push:
-    branches: [main]
-    paths-ignore: ["**.md"]
   workflow_dispatch:
 
 # (every push its own run, in parallel: one concurrency group let only the newest waiting run

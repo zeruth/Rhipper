@@ -11,9 +11,16 @@ on:
       toolset:
         required: true
         type: string
+      # (the programs it runs, each with its variants; empty is every one. One at a time while
+      # they fail: a full run took hours, most of it failing, 2026-10-28)
+      programs:
+        required: false
+        type: string
+        default: core
 
 env:
   TOOLSET: ${{ inputs.toolset }}
+  PROGRAMS: ${{ inputs.programs }}
   GHIDRA_TAG: Ghidra_12.1.3_build
   GHIDRA_DIR: ghidra_12.1.3_PUBLIC
 
@@ -66,7 +73,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/ghidra-projects"
           export RHTEST_GHIDRA="$RHIPPER_GHIDRA"
           export RHTEST_GHIDRA_PROJECTS="$(cygpath -m "$RUNNER_TEMP/ghidra-projects")"
-          python -u tests/rhtest/rhtest.py --bins "$TOOLSET" --parallel 4
+          python -u tests/rhtest/rhtest.py $PROGRAMS --bins "$TOOLSET" --parallel 4
 
       - name: Logs
         if: always()

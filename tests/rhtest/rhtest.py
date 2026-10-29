@@ -110,7 +110,7 @@ PROGRAMS = {
     "fpenv": (["fpenv.c"], ["O2", "Od", "IA32"]),
     "seh": (["seh.c"], ["O2", "Od"]),
 }
-STEPS = ["ref", "import", "facts", "ghidra", "translate", "port", "run", "fidelity"]
+STEPS = ["ref", "import", "facts", "ghidra", "translate", "port", "run", "fidelity", "bytes"]
 # workers for the tools that take them (protos32.py, translate32.py, the port's MSBuild): serial
 # unless --jobs says otherwise, so a test run leaves the machine usable (Ghidra: one shard)
 JOBS = 1
@@ -229,6 +229,7 @@ class Project:
         self.env = {**os.environ, "RHIPPER_PROJECT": str(self.root)}
         self.stubs: dict | None = None
         self.fidelity: dict | None = None
+        self.bytes: dict | None = None
 
     def ghidra_sh(self, *args: str, log: str, tail: int = 4) -> bool:
         # (Ghidra's file cache the project's own, %LOCALAPPDATA%\ghidra: --parallel's projects
@@ -463,6 +464,27 @@ class Project:
                              "stubs": int(m.group(4)), "mean": float(m.group(5)), "by_size": float(m.group(6))}
         return True
 
+    def step_bytes(self) -> bool:
+        """bytes32.py: the translation built for x86 against the reference's own bytes, each
+        function's similarity (build/bytes32.json), and the project's fidelity.html again with its
+        byte-for-byte grouping. Reported, not a pass/fail: the measure to move toward byte 1:1."""
+        log = self.build / "bytes.log"
+        if run([sys.executable, str(RHIPPER / "bytes32.py"), "--json", "--limit", "8", "--jobs", str(JOBS)],
+               self.root, self.env, log) != 0:
+            print("    bytes32 failed (build/bytes.log): no byte report")
+            return True
+        text = log.read_text(encoding="utf-8", errors="replace")
+        for line in text.splitlines()[:6]:
+            print(f"    {line}")
+        same = re.search(r"byte-identical \(addresses masked\): (\d+)", text)
+        mean = re.search(r"mean similarity: ([\d.]+) over all, [\d.]+ over the compared; by size ([\d.]+)", text)
+        if same and mean:
+            self.bytes = {"identical": int(same.group(1)), "mean": float(mean.group(1)), "by_size": float(mean.group(2))}
+        # (the page again, its byte-for-byte grouping from the json just written)
+        run([sys.executable, str(RHIPPER / "fidelity32.py"), "--html-only"], self.root, self.env,
+            self.build / "fidelity-html.log")
+        return True
+
     def fidelity_current(self, stopped: str | None) -> bool:
         """Whether the translation is the corpus's, so a fidelity report of it means something:
         a translation exists and this run did not stop at or before translating (translate32.py
@@ -529,6 +551,10 @@ def main() -> None:
         if "fidelity" not in ran and p.fidelity_current(stopped):
             print(f"[{p.name}] fidelity")
             p.step_fidelity()
+        # (and its bytes, the same: what the x86 build of the translation makes of the reference)
+        if "bytes" not in ran and p.fidelity_current(stopped) and "bytes" in steps:
+            print(f"[{p.name}] bytes")
+            p.step_bytes()
         return p, "PASS" if ok else "FAIL"
 
     results: dict[str, Project] = {}
@@ -587,6 +613,8 @@ def main() -> None:
         s = f"translated {p.stubs['translated']}, stubbed {p.stubs['stubbed']}" if p.stubs else ""
         if p.fidelity:
             s += f"  fidelity {p.fidelity['mean']:.3f}/{p.fidelity['by_size']:.3f} (mean/by size)"
+        if p.bytes:
+            s += f"  bytes {p.bytes['mean']:.3f}/{p.bytes['by_size']:.3f}, {p.bytes['identical']} identical"
         print(f"  {name:<12} {status[name]}  {s}")
         for why in (p.stubs or {}).get("stubs", {}).values():
             reasons[re.sub(r"\(.*", "", why).strip()] += 1
@@ -672,6 +700,8 @@ def write_report(results: dict, status: dict, ran_port: bool) -> None:
         entry.setdefault("when", "-")
         if p.fidelity:
             entry["fidelity"] = p.fidelity
+        if p.bytes:
+            entry["bytes"] = p.bytes
         summary[name] = entry
     path.write_text(json.dumps(summary, indent=1, sort_keys=True), encoding="utf-8")
 
@@ -697,18 +727,32 @@ def write_report(results: dict, status: dict, ran_port: bool) -> None:
             cells = '<td colspan="4" class="muted">no report</td>'
         shown = e["status"] + (f' at {e["stopped"]}' if e.get("stopped") else "")
         # (its functions by fidelity band, a stacked bar: fidelity_html's bands and colours)
-        groups = '<td class="muted">–</td>'
-        if data.exists():
-            frows = json.loads(data.read_text(encoding="utf-8"))
-            counts = Counter("stub" if r["kind"] == "stub" else
-                             "b10" if r["score"] >= 0.999 else f"b{max(0, min(9, int(r['score'] * 10)))}" for r in frows)
-            n = len(frows) or 1
+        def stack(counts: Counter) -> str:
+            n = sum(counts.values()) or 1
             segs = "".join(f'<span class="seg {k}" style="width:{100 * counts[k] / n:.2f}%" '
                            f'title="{BAND_NAMES[k]}: {counts[k]}"></span>'
                            for k in ["b10"] + [f"b{i}" for i in range(9, -1, -1)] + ["stub"] if counts[k])
-            groups = f'<td class="bars"><div class="stack">{segs}</div></td>'
+            return f'<td class="bars"><div class="stack">{segs}</div></td>'
+
+        groups = '<td class="muted">–</td>'
+        if data.exists():
+            frows = json.loads(data.read_text(encoding="utf-8"))
+            groups = stack(Counter("stub" if r["kind"] == "stub" else
+                                   "b10" if r["score"] >= 0.999 else f"b{max(0, min(9, int(r['score'] * 10)))}"
+                                   for r in frows))
+        # (and by byte similarity, bytes32's: identical as 100%, the ones it has none of as stubs)
+        bdata = work / name / "build" / "bytes32.json"
+        bgroups = '<td class="muted">–</td>'
+        if bdata.exists():
+            brows = json.loads(bdata.read_text(encoding="utf-8"))
+            bgroups = stack(Counter("stub" if r.get("kind") in ("stub", "absent") else
+                                    "b10" if r.get("same") else f"b{max(0, min(9, int(r.get('sim', 0) * 10)))}"
+                                    for r in brows))
+        b = e.get("bytes")
+        bcells = (f'<td class="num">{b["mean"]:.3f}</td><td class="num">{b["identical"]}</td>' if b
+                  else '<td colspan="2" class="muted">–</td>')
         rows.append(f'<tr><td><a href="#{name}">{html.escape(name)}</a></td><td class="{cls}">{html.escape(shown)}</td>{cells}'
-                    f'{groups}<td class="muted">{e["when"]}</td><td class="muted">{scored_at}</td></tr>')
+                    f'{groups}{bcells}{bgroups}<td class="muted">{e["when"]}</td><td class="muted">{scored_at}</td></tr>')
         # (what the stopped step left: the run's diff against the reference, or its log's end)
         stopped = (f'<p>stopped at {html.escape(e["stopped"])}</p><pre>{html.escape(e.get("detail", ""))}</pre>'
                    if e.get("stopped") else "")
@@ -766,7 +810,8 @@ translated at 1.0, {totals['stubs']} stubs. Written {now}; a project shows the s
 <div class="legend">{"".join(f'<span><i class="{k}"></i>{BAND_NAMES[k]}</span>' for k in ["b10"] + [f"b{i}" for i in range(9, -1, -1)] + ["stub"])}</div>
 <div class="wrap"><table>
 <thead><tr><th>project</th><th>result</th><th class="num">fidelity</th><th class="num">by size</th>
-<th class="num">at 1.0</th><th class="num">stubs</th><th>grouping</th><th>run</th><th>scored</th></tr></thead><tbody>
+<th class="num">at 1.0</th><th class="num">stubs</th><th>fidelity grouping</th><th class="num">bytes</th>
+<th class="num">identical</th><th>byte grouping</th><th>run</th><th>scored</th></tr></thead><tbody>
 {"".join(rows)}
 </tbody></table></div>
 <h2>Below 1.0, by project</h2>
