@@ -1378,5 +1378,17 @@
   "stubs": 237,
   "perfect": 15709,
   "translated": 17532
+ },
+ {
+  "sha": "a843fa67aac2cabe6f3477ea51b8b1db478f6ee9",
+  "date": "2026-10-28T22:01:05-04:00",
+  "subject": "fix(abicheck): the count again last, the line pipeline32's log shows of the step",
+  "run": "2026-10-29 02:56 UTC",
+  "file": "a843fa67aac2cabe6f3477ea51b8b1db478f6ee9.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 237,
+  "perfect": 15709,
+  "translated": 17532
  }
 ]
