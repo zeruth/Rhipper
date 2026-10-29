@@ -1402,5 +1402,17 @@
   "stubs": 237,
   "perfect": 15709,
   "translated": 17532
+ },
+ {
+  "sha": "ee378872523f3c58435ac60262c9c59d9e2fe6ab",
+  "date": "2026-10-28T22:31:39-04:00",
+  "subject": "feat(runtime32): a COM method's float argument checked, NaN, infinite or past 1e8 reported with the method",
+  "run": "2026-10-29 03:49 UTC",
+  "file": "ee378872523f3c58435ac60262c9c59d9e2fe6ab.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 237,
+  "perfect": 15709,
+  "translated": 17532
  }
 ]
