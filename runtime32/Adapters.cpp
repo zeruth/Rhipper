@@ -1004,6 +1004,16 @@ unsigned int gen_imp_GetMessageW(uint32_t msg, uint32_t hwnd, uint32_t lo, uint3
     if (r != -1 && msg) ToMsg32(m, msg);
     return static_cast<unsigned int>(r);
 }
+// (and the A one: through the generic adapter x64's 48-byte MSG went into the reference's 28, and
+// DispatchMessageA's FromMsg32 read that back, a thread timer's WM_TIMER never reached its
+// TIMERPROC, rhtest sys's message loop a hang)
+unsigned int gen_imp_GetMessageA(uint32_t msg, uint32_t hwnd, uint32_t lo, uint32_t hi) {
+    MSG m = {};
+    BOOL r = GetMessageA(&m, Hwnd32(hwnd), lo, hi);
+    if (r != -1) NoteMouse(m);
+    if (r != -1 && msg) ToMsg32(m, msg);
+    return static_cast<unsigned int>(r);
+}
 unsigned int gen_imp_TranslateMessage(uint32_t msg) {
     MSG m = FromMsg32(msg);
     return static_cast<unsigned int>(TranslateMessage(&m));
@@ -1653,6 +1663,25 @@ unsigned int gen_imp_CreateTimerQueueTimer(uint32_t out, uint32_t queue, uint32_
     BOOL ok = CreateTimerQueueTimer(&t, H64(queue), reinterpret_cast<WAITORTIMERCALLBACK>(static_cast<uintptr_t>(fn)),
                                     reinterpret_cast<PVOID>(static_cast<uintptr_t>(param)), due, period, flags);
     if (ok) PutHandle(out, t);
+    return ok;
+}
+// (a work item's callback through one of the port's own: the legacy pool never ran a reference
+// address, QueueUserWorkItem TRUE and its callback never called, the mapped reference no module of
+// the process's, where a timer queue's ran one; rhtest sys's work item and its event, a hang)
+namespace {
+struct GenWorkItem {
+    uint32_t fn, param;
+};
+DWORD WINAPI GenWorkThunk(void* p) {
+    GenWorkItem w = *static_cast<GenWorkItem*>(p);
+    delete static_cast<GenWorkItem*>(p);
+    return reinterpret_cast<unsigned int (*)(unsigned int)>(static_cast<uintptr_t>(w.fn))(w.param);
+}
+}  // namespace
+unsigned int gen_imp_QueueUserWorkItem(uint32_t fn, uint32_t param, uint32_t flags) {
+    auto* w = new GenWorkItem{fn, param};
+    BOOL ok = QueueUserWorkItem(GenWorkThunk, w, flags);
+    if (!ok) delete w;
     return ok;
 }
 unsigned int gen_imp_ChangeTimerQueueTimer(uint32_t queue, uint32_t timer, uint32_t due, uint32_t period) {
