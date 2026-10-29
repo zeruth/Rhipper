@@ -1572,6 +1572,18 @@
   "translated": 4427
  },
  {
+  "sha": "fe5cee3e8e1c96f9550f3b61c6464b66a08376c6",
+  "date": "2026-10-28T23:18:29-04:00",
+  "subject": "fix(translate32): a stack local the reference never writes either, 0 and no suspect",
+  "run": "2026-10-29 04:11 UTC",
+  "file": "fe5cee3e8e1c96f9550f3b61c6464b66a08376c6.json",
+  "passing": 21,
+  "projects": 34,
+  "stubs": 172,
+  "perfect": 4360,
+  "translated": 4427
+ },
+ {
   "sha": "262cc2c37e289c8292ad16d1995c093ff7cd01f6",
   "date": "2026-10-28T23:38:59-04:00",
   "subject": "feat(rhtest): a bytes step, byte-for-byte per project; CI one program at a time",
