@@ -596,14 +596,32 @@ struct ChainN {
 
 // The reference's callback objects, with a native face: XAudio2 calls these (on its own thread),
 // each the reference's method in the same slot of its 4-byte vtable
+// (each callback counted for COMSTATS, and the passes a voice starves apart: XAudio2 asks for
+// BytesRequired > 0 when a source voice has run out of submitted audio, the pop a slow feeder
+// makes. A client's music popped once its voices played, 2026-10-28)
 struct VoiceCallback {
-    virtual void STDMETHODCALLTYPE OnVoiceProcessingPassStart(UINT32 bytes) { CallMethod(obj, 0, bytes); }
+    virtual void STDMETHODCALLTYPE OnVoiceProcessingPassStart(UINT32 bytes) {
+        static ComStat pass = {"VoiceCallback::OnVoiceProcessingPassStart", 0, 0, nullptr};
+        static ComStat starved = {"VoiceCallback::OnVoiceProcessingPassStart (starving, BytesRequired > 0)", 0, 0, nullptr};
+        ComCount(&pass);
+        if (bytes) ComCount(&starved);
+        CallMethod(obj, 0, bytes);
+    }
     virtual void STDMETHODCALLTYPE OnVoiceProcessingPassEnd() { CallMethod(obj, 1); }
     virtual void STDMETHODCALLTYPE OnStreamEnd() { CallMethod(obj, 2); }
     virtual void STDMETHODCALLTYPE OnBufferStart(void* ctx) { CallMethod(obj, 3, Low(ctx)); }
-    virtual void STDMETHODCALLTYPE OnBufferEnd(void* ctx) { CallMethod(obj, 4, Low(ctx)); }
+    virtual void STDMETHODCALLTYPE OnBufferEnd(void* ctx) {
+        static ComStat end = {"VoiceCallback::OnBufferEnd", 0, 0, nullptr};
+        ComCount(&end);
+        CallMethod(obj, 4, Low(ctx));
+    }
     virtual void STDMETHODCALLTYPE OnLoopEnd(void* ctx) { CallMethod(obj, 5, Low(ctx)); }
-    virtual void STDMETHODCALLTYPE OnVoiceError(void* ctx, HRESULT error) { CallMethod(obj, 6, Low(ctx), error); }
+    virtual void STDMETHODCALLTYPE OnVoiceError(void* ctx, HRESULT error) {
+        static ComStat err = {"VoiceCallback::OnVoiceError", 0, 0, nullptr};
+        ComCount(&err);
+        fprintf(stderr, "%s: XAudio2 voice error %08lx\n", RHIPPER_NAME, static_cast<unsigned long>(error));
+        CallMethod(obj, 6, Low(ctx), error);
+    }
     uint32_t obj = 0;
 };
 struct EngineCallback {
