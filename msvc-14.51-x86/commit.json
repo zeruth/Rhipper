@@ -1,1 +1,1 @@
-{"sha": "9922c7e8ededff36d9e83efa59d25ea0527701dd", "date": "2026-10-28T21:28:58-04:00", "subject": "feat(runtime32): HEAPCHECK=n, every n-th heap call validates the reference's heap first"}
+{"sha": "a843fa67aac2cabe6f3477ea51b8b1db478f6ee9", "date": "2026-10-28T22:01:05-04:00", "subject": "fix(abicheck): the count again last, the line pipeline32's log shows of the step"}
