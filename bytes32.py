@@ -188,7 +188,16 @@ def tokens(md, code: bytes, base: int, masked: set[int], lo: int, hi: int) -> tu
                 mb[k] = 0
             # (a target capstone prints in decimal when small, `call 7` in an object, is one too)
             s = ins.mnemonic + (" L" if re.fullmatch(r"(?:0x)?[0-9a-f]+", ins.op_str) else " " + ins.op_str)
-        if any(off <= r < off + ins.size for r in masked):
+        # (a relocated displacement with a base or index register, 0 until linked: capstone prints
+        # `[eax]` for the reference's `[eax + 0x4043b0]`, a table indexed. The address term itself)
+        disp, imm = getattr(ins, "disp_offset", 0), getattr(ins, "imm_offset", 0)
+        mem = re.search(r"\[([^\]]*)\]", s)
+        if disp and (off + disp) in masked and mem and re.search(r"\be(?:[a-d]x|[sd]i|[sb]p)\b", mem.group(1)) \
+                and not re.search(r"[+-] (?:0x[0-9a-f]+|\d+)$", mem.group(1)):
+            s = re.sub(r"\[([^\]]*)\]", lambda m: f"[{m.group(1)} + A]", s, count=1)
+            if imm and (off + imm) in masked:
+                s = re.sub(r"(?<![\w\[+*-])\b(?:0|0x[0-9a-f]+)\b(?![\w\]])$", "A", s)
+        elif any(off <= r < off + ins.size for r in masked):
             s = re.sub(r"0x[0-9a-f]{5,}", "A", s)
             # (an object's relocated word is 0 until linked, `push 0` for the reference's `push
             # 0x404310`: the relocated operand an address all the same)

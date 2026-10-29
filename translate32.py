@@ -613,7 +613,11 @@ def frame_locals(body: str, reserve: int = 0, minimum: int = 0, args: list[str] 
     if not decls and not slots and not args and not low:
         return body
     size = max([int(m.group(3), 16) for m in decls] + slots + [minimum, 4])
-    size = ((size + 15) & ~15) + reserve
+    # (the frame's own size, its deepest local's; the port's buffer rounded up to 16 bytes in front
+    # of it, GEN_FRAME_DECL, the x86 fidelity build's the frame alone: rounded, a one-DWORD frame
+    # was `sub esp, 0x10` against the reference's `push ecx`, and every local's esp offset off)
+    pad = ((size + 15) & ~15) - size
+    size += reserve
     body = re.sub(r"\bGEN_SLOT\(0x([0-9a-f]+)\)", lambda m: f"(gen_frame + 0x{size - int(m.group(1), 16):x})", body)
     body = re.sub(r"\bGEN_LOW\(0x([0-9a-f]+)\)", r"(gen_frame + 0x\1)", body)
     repl = {}
@@ -648,9 +652,8 @@ def frame_locals(body: str, reserve: int = 0, minimum: int = 0, args: list[str] 
         # (the argument block above the return address: entry + 4, as the reference's)
         words = int(re.search(r"GEN_ARGS_WORDS (\d+)", args[-1]).group(1))
         init = "\n".join(args[:-1]).replace("GEN_ARGS_AT", f"0x{size + 4:x}")
-        return body.replace("{", "{\n  __declspec(align(16)) undefined1 gen_frame[0x%x];\n%s"
-                            % (size + 4 + 4 * words, init), 1)
-    return body.replace("{", "{\n  __declspec(align(16)) undefined1 gen_frame[0x%x];" % size, 1)
+        return body.replace("{", "{\n  GEN_FRAME_DECL(0x%x, %d);\n%s" % (size + 4 + 4 * words, pad, init), 1)
+    return body.replace("{", "{\n  GEN_FRAME_DECL(0x%x, %d);" % (size, pad), 1)
 
 
 FRAME_AT = re.compile(r"\(gen_frame \+ 0x[0-9a-f]+\)")
@@ -5190,9 +5193,14 @@ class Translator32:
         # (the C runtime's imports that never return as such, GEN_NORETURN: the reference's compiler
         # knew it and put nothing after the call, `call terminate` its function's last block; the
         # x86 build's fell through into the epilogue, bytes32)
+        # (and each one in the x86 fidelity build as the reference calls it, through its import
+        # table, `call dword ptr [__imp_X]`, the callee popping a Windows API's arguments: as a
+        # function of the port's, `call X; add esp, k`, bytes32)
         h += [f"{MATH[n][0]} gen_imp_{n}({', '.join(math_params(n)[0])});" if n in MATH and n not in OVERRIDES
               else ("GEN_NORETURN " if cid(n).lstrip("_") in NORETURN_IMPORTS else "")
-              + f"{OVERRIDE_RET.get(n, 'unsigned int')} gen_imp_{cid(n)}();" for n in sorted(self.imports)]
+              + f"GEN_DLLIMPORT {OVERRIDE_RET.get(n, 'unsigned int')} "
+              + ("GEN_STDCALL " if import_stdcall(dll, n) else "") + f"gen_imp_{cid(n)}();"
+              for n, (_, dll) in sorted(self.imports.items())]
         write(GEN / "translated.h", "\n".join(h) + "\n")
         write(GEN / "Ghidra32.h", HEADER.read_text(encoding="utf-8"))
         files = []
@@ -5353,6 +5361,17 @@ NORETURN_IMPORTS = {"terminate", "abort", "exit", "Exit", "quick_exit", "CxxThro
                     "invalid_parameter_noinfo_noreturn", "invoke_watson", "longjmp", "ExitProcess", "ExitThread",
                     "FatalExit", "FatalAppExitA", "FatalAppExitW", "endthread", "endthreadex", "amsg_exit",
                     "report_rangecheckfailure", "report_gsfailure"}
+
+# the C and C++ runtimes' DLLs, whose functions are __cdecl: the caller pops their arguments
+CDECL_DLLS = re.compile(r"(?i)^(?:ucrtbased?|api-ms-win-crt-.*|msvc[rp]\d*d?|vcruntime\d*d?|msvcrt)\.dll$")
+# (and the system's that take a variable argument list)
+CDECL_IMPORTS = {"wsprintfA", "wsprintfW", "DbgPrint", "DbgPrintEx", "ShellMessageBoxA", "ShellMessageBoxW"}
+
+
+def import_stdcall(dll: str, name: str) -> bool:
+    """Whether an import is __stdcall, the callee popping its arguments: the Windows API's, not the
+    C runtime's nor a variadic one"""
+    return not CDECL_DLLS.match(dll or "") and name not in CDECL_IMPORTS
 
 
 def definition_decl(text: str) -> str | None:

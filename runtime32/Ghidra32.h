@@ -136,9 +136,12 @@ typedef unsigned int __fastcall gen_tcode();
 /* (a function's code generation in the x86 fidelity build: the program's own, as its command line
    gives it, GEN_OWN; or a static library's, the C runtime's, which its vendor built optimized
    whatever the program's options, GEN_LIB. The port: nothing) */
+/* (and no security cookie of the compiler's: the reference's own is in the translation, its
+   store of __security_cookie ^ esp and its __security_check_cookie call, and /GS put a second
+   around every frame buffer, gen_frame) */
 #ifdef GEN_FIDELITY
-#define GEN_OWN __pragma(optimize("", on))
-#define GEN_LIB __pragma(optimize("gt", on))
+#define GEN_OWN __pragma(optimize("", on)) __declspec(safebuffers)
+#define GEN_LIB __pragma(optimize("gt", on)) __declspec(safebuffers)
 #else
 #define GEN_OWN
 #define GEN_LIB
@@ -150,12 +153,30 @@ typedef unsigned int __fastcall gen_tcode();
 #else
 #define GEN_NORETURN
 #endif
+/* (an import in the x86 fidelity build: called through its import table slot as the reference's
+   code calls it, translated.h; the port's is its adapter, imports.c) */
+#ifdef GEN_FIDELITY
+#define GEN_DLLIMPORT __declspec(dllimport)
+#else
+#define GEN_DLLIMPORT
+#endif
 #ifdef GEN_FIDELITY
 #define GEN_P(typed, abi) typed
 #define GEN_PIN(...)
 #else
 #define GEN_P(typed, abi) abi
 #define GEN_PIN(...) __VA_ARGS__
+#endif
+/* the reference's frame as one buffer of n bytes, translate32's frame_locals: in the port 16-byte
+   aligned, pad bytes in front rounding it to 16; in the x86 fidelity build the frame alone, as the
+   reference's, its locals 4-byte aligned under esp, where align(16) made every one `and esp, -16`
+   in an ebp frame of its own and the rounding `sub esp, 0x10` for a one-DWORD `push ecx` (rhtest
+   core-O2 0x402970) */
+#ifdef GEN_FIDELITY
+#define GEN_FRAME_DECL(n, pad) undefined1 gen_frame[n]
+#else
+#define GEN_FRAME_DECL(n, pad) __declspec(align(16)) undefined1 gen_frame_[(pad) + (n)]; \
+    undefined1 *const gen_frame = gen_frame_ + (pad)
 #endif
 /* (GEN_FIDELITY: nothing, bytes32.py's x86 build, compared byte for byte with the reference) */
 #ifdef GEN_FIDELITY
