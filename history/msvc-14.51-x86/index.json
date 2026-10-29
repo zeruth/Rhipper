@@ -1450,5 +1450,17 @@
   "stubs": 172,
   "perfect": 4360,
   "translated": 4427
+ },
+ {
+  "sha": "5019cb07dbde4036cdc58922d4f9f41567eb9e51",
+  "date": "2026-10-28T19:24:07-04:00",
+  "subject": "fix(protos32, ApplyFacts): a funclet's result in a callee-saved register; delegates' callbacks as methods",
+  "run": "2026-10-29 00:15 UTC",
+  "file": "5019cb07dbde4036cdc58922d4f9f41567eb9e51.json",
+  "passing": 21,
+  "projects": 34,
+  "stubs": 172,
+  "perfect": 4360,
+  "translated": 4427
  }
 ]

@@ -1,1 +1,1 @@
-{"sha": "db293c2774b55ee0dcf4d1d79e0e963d28425d57", "date": "2026-10-28T18:33:17-04:00", "subject": "fix(translate32): a scoped enum's name by its last part, an int"}
+{"sha": "5019cb07dbde4036cdc58922d4f9f41567eb9e51", "date": "2026-10-28T19:24:07-04:00", "subject": "fix(protos32, ApplyFacts): a funclet's result in a callee-saved register; delegates' callbacks as methods"}
