@@ -4053,6 +4053,7 @@ class Translator32:
         # (an integer added negated as the subtraction it was, `(int)this + -4` -> `- 4`: the same
         # value, and the compiler's `sub ecx, 4` for it where `+ -4` was `add ecx, -4`, bytes32)
         body = re.sub(r"\+ -((?:0x[0-9a-f]+|\d+)\b)(?![.\w])", r"- \1", body)
+        body = source_forms(body)
         # (the shadow trace's record of the call, first: its address and first four integer
         # arguments, as shadow32.py records the reference's: its words, a float's bits and an
         # 8-byte argument's two words)
@@ -5322,6 +5323,33 @@ class Translator32:
 
 
 UNINIT_DECL = re.compile(r"(?m)^[ \t]+(?!(?:return|goto|break|continue|case)\b)[A-Za-z_][\w \t]*?[\s*]+([A-Za-z_]\w*)[ \t]*;[ \t]*$")
+
+
+def source_forms(body: str) -> str:
+    """The decompiler's normal forms written back as source states them, the same values, so the
+    compiler makes the reference's code of them (bytes32):
+    - a term scaled by a negative constant, `x + v * -8`: `x - (v << 3)` for a power of two, else
+      `x - v * 8`. The decompiler reads `shl ecx, 3; sub eax, ecx` as `+ v * -8`, and MSVC folds
+      `a * b + a * -8` into `a * (b - 8)`, one imul where the reference had imul, shl and sub
+      (rhtest core-O2's mul_sub, `a * b - (a << 3)`)
+    - a conditional assignment returned at once, `v = x; if (c) { v = y; } return v;` with v
+      nothing else: `return c ? y : x;`, the ternary the reference's cmov came from (imin)"""
+    def scaled(m):
+        n = int(m.group(2), 0)
+        k = n.bit_length() - 1
+        return f"- ({m.group(1)} << {k})" if n > 1 and n == 1 << k else f"- {m.group(1)} * {m.group(2)}"
+    body = re.sub(r"\+ ([A-Za-z_]\w*) \* -(0x[0-9a-f]+|\d+)\b(?![.\w])", scaled, body)
+
+    def ternary(m):
+        v = m.group(2)
+        rest = body[:m.start()] + body[m.end():]
+        # (v declared, and named nowhere else)
+        if len(re.findall(r"\b" + re.escape(v) + r"\b", rest)) != 1:
+            return m.group(0)
+        return f"{m.group(1)}return {m.group(4)} ? {m.group(5)} : {m.group(3)};"
+    body = re.sub(r"(?m)^([ \t]*)([A-Za-z_]\w*) = ([^;\n]+);\n[ \t]*if \(([^\n{}]+)\) \{\n[ \t]*\2 = ([^;\n]+);\n"
+                  r"[ \t]*\}\n[ \t]*return \2;", ternary, body)
+    return body
 
 
 def definition_decl(text: str) -> str | None:
