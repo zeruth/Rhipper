@@ -2681,6 +2681,45 @@ class Translator32:
                 out.add(n)
         return out
 
+    def ref_slot_unwritten(self, a: int, name: str) -> bool:
+        """Whether the reference's own code leaves the stack local `name` (`local_8`, `uStack_1a`:
+        the decompiler's offset below the entry esp) unwritten: in a plain `push ebp; mov ebp, esp`
+        frame no instruction writes memory covering [ebp + off + 4], and no `lea` takes an address
+        at or below it (a callee could fill it through that). Other frames: unknown, False."""
+        m = re.fullmatch(r"(?:local_|[a-zA-Z]{0,5}Stack[XY]?_)([0-9a-f]+)", name)
+        if not m:
+            return False
+        off = -int(m.group(1), 16)
+        import capstone
+        from capstone import x86 as X86
+        import pefile
+        if self._pe is None:
+            self._pe = pefile.PE(str(project.EXE), fast_load=True)
+        base_va = self._pe.OPTIONAL_HEADER.ImageBase
+        md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+        md.detail = True
+        insns = [ins for lo, hi in sorted(self.func_ranges(a))
+                 for ins in md.disasm(self._pe.get_data(lo - base_va, hi - lo), lo)]
+        head = [f"{i.mnemonic} {i.op_str}" for i in insns[:3]]
+        if not (head[:2] == ["push ebp", "mov ebp, esp"] or head[1:3] == ["push ebp", "mov ebp, esp"]):
+            return False
+        if any(i.mnemonic == "and" and i.op_str.startswith("esp,") for i in insns):
+            return False                              # (an aligned frame: its locals through esp)
+        for ins in insns:
+            for k, op in enumerate(ins.operands):
+                if op.type != X86.X86_OP_MEM or op.mem.base != X86.X86_REG_EBP:
+                    continue
+                lo = op.mem.disp - 4                  # (its offset from the entry esp)
+                if ins.mnemonic == "lea":
+                    if lo <= off:
+                        return False
+                    continue
+                written = bool(op.access & capstone.CS_AC_WRITE) or (k == 0 and ins.mnemonic.startswith(
+                    ("mov", "fst", "fist", "stos", "movs", "set", "cmov", "xchg", "pop")))
+                if written and lo <= off < lo + max(op.size, 1):
+                    return False
+        return True
+
     def noreturn_args_only(self, a: int, c: str) -> set[str]:
         """The registers the decompiler lost that are read only as the arguments of a call that does
         not return (Ghidra marks it `WARNING: Subroutine does not return`): what they hold cannot
@@ -5114,6 +5153,14 @@ class Translator32:
         suspect = {}
         for a in list(translated):
             names = uninit_locals(translated[a])
+            # (a stack slot the reference never writes either, its address never taken: its own
+            # garbage, a structure's padding copied whole, `mov eax, [ebp - 4]; mov [ecx + 0xc], eax`
+            # with nothing storing [ebp - 4]. 0, the same every run, and no suspect: those four
+            # printed at every start of a client, its UI header copies, 2026-10-28)
+            for n in [n for n in names if self.ref_slot_unwritten(a, n)]:
+                names.remove(n)
+                translated[a] = re.sub(r"(?m)^(\s*[A-Za-z_][\w ]*?[\s*]+" + n + r")\s*;", r"\1 = 0;",
+                                       translated[a], count=1)
             if names:
                 suspect[a] = names
                 translated[a] = re.sub(r"(?m)^([ \t]*GEN_ENTER\(0x[0-9a-f]+u,[^\n]*;)$",
