@@ -524,6 +524,127 @@ FRAME_DECL = re.compile(r"(?m)^[ \t]+(?!(?:return|goto|case|else|do)\b)(?!(?:loc
                         r"[ \t]*\b(" + FRAME_LOCAL + r")[ \t]*(\[[ \t]*(?:0x)?[0-9a-f]+[ \t]*\])?[ \t]*;[ \t]*\n")
 
 
+X87_ARITH = {"fadd", "faddp", "fiadd", "fsub", "fsubp", "fsubr", "fsubrp", "fisub", "fisubr", "fmul", "fmulp",
+             "fimul", "fdiv", "fdivp", "fdivr", "fdivrp", "fidiv", "fidivr", "fsqrt"}
+
+
+def binary_arith(e: str) -> bool:
+    """Whether e has a binary +, -, * or / outside its parentheses: an operator after an operand,
+    not a dereference's `*` or a sign, nor `->`, `++`, `--`"""
+    depth, prev, i = 0, "", 0
+    while i < len(e):
+        ch = e[i]
+        if ch in "\"'":
+            k = i + 1
+            while k < len(e) and e[k] != ch:
+                k += 2 if e[k] == "\\" else 1
+            i, prev = k + 1, "x"
+            continue
+        if ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth -= 1
+        elif depth == 0 and ch in "+-*/" and re.fullmatch(r"[\w)\].]", prev or " ") \
+                and e[i:i + 2] not in ("->", "++", "--") and not (ch in "+-" and e[i + 1:i + 2] == ch):
+            return True
+        if not ch.isspace():
+            prev = ch
+        i += 1
+    return False
+
+
+def x87_precision(body: str, var_types: dict[str, str], float_ret: bool, sqrt_only: bool = False) -> str:
+    """An x87 function's results as its unit rounds them, by the control word's precision control,
+    GEN_X87 (Ghidra32.h): each sqrt, each assignment of floating-point arithmetic to a double, and a
+    floating return of it. Under _PC_24 the reference's `1.0 / 3.0` is a float's mantissa in a
+    double, the port's the double's (rhtest fpenv's pc24; Direct3D's CreateDevice sets it, and a
+    client computes in 24 bits from there). A value only loaded is exact either way: not rounded"""
+    def arithmetic(e: str) -> bool:
+        e = e.strip()
+        while e.startswith("(") and match_paren(e, 0) == len(e):
+            e = e[1:-1].strip()
+        if e.startswith("-"):
+            e = e[1:].lstrip()
+        # (a cast of the whole, `(double)(a / b)`, the arithmetic inside it)
+        m = re.match(r"\(\s*(?:double|float10|float)\s*\)\s*", e)
+        if m:
+            return arithmetic(e[m.end():])
+        # (and a conversion helper's, `GEN_TOD(a / b)`)
+        m = re.match(r"GEN_TO[DF]\(", e)
+        if m and match_paren(e, m.end() - 1) == len(e):
+            return arithmetic(e[m.end():-1])
+        return binary_arith(e) or e.startswith("SQRT(")
+
+    def floating(lhs: str) -> bool:
+        s = lhs.strip()
+        t = var_types.get(s, "").strip()
+        return t in ("double", "float10") or bool(re.match(r"\(?\s*\*\s*\(\s*(?:double|float10)\s*\*\)|REFG\(double,", s))
+
+    # (sqrt: the instruction's own result)
+    out, i = [], 0
+    for m in re.finditer(r"\bSQRT\(", body):
+        if m.start() < i:
+            continue
+        end = match_paren(body, m.end() - 1)
+        if end <= 0:
+            continue
+        out.append(body[i:m.start()])
+        out.append(f"GEN_X87({body[m.start():end]})")
+        i = end
+    out.append(body[i:])
+    body = "".join(out)
+    if sqrt_only:
+        return body
+
+    def assign(m):
+        lhs, rhs = m.group(2), m.group(3)
+        if not floating(lhs) or rhs.strip().startswith("GEN_X87(") or not arithmetic(rhs):
+            return m.group(0)
+        return f"{m.group(1)}{lhs} = GEN_X87({rhs.strip()});"
+    # (the right-hand side and a return's value over lines as the decompiler wraps them)
+    body = re.sub(r"(?m)^([ \t]*)([^=;\n{}]+?)[ \t]*=[ \t]*([^=;\n][^;{}]*);[ \t]*$", assign, body)
+    if float_ret:
+        body = re.sub(r"(?m)^([ \t]*)return\s+([^;{}]+);[ \t]*$",
+                      lambda m: f"{m.group(1)}return GEN_X87({m.group(2).strip()});"
+                      if arithmetic(m.group(2)) and not m.group(2).strip().startswith("GEN_X87(") else m.group(0), body)
+    return body
+
+
+def math_import_args(body: str) -> str:
+    """A typed math import's double parameter given the decompiler's 8-byte integer view of a
+    double, `nearbyint((undefined8)gen_d2bits(x * 3))`: the double itself. Through the typed
+    adapter the bits were converted by value, nearbyint of 4.6e18 (rhtest fpenv's rounding)"""
+    out, i = [], 0
+    for m in re.finditer(r"\bgen_imp_(\w+)\s*\(", body):
+        if m.start() < i or m.group(1) not in MATH:
+            continue
+        open_ = m.end() - 1
+        close = match_paren(body, open_)
+        if close <= 0:
+            continue
+        inner = body[open_ + 1:close - 1]
+        args = split_top(inner) if inner.strip() else []
+        ptypes = MATH[m.group(1)][1]
+        new_args = []
+        for k, x in enumerate(args):
+            x = math_import_args(x)
+            s = x.strip()
+            mm = re.fullmatch(r"\((?:undefined8|ulonglong|longlong)\)\s*(gen_d2bits\((.*)\))", s, re.S)
+            if k < len(ptypes) and ptypes[k] == "double" and mm and match_paren(mm.group(1), len("gen_d2bits")) == len(mm.group(1)):
+                x = f"({mm.group(2)})"
+            # (or its 8 bytes read as an integer, `rint(*(undefined8 *)(&DAT + i * 8))`: read as the
+            # double they are)
+            elif k < len(ptypes) and ptypes[k] == "double" and re.match(r"\*\s*\((?:undefined8|ulonglong|longlong)\s*\*\)", s):
+                x = re.sub(r"^\*\s*\((?:undefined8|ulonglong|longlong)\s*\*\)", "*(double *)", s)
+            new_args.append(x)
+        out.append(body[i:open_ + 1])
+        out.append(",".join(new_args))
+        out.append(")")
+        i = close
+    out.append(body[i:])
+    return "".join(out)
+
+
 def top_level(s: str, ops: str) -> bool:
     """Whether s has one of the characters ops outside its parentheses (and literals)"""
     depth, i = 0, 0
@@ -4190,6 +4311,14 @@ class Translator32:
         # (a float argument of a call through a pointer, its bits: late, the globals REFG and the
         # x87 result's calls gen_fcode by now)
         body = self.pointer_call_args(body, var_types)
+        body = math_import_args(body)
+        # (and an x87 function's results under the control word's precision, GEN_X87)
+        # (or only its sqrt, the C runtime's, which the decompiler injects, rh_sqrt: x87's fsqrt
+        # whatever the caller computes in, rhtest fpenv-Od's sqrt under _PC_24)
+        if self.x87_arith(a):
+            body = x87_precision(body, var_types, self.ret_type(sig.ret).strip() in ("double", "float10", "float"))
+        elif "replaced with injection: rh_sqrt" in self.corpus[a]["c"]:
+            body = x87_precision(body, var_types, False, sqrt_only=True)
         # (the shadow trace's record of the call, first: its address and first four integer
         # arguments, as shadow32.py records the reference's: its words, a float's bits and an
         # 8-byte argument's two words)
@@ -4272,6 +4401,13 @@ class Translator32:
             libs = [x for x, r in self.corpus.items() if crt.match(r.get("name", ""))]
             self._library_from = min(libs) if libs else 1 << 32
         return a >= self._library_from
+
+    def x87_arith(self, a: int) -> bool:
+        """Whether the reference function does x87 arithmetic (fadd, fdiv, fsqrt ...): its results
+        rounded by the control word's precision, x87_precision"""
+        import capstone
+        md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+        return any(m in X87_ARITH for _a, _s, m, _o in md.disasm_lite(self.ref_code(a), a))
 
     def ref_code(self, a: int) -> bytes:
         """The reference function's bytes, its decompiled size of them (b"" where unread)"""

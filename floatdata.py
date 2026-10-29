@@ -48,24 +48,44 @@ def scan32() -> dict[str, str]:
     from pebin import disassembler
     b = Binary()
     md = disassembler()
-    mem = re.compile(r"(byte|word|dword|qword|xmmword|tbyte) ptr \[(?:[a-z0-9*+ ]*\+ )?(0x[0-9a-f]+)\]")
+    mem = re.compile(r"(byte|word|dword|qword|xmmword|tbyte) ptr \[([a-z0-9*+ ]*\+ )?(0x[0-9a-f]+)\]")
     out: dict[int, str] = {}
+    # (an array read through an index, `movsd xmm0, [edx + 0x405090]`: its elements the same type.
+    # Typed at its base alone, `g_vals[5]` the decompiler folded to `DAT_004050b8` was undefined8,
+    # its multiply an integer's converted and its `(int)` a truncation of bits, rhtest fpenv-Od)
+    arrays: dict[int, str] = {}
+    refs: set[int] = set()
     for start, end in zip(b.piece_starts, b.piece_ends):
         o = b.off(start)
         for _address, _size, mnemonic, ops in md.disasm_lite(bytes(b.image[o:o + (end - start)]), start):
             m = mem.search(ops)
             if m is None:
                 continue
+            target = int(m.group(3), 16)
+            if not m.group(2):
+                refs.add(target)
             if mnemonic in X87:
                 kind = X87_WIDTH.get(m.group(1))
             else:
                 kind = "float" if mnemonic in FLOAT else "double" if mnemonic in DOUBLE else None
             if kind is None:
                 continue
-            target = int(m.group(2), 16)
             if b.section_of(target) is None:
                 continue
             out[target] = kind if out.get(target, kind) == kind else "mixed"
+            if m.group(2) and re.search(r"[a-z]", m.group(2)) and kind in ("float", "double"):
+                arrays[target] = kind if arrays.get(target, kind) == kind else "mixed"
+    # (each array's elements up to the next address the code names by itself, another typed one,
+    # its section's end, or 64 of them)
+    for base, kind in arrays.items():
+        if kind == "mixed" or out.get(base) != kind:
+            continue
+        size = 8 if kind == "double" else 4
+        for k in range(1, 64):
+            a = base + size * k
+            if a in refs or a in arrays or (a in out and out[a] != kind) or b.section_of(a) != b.section_of(base):
+                break
+            out.setdefault(a, kind)
     return {f"{a:x}": k for a, k in out.items() if k != "mixed"}
 
 

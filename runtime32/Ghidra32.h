@@ -228,6 +228,21 @@ static GEN_INLINE unsigned long long gen_trace_d(double d) { union { double d; u
 extern __declspec(thread) unsigned short gen_x87_cw;
 /* (`fldcw`'s write: the word, and its rounding control applied to the host's SSE rounding) */
 void gen_set_x87_cw(unsigned short cw);
+/* an x87 result under the control word's precision control, translate32's x87_precision: at 24
+   bits (PC 00, _PC_24, what Direct3D's CreateDevice sets) the reference's unit rounds each result's
+   mantissa to a float's, in the rounding mode (the host's SSE has it too, gen_set_x87_cw), so
+   `1.0 / 3.0` is 0x3fd5555560000000. 53 bits and 64 are the double's (the host has no wider).
+   Outside a float's range the value as it is: the x87 keeps its own exponent there */
+#ifdef GEN_FIDELITY
+#define GEN_X87(x) (x)
+#else
+static GEN_INLINE double gen_x87_pc24(double v) {
+    double a = v < 0 ? -v : v;
+    return a <= 3.4028234663852886e38 && a >= 1.1754943508222875e-38 ? (double)(float)v : v;
+}
+static GEN_INLINE double gen_x87(double v) { return (gen_x87_cw & 0x300) ? v : gen_x87_pc24(v); }
+#define GEN_X87(x) gen_x87(x)
+#endif
 /* and its status word, `fnstsw`: the host's floating-point exception flags as x87 bits (IE 1,
    DE 2, ZE 4, OE 8, UE 0x10, PE 0x20), cleared after the read when `clear` (fnclex) */
 unsigned short gen_fpusw(int clear);

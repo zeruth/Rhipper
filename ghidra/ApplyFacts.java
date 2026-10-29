@@ -361,6 +361,7 @@ public class ApplyFacts extends GhidraScript {
                 + " (thunks, hand-set or library), no function " + missing + ", failed " + failed);
         if (root.has("imports")) applyImportArgs32(root.getAsJsonObject("imports"));
         splitWideImportArgs32();
+        applyLibmSse2_32();
         applyLongHelpers32();
     }
 
@@ -640,6 +641,33 @@ public class ApplyFacts extends GhidraScript {
             set++;
         }
         println("ApplyFacts: C++ frame handler imports given their FuncInfo in eax " + set);
+    }
+
+    // The x86 CRT's SSE2 math, `_libm_sse2_sin_precise` and the rest (api-ms-win-crt-math, what
+    // /arch:SSE2 calls for sin, cos, exp, log, pow ...): a convention of their own, the double in
+    // xmm0 (pow's and atan2's second in xmm1) and the result in xmm0. Untyped, the call took no
+    // argument and returned nothing, and the decompiler went on with xmm0 as before the call, the
+    // argument read as sin's result (rhtest fpenv-O2's trig, then the translation's call through
+    // an adapter with nothing to pass, a fault)
+    private void applyLibmSse2_32() throws Exception {
+        int set = 0;
+        DataType d = ghidra.program.model.data.DoubleDataType.dataType;
+        for (Function f : currentProgram.getFunctionManager().getExternalFunctions()) {
+            String n = f.getName().replaceFirst("^_+", "");
+            if (!n.startsWith("libm_sse2_")) continue;
+            String op = n.substring("libm_sse2_".length()).replaceFirst("_precise$", "");
+            int args = op.equals("pow") || op.equals("atan2") ? 2 : 1;
+            List<Variable> params = new ArrayList<>();
+            for (int i = 0; i < args; i++) {
+                params.add(new ParameterImpl("x" + i, d, new ghidra.program.model.listing.VariableStorage(
+                        currentProgram, currentProgram.getRegister("XMM" + i + "_Qa")), currentProgram));
+            }
+            Variable ret = new ghidra.program.model.listing.ReturnParameterImpl(d, new ghidra.program.model.listing.VariableStorage(
+                    currentProgram, currentProgram.getRegister("XMM0_Qa")), currentProgram);
+            f.updateFunction("__cdecl", ret, params, FunctionUpdateType.CUSTOM_STORAGE, true, SourceType.ANALYSIS);
+            set++;
+        }
+        println("ApplyFacts: the CRT's SSE2 math imports typed " + set);
     }
 
     private void applyImportArgs32(JsonObject imports) throws Exception {

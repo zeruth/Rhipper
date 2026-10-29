@@ -19,6 +19,7 @@
 #include <vector>
 #include <corecrt_startup.h>
 #include <float.h>
+#include <math.h>
 
 #include "RefImage.hpp"
 
@@ -2102,6 +2103,22 @@ double gen_imp_wcstod(uint32_t s, uint32_t end) {
 double gen_imp_atof(uint32_t s) {
     return atof(At<char>(s));
 }
+
+// the x86 CRT's SSE2 math (api-ms-win-crt-math's `_libm_sse2_*_precise`, what /arch:SSE2 code
+// calls for sin, cos, exp ...: the double in xmm0, ApplyFacts' applyLibmSse2_32), which x64's has
+// no export of: the same functions of x64's CRT (rhtest fpenv-O2's trig and exp/log)
+double gen_imp__libm_sse2_sin_precise(double x) { return sin(x); }
+double gen_imp__libm_sse2_cos_precise(double x) { return cos(x); }
+double gen_imp__libm_sse2_tan_precise(double x) { return tan(x); }
+double gen_imp__libm_sse2_asin_precise(double x) { return asin(x); }
+double gen_imp__libm_sse2_acos_precise(double x) { return acos(x); }
+double gen_imp__libm_sse2_atan_precise(double x) { return atan(x); }
+double gen_imp__libm_sse2_atan2_precise(double y, double x) { return atan2(y, x); }
+double gen_imp__libm_sse2_exp_precise(double x) { return exp(x); }
+double gen_imp__libm_sse2_log_precise(double x) { return log(x); }
+double gen_imp__libm_sse2_log10_precise(double x) { return log10(x); }
+double gen_imp__libm_sse2_pow_precise(double x, double y) { return pow(x, y); }
+double gen_imp__libm_sse2_sqrt_precise(double x) { return sqrt(x); }
 
 // ---- div and ldiv: an 8-byte structure, x86's in edx:eax (quot low, rem high), x64's whole in rax
 unsigned long long gen_imp_div(uint32_t n, uint32_t d) {

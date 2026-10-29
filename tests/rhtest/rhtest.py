@@ -112,6 +112,10 @@ PROGRAMS = {
     "fpenv": (["fpenv.c"], ["O2", "Od", "IA32"]),
     "seh": (["seh.c"], ["O2", "Od"]),
 }
+# (a program's own C runtime, over its toolset's: the C++ library linked in, /MT, as a game links
+# it, its code translated with the program's. /MD's msvcp140.dll methods take x86-laid-out C++
+# objects, std::cout's and every stream's, which no x64 DLL can be handed, 2026-10-29)
+PROGRAM_CRT = {"stl": "/MT"}
 STEPS = ["ref", "import", "facts", "ghidra", "translate", "port", "run", "fidelity", "bytes"]
 # workers for the tools that take them (protos32.py, translate32.py, the port's MSBuild): serial
 # unless --jobs says otherwise, so a test run leaves the machine usable (Ghidra: one shard)
@@ -285,7 +289,7 @@ class Project:
         cpp = any(s.endswith(".cpp") for s in srcs)
         env = ref_env()
         cl = shutil.which("cl", path=env.get("PATH") or env.get("Path"))
-        cmd = [cl, "/nologo", ts["crt"], "/W4", "/WX", *cflags, *(["/EHsc"] if cpp else []),
+        cmd = [cl, "/nologo", PROGRAM_CRT.get(self.program, ts["crt"]), "/W4", "/WX", *cflags, *(["/EHsc"] if cpp else []),
                f"/Fo{obj}\\", f"/Fe{self.exe}", *srcs,
                "/link", "/WX", "/DYNAMICBASE:NO", "/INCREMENTAL:NO", f"/SUBSYSTEM:{ts['subsystem']}",
                f"/MAP:{self.ref / (self.program + '.map')}", *lflags, "kernel32.lib"]
