@@ -190,6 +190,11 @@ def tokens(md, code: bytes, base: int, masked: set[int], lo: int, hi: int) -> tu
             s = ins.mnemonic + (" L" if re.fullmatch(r"(?:0x)?[0-9a-f]+", ins.op_str) else " " + ins.op_str)
         if any(off <= r < off + ins.size for r in masked):
             s = re.sub(r"0x[0-9a-f]{5,}", "A", s)
+            # (an object's relocated word is 0 until linked, `push 0` for the reference's `push
+            # 0x404310`: the relocated operand an address all the same)
+            if not re.search(r"\bA\b", s):
+                s = re.sub(r"(?<![\w\[+*-])\b0\b(?![\w\]])", "A", s) if re.search(r"(?<![\w\[+*-])\b0\b(?![\w\]])", s) \
+                    else re.sub(r"\[0\]", "[A]", s)
         # (and an address in the reference's image on either side: the port's REFG and REFP are
         # its plain constants, `mov [esi], 0x1090754`, the reference's a relocated word)
         lo_i, hi_i = IMAGE
@@ -207,6 +212,39 @@ def tokens(md, code: bytes, base: int, masked: set[int], lo: int, hi: int) -> tu
         if ins.mnemonic in ("ret", "retn") and ins.address + ins.size >= hi:
             break
     return toks, bytes(mb)
+
+
+# the condition a flag reader tests, its operands swapped: `cmp a, b; jb` is `cmp b, a; ja`
+SWAPPED_CC = {"a": "b", "b": "a", "ae": "be", "be": "ae", "g": "l", "l": "g", "ge": "le", "le": "ge",
+              "nae": "nbe", "nbe": "nae", "nb": "na", "na": "nb", "nl": "ng", "ng": "nl", "nle": "nge",
+              "nge": "nle", "e": "e", "ne": "ne", "z": "z", "nz": "nz"}
+CALLEE_SAVED = ("ebx", "esi", "edi")
+
+
+def canonical(toks: list[str]) -> list[str]:
+    """The instructions with the differences that mean the same thing taken out, so two
+    functions whose code differs only by them compare equal (bytes32's `equiv`):
+    - a register comparison and its flag reader, `cmp a, b; jb L`, written with its operands in
+      one order, the condition swapped with them (`cmp b, a; ja L`)
+    - the callee-saved registers, ebx, esi and edi, renamed in order of first use: one compiler's
+      esi is another's edi, consistently through the function (the argument and result
+      registers, eax, ecx and edx, as they are: their roles are the convention's)"""
+    out = list(toks)
+    for i in range(len(out) - 1):
+        m = re.fullmatch(r"cmp (\w+), (\w+)", out[i])
+        n = re.fullmatch(r"(j|set|cmov)(\w+)( .*)?", out[i + 1])
+        if not m or not n or n.group(2) not in SWAPPED_CC or m.group(1) <= m.group(2):
+            continue
+        if not all(re.fullmatch(r"e?[a-ds][xilph]|e[sd]i|e[bs]p|[a-d][lh]", r) for r in m.groups()):
+            continue
+        out[i] = f"cmp {m.group(2)}, {m.group(1)}"
+        out[i + 1] = f"{n.group(1)}{SWAPPED_CC[n.group(2)]}{n.group(3) or ''}"
+    names: dict[str, str] = {}
+    pat = re.compile(r"\b(" + "|".join(CALLEE_SAVED) + r")\b")
+
+    def rename(m):
+        return names.setdefault(m.group(1), f"rs{len(names)}")
+    return [pat.sub(rename, t) for t in out]
 
 
 POOL = BUILD / "x86pool"
@@ -348,10 +386,14 @@ def compare(task) -> tuple[dict, str]:
     row, rcode, lo, hi, rmask, pcode, prel, show, IMAGE = task
     rt, rb = tokens(_MD, rcode, lo, rmask, lo, hi)
     pt, pb = tokens(_MD, pcode, 0, prel, 0, len(pcode))
+    # (scored on the instructions with their equivalent differences taken out, canonical: a
+    # function whose code means the same in the same order is 1.0, `equiv`, though its bytes differ)
+    rt, pt = canonical(rt), canonical(pt)
     sm = difflib.SequenceMatcher(None, rt, pt, autojunk=False)
     sim = sm.ratio() if rt and pt else 0.0
     same = rb.rstrip(b"\xcc") == pb.rstrip(b"\xcc")
-    row.update(kind="same" if same else "translated", sim=round(sim, 4), same=same,
+    equiv = not same and bool(rt) and rt == pt
+    row.update(kind="same" if same else "equiv" if equiv else "translated", sim=round(sim, 4), same=same, equiv=equiv,
                size=round(len(pb.rstrip(b"\xcc")) / max(1, len(rb.rstrip(b"\xcc"))), 3), port_size=len(pcode))
     text = ""
     if show:
@@ -422,11 +464,14 @@ def main() -> None:
             if shown:
                 print(shown)
     n = len(rows)
-    tr = [r for r in rows if r["kind"] in ("same", "translated")]
+    tr = [r for r in rows if r["kind"] in ("same", "equiv", "translated")]
     same = sum(r["same"] for r in rows)
+    equiv = sum(r.get("equiv", False) for r in rows)
     w = sum(r["ref_size"] for r in rows)
     lines = [f"bytes32: {n} reference functions, {len(tr)} compared ({n - len(tr)} stubs or not built)",
              f"  byte-identical (addresses masked): {same} ({100 * same / max(1, n):.2f}%)",
+             f"  equivalent (bytes differ, the same code): {equiv}; identical or equivalent {same + equiv} "
+             f"({100 * (same + equiv) / max(1, n):.2f}%)",
              f"  mean similarity: {sum(r['sim'] for r in rows) / max(1, n):.4f} over all, "
              f"{sum(r['sim'] for r in tr) / max(1, len(tr)):.4f} over the compared; "
              f"by size {sum(r['sim'] * r['ref_size'] for r in rows) / max(1, w):.4f}",

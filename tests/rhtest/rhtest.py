@@ -489,9 +489,13 @@ class Project:
         for line in text.splitlines()[:6]:
             print(f"    {line}")
         same = re.search(r"byte-identical \(addresses masked\): (\d+)", text)
+        equiv = re.search(r"equivalent \(bytes differ, the same code\): (\d+)", text)
         mean = re.search(r"mean similarity: ([\d.]+) over all, [\d.]+ over the compared; by size ([\d.]+)", text)
         if same and mean:
-            self.bytes = {"identical": int(same.group(1)), "mean": float(mean.group(1)), "by_size": float(mean.group(2))}
+            # (identical: byte-identical or equivalent, the same code; the bytes alone apart)
+            e = int(equiv.group(1)) if equiv else 0
+            self.bytes = {"identical": int(same.group(1)) + e, "bytes_identical": int(same.group(1)), "equivalent": e,
+                          "mean": float(mean.group(1)), "by_size": float(mean.group(2))}
         # (the page again, its byte-for-byte grouping from the json just written)
         run([sys.executable, str(RHIPPER / "fidelity32.py"), "--html-only"], self.root, self.env,
             self.build / "fidelity-html.log")
@@ -758,7 +762,7 @@ def write_report(results: dict, status: dict, ran_port: bool) -> None:
         if bdata.exists():
             brows = json.loads(bdata.read_text(encoding="utf-8"))
             bgroups = stack(Counter("stub" if r.get("kind") in ("stub", "absent") else
-                                    "b10" if r.get("same") else f"b{max(0, min(9, int(r.get('sim', 0) * 10)))}"
+                                    "b10" if r.get("same") or r.get("equiv") else f"b{max(0, min(9, int(r.get('sim', 0) * 10)))}"
                                     for r in brows))
         b = e.get("bytes")
         bcells = (f'<td class="num">{b["mean"]:.3f}</td><td class="num">{b["identical"]}</td>' if b

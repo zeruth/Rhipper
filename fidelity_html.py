@@ -77,7 +77,8 @@ def page(name: str, rows: list, bytes_path: Path | None = None) -> str:
     # byte for byte: bytes32's similarity, identical apart from 100%, and those it has none of
     tiles_bytes = ""
     if byt:
-        bg = [["identical", "b10", 0, 0]] + [[l, c, 0, 0] for l, _lo, c in SCORE_BANDS] + [["not built", "stub", 0, 0]]
+        bg = [["identical or equivalent", "b10", 0, 0]] + [[l, c, 0, 0] for l, _lo, c in SCORE_BANDS] + \
+            [["not built", "stub", 0, 0]]
         same = 0
         sims = []
         for r in rows:
@@ -85,7 +86,7 @@ def page(name: str, rows: list, bytes_path: Path | None = None) -> str:
             size = r.get("size") or 0
             if b is None or b.get("kind") in ("stub", "absent"):
                 g = bg[-1]
-            elif b.get("same"):
+            elif b.get("same") or b.get("equiv"):
                 g = bg[0]
                 same += 1
             else:
@@ -98,7 +99,7 @@ def page(name: str, rows: list, bytes_path: Path | None = None) -> str:
         sections.append(grouping("Byte for byte", "the gen built for x86 against the reference's own bytes "
                                  "(bytes32), addresses masked", [tuple(g) for g in bg], total_n, total_size))
         smean = sum(sims) / len(sims) if sims else 0.0
-        tiles_bytes = (f'<div class="tile"><b>{same:,}</b><span>byte-identical</span></div>'
+        tiles_bytes = (f'<div class="tile"><b>{same:,}</b><span>byte-identical or equivalent</span></div>'
                        f'<div class="tile"><b>{100 * smean:.1f}%</b><span>mean byte similarity</span></div>')
 
     # the table's data, compact: [addr, name, size, kind, score, calls, fields, consts, bytes sim, notes]

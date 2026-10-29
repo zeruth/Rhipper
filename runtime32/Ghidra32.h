@@ -427,17 +427,7 @@ static __inline uintptr_t gen_top_p(const volatile void *p) { return (uintptr_t)
 #define CONCAT35(a, b) ((uint64_t)((((uint64_t)GEN_BITS(a) & 0xffffff) << 40) | ((uint64_t)GEN_BITS(b) & 0xffffffffffULL)))
 #define CONCAT41(a, b) ((uint64_t)(((uint64_t)(uint32_t)GEN_BITS(a) << 8) | (uint8_t)GEN_BITS(b)))
 #define CONCAT42(a, b) ((uint64_t)(((uint64_t)(uint32_t)GEN_BITS(a) << 16) | (uint16_t)GEN_BITS(b)))
-#ifdef GEN_FIDELITY
-static __forceinline uint64_t gen_concat44(uint32_t hi, uint32_t lo) {
-    union { struct { uint32_t lo, hi; } p; uint64_t v; } u;
-    u.p.lo = lo;
-    u.p.hi = hi;
-    return u.v;
-}
-#define CONCAT44(a, b) gen_concat44((uint32_t)GEN_BITS(a), (uint32_t)GEN_BITS(b))
-#else
 #define CONCAT44(a, b) ((uint64_t)(((uint64_t)(uint32_t)GEN_BITS(a) << 32) | (uint32_t)GEN_BITS(b)))
-#endif
 #define CONCAT53(a, b) ((uint64_t)((((uint64_t)GEN_BITS(a) & 0xffffffffffULL) << 24) | ((uint32_t)GEN_BITS(b) & 0xffffff)))
 #define CONCAT62(a, b) ((uint64_t)((((uint64_t)GEN_BITS(a) & 0xffffffffffffULL) << 16) | (uint16_t)GEN_BITS(b)))
 #define CONCAT71(a, b) ((uint64_t)((((uint64_t)GEN_BITS(a) & 0xffffffffffffffULL) << 8) | (uint8_t)GEN_BITS(b)))
