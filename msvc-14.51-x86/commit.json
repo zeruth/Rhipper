@@ -1,1 +1,1 @@
-{"sha": "6c00d5dbd6ee5caa07ed8e77941e81023cb76584", "date": "2026-10-28T22:25:29-04:00", "subject": "feat(runtime32): XAudio2 voice callbacks counted for COMSTATS, starving passes and voice errors apart"}
+{"sha": "ee378872523f3c58435ac60262c9c59d9e2fe6ab", "date": "2026-10-28T22:31:39-04:00", "subject": "feat(runtime32): a COM method's float argument checked, NaN, infinite or past 1e8 reported with the method"}
