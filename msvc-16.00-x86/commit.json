@@ -1,1 +1,1 @@
-{"sha": "ea2970bebbb69c8b195beb6d4a999d4326c60c0c", "date": "2026-10-28T21:26:20-04:00", "subject": "feat(pipeline32): abicheck after protos32, the indirect calls whose convention disagrees with an observed target, in the run's log"}
+{"sha": "9922c7e8ededff36d9e83efa59d25ea0527701dd", "date": "2026-10-28T21:28:58-04:00", "subject": "feat(runtime32): HEAPCHECK=n, every n-th heap call validates the reference's heap first"}

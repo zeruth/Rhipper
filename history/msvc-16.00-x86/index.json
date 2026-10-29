@@ -1366,5 +1366,17 @@
   "stubs": 237,
   "perfect": 15709,
   "translated": 17532
+ },
+ {
+  "sha": "9922c7e8ededff36d9e83efa59d25ea0527701dd",
+  "date": "2026-10-28T21:28:58-04:00",
+  "subject": "feat(runtime32): HEAPCHECK=n, every n-th heap call validates the reference's heap first",
+  "run": "2026-10-29 02:47 UTC",
+  "file": "9922c7e8ededff36d9e83efa59d25ea0527701dd.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 237,
+  "perfect": 15709,
+  "translated": 17532
  }
 ]
