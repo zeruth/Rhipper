@@ -1630,5 +1630,17 @@
   "stubs": 0,
   "perfect": 248,
   "translated": 249
+ },
+ {
+  "sha": "bba953c85f584e8b7fe9483ccace5c5223f88863",
+  "date": "2026-10-29T00:21:32-04:00",
+  "subject": "feat(bytes): a static library's functions built optimized in the x86 build, the program's with its own options",
+  "run": "2026-10-29 04:26 UTC",
+  "file": "bba953c85f584e8b7fe9483ccace5c5223f88863.json",
+  "passing": 2,
+  "projects": 2,
+  "stubs": 0,
+  "perfect": 248,
+  "translated": 249
  }
 ]

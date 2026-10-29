@@ -1,1 +1,1 @@
-{"sha": "3cc407d5df5b158cefdb29149d60a9c23140d961", "date": "2026-10-29T00:03:45-04:00", "subject": "feat(bytes): a branch layout as equivalent; noreturn imports and inlined helpers in the x86 build"}
+{"sha": "bba953c85f584e8b7fe9483ccace5c5223f88863", "date": "2026-10-29T00:21:32-04:00", "subject": "feat(bytes): a static library's functions built optimized in the x86 build, the program's with its own options"}

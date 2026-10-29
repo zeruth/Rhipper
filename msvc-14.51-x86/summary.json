@@ -16,15 +16,15 @@
    "translated": 122
   },
   "status": "PASS",
-  "when": "2026-10-29 04:15"
+  "when": "2026-10-29 04:26"
  },
  "core-Od": {
   "bytes": {
-   "by_size": 0.4224,
-   "bytes_identical": 25,
-   "equivalent": 0,
-   "identical": 25,
-   "mean": 0.5322
+   "by_size": 0.4771,
+   "bytes_identical": 37,
+   "equivalent": 1,
+   "identical": 38,
+   "mean": 0.6389
   },
   "fidelity": {
    "by_size": 1.0,
@@ -35,6 +35,6 @@
    "translated": 127
   },
   "status": "PASS",
-  "when": "2026-10-29 04:15"
+  "when": "2026-10-29 04:26"
  }
 }
