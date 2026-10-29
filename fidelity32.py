@@ -106,6 +106,22 @@ class Image:
         # (a line's end and a tab are text too: `"printf: %d %s %.2f\n"`, a format, rhtest crt)
         return s if len(s) >= 3 and s.replace("\n", "").replace("\r", "").replace("\t", "").isprintable() else None
 
+    def wstr(self, va: int, limit: int = 256) -> str | None:
+        """a UTF-16 string at va, as cstr a narrow one: a wide literal the reference indexes,
+        `movzx edx, word ptr [ecx*2 + 0x404170]`, the port's own copy of `L"rhtest_seek.bin"`"""
+        if not self.contains(va) or (va - self.base) % 2:
+            return None
+        o = va - self.base
+        raw = bytes(self.image[o:o + 2 * limit])
+        end = next((k for k in range(0, len(raw) - 1, 2) if raw[k] == 0 and raw[k + 1] == 0), -1)
+        if end < 6:
+            return None
+        try:
+            s = raw[:end].decode("utf-16-le")
+        except UnicodeDecodeError:
+            return None
+        return s if s.replace("\n", "").replace("\r", "").replace("\t", "").isprintable() and s.isascii() else None
+
     def read(self, va: int, n: int) -> bytes:
         return bytes(self.image[va - self.base:va - self.base + n])
 
@@ -138,6 +154,84 @@ class Fn:
         self.mnemonics: list[str] = []
         self.float_at: dict[int, str] = {}   # a float constant's reference address -> its f: key
         self.packed: set[int] = set()        # 16-byte float constants read whole
+
+
+def dead_stack_stores(insns: list) -> set[int]:
+    """The addresses of constant stores to an esp slot that nothing reads: overwritten before any
+    read, or the function's ret reached first with only register work and pops between (a pop into
+    eax or edx reads it, a result). The compiler's own dead stores of a local it then kept in a
+    register: `unsigned long lo = 99; _BitScanForward(&lo, a)` stores 99 twice to a slot bsf never
+    reads, `bsf esi, eax` (rhtest misc scans). Conservative: any jump, call, memory operand on esp
+    or ebp, or esp written otherwise, and the store counts"""
+    out = set()
+    for at, insn in enumerate(insns):
+        ops = insn.operands
+        if not (insn.mnemonic == "mov" and len(ops) == 2 and ops[0].type == x86.X86_OP_MEM
+                and ops[1].type == x86.X86_OP_IMM and ops[0].mem.base and not ops[0].mem.index
+                and insn.reg_name(ops[0].mem.base) in ("esp", "ebp")):
+            continue
+        # (an esp slot moves with the pushes and pops after it, an ebp one, /Od's, stays put)
+        base = insn.reg_name(ops[0].mem.base)
+        slot = ops[0].mem.disp                  # (relative to the base at the store)
+        width = ops[0].size
+        delta = 0                               # (esp since the store, as pops and pushes move it)
+        dead = False
+        for nxt in insns[at + 1:]:
+            m, nops = nxt.mnemonic, nxt.operands
+            if m == "ret":
+                dead = True
+                break
+            if m.startswith("j") or m in ("call", "loop", "int", "int3"):
+                break
+            if m in ("pop", "push"):
+                if nops and nops[0].type == x86.X86_OP_MEM:
+                    break
+                if base == "esp":
+                    if m == "pop":
+                        # (popping the slot itself into a result register reads it)
+                        if nops and nops[0].type == x86.X86_OP_REG and nxt.reg_name(nops[0].reg) in ("eax", "edx", "ax", "dx") \
+                                and slot + delta == 0:
+                            break
+                        delta -= 4
+                    else:
+                        delta += 4
+                elif m == "pop" and nops and nops[0].type == x86.X86_OP_REG and nxt.reg_name(nops[0].reg) == "ebp":
+                    dead = True                 # (the frame's ebp restored: the slot is gone, unread)
+                    break
+                continue
+            # (an ebp frame torn down, `mov esp, ebp`: its slots past use, as at the ret)
+            if base == "ebp" and m == "mov" and len(nops) == 2 and all(o.type == x86.X86_OP_REG for o in nops) \
+                    and nxt.reg_name(nops[0].reg) == "esp" and nxt.reg_name(nops[1].reg) == "ebp":
+                continue
+            if m == "lea" and any(o.type == x86.X86_OP_MEM and o.mem.base and nxt.reg_name(o.mem.base) in ("esp", "ebp")
+                                  for o in nops):
+                break                           # (a frame address taken: anything may read it)
+            touched = False
+            for o in nops:
+                if o.type != x86.X86_OP_MEM or not o.mem.base or nxt.reg_name(o.mem.base) not in ("esp", "ebp"):
+                    continue
+                if nxt.reg_name(o.mem.base) != base or o.mem.index:
+                    touched = None              # (the other stack register, or indexed: unknown)
+                    break
+                at_ = o.mem.disp - (delta if base == "esp" else 0)
+                if at_ < slot + width and slot < at_ + o.size:
+                    # (a store over the whole slot only overwrites it)
+                    if m == "mov" and len(nops) == 2 and o is nops[0] and nops[1].type != x86.X86_OP_MEM \
+                            and at_ <= slot and slot + width <= at_ + o.size:
+                        touched = "dead"
+                    else:
+                        touched = None
+                    break
+            if touched == "dead":
+                dead = True
+                break
+            if touched is None:
+                break
+            if any(o.type == x86.X86_OP_REG and nxt.reg_name(o.reg) in ("esp", "sp", "ebp", "bp") for o in nops):
+                break
+        if dead:
+            out.add(insn.address)
+    return out
 
 
 def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, port: bool,
@@ -177,6 +271,8 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
         if FLOAT_MNEMONIC.search(mn) and size == 16:
             f.packed.add(v)
         s = ref.cstr(v)
+        if s is None:
+            s = ref.wstr(v)
         if s is not None:
             return "s:" + s
         # (an address in the reference's code is a function's or a jump table's: the port has its
@@ -199,8 +295,33 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
 
     for lo, hi in ranges:
         insns = list(md.disasm(img.read(lo, hi - lo), lo))
+        dead_stores = dead_stack_stores(insns) if not port else set()
+        imm_in: dict = {}                       # register -> the constant a `mov r, imm` put in it
         for at, insn in enumerate(insns):
             mn = insn.mnemonic
+            # (a locked operation on a frame slot, `lock cmpxchg [edx], ecx` with edx `lea [esp + k]`:
+            # an atomic on a local no other thread sees, a volatile one, which the decompiler folds
+            # to its value. The constants it takes are the fold's: `_InterlockedCompareExchange(&n,
+            # 100, ...)` on `volatile long n`, rhtest misc atomics)
+            if not port and insn.operands and (insn.prefix[0] == 0xF0 or mn == "xchg"):
+                mops = [o for o in insn.operands if o.type == x86.X86_OP_MEM]
+                if mops and mops[0].mem.base and (insn.reg_name(mops[0].mem.base) in STACK_REGS
+                                                 or canon_reg(insn.reg_name(mops[0].mem.base)) in stackp):
+                    for o in insn.operands:
+                        if o.type == x86.X86_OP_REG:
+                            k = imm_in.pop(canon_reg(insn.reg_name(o.reg)), None)
+                            if k and f.consts.get(k):
+                                f.consts[k] -= 1
+                                if f.consts[k] <= 0:
+                                    del f.consts[k]
+            if insn.operands and insn.operands[0].type == x86.X86_OP_REG:
+                r = canon_reg(insn.reg_name(insn.operands[0].reg))
+                if mn == "mov" and len(insn.operands) == 2 and insn.operands[1].type == x86.X86_OP_IMM:
+                    imm_in[r] = f"i:{insn.operands[1].imm & 0xFFFFFFFF:x}"
+                elif not (insn.prefix[0] == 0xF0 or mn == "xchg"):
+                    imm_in.pop(r, None)
+            if insn.address in dead_stores:
+                continue
             if insn.address in dead:
                 skipping = True
             if skipping:
@@ -304,8 +425,8 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
                             # called through a register)
                             f.calls.append((insn.address, ("addr", t)))
                             continue
-                        if mn == "lea" and img.cstr(t):
-                            f.consts["s:" + img.cstr(t)] += 1
+                        if mn == "lea" and (img.cstr(t) or img.wstr(t)):
+                            f.consts["s:" + (img.cstr(t) or img.wstr(t))] += 1
                         elif FLOAT_MNEMONIC.search(mn) and op.size in (4, 8):
                             # (not one past the image's end: no bytes to read there)
                             raw = img.read(t, op.size)
@@ -401,6 +522,15 @@ def presence(ref: Counter, port: Counter, source: set[int] = frozenset(),
             if v == 0x1f and any(division_magic(m, source) for m in ref if isinstance(m, str) and m.startswith("i:")):
                 return True
             if division_magic(k, source):
+                return True
+            # (or shifted: a bitfield's store the decompiler folds, `(s * 0x3e8 & 0xffff) << 16` as
+            # `s * 0x3e80000`, `(x & 0x7f) << 3` as `x & 0x3f8`, rhtest misc's bitfields)
+            if any(((v << s) & 0xFFFFFFFF) in source for s in range(1, 32)):
+                return True
+            # (or a low-bit mask a shift makes redundant at a width: `x >> 16 & 0xffff` is `x >> 16`,
+            # `(ushort)x >> 4 & 0xfff` the ushort's shift alone)
+            n = (v + 1).bit_length() - 1
+            if v and (v + 1) == 1 << n and any(0 < s < 32 and s + n in (8, 16, 32) for s in source):
                 return True
             # (or the difference of two: a compare chain walks a switch's cases by subtracting
             # each from the next, `sub ecx, 0x5a` between case 10 and case 100)
