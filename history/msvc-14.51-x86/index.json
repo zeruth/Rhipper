@@ -1666,5 +1666,17 @@
   "stubs": 0,
   "perfect": 248,
   "translated": 249
+ },
+ {
+  "sha": "dd6f5f601373393252f17a3ee9789905e2282387",
+  "date": "2026-10-29T18:27:37-04:00",
+  "subject": "ci(release): a Rhipper bundle per VERSION, for rhipper-ide",
+  "run": "2026-10-29 22:34 UTC",
+  "file": "dd6f5f601373393252f17a3ee9789905e2282387.json",
+  "passing": 2,
+  "projects": 2,
+  "stubs": 0,
+  "perfect": 249,
+  "translated": 249
  }
 ]

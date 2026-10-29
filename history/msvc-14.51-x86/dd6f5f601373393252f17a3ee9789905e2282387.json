@@ -1,0 +1,66 @@
+{
+ "sha": "dd6f5f601373393252f17a3ee9789905e2282387",
+ "date": "2026-10-29T18:27:37-04:00",
+ "subject": "ci(release): a Rhipper bundle per VERSION, for rhipper-ide",
+ "run": "2026-10-29 22:34 UTC",
+ "summary": {
+  "core-O2": {
+   "accuracy": {
+    "accurate": 122,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 46,
+    "equivalent bytes": 4,
+    "functions": 122,
+    "identical": 42,
+    "same behavior": 76,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.5959,
+    "bytes_identical": 42,
+    "equivalent": 4,
+    "identical": 46,
+    "mean": 0.6915
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 122,
+    "mean": 1.0,
+    "perfect": 122,
+    "stubs": 0,
+    "translated": 122
+   },
+   "status": "PASS",
+   "when": "2026-10-29 22:34"
+  },
+  "core-Od": {
+   "accuracy": {
+    "accurate": 127,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 45,
+    "equivalent bytes": 1,
+    "functions": 127,
+    "identical": 44,
+    "same behavior": 82,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.5497,
+    "bytes_identical": 44,
+    "equivalent": 1,
+    "identical": 45,
+    "mean": 0.7011
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 127,
+    "mean": 1.0,
+    "perfect": 127,
+    "stubs": 0,
+    "translated": 127
+   },
+   "status": "PASS",
+   "when": "2026-10-29 22:34"
+  }
+ }
+}

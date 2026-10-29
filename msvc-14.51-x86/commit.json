@@ -1,1 +1,1 @@
-{"sha": "9dd1e4fa5e306eeb304abb976682894163f91871", "date": "2026-10-29T17:01:28-04:00", "subject": "feat(bytes): a 32-bit shift's count bare in the x86 build, as the instruction masks it"}
+{"sha": "dd6f5f601373393252f17a3ee9789905e2282387", "date": "2026-10-29T18:27:37-04:00", "subject": "ci(release): a Rhipper bundle per VERSION, for rhipper-ide"}
