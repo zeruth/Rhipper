@@ -121,6 +121,10 @@ def build(jobs: int) -> list[Path]:
         def one(s: Path) -> str:
             r = subprocess.run([cl, *CL_FLAGS, f"/I{HERE / 'runtime32'}", f"/I{GEN}", f"/Fo{OBJ / (s.stem + '.obj')}", str(s)],
                                cwd=OBJ, env=env, capture_output=True, text=True, errors="replace")
+            # (a file that no longer builds has no object: the last one's code, compared as this
+            # translation's, scored a change that broke the build as no change at all)
+            if r.returncode != 0:
+                (OBJ / (s.stem + ".obj")).unlink(missing_ok=True)
             return "" if r.returncode == 0 else f"{s.name}: " + " | ".join(
                 l.strip() for l in r.stdout.splitlines() if "error" in l)[:300]
         with ThreadPoolExecutor(jobs) as ex:

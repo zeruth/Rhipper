@@ -593,7 +593,8 @@ def eh_state_volatile(body: str) -> str:
     return body
 
 
-def frame_locals(body: str, reserve: int = 0, minimum: int = 0, args: list[str] | None = None) -> str:
+def frame_locals(body: str, reserve: int = 0, minimum: int = 0, args: list[str] | None = None,
+                 ebp: bool = False) -> str:
     """The reference's frame, where its code takes a local's address or uses a local array: every
     `local_N` and `*Stack_N` a slot of one buffer at its offset in the x86 frame (N, below the
     entry esp), and every place out_stack found below them (GEN_SLOT(d), d bytes below). Ghidra
@@ -648,6 +649,21 @@ def frame_locals(body: str, reserve: int = 0, minimum: int = 0, args: list[str] 
         body = frame_index(body, [repl[a] for a in arrays])
     if reserve:
         body = frame_wrap(body)
+    # (an ebp frame's top word is the saved ebp, no local's: the x86 fidelity build's frame without
+    # it, top. Kept, the frame was 4 bytes over the reference's and every local 4 lower, the
+    # cookie at [ebp - 8] for its [ebp - 4], rhtest core-Od)
+    # (the cookie's xor with ebp, `^ (uint)(gen_frame + top)`, is its address, not a local)
+    top = 0
+    rest = re.sub(r"(?m)^[^\n]*= REFG\([^,()]+, 0x[0-9a-f]+\) \^ \(uint\)[^\n]*$", "", body)
+    if ebp and not args and all(int(k, 16) <= size - 8 for k in re.findall(r"\(gen_frame \+ 0x([0-9a-f]+)\)", rest)):
+        top = 4
+    gs = False
+    if not reserve and not args and not minimum:
+        body, gs = frame_cookie(body, size - top)
+    if gs:
+        return body.replace("{", "{\n  GEN_FRAME_DECL_GS(0x%x, %d, %d);" % (size, pad, top), 1)
+    if top:
+        return body.replace("{", "{\n  GEN_FRAME_DECL_TOP(0x%x, %d, %d);" % (size, pad, top), 1)
     if args:
         # (the argument block above the return address: entry + 4, as the reference's)
         words = int(re.search(r"GEN_ARGS_WORDS (\d+)", args[-1]).group(1))
@@ -657,6 +673,22 @@ def frame_locals(body: str, reserve: int = 0, minimum: int = 0, args: list[str] 
 
 
 FRAME_AT = re.compile(r"\(gen_frame \+ 0x[0-9a-f]+\)")
+
+
+def frame_cookie(body: str, size: int) -> tuple[str, bool]:
+    """The reference's /GS security cookie, its frame's top word set to the cookie xor a frame
+    address (`mov eax, [___security_cookie]; xor eax, esp; mov [esp + 0x2c], eax`), left in the x86
+    fidelity build to the compiler's own /GS, which lays the same code there: GEN_COOKIE, and
+    GEN_FRAME_DECL_GS's frame without the word. Written out, it was `lea eax, [esp + 8]; xor eax,
+    [cookie]` and a second cookie of the compiler's above it. The check at the end the decompiler
+    drops, the call to __security_check_cookie. True where it is one."""
+    top = f"(gen_frame + 0x{size - 4:x})"
+    m = re.search(r"(?m)^([ \t]*)(\(\*\((?:uint|undefined4|int|DWORD) \*\)" + re.escape(top) +
+                  r"\) = REFG\([^,()]+, 0x[0-9a-f]+\) \^ \(uint\)[^;\n]*\bgen_frame\b[^;\n]*);[ \t]*$", body)
+    # (the word nothing else reads)
+    if not m or body.count(top) != 1:
+        return body, False
+    return body[:m.start()] + f"{m.group(1)}GEN_COOKIE({m.group(2)});" + body[m.end():], True
 
 
 def frame_index(body: str, bases: list) -> str:
@@ -4034,7 +4066,8 @@ class Translator32:
         # write through ebp into locals the body itself never touches, by_type's result and catch
         # object at [ebp - 0x14] and [ebp - 0x18], below the 16 bytes it did, rhtest eh 2026-10-24)
         eh = bool(EH_LINK.search(body)) or eh_prolog
-        body = frame_locals(body, 0x10000 if alloca else 0, self.frames.get(a, 0) if eh else 0, eh_args)
+        body = frame_locals(body, 0x10000 if alloca else 0, self.frames.get(a, 0) if eh else 0, eh_args,
+                            ebp=self.has_frame(a))
         body = global_index(body)
         body = idiv32(body)
         body = self.hlt_loops(a, body)
@@ -4117,7 +4150,9 @@ class Translator32:
         # (the frame as the reference's, for the x86 fidelity build: GEN_FRAME, GEN_NOFRAME)
         frame = "GEN_FRAME " if self.has_frame(a) else "GEN_NOFRAME "
         # (and its code generation, the program's or a library's: GEN_OWN, GEN_LIB)
-        frame = ("GEN_LIB " if self.is_library(a) else "GEN_OWN ") + frame
+        # (a function whose security cookie the x86 build leaves to its own /GS, frame_locals: _GS)
+        gs = "_GS" if "GEN_COOKIE(" in body else ""
+        frame = ("GEN_LIB" if self.is_library(a) else "GEN_OWN") + gs + " " + frame
         return f"/* ref: {self.corpus[a]['name']} */\n{frame}{decl}\n{body.strip()}\n"
 
     def is_library(self, a: int) -> bool:
@@ -5196,9 +5231,17 @@ class Translator32:
         # (and each one in the x86 fidelity build as the reference calls it, through its import
         # table, `call dword ptr [__imp_X]`, the callee popping a Windows API's arguments: as a
         # function of the port's, `call X; add esp, k`, bytes32)
+        # (a C runtime DLL's function only as the program's code calls it: the runtime's static
+        # library calls those through a thunk of its own, `call _set_new_mode` -> `jmp [__imp_]`,
+        # built without the DLL's headers. One no program function calls, a direct call)
+        own_calls = set()
+        for a, text in translated.items():
+            if not self.is_library(a):
+                own_calls |= set(re.findall(r"\bgen_imp_(\w+)\s*\(", text))
         h += [f"{MATH[n][0]} gen_imp_{n}({', '.join(math_params(n)[0])});" if n in MATH and n not in OVERRIDES
               else ("GEN_NORETURN " if cid(n).lstrip("_") in NORETURN_IMPORTS else "")
-              + f"GEN_DLLIMPORT {OVERRIDE_RET.get(n, 'unsigned int')} "
+              + ("GEN_DLLIMPORT " if not CDECL_DLLS.match(dll or "") or cid(n) in own_calls else "")
+              + f"{OVERRIDE_RET.get(n, 'unsigned int')} "
               + ("GEN_STDCALL " if import_stdcall(dll, n) else "") + f"gen_imp_{cid(n)}();"
               for n, (_, dll) in sorted(self.imports.items())]
         write(GEN / "translated.h", "\n".join(h) + "\n")
@@ -5376,7 +5419,7 @@ def import_stdcall(dll: str, name: str) -> bool:
 
 def definition_decl(text: str) -> str | None:
     """A translated function's declaration as its definition writes it, the frame macro aside"""
-    m = re.search(r"(?m)^(?:GEN_(?:LIB|OWN) )?(?:GEN_FRAME |GEN_NOFRAME )(.+F_[0-9a-f]{8}\(.*\))[ \t]*$", text)
+    m = re.search(r"(?m)^(?:GEN_(?:LIB|OWN)(?:_GS)? )?(?:GEN_FRAME |GEN_NOFRAME )(.+F_[0-9a-f]{8}\(.*\))[ \t]*$", text)
     return m.group(1) if m else None
 
 

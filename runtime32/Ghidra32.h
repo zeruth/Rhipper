@@ -142,9 +142,13 @@ typedef unsigned int __fastcall gen_tcode();
 #ifdef GEN_FIDELITY
 #define GEN_OWN __pragma(optimize("", on)) __declspec(safebuffers)
 #define GEN_LIB __pragma(optimize("gt", on)) __declspec(safebuffers)
+#define GEN_OWN_GS __pragma(optimize("", on))
+#define GEN_LIB_GS __pragma(optimize("gt", on))
 #else
 #define GEN_OWN
 #define GEN_LIB
+#define GEN_OWN_GS
+#define GEN_LIB_GS
 #endif
 /* (a function that never returns, so declared where the reference's compiler knew it: the x86
    fidelity build's code after the call as the reference's, none) */
@@ -172,11 +176,21 @@ typedef unsigned int __fastcall gen_tcode();
    reference's, its locals 4-byte aligned under esp, where align(16) made every one `and esp, -16`
    in an ebp frame of its own and the rounding `sub esp, 0x10` for a one-DWORD `push ecx` (rhtest
    core-O2 0x402970) */
+/* (and a frame whose top word is the reference's /GS cookie, translate32's frame_cookie: in the x86
+   build the compiler's own /GS lays it, GEN_OWN_GS without safebuffers, so the frame without the
+   word and GEN_COOKIE's store nothing. The port stores it as the reference does) */
+/* (_TOP: an ebp frame's, its top bytes the saved ebp, none of the x86 build's frame) */
 #ifdef GEN_FIDELITY
 #define GEN_FRAME_DECL(n, pad) undefined1 gen_frame[n]
+#define GEN_FRAME_DECL_TOP(n, pad, top) undefined1 gen_frame[(n) - (top)]
+#define GEN_FRAME_DECL_GS(n, pad, top) undefined1 gen_frame[(n) - (top) - 4]
+#define GEN_COOKIE(...) ((void)0)
 #else
 #define GEN_FRAME_DECL(n, pad) __declspec(align(16)) undefined1 gen_frame_[(pad) + (n)]; \
     undefined1 *const gen_frame = gen_frame_ + (pad)
+#define GEN_FRAME_DECL_TOP(n, pad, top) GEN_FRAME_DECL(n, pad)
+#define GEN_FRAME_DECL_GS(n, pad, top) GEN_FRAME_DECL(n, pad)
+#define GEN_COOKIE(...) __VA_ARGS__
 #endif
 /* (GEN_FIDELITY: nothing, bytes32.py's x86 build, compared byte for byte with the reference) */
 #ifdef GEN_FIDELITY
