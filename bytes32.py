@@ -239,6 +239,24 @@ def canonical(toks: list[str]) -> list[str]:
             continue
         out[i] = f"cmp {m.group(2)}, {m.group(1)}"
         out[i + 1] = f"{n.group(1)}{SWAPPED_CC[n.group(2)]}{n.group(3) or ''}"
+    # (and a comparison with a constant read through a strict or non-strict condition, one spelling:
+    # `cmp x, 0xa; jg` is `cmp x, 0xb; jge`, a > K the integer a >= K + 1. Not at the type's top,
+    # where K + 1 wraps)
+    step = {"g": "ge", "le": "l", "a": "ae", "be": "b", "nle": "ge", "ng": "l", "nbe": "ae", "na": "b"}
+    for i in range(len(out) - 1):
+        m = re.fullmatch(r"cmp (.+), (0x[0-9a-f]+|\d+)", out[i])
+        n = re.fullmatch(r"(j|set|cmov)(\w+)( .*)?", out[i + 1])
+        if not m or not n or n.group(2) not in step:
+            continue
+        k = int(m.group(2), 0)
+        if k >= 0x7FFFFFFF:
+            continue
+        out[i] = f"cmp {m.group(1)}, {k + 1:#x}"
+        out[i + 1] = f"{n.group(1)}{step[n.group(2)]}{n.group(3) or ''}"
+    for i in range(len(out) - 1):
+        m = re.fullmatch(r"cmp (.+), (0x[0-9a-f]+|\d+)", out[i])
+        if m:
+            out[i] = f"cmp {m.group(1)}, {int(m.group(2), 0):#x}"
     names: dict[str, str] = {}
     pat = re.compile(r"\b(" + "|".join(CALLEE_SAVED) + r")\b")
 
