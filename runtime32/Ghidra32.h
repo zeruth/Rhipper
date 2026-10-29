@@ -21,6 +21,14 @@
 #include <string.h>
 #include <stdbool.h>
 #include <stdarg.h>             /* (a variadic function's argument block, translate32.py) */
+/* this header's helpers: inlined always in the x86 fidelity build, where each is the reference's
+   own instruction or none (a 64-bit argument pushed for an address's truncation, GEN_TOP, was a
+   call the reference never made); a hint in the port */
+#ifdef GEN_FIDELITY
+#define GEN_INLINE __forceinline
+#else
+#define GEN_INLINE __inline
+#endif
 
 #define PTR32 __ptr32 __uptr
 
@@ -125,6 +133,13 @@ typedef unsigned int __fastcall gen_tcode();
    reference's source had it (a /Od build keeps every local in a stack slot, and the port's copy of
    each word into its type was a store and a load more); in the port its 32-bit word, and the copy
    into Ghidra's type a local (GEN_PIN) */
+/* (a function that never returns, so declared where the reference's compiler knew it: the x86
+   fidelity build's code after the call as the reference's, none) */
+#ifdef GEN_FIDELITY
+#define GEN_NORETURN __declspec(noreturn)
+#else
+#define GEN_NORETURN
+#endif
 #ifdef GEN_FIDELITY
 #define GEN_P(typed, abi) typed
 #define GEN_PIN(...)
@@ -151,8 +166,8 @@ void gen_suspect(unsigned int addr, const char *names);
 #endif
 /* (a float or 8-byte argument's stack words, as the reference's record holds them: its bits, not
    its value converted, pi/4 recorded as 0 parted a client's runs at a sincos, 2026-10-26) */
-static __inline unsigned int gen_trace_f(float f) { union { float f; unsigned int u; } v; v.f = f; return v.u; }
-static __inline unsigned long long gen_trace_d(double d) { union { double d; unsigned long long u; } v; v.d = d; return v.u; }
+static GEN_INLINE unsigned int gen_trace_f(float f) { union { float f; unsigned int u; } v; v.f = f; return v.u; }
+static GEN_INLINE unsigned long long gen_trace_d(double d) { union { double d; unsigned long long u; } v; v.d = d; return v.u; }
 /* the x87 unit's control word, per thread as the hardware's is: what `fnstcw` reads and `fldcw`
    writes in the translation (MSVC's default 0x27f; Direct3D's CreateDevice sets 24-bit
    precision, Com32.cpp). The port computes in SSE whatever it says: the code that reads it, the
@@ -166,8 +181,8 @@ unsigned short gen_fpusw(int clear);
 /* `cdq; idiv r32`: a 32-bit signed division, as the reference's, faulting where it faults (a zero
    divisor, EXCEPTION_INT_DIVIDE_BY_ZERO; INT_MIN / -1, EXCEPTION_INT_OVERFLOW), the divisor read
    through a volatile so the host compiler neither folds nor reorders the instruction away */
-static __inline int gen_idiv32(int a, int b) { volatile int d = b; return a / d; }
-static __inline int gen_irem32(int a, int b) { volatile int d = b; return a % d; }
+static GEN_INLINE int gen_idiv32(int a, int b) { volatile int d = b; return a / d; }
+static GEN_INLINE int gen_irem32(int a, int b) { volatile int d = b; return a % d; }
 /* an SSE register's 16 bytes, as Ghidra writes one (`undefined1 [16]`): an array, so a pointer
    to one steps 16 and indexes its bytes as the reference does. An array is not assignable: a
    value stored into one (`*p = (undefined1 [16])0x0`) is GEN_V16_SET's, zero-extended */
@@ -187,24 +202,24 @@ typedef unsigned char gen_v64[64];
    is the reference's to the bit (rsqrtps and rcpps are the hardware's approximations). Operands
    and results are 16 bytes anywhere: translate32.py passes their addresses, the result first */
 #include <emmintrin.h>
-static __inline __m128 gen_ldps(const void *p) { return _mm_loadu_ps((const float *)p); }
-static __inline __m128i gen_ldi(const void *p) { return _mm_loadu_si128((const __m128i *)p); }
-static __inline void gen_stps(void *p, __m128 v) { _mm_storeu_ps((float *)p, v); }
-static __inline void gen_sti(void *p, __m128i v) { _mm_storeu_si128((__m128i *)p, v); }
-static __inline void gen_minps(void *r, const void *a, const void *b) { gen_stps(r, _mm_min_ps(gen_ldps(a), gen_ldps(b))); }
-static __inline void gen_maxps(void *r, const void *a, const void *b) { gen_stps(r, _mm_max_ps(gen_ldps(a), gen_ldps(b))); }
-static __inline void gen_divps(void *r, const void *a, const void *b) { gen_stps(r, _mm_div_ps(gen_ldps(a), gen_ldps(b))); }
-static __inline void gen_rsqrtps(void *r, const void *d, const void *s) { (void)d; gen_stps(r, _mm_rsqrt_ps(gen_ldps(s))); }
-static __inline void gen_rcpps(void *r, const void *d, const void *s) { (void)d; gen_stps(r, _mm_rcp_ps(gen_ldps(s))); }
-static __inline void gen_sqrtps(void *r, const void *d, const void *s) { (void)d; gen_stps(r, _mm_sqrt_ps(gen_ldps(s))); }
-static __inline void gen_packssdw(void *r, const void *a, const void *b) { gen_sti(r, _mm_packs_epi32(gen_ldi(a), gen_ldi(b))); }
-static __inline void gen_psllw(void *r, const void *a, const void *n) { gen_sti(r, _mm_sll_epi16(gen_ldi(a), gen_ldi(n))); }
+static GEN_INLINE __m128 gen_ldps(const void *p) { return _mm_loadu_ps((const float *)p); }
+static GEN_INLINE __m128i gen_ldi(const void *p) { return _mm_loadu_si128((const __m128i *)p); }
+static GEN_INLINE void gen_stps(void *p, __m128 v) { _mm_storeu_ps((float *)p, v); }
+static GEN_INLINE void gen_sti(void *p, __m128i v) { _mm_storeu_si128((__m128i *)p, v); }
+static GEN_INLINE void gen_minps(void *r, const void *a, const void *b) { gen_stps(r, _mm_min_ps(gen_ldps(a), gen_ldps(b))); }
+static GEN_INLINE void gen_maxps(void *r, const void *a, const void *b) { gen_stps(r, _mm_max_ps(gen_ldps(a), gen_ldps(b))); }
+static GEN_INLINE void gen_divps(void *r, const void *a, const void *b) { gen_stps(r, _mm_div_ps(gen_ldps(a), gen_ldps(b))); }
+static GEN_INLINE void gen_rsqrtps(void *r, const void *d, const void *s) { (void)d; gen_stps(r, _mm_rsqrt_ps(gen_ldps(s))); }
+static GEN_INLINE void gen_rcpps(void *r, const void *d, const void *s) { (void)d; gen_stps(r, _mm_rcp_ps(gen_ldps(s))); }
+static GEN_INLINE void gen_sqrtps(void *r, const void *d, const void *s) { (void)d; gen_stps(r, _mm_sqrt_ps(gen_ldps(s))); }
+static GEN_INLINE void gen_packssdw(void *r, const void *a, const void *b) { gen_sti(r, _mm_packs_epi32(gen_ldi(a), gen_ldi(b))); }
+static GEN_INLINE void gen_psllw(void *r, const void *a, const void *n) { gen_sti(r, _mm_sll_epi16(gen_ldi(a), gen_ldi(n))); }
 /* (SSE4.1: MSVC's /O2 vectorizes an integer multiply loop with it, behind __isa_available) */
 #include <smmintrin.h>
-static __inline void gen_pmulld(void *r, const void *a, const void *b) { gen_sti(r, _mm_mullo_epi32(gen_ldi(a), gen_ldi(b))); }
+static GEN_INLINE void gen_pmulld(void *r, const void *a, const void *b) { gen_sti(r, _mm_mullo_epi32(gen_ldi(a), gen_ldi(b))); }
 /* (AVX2's per-lane shift, the 128-bit form, behind __isa_available as /O2 vectorizes `w << (k & 7)`:
    in C, each lane by its own count, 0 past 31, so the port needs no AVX2 of its own) */
-static __inline void gen_vpsllvd_avx2(void *r, const void *a, const void *n) {
+static GEN_INLINE void gen_vpsllvd_avx2(void *r, const void *a, const void *n) {
     unsigned int x[4], c[4];
     memcpy(x, a, 16); memcpy(c, n, 16);
     for (int k = 0; k < 4; k++) x[k] = c[k] > 31 ? 0 : x[k] << c[k];
@@ -213,7 +228,7 @@ static __inline void gen_vpsllvd_avx2(void *r, const void *a, const void *n) {
 /* (AVX-512VL's float to 64-bit integer conversion, truncating, the 128-bit form: its two low
    floats, behind __isa_available as MSVC 14.51 converts a float to u64. In C, the hardware's
    0x8000000000000000 for a NaN or one out of range, so the port needs no AVX-512 of its own) */
-static __inline void gen_vcvttps2qq_avx512vl(void *r, const void *a) {
+static GEN_INLINE void gen_vcvttps2qq_avx512vl(void *r, const void *a) {
     float f[4]; long long q[2];
     memcpy(f, a, 16);
     for (int k = 0; k < 2; k++)
@@ -221,11 +236,11 @@ static __inline void gen_vcvttps2qq_avx512vl(void *r, const void *a) {
             ? (long long)0x8000000000000000ull : (long long)f[k];
     memcpy(r, q, 16);
 }
-static __inline void gen_v16_or(void *r, const void *a, const void *b) { gen_sti(r, _mm_or_si128(gen_ldi(a), gen_ldi(b))); }
-static __inline void gen_v16_and(void *r, const void *a, const void *b) { gen_sti(r, _mm_and_si128(gen_ldi(a), gen_ldi(b))); }
-static __inline void gen_v16_xor(void *r, const void *a, const void *b) { gen_sti(r, _mm_xor_si128(gen_ldi(a), gen_ldi(b))); }
+static GEN_INLINE void gen_v16_or(void *r, const void *a, const void *b) { gen_sti(r, _mm_or_si128(gen_ldi(a), gen_ldi(b))); }
+static GEN_INLINE void gen_v16_and(void *r, const void *a, const void *b) { gen_sti(r, _mm_and_si128(gen_ldi(a), gen_ldi(b))); }
+static GEN_INLINE void gen_v16_xor(void *r, const void *a, const void *b) { gen_sti(r, _mm_xor_si128(gen_ldi(a), gen_ldi(b))); }
 /* movmskps(dst, src): the sign bits of src's four floats */
-static __inline int gen_movmskps(const void *s) { return _mm_movemask_ps(gen_ldps(s)); }
+static GEN_INLINE int gen_movmskps(const void *s) { return _mm_movemask_ps(gen_ldps(s)); }
 typedef void *pointer;                  /* a value; translate32.py makes a stored one __ptr32 */
 
 /* ---- Windows' pointer-sized types, 4 bytes as the reference stores them --------------------- */
@@ -348,10 +363,10 @@ _Static_assert(sizeof(OSVERSIONINFOA) == 148, "OSVERSIONINFOA, x86");
 #endif
 
 /* ---- Ghidra's piecewise helpers ------------------------------------------------------------- */
-static __inline unsigned long long gen_d2bits_(double x) { unsigned long long r; memcpy(&r, &x, 8); return r; }
-static __inline unsigned long long gen_fl2bits_(float x) { unsigned int r; memcpy(&r, &x, 4); return r; }
-static __inline unsigned long long gen_u2bits64(unsigned long long x) { return x; }
-static __inline unsigned long long gen_u2bits32(unsigned long long x) { return (unsigned int)x; }
+static GEN_INLINE unsigned long long gen_d2bits_(double x) { unsigned long long r; memcpy(&r, &x, 8); return r; }
+static GEN_INLINE unsigned long long gen_fl2bits_(float x) { unsigned int r; memcpy(&r, &x, 4); return r; }
+static GEN_INLINE unsigned long long gen_u2bits64(unsigned long long x) { return x; }
+static GEN_INLINE unsigned long long gen_u2bits32(unsigned long long x) { return (unsigned int)x; }
 /* (by the operand's type: an integer is bits already. Ghidra prints a view of a value it holds as
    floating point; translate32.py may hold the same place as an integer, an untyped global or
    local, and as `(float)` of it the bits were converted by value) */
@@ -364,10 +379,10 @@ static __inline unsigned long long gen_u2bits32(unsigned long long x) { return (
    translate32.py's calls to a variadic translation) */
 #define GEN_LO32(x) ((unsigned int)(unsigned long long)GEN_BITS(x))
 #define GEN_HI32(x) ((unsigned int)((unsigned long long)GEN_BITS(x) >> 32))
-static __inline double gen_bits2d_(unsigned long long u) { double d; memcpy(&d, &u, 8); return d; }
-static __inline float gen_bits2f_(unsigned int u) { float f; memcpy(&f, &u, 4); return f; }
-static __inline double gen_d_same(double d) { return d; }
-static __inline float gen_f_same(float f) { return f; }
+static GEN_INLINE double gen_bits2d_(unsigned long long u) { double d; memcpy(&d, &u, 8); return d; }
+static GEN_INLINE float gen_bits2f_(unsigned int u) { float f; memcpy(&f, &u, 4); return f; }
+static GEN_INLINE double gen_d_same(double d) { return d; }
+static GEN_INLINE float gen_f_same(float f) { return f; }
 /* (and the other way: a floating-point operand is the value already. Ghidra viewed u2d's table of
    2^32 adjustments as bits, floatdata.py types it double from its `addsd`, and gen_bits2d of the
    double converted it to an integer first, rhtest float-O2 u2d) */
@@ -381,24 +396,24 @@ static __inline float gen_f_same(float f) { return f; }
    by value and refuses float and pointer outright. Where translate32.py cannot tell an operand's
    type, these pick by it: a pointer's bits to a float, a float's bits to a pointer, any integer or
    float by value as C would. */
-static __inline float gen_tof_f(float x) { return x; }
-static __inline float gen_tof_d(double x) { return (float)x; }
-static __inline float gen_tof_i(long long x) { return (float)x; }
-static __inline float gen_tof_u(unsigned long long x) { return (float)x; }
-static __inline float gen_tof_p(const volatile void *p) { return gen_bits2f((unsigned int)(uintptr_t)p); }
-static __inline double gen_tod_f(float x) { return x; }
-static __inline double gen_tod_d(double x) { return x; }
-static __inline double gen_tod_i(long long x) { return (double)x; }
-static __inline double gen_tod_u(unsigned long long x) { return (double)x; }
-static __inline double gen_tod_p(const volatile void *p) { return gen_bits2f((unsigned int)(uintptr_t)p); }
-static __inline uintptr_t gen_top_f(float x) { return gen_fl2bits(x); }
-static __inline uintptr_t gen_top_d(double x) { return (unsigned int)gen_d2bits(x); }
+static GEN_INLINE float gen_tof_f(float x) { return x; }
+static GEN_INLINE float gen_tof_d(double x) { return (float)x; }
+static GEN_INLINE float gen_tof_i(long long x) { return (float)x; }
+static GEN_INLINE float gen_tof_u(unsigned long long x) { return (float)x; }
+static GEN_INLINE float gen_tof_p(const volatile void *p) { return gen_bits2f((unsigned int)(uintptr_t)p); }
+static GEN_INLINE double gen_tod_f(float x) { return x; }
+static GEN_INLINE double gen_tod_d(double x) { return x; }
+static GEN_INLINE double gen_tod_i(long long x) { return (double)x; }
+static GEN_INLINE double gen_tod_u(unsigned long long x) { return (double)x; }
+static GEN_INLINE double gen_tod_p(const volatile void *p) { return gen_bits2f((unsigned int)(uintptr_t)p); }
+static GEN_INLINE uintptr_t gen_top_f(float x) { return gen_fl2bits(x); }
+static GEN_INLINE uintptr_t gen_top_d(double x) { return (unsigned int)gen_d2bits(x); }
 /* (an address the reference computes is 32 bits, and wraps so: `p + (i - 4)` of an unsigned i
    below 4 is p - 16 there, 16 GB on here, and a negative int sign-extended is no address at all.
    Truncated, as every address in the port's low 2 GB is) */
-static __inline uintptr_t gen_top_i(long long x) { return (uintptr_t)(unsigned int)x; }
-static __inline uintptr_t gen_top_u(unsigned long long x) { return (uintptr_t)(unsigned int)x; }
-static __inline uintptr_t gen_top_p(const volatile void *p) { return (uintptr_t)(unsigned int)(uintptr_t)p; }
+static GEN_INLINE uintptr_t gen_top_i(long long x) { return (uintptr_t)(unsigned int)x; }
+static GEN_INLINE uintptr_t gen_top_u(unsigned long long x) { return (uintptr_t)(unsigned int)x; }
+static GEN_INLINE uintptr_t gen_top_p(const volatile void *p) { return (uintptr_t)(unsigned int)(uintptr_t)p; }
 #define GEN_BYTYPE(x, f, d, i, u, p) _Generic((x), float: f, double: d, long double: d, \
     char: i, signed char: i, short: i, int: i, long: i, long long: i, \
     unsigned char: u, unsigned short: u, unsigned int: u, unsigned long: u, unsigned long long: u, _Bool: u, \
@@ -477,13 +492,13 @@ static __inline uintptr_t gen_top_p(const volatile void *p) { return (uintptr_t)
 #define SBORROW4(a, b) ((((int32_t)(a) ^ (int32_t)(b)) & ((int32_t)(a) ^ (int32_t)((uint32_t)(a) - (uint32_t)(b)))) < 0)
 #define SBORROW8(a, b) ((((int64_t)(a) ^ (int64_t)(b)) & ((int64_t)(a) ^ (int64_t)((uint64_t)(a) - (uint64_t)(b)))) < 0)
 /* a piece of a variable 3, 5, 6 or 7 bytes wide (`local_1e4._0_3_`), read in place */
-static __inline unsigned long long GEN_PIECE(const void *p, int off, int n) {
+static GEN_INLINE unsigned long long GEN_PIECE(const void *p, int off, int n) {
     unsigned long long x = 0;
     memcpy(&x, (const char *)p + off, n);
     return x;
 }
 /* the same written: the low n bytes of v at offset off */
-static __inline unsigned long long gen_piece_set(void *p, int off, int n, unsigned long long v) {
+static GEN_INLINE unsigned long long gen_piece_set(void *p, int off, int n, unsigned long long v) {
     memcpy((char *)p + off, &v, n);
     return v;
 }
@@ -499,7 +514,7 @@ static __inline unsigned long long gen_piece_set(void *p, int off, int n, unsign
 /* the C runtime's x87 math as ApplyFacts' call fixups write it, `fpatan(from_bcd(x), K)`: K the
    function, helpers32.py's MATH_CODES (exp, log, log10, tan, atan, asin, acos, sinh, cosh, tanh,
    sin, cos, floor, ceil) */
-static __inline double gen_x87math(double x, int k) {
+static GEN_INLINE double gen_x87math(double x, int k) {
     switch (k) {
     case 1: return exp(x);   case 2: return log(x);   case 3: return log10(x); case 4: return tan(x);
     case 5: return atan(x);  case 6: return asin(x);  case 7: return acos(x);  case 8: return sinh(x);
@@ -542,7 +557,7 @@ static unsigned int gen_ud2(void) { __ud2(); return 0; }
    reported (leaf 7's bits and XCR0's opmask/ZMM state, GEN_XCR0): the CRT's AVX-512 paths are
    ones Ghidra decompiles lossily (__ultod3's `vmovd; vpinsrd; vcvtuqq2pd` as the low word alone,
    a stub), and on a machine that has it the port would run them where the others are exact */
-static __inline unsigned int *gen_cpuid(int leaf) {
+static GEN_INLINE unsigned int *gen_cpuid(int leaf) {
     static __declspec(thread) int regs[8][4];
     static __declspec(thread) unsigned int next;
     int *slot = regs[next++ & 7];

@@ -247,6 +247,83 @@ def canonical(toks: list[str]) -> list[str]:
     return [pat.sub(rename, t) for t in out]
 
 
+# a condition and its negation: a branch on the second is one on the first, its successors swapped
+NEGATED_CC = {"ne": "e", "nz": "z", "ae": "b", "nb": "b", "nc": "c", "be": "a", "na": "a", "ge": "l",
+              "nl": "l", "le": "g", "ng": "g", "ns": "s", "no": "o", "np": "p", "po": "p"}
+
+
+def flow_form(md, code: bytes, base: int, hi: int, toks: list[str]) -> str | None:
+    """The function as its control flow, layout aside: basic blocks (their canonical
+    instructions, the branch that ends each written in its positive condition) walked from the
+    entry, each block numbered as first reached, its successors by number, a conditional's taken
+    one first. Two functions with the same form are the same blocks in the same graph, one laid
+    out with a branch inverted and its two paths swapped (`je L; A ... L: B` and `jne L; B ... L:
+    A`). None where the instructions do not line up with the tokens."""
+    meta = []
+    for ins in md.disasm(code, base):
+        if ins.mnemonic == "int3":
+            break
+        target = None
+        if ins.id and ins.group(capstone.CS_GRP_JUMP) and ins.operands and ins.operands[0].type == capstone.CS_OP_IMM:
+            target = ins.operands[0].imm
+        meta.append((ins.address, ins.size, target))
+        if ins.mnemonic in ("ret", "retn") and ins.address + ins.size >= hi:
+            break
+    if len(meta) != len(toks):
+        return None
+    index = {a: k for k, (a, _s, _t) in enumerate(meta)}
+    leaders = {0}
+    for k, (a, s, t) in enumerate(meta):
+        m = toks[k].split()[0] if toks[k] else ""
+        if m.startswith("j") or m.startswith("ret"):
+            if k + 1 < len(meta):
+                leaders.add(k + 1)
+            if t is not None and t in index:
+                leaders.add(index[t])
+    starts = sorted(leaders)
+    block_of = {}
+    for b, s in enumerate(starts):
+        e = starts[b + 1] if b + 1 < len(starts) else len(meta)
+        for k in range(s, e):
+            block_of[k] = s
+    seen: dict[int, int] = {}
+    out = []
+    work = [0]
+    while work:
+        s = work.pop()
+        if s in seen:
+            continue
+        seen[s] = len(seen)
+        e = next((x for x in starts if x > s), len(meta))
+        body = toks[s:e]
+        last = body[-1].split() if body else []
+        m = last[0] if last else ""
+        t = meta[e - 1][2]
+        nxt = e if e < len(meta) else None
+        succ = []
+        if m == "jmp":
+            body = body[:-1]
+            succ = [index[t]] if t in index else ["out"]
+        elif m.startswith("j"):
+            cc = m[1:]
+            taken = index[t] if t in index else "out"
+            if cc in NEGATED_CC:
+                body = body[:-1] + [f"j{NEGATED_CC[cc]}"]
+                succ = [nxt, taken]
+            else:
+                body = body[:-1] + [f"j{cc}"]
+                succ = [taken, nxt]
+        elif not m.startswith("ret") and nxt is not None:
+            succ = [nxt]
+        out.append((s, body, succ))
+        # (the successors in order, the first reached first: pushed last)
+        for x in reversed(succ):
+            if isinstance(x, int):
+                work.append(x)
+    num = lambda x: x if x == "out" else (seen.get(x, "?") if x is not None else "-")  # noqa: E731
+    return "\n".join(f"{seen[s]}: {' ; '.join(body)} -> {[num(x) for x in succ]}" for s, body, succ in out)
+
+
 POOL = BUILD / "x86pool"
 # the reference image's address range, set once the binary is open: values in it are addresses
 IMAGE = (0, 0)
@@ -393,6 +470,15 @@ def compare(task) -> tuple[dict, str]:
     sim = sm.ratio() if rt and pt else 0.0
     same = rb.rstrip(b"\xcc") == pb.rstrip(b"\xcc")
     equiv = not same and bool(rt) and rt == pt
+    # (or the same blocks in the same graph, laid out with branches inverted: flow_form)
+    if not same and not equiv and rt and pt and len(rt) == len(pt):
+        rf = flow_form(_MD, rcode, lo, hi, rt)
+        pf = flow_form(_MD, pcode, 0, len(pcode), pt)
+        equiv = rf is not None and rf == pf
+        if os.environ.get("BYTES32_FLOW") == f"{row['addr']:x}":
+            print(f"reference:\n{rf}\nport:\n{pf}")
+    if equiv:
+        sim = 1.0
     row.update(kind="same" if same else "equiv" if equiv else "translated", sim=round(sim, 4), same=same, equiv=equiv,
                size=round(len(pb.rstrip(b"\xcc")) / max(1, len(rb.rstrip(b"\xcc"))), 3), port_size=len(pcode))
     text = ""

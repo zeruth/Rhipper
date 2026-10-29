@@ -5167,8 +5167,12 @@ class Translator32:
         # fidelity build, must be the header's too)
         h += [f"{definition_decl(translated[a]) or decls[a]};" if a in translated else f"{decls[a]};"
               for a in sorted(decls)]
+        # (the C runtime's imports that never return as such, GEN_NORETURN: the reference's compiler
+        # knew it and put nothing after the call, `call terminate` its function's last block; the
+        # x86 build's fell through into the epilogue, bytes32)
         h += [f"{MATH[n][0]} gen_imp_{n}({', '.join(math_params(n)[0])});" if n in MATH and n not in OVERRIDES
-              else f"{OVERRIDE_RET.get(n, 'unsigned int')} gen_imp_{cid(n)}();" for n in sorted(self.imports)]
+              else ("GEN_NORETURN " if cid(n).lstrip("_") in NORETURN_IMPORTS else "")
+              + f"{OVERRIDE_RET.get(n, 'unsigned int')} gen_imp_{cid(n)}();" for n in sorted(self.imports)]
         write(GEN / "translated.h", "\n".join(h) + "\n")
         write(GEN / "Ghidra32.h", HEADER.read_text(encoding="utf-8"))
         files = []
@@ -5322,6 +5326,13 @@ class Translator32:
 
 
 UNINIT_DECL = re.compile(r"(?m)^[ \t]+(?!(?:return|goto|break|continue|case)\b)[A-Za-z_][\w \t]*?[\s*]+([A-Za-z_]\w*)[ \t]*;[ \t]*$")
+
+
+# the C runtime's and the system's functions that never return, by name less leading underscores
+NORETURN_IMPORTS = {"terminate", "abort", "exit", "Exit", "quick_exit", "CxxThrowException", "std_terminate",
+                    "invalid_parameter_noinfo_noreturn", "invoke_watson", "longjmp", "ExitProcess", "ExitThread",
+                    "FatalExit", "FatalAppExitA", "FatalAppExitW", "endthread", "endthreadex", "amsg_exit",
+                    "report_rangecheckfailure", "report_gsfailure"}
 
 
 def definition_decl(text: str) -> str | None:
