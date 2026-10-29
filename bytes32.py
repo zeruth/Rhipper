@@ -59,6 +59,11 @@ VCVARS = os.environ.get("RHIPPER_VCVARS32", "")
 # built by the newest cl with its own default, SSE2, vectorizes structure updates and does its
 # floats in xmm registers, and as x87 every such function of rhtest's core-O2 differed, 2026-10-28)
 OPT_FLAGS = project.CONFIG.get("bytes", {}).get("cl_flags") or ["/O2", "/arch:IA32"]
+# (and under /Od, Ghidra32.h's helpers inlined, /Ob1, which inlines only what is marked inline: the
+# reference's own functions none, as a /Od build's, and every translation noinline. Called, each
+# bit view and conversion of a /Od reference's union read was `push; call`, rhtest core-Od)
+if "/Od" in OPT_FLAGS and not any(f.startswith("/Ob") for f in OPT_FLAGS):
+    OPT_FLAGS = [*OPT_FLAGS, "/Ob1"]
 CL_FLAGS = ["/nologo", "/c", *OPT_FLAGS, "/Gy", "/std:c17", "/w", "/DGEN_FIDELITY"]
 
 

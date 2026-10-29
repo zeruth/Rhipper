@@ -408,8 +408,15 @@ _Static_assert(sizeof(OSVERSIONINFOA) == 148, "OSVERSIONINFOA, x86");
 #endif
 
 /* ---- Ghidra's piecewise helpers ------------------------------------------------------------- */
+/* (the x86 fidelity build's bit copies through a pointer: a /Od reference's union read is its
+   slot's word, where memcpy was a call to it, the helper inlined or not, bytes32.py's /Ob1) */
+#ifdef GEN_FIDELITY
+static GEN_INLINE unsigned long long gen_d2bits_(double x) { return *(unsigned long long *)&x; }
+static GEN_INLINE unsigned long long gen_fl2bits_(float x) { return *(unsigned int *)&x; }
+#else
 static GEN_INLINE unsigned long long gen_d2bits_(double x) { unsigned long long r; memcpy(&r, &x, 8); return r; }
 static GEN_INLINE unsigned long long gen_fl2bits_(float x) { unsigned int r; memcpy(&r, &x, 4); return r; }
+#endif
 static GEN_INLINE unsigned long long gen_u2bits64(unsigned long long x) { return x; }
 static GEN_INLINE unsigned long long gen_u2bits32(unsigned long long x) { return (unsigned int)x; }
 /* (by the operand's type: an integer is bits already. Ghidra prints a view of a value it holds as
@@ -424,8 +431,13 @@ static GEN_INLINE unsigned long long gen_u2bits32(unsigned long long x) { return
    translate32.py's calls to a variadic translation) */
 #define GEN_LO32(x) ((unsigned int)(unsigned long long)GEN_BITS(x))
 #define GEN_HI32(x) ((unsigned int)((unsigned long long)GEN_BITS(x) >> 32))
+#ifdef GEN_FIDELITY
+static GEN_INLINE double gen_bits2d_(unsigned long long u) { return *(double *)&u; }
+static GEN_INLINE float gen_bits2f_(unsigned int u) { return *(float *)&u; }
+#else
 static GEN_INLINE double gen_bits2d_(unsigned long long u) { double d; memcpy(&d, &u, 8); return d; }
 static GEN_INLINE float gen_bits2f_(unsigned int u) { float f; memcpy(&f, &u, 4); return f; }
+#endif
 static GEN_INLINE double gen_d_same(double d) { return d; }
 static GEN_INLINE float gen_f_same(float f) { return f; }
 /* (and the other way: a floating-point operand is the value already. Ghidra viewed u2d's table of
