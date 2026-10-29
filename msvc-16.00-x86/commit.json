@@ -1,1 +1,1 @@
-{"sha": "6ac0d3fe2fe5314749bf593b65e96ec9fb420338", "date": "2026-10-28T21:01:17-04:00", "subject": "fix(translate32): a void callee's eax a function only returns, where no caller reads its result"}
+{"sha": "3d25c79e7892723f22d8f37588d03739b4d26775", "date": "2026-10-28T21:26:05-04:00", "subject": "fix(protos32): a __stdcall site whose observed targets read ecx, a __thiscall one"}
