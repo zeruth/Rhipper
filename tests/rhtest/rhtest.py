@@ -636,6 +636,10 @@ def stop_detail(p, step: str, lines: int = 40) -> str:
         return f"({e})"
 
 
+# (the fidelity bands the summary's bars show, fidelity_html.py's)
+BAND_NAMES = {"b10": "100%", **{f"b{i}": f"{10 * i}-{10 * i + 9}%" for i in range(10)}, "stub": "stub"}
+
+
 def write_report(results: dict, status: dict, ran_port: bool) -> None:
     """fidelity.html beside this file: every project's last result and fidelity, and per project
     what is below 1.0 and what is a stub, from each one's build/fidelity.json. A run re-scores the
@@ -692,8 +696,19 @@ def write_report(results: dict, status: dict, ran_port: bool) -> None:
         else:
             cells = '<td colspan="4" class="muted">no report</td>'
         shown = e["status"] + (f' at {e["stopped"]}' if e.get("stopped") else "")
+        # (its functions by fidelity band, a stacked bar: fidelity_html's bands and colours)
+        groups = '<td class="muted">–</td>'
+        if data.exists():
+            frows = json.loads(data.read_text(encoding="utf-8"))
+            counts = Counter("stub" if r["kind"] == "stub" else
+                             "b10" if r["score"] >= 0.999 else f"b{max(0, min(9, int(r['score'] * 10)))}" for r in frows)
+            n = len(frows) or 1
+            segs = "".join(f'<span class="seg {k}" style="width:{100 * counts[k] / n:.2f}%" '
+                           f'title="{BAND_NAMES[k]}: {counts[k]}"></span>'
+                           for k in ["b10"] + [f"b{i}" for i in range(9, -1, -1)] + ["stub"] if counts[k])
+            groups = f'<td class="bars"><div class="stack">{segs}</div></td>'
         rows.append(f'<tr><td><a href="#{name}">{html.escape(name)}</a></td><td class="{cls}">{html.escape(shown)}</td>{cells}'
-                    f'<td class="muted">{e["when"]}</td><td class="muted">{scored_at}</td></tr>')
+                    f'{groups}<td class="muted">{e["when"]}</td><td class="muted">{scored_at}</td></tr>')
         # (what the stopped step left: the run's diff against the reference, or its log's end)
         stopped = (f'<p>stopped at {html.escape(e["stopped"])}</p><pre>{html.escape(e.get("detail", ""))}</pre>'
                    if e.get("stopped") else "")
@@ -738,12 +753,20 @@ td:first-child {{ font-family:ui-monospace,monospace; }}
 .s2 {{ color:var(--s2); }} .s1 {{ color:var(--s1); }} .s0 {{ color:var(--s0); font-weight:600; }}
 details {{ border:1px solid var(--line); border-radius:8px; padding:8px 12px; margin:8px 0; }}
 summary {{ cursor:pointer; font-weight:600; }} a {{ color:var(--link); }}
+td.bars {{ min-width:180px; vertical-align:middle; }}
+.stack {{ display:flex; height:12px; border-radius:6px; overflow:hidden; background:var(--line); }} .seg {{ height:100%; }}
+.legend {{ display:flex; flex-wrap:wrap; gap:4px 12px; font-size:12px; color:var(--muted); margin:-6px 0 12px; }}
+.legend i {{ display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:5px; vertical-align:-1px; }}
+.b10 {{ background:#1f9d55; }} .b9 {{ background:#56b04a; }} .b8 {{ background:#8cbd3f; }} .b7 {{ background:#b8c13a; }}
+.b6 {{ background:#d8b532; }} .b5 {{ background:#e39a2c; }} .b4 {{ background:#e57f2a; }} .b3 {{ background:#e0632c; }}
+.b2 {{ background:#d84b33; }} .b1 {{ background:#c9393b; }} .b0 {{ background:#b02a3f; }} .stub {{ background:#8b8a95; }}
 </style></head><body><main><h1>rhtest fidelity: {TOOLSET}</h1>
 <div class="sub">{len(summary)} projects, {totals['functions']} functions: {totals['perfect']} of {totals['translated']}
 translated at 1.0, {totals['stubs']} stubs. Written {now}; a project shows the scores of its last run (scored column).</div>
+<div class="legend">{"".join(f'<span><i class="{k}"></i>{BAND_NAMES[k]}</span>' for k in ["b10"] + [f"b{i}" for i in range(9, -1, -1)] + ["stub"])}</div>
 <div class="wrap"><table>
 <thead><tr><th>project</th><th>result</th><th class="num">fidelity</th><th class="num">by size</th>
-<th class="num">at 1.0</th><th class="num">stubs</th><th>run</th><th>scored</th></tr></thead><tbody>
+<th class="num">at 1.0</th><th class="num">stubs</th><th>grouping</th><th>run</th><th>scored</th></tr></thead><tbody>
 {"".join(rows)}
 </tbody></table></div>
 <h2>Below 1.0, by project</h2>
