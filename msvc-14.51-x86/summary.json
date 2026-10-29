@@ -1,9 +1,9 @@
 {
  "core-O2": {
   "bytes": {
-   "by_size": 0.3519,
-   "identical": 26,
-   "mean": 0.5674
+   "by_size": 0.5446,
+   "identical": 39,
+   "mean": 0.6631
   },
   "fidelity": {
    "by_size": 0.991,
@@ -14,13 +14,13 @@
    "translated": 122
   },
   "status": "PASS",
-  "when": "2026-10-29 03:44"
+  "when": "2026-10-29 03:59"
  },
  "core-Od": {
   "bytes": {
-   "by_size": 0.2428,
-   "identical": 17,
-   "mean": 0.4448
+   "by_size": 0.4209,
+   "identical": 26,
+   "mean": 0.5346
   },
   "fidelity": {
    "by_size": 1.0,
@@ -31,6 +31,6 @@
    "translated": 127
   },
   "status": "PASS",
-  "when": "2026-10-29 03:44"
+  "when": "2026-10-29 03:59"
  }
 }

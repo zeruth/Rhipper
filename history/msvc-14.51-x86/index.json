@@ -1558,5 +1558,17 @@
   "stubs": 0,
   "perfect": 248,
   "translated": 249
+ },
+ {
+  "sha": "a7374240cad083a61b5394bef155cb582e84a875",
+  "date": "2026-10-28T23:52:17-04:00",
+  "subject": "feat(bytes): no translation inlined into another in the x86 build",
+  "run": "2026-10-29 03:59 UTC",
+  "file": "a7374240cad083a61b5394bef155cb582e84a875.json",
+  "passing": 2,
+  "projects": 2,
+  "stubs": 0,
+  "perfect": 248,
+  "translated": 249
  }
 ]

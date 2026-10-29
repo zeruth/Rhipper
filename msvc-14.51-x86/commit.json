@@ -1,1 +1,1 @@
-{"sha": "262cc2c37e289c8292ad16d1995c093ff7cd01f6", "date": "2026-10-28T23:38:59-04:00", "subject": "feat(rhtest): a bytes step, byte-for-byte per project; CI one program at a time"}
+{"sha": "a7374240cad083a61b5394bef155cb582e84a875", "date": "2026-10-28T23:52:17-04:00", "subject": "feat(bytes): no translation inlined into another in the x86 build"}
