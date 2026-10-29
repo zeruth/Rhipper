@@ -1354,5 +1354,17 @@
   "stubs": 237,
   "perfect": 15709,
   "translated": 17532
+ },
+ {
+  "sha": "ea2970bebbb69c8b195beb6d4a999d4326c60c0c",
+  "date": "2026-10-28T21:26:20-04:00",
+  "subject": "feat(pipeline32): abicheck after protos32, the indirect calls whose convention disagrees with an observed target, in the run's log",
+  "run": "2026-10-29 02:42 UTC",
+  "file": "ea2970bebbb69c8b195beb6d4a999d4326c60c0c.json",
+  "passing": 17,
+  "projects": 49,
+  "stubs": 237,
+  "perfect": 15709,
+  "translated": 17532
  }
 ]
