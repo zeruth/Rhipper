@@ -1,1 +1,1 @@
-{"sha": "a843fa67aac2cabe6f3477ea51b8b1db478f6ee9", "date": "2026-10-28T22:01:05-04:00", "subject": "fix(abicheck): the count again last, the line pipeline32's log shows of the step"}
+{"sha": "6c00d5dbd6ee5caa07ed8e77941e81023cb76584", "date": "2026-10-28T22:25:29-04:00", "subject": "feat(runtime32): XAudio2 voice callbacks counted for COMSTATS, starving passes and voice errors apart"}
