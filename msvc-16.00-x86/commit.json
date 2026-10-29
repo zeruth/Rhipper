@@ -1,1 +1,1 @@
-{"sha": "ee378872523f3c58435ac60262c9c59d9e2fe6ab", "date": "2026-10-28T22:31:39-04:00", "subject": "feat(runtime32): a COM method's float argument checked, NaN, infinite or past 1e8 reported with the method"}
+{"sha": "fe5cee3e8e1c96f9550f3b61c6464b66a08376c6", "date": "2026-10-28T23:18:29-04:00", "subject": "fix(translate32): a stack local the reference never writes either, 0 and no suspect"}
