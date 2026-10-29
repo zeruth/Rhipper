@@ -1,11 +1,11 @@
 {
  "core-O2": {
   "bytes": {
-   "by_size": 0.5527,
-   "bytes_identical": 37,
+   "by_size": 0.5959,
+   "bytes_identical": 42,
    "equivalent": 4,
-   "identical": 41,
-   "mean": 0.657
+   "identical": 46,
+   "mean": 0.6915
   },
   "fidelity": {
    "by_size": 0.991,
@@ -16,15 +16,15 @@
    "translated": 122
   },
   "status": "PASS",
-  "when": "2026-10-29 04:51"
+  "when": "2026-10-29 21:08"
  },
  "core-Od": {
   "bytes": {
-   "by_size": 0.4792,
-   "bytes_identical": 37,
+   "by_size": 0.5497,
+   "bytes_identical": 44,
    "equivalent": 1,
-   "identical": 38,
-   "mean": 0.6406
+   "identical": 45,
+   "mean": 0.7011
   },
   "fidelity": {
    "by_size": 1.0,
@@ -35,6 +35,6 @@
    "translated": 127
   },
   "status": "PASS",
-  "when": "2026-10-29 04:51"
+  "when": "2026-10-29 21:08"
  }
 }

@@ -1,0 +1,46 @@
+{
+ "sha": "9dd1e4fa5e306eeb304abb976682894163f91871",
+ "date": "2026-10-29T17:01:28-04:00",
+ "subject": "feat(bytes): a 32-bit shift's count bare in the x86 build, as the instruction masks it",
+ "run": "2026-10-29 21:08 UTC",
+ "summary": {
+  "core-O2": {
+   "bytes": {
+    "by_size": 0.5959,
+    "bytes_identical": 42,
+    "equivalent": 4,
+    "identical": 46,
+    "mean": 0.6915
+   },
+   "fidelity": {
+    "by_size": 0.991,
+    "functions": 122,
+    "mean": 0.997,
+    "perfect": 121,
+    "stubs": 0,
+    "translated": 122
+   },
+   "status": "PASS",
+   "when": "2026-10-29 21:08"
+  },
+  "core-Od": {
+   "bytes": {
+    "by_size": 0.5497,
+    "bytes_identical": 44,
+    "equivalent": 1,
+    "identical": 45,
+    "mean": 0.7011
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 127,
+    "mean": 1.0,
+    "perfect": 127,
+    "stubs": 0,
+    "translated": 127
+   },
+   "status": "PASS",
+   "when": "2026-10-29 21:08"
+  }
+ }
+}

@@ -1,1 +1,1 @@
-{"sha": "cf303ed5fa64111170e113b6e8478f4e3ff83168", "date": "2026-10-29T00:45:09-04:00", "subject": "fix(translate32): the static library's start by the C runtime's names only"}
+{"sha": "9dd1e4fa5e306eeb304abb976682894163f91871", "date": "2026-10-29T17:01:28-04:00", "subject": "feat(bytes): a 32-bit shift's count bare in the x86 build, as the instruction masks it"}
