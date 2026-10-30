@@ -503,9 +503,12 @@ def near(k, have: set) -> bool:
         # (an array's base, a float array read through a register: the other side's array, or an
         # element of it the decompiler folded the index into, within 256 bytes on)
         v = int(k[2:], 16)
-        # (or its address an immediate the other side indexes from, `mov eax, 0x404360`: float-O2's
-        # table walked through a pointer, missing on CI, 2026-10-30)
-        return any(f"{p}:{v + d:x}" in have for p in ("a", "g", "i") for d in range(0, 256))
+        # (or its address an immediate the other side indexes from, `mov eax, 0x404360`, or that
+        # immediate scaled, the base folded into the index: `[(i + 0x8086c) * 8]` for a double
+        # table at 0x404360, float-O2's on CI, 2026-10-30)
+        if any(f"{p}:{v + d:x}" in have for p in ("a", "g", "i") for d in range(0, 256)):
+            return True
+        return any(f"i:{(v + d) // s:x}" in have for s in (2, 4, 8) for d in range(0, 256, s) if (v + d) % s == 0)
     return False
 
 
