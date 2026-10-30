@@ -79,11 +79,14 @@ class Image:
                                                 "end": self.base + s.VirtualAddress + s.Misc_VirtualSize,
                                                 "exec": bool(s.Characteristics & 0x20000000)})())
         self.iat = {}
+        self.ordinal_slots: set[int] = set()     # (imports by ordinal: named from Ghidra's labels)
         pe.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_IMPORT"]])
         for dll in getattr(pe, "DIRECTORY_ENTRY_IMPORT", []):
             for imp in dll.imports:
                 if imp.name:
                     self.iat[imp.address] = imp.name.decode().lstrip("_")
+                else:
+                    self.ordinal_slots.add(imp.address)
         pe.close()
 
     def contains(self, va: int) -> bool:
@@ -726,6 +729,14 @@ def presence(ref: Counter, port: Counter, source: set[int] = frozenset(),
         # constant at all, rhtest float-O2's 0x402320)
         if k in ("f:0", "f:-0", "f:0.0"):
             return True
+        # (2^32, the constant MSVC's x86 lowering of an unsigned to floating point conversion adds
+        # where the value's top bit is set: no constant of the source, the x64 port converting
+        # through 64 bits. 5 of a client's functions, 2026-10-30)
+        if k == "f:4.29497e+09":
+            return True
+        # (-1.0 as a multiplier where the port flips the sign bit, `xorps` with -0.0's mask)
+        if k == "f:-1" and ("f:-0" in have or "i:80000000" in have):
+            return True
         if isinstance(k, int):
             # (a field: its offset in the translation's address arithmetic, `*(int *)(p + 8)`,
             # or an index scaled by its element, `param_1[3]` of an int *)
@@ -879,6 +890,19 @@ def main() -> None:
 
     refbin = Binary()
     ref = Image(project.EXE)
+    # (and the imports by ordinal by the names Ghidra gives their slots, as translate32.py's
+    # load_imports: `PTR_RemoveWindowSubclass_0107e020`, comctl32's subclassing, which the port
+    # calls by name. Without, its thunk was no import and 9 of a client's input devices missed it)
+    refdata = ROOT / "build/refdata.jsonl"
+    if refdata.exists():
+        with open(refdata, encoding="utf-8") as fh:
+            for line in fh:
+                if '"PTR_' not in line:
+                    continue
+                m = re.search(r'"name":"PTR_(\w+?)_([0-9a-f]{8})"', line)
+                if m and not m.group(1).startswith(("Ordinal_", "DAT_", "FUN_")):
+                    slot = int(m.group(2), 16)
+                    ref.iat.setdefault(slot, m.group(1)) if slot in ref.ordinal_slots else None
     port = Image(port_exe)
     md32 = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
     md64 = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
@@ -1025,6 +1049,13 @@ def main() -> None:
                         break
                     t = (t + 5 + int.from_bytes(code[1:5], "little", signed=True)) & 0xFFFFFFFF
                 t = ref_thunk.get(t, t)
+                # (or a thunk of a table of them no function starts at, `jmp [slot]` every six
+                # bytes, comctl32's RemoveWindowSubclass at 0xc8e972: the import, by its bytes,
+                # not the function the table falls inside. 9 of a client's input devices)
+                if isinstance(t, int):
+                    tc = ref.read(t, 6)
+                    if len(tc) == 6 and tc[:2] == b"\xff\x25" and int.from_bytes(tc[2:6], "little") in ref.iat:
+                        t = "imp:" + ref.iat[int.from_bytes(tc[2:6], "little")]
                 if isinstance(t, int):
                     root = refbin.func_containing(t)
                     t = root if root is not None else t
@@ -1232,6 +1263,12 @@ def main() -> None:
         # (an empty string the reference passes by its address, `push 0x109cfce` of a byte 0 in
         # .rdata, which the translation passes as its own `""`: a string by its value, as others.
         # 15 of a client's string initializations, 2026-10-30)
+        # (a float constant the reference loads from an address the translation names, `REFG(..,
+        # 0x1097254)` for -1.0, that the port's compiler dropped as dead: kept, as a global the C
+        # names is. 5 of a client's sound obstruction methods, 2026-10-30)
+        for v, k in rf.float_at.items():
+            if v in source and k in rf.consts and k not in pf.consts:
+                del rf.consts[k]
         if '""' in translations.get(a, ""):
             for k in [k for k in rf.consts if k.startswith("g:")]:
                 if ref.read(int(k[2:], 16), 1) == b"\x00" and k not in pf.consts:
