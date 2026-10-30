@@ -23,6 +23,8 @@
 
 #include "RefImage.hpp"
 
+void RefPrintStack(HANDLE thread, CONTEXT c);   // RefImage.cpp
+
 extern "C" uint32_t gen_ref_base;   // RefImage.cpp
 const wchar_t* RefImagePath();       // RefImage.cpp
 extern "C" unsigned int gen_teb32(void);
@@ -535,6 +537,8 @@ void UnwindFrame(uint32_t node) {
 // never saw an exception the runtime dispatches itself, RaiseException's (rhtest seh's vectored)
 std::mutex g_vectoredLock;
 std::vector<uint32_t> g_vectored;
+// (the context of the hardware fault being dispatched, HwTrampoline's, for the unhandled report)
+thread_local const CONTEXT* g_hwContext = nullptr;
 
 void Dispatch(Thrown t) {
     {
@@ -627,6 +631,12 @@ void Dispatch(Thrown t) {
         }
     }
     fprintf(stderr, "rhipper: unhandled exception %08X; the chain:\n", t.code);
+    // (and where a hardware fault was, its context's stack: the chain alone said nothing of which
+    // translation faulted, rhtest stl /MT's startup access violation)
+    if (g_hwContext) {
+        fprintf(stderr, "  the fault, at:\n");
+        RefPrintStack(GetCurrentThread(), *g_hwContext);
+    }
     for (uint32_t node = Head(); node != kEndOfChain && node != 0; node = U(node))
         fprintf(stderr, "  node %08X handler %08X FuncInfo %08X scope table %08X state %d\n", node, U(node + 4),
                 FuncInfoOf(U(node + 4)), ScopeTableOf(node), I(node + 8));
@@ -694,7 +704,9 @@ thread_local HwFault t_fault;
 [[noreturn]] void HwTrampoline() {
     HwFault& f = t_fault;
     eh::Thrown t{f.code, 0, 0, eh::Pointers(f.code, 0, f.n, f.a), false};
+    eh::g_hwContext = &f.ctx;
     eh::Dispatch(t);
+    eh::g_hwContext = nullptr;
     RtlRestoreContext(&f.ctx, nullptr);
     for (;;) {}
 }
