@@ -581,6 +581,10 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
         """An address in the reference's image: a string, a float constant it loads, a global."""
         if not ref.contains(v) or (port and img.contains(v) and img is not ref):
             return None
+        # (the image base itself as an immediate is a number, `cmp eax, 0x400000` for a counter's
+        # `0x3fffff < n`: no address of anything the port names, its headers aside)
+        if v == ref.base and not FLOAT_MNEMONIC.search(mn):
+            return None
         # (a scalar operand by its suffix: capstone sizes comisd's `xmmword ptr` 16)
         # (cvtsi2sd's source is an integer)
         m = re.search(r"(?:^cvtt?(ss|sd)2|(ss|sd)$)", mn)
@@ -1002,6 +1006,10 @@ def near(k, have: set) -> bool:
         v = int(k[2:], 16)
         if any(f"g:{v + d:x}" in have for d in range(-15, 16) if d):
             return True
+        # (or a record's further on, an index's constant part folded in by whole words, `[eax +
+        # 0x10993b0]` for the port's 0x10993d0, element -1 of a 32-byte table)
+        if any(f"g:{v + d:x}" in have for d in range(-0x40, 0x41, 4) if d):
+            return True
         # (or its address folded into a scaled index, as an array's below: `table[-i]` of a
         # pointer table at 0x10efcc8 as `mov eax, 0x43bf32; sub rax, rbx; mov eax, [rax*4]`, the
         # x64 compiler's (0x10efcc8 / 4 - i) * 4, a client's 0xb1a580 scored 0, 2026-10-30)
@@ -1052,7 +1060,7 @@ def presence(ref: Counter, port: Counter, source: set[int] = frozenset(),
             # (and a global the port reads as a string there, the other way, or a few bytes on: a
             # table of 8-byte records indexed from 0x1093a00 that the port reads at its +0xc,
             # the bytes there spelling a string's tail)
-            if addrs & port_addrs or (k.startswith("g:") and any(a + d in port_addrs for a in addrs for d in range(1, 16))):
+            if addrs & port_addrs or (k.startswith("g:") and any(a + d in port_addrs for a in addrs for d in range(-16, 16) if d)):
                 return True
             # (or folded into a scaled index, the address over the element's size an immediate of
             # the port's, whatever it was taken for: `table[-i]` of a pointer table at 0x10efcc8
@@ -1660,6 +1668,28 @@ def main() -> None:
                 if "btr" in pf.mnemonics or f"i:{~(1 << (b % 8)) & 0xFF:x}" in pf.consts \
                         or f"i:{~(1 << (b % 16)) & 0xFFFF:x}" in pf.consts:
                     del rf.consts[k]
+        # (a wide string the reference's address reads as one character, `push 0x1118b18` for
+        # L"?*", the port's literal its own: by the text, _wstat's wildcard check)
+        # (a float table read through an index the port's compiler made a constant: its element's
+        # value loaded as a constant, `fld [esi + 0x10a6b78]` for the port's 0.307173. 2 of a
+        # client's camera presets)
+        port_floats = {k for k in pf.consts if k.startswith("f:")}
+        for k in [k for k in rf.consts if k.startswith("a:") and k not in pf.consts]:
+            v = int(k[2:], 16)
+            if port_floats and any(F.float_text(ref.read(v + d, 4)) in port_floats or
+                                   F.float_text(ref.read(v + d, 8)) in port_floats
+                                   for d in range(0, 0x400, 4)):
+                del rf.consts[k]
+        # (too short for a string key on either side: its literal in the translation's source)
+        src_text = translations.get(a, "")
+        for k in [k for k in rf.consts if k.startswith("g:") and k not in pf.consts]:
+            raw = ref.read(int(k[2:], 16), 16)
+            wide = raw.decode("utf-16-le", "replace").split("\0")[0]
+            narrow = raw.split(b"\0")[0].decode("latin-1")
+            for w, lit in ((wide, f'L"{wide}"'), (narrow, f'"{narrow}"')):
+                if w and w.isprintable() and (f"s:{w}" in pf.consts or lit in src_text):
+                    del rf.consts[k]
+                    break
         # (a field of a member addressed by an indexed lea, `lea edi, [eax + ecx + 0x1c4]; cmp
         # [edi + 0x58], 0` for the C's `this + i * 0xb4 + 0x21c`, 4 of a client's)
         for d in [d for d in rf.fields if d not in pf.fields and d in rf.member_at]:

@@ -117,6 +117,12 @@ _thunk_slot: dict[int, int] = {}     # an import's thunk -> its slot
 _imp_params: dict[int, int] = {}     # import slot -> its prototype's stack parameter bytes
 
 
+def x87_neutral(t) -> bool:
+    """A callee that leaves the x87 stack as it found it whatever the caller holds there: the /GS
+    cookie check between a function's result and its ret"""
+    return t is not None and "security_check_cookie" in (_names.get(t) or "")
+
+
 def _init(names, cleanup, noreturn, imp_cleanup, cdecl_args=None, untyped=None, thunk_slot=None, imp_params=None):
     global _b, _names, _cleanup, _noreturn, _imp_cleanup, _cdecl_args, _untyped, _thunk_slot, _imp_params
     _b = Binary()
@@ -234,6 +240,15 @@ def _target(ins) -> int | None:
             except Exception:
                 return None
             if "guard_check_icall" in _names.get(t, ""):
+                return t
+            # (or any function a read-only slot holds, outside the import table: a constant
+            # callback table's entry, `call [0x114ba74]` for 0xdfcfa0, as ApplyFacts' constant
+            # call slots make it for Ghidra. As unknown, its four words were two and the `push
+            # esi` among them the caller's save, not its argument, a client's 0xdeab00 stubbed)
+            slot = m.disp & 0xFFFFFFFF
+            sec = _b.section_of(slot)
+            if sec is not None and sec.name == ".rdata" and not (_b.iat[0] <= slot < _b.iat[1]) \
+                    and _b.is_func_start(t):
                 return t
     return None
 
@@ -1082,7 +1097,9 @@ def analyse(root: int, ranges):
             # ret 4`: a fixed-point value scaled to a float, its operand's width the result's. Taken
             # for no result, 0xcfe760 and 3 like it returned their argument, 2026-10-30)
             arith = None
-            for _ in range(16):
+            # (far enough back for a record's stores after the load, `fld [-1.0]; ...; mov [eax +
+            # 0xc], edx; pop; ret`, a client's obstruction queries)
+            for _ in range(48):
                 if q is None or q not in insns:
                     break
                 qi = insns[q]
@@ -1111,11 +1128,22 @@ def analyse(root: int, ranges):
                     else:
                         widths.add(None)
                     break
+                # (a direct call's result returned, `call 0xd2a330; pop ...; ret 0x10`, beside a ret
+                # of its own load: the callee's, the same type, handed down to it as `passes`. An
+                # obstruction's vf22, `fld [-1.0]; ret` on its other way, typed i4, 5 of a client's)
+                if qi.mnemonic == "call" and x87_neutral(_target(qi)):
+                    q = prv.get(q)
+                    continue
+                if qi.mnemonic == "call" and _target(qi) is not None:
+                    widths.add("call")
+                    break
                 if qi.mnemonic in ("call", "jmp") or qi.mnemonic.startswith("j"):
                     widths.add(None)
                     break
                 q = prv.get(q)
         widths.discard("const")
+        if widths & {4, 8}:
+            widths.discard("call")
         if widths in ({4}, {8}):
             x87_own_ret = "f4" if widths == {4} else "d8"
         # (or every ret reached, along every way, with one value on the x87 stack, whatever made
@@ -1123,6 +1151,11 @@ def analyse(root: int, ranges):
         # st(2); ...; ret`, its callers' extraout_ST0 stubs. A double: as wide as the x87 result
         # goes in C, a float's rounding none the reference did)
         elif x87_depth_at_rets(insns, nxt, state, root) == {1}:
+            x87_own_ret = "d8"
+        # (or with one on every way but those returning a direct call's result as it is: the
+        # callee's own, handed down to it. An obstruction query's 0xd20060, its own float on three
+        # ways, 0xd1fc30's on two)
+        elif x87_depth_at_rets(insns, nxt, state, root, mark_calls=True) == {1, "call"}:
             x87_own_ret = "d8"
     # (and a 64-bit result of its own: every ret reached, past the epilogue's pops alone, from a
     # load of eax and one of edx from a value's two words, `mov eax, [ecx + 8]; mov edx, [ecx +
@@ -2887,7 +2920,7 @@ def x87_discards(m: str) -> bool:
                  "fcomip", "fucomip", "ffreep", "ficomp")
 
 
-def x87_depth_at_rets(insns, nxt, state, root=None) -> set:
+def x87_depth_at_rets(insns, nxt, state, root=None, mark_calls=False) -> set:
     """The x87 stack depths each ret is reached with, along every way from the entry (falling
     through and jumping): loads push one, a popping instruction pops one (fcompp two). A call on a
     way leaves the stack as a callee leaves it, empty or its result in st0: depth 0 after it, and a
@@ -2912,9 +2945,12 @@ def x87_depth_at_rets(insns, nxt, state, root=None) -> set:
         if m == "ret":
             out.add(d)
             continue
-        if d is not None:
+        # (mark_calls: a direct call's result returned as it is, "call", until an x87 instruction)
+        if d == "call" and m.startswith("f"):
+            d = 0
+        if d is not None and d != "call" and not (m == "call" and x87_neutral(_target(ins))):
             if m == "call":
-                d = 0
+                d = "call" if mark_calls and _target(ins) is not None else 0
             elif m.startswith(("fld", "fild", "fbld")) and m not in ("fldcw", "fldenv"):
                 d += 1
             elif m in ("fcompp", "fucompp"):
@@ -2923,7 +2959,8 @@ def x87_depth_at_rets(insns, nxt, state, root=None) -> set:
             elif m.startswith("f") and (m.endswith("p") or m in ("fcompi", "fucompi")) and not m.startswith(("fn", "fwait")):
                 d -= 1
             # (popping a value it did not load: a callee's result, or one it was handed)
-            d = max(d, 0)
+            if d != "call":
+                d = max(d, 0)
         t = _target(ins)
         if (m.startswith("j") or m.startswith("loop")) and t is not None:
             work.append((t, d))
@@ -3430,10 +3467,15 @@ def next_call_deficit(insns, prv, nxt, a, depth=0) -> int:
             # later call's shortfall is someone else's, `push 7; call [vt + 0xc]; push eax; push
             # fmt; push 0x40; push ecx; call fmt_s` gave the getter's 7 to a call two on. Not in a
             # chain, whose next takes the words left over first)
+            # (or one that takes nothing and whose result is pushed next, an argument of the call
+            # after: `push [g]; call [vt + 0x44]; mov ecx, eax; call 0x43f9c0; push eax; call
+            # 0x42cc20 (ret 8)`, the global 0x42cc20's second. Stopped there, the getter took it
+            # and 0x42cc20 read its caller's saved edi, a client's UI 0x48b290 and 3 like it)
+            pushed_on = q in insns and insns[q].mnemonic == "push" and insns[q].op_str == "eax"
             if take > after:
                 deficit += take - after
                 after = 0
-            elif chained:
+            elif chained or (take == 0 and after == 0 and pushed_on):
                 after -= take
             else:
                 return deficit
@@ -3909,7 +3951,23 @@ def main() -> None:
             continue
         own = owner_of(e)
         refs = from_others.get(e, set())
-        if own is not None and own in refs and not (refs - {own, e}):
+        # (or past its owner's body, a range left short: reached by the jumps of one function alone
+        # whose last range ends in the same code run, no padding between. 0x74007c after 0x73ff90's
+        # range was cut at a removed entry, its jumps' target made a function, 2026-10-30)
+        if own is None and len(refs - {e}) == 1:
+            f2 = next(iter(refs - {e}))
+            ends = [hi for lo, hi in ranges.get(f2, ()) if hi <= e]
+            if ends and e - max(ends) < 0x100 and b"\xcc\xcc" not in bytes(b.image[b.off(max(ends)):b.off(e)]) \
+                    and all(k2 == "jmp" for t2, _u2, k2 in local.get(f2, {}).get("calls", ()) if t2 == e):
+                own = f2
+        if own is None or refs - {own, e}:
+            continue
+        # (its owner's branch there, a `je 0x4d0079` too: conditional jumps are no tail calls the
+        # local pass records)
+        if own in refs or any(
+                (mn.startswith("j") or mn.startswith("loop")) and ops == hexa(e).lower()
+                for lo, hi in ranges.get(own, ())
+                for _a, _s, mn, ops in md_runs.disasm_lite(bytes(b.image[b.off(lo):b.off(lo) + (hi - lo)]), lo)):
             misplaced[e] = own
     for f in funcs:
         e = int(f["entry"], 16)

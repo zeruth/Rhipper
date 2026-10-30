@@ -1953,7 +1953,14 @@ public class ApplyFacts extends GhidraScript {
                 Function f = getFunctionAt(bad);
                 if (f == null || f.getSymbol().getSource() != SourceType.DEFAULT) continue;
                 removeFunction(f);
-                Function around = getFunctionContaining(good);
+                Function around = getFunctionAt(good);
+                // (its owner's body grown over the code again, as its flow reaches it: left at the
+                // removed entry, the rest belonged to no function and a jump target there was made
+                // one the next pass, splitting 0x73ff90 at 0x74007c, a stub on startup)
+                if (around != null) {
+                    ghidra.app.cmd.function.CreateFunctionCmd.fixupFunctionBody(currentProgram, around, monitor);
+                }
+                around = getFunctionContaining(good);
                 if (around != null && !around.getEntryPoint().equals(good)) continue;
                 // (cleared only where the bad entry split an instruction: one on an instruction of
                 // its own, a run's middle opening with `je` (protos32's flags rule), is the code as
