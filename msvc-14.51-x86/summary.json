@@ -26,7 +26,7 @@
    "translated": 102
   },
   "status": "PASS",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  },
  "calls-O2": {
   "accuracy": {
@@ -55,7 +55,7 @@
    "translated": 104
   },
   "status": "PASS",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  },
  "calls-Od": {
   "accuracy": {
@@ -84,7 +84,7 @@
    "translated": 110
   },
   "status": "PASS",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  },
  "com-O2": {
   "accuracy": {
@@ -113,7 +113,7 @@
    "translated": 81
   },
   "status": "PASS",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  },
  "com-Od": {
   "accuracy": {
@@ -142,7 +142,7 @@
    "translated": 96
   },
   "status": "PASS",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  },
  "core-O2": {
   "accuracy": {
@@ -171,7 +171,7 @@
    "translated": 124
   },
   "status": "PASS",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  },
  "core-Od": {
   "accuracy": {
@@ -200,7 +200,7 @@
    "translated": 129
   },
   "status": "PASS",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  },
  "cpp-O2": {
   "accuracy": {
@@ -229,7 +229,7 @@
    "translated": 162
   },
   "status": "PASS",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  },
  "cpp-Od": {
   "accuracy": {
@@ -258,7 +258,7 @@
    "translated": 258
   },
   "status": "PASS",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  },
  "crt-O2": {
   "accuracy": {
@@ -287,7 +287,7 @@
    "translated": 76
   },
   "status": "PASS",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  },
  "crt-Od": {
   "accuracy": {
@@ -316,7 +316,7 @@
    "translated": 91
   },
   "status": "PASS",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  },
  "eh-O2": {
   "accuracy": {
@@ -336,7 +336,7 @@
    "identical": 31,
    "mean": 0.5704
   },
-  "detail": "--- expected\n+++ actual\n@@ -12,9 +12,9 @@\n events = 964592513 (0x397e8381)\n-nested = 7014 (0x00001b66)\n-events = -282517251 (0xef2920fd)\n-ctor = 67 (0x00000043)\n-events = 63148701 (0x03c3929d)\n-seh = -536865279 (0xe0001601)\n+nested = 0 (0x00000000)\n+events = 964592513 (0x397e8381)\n+ctor = 0 (0x00000000)\n+events = 964592513 (0x397e8381)\n+seh = 0 (0x00000000)\n finally_param = 2107 (0x0000083b)\n-checksum = 0x5774e739\n-exit = 57\n+checksum = 0x575c90be\n+exit = 62\n\nstderr:\n   5  00007ff862fff2bc  RtlUserThreadStart+0x2c\nrhtest: not translated: 004012e0\n   0  00000000600091f3  GenUnimplemented+0xd3\n   1  0000000060023b91  F_004012e0+0x31\n   2  0000000060025625  F_00401ad0+0x175\n   3  00000000600263f3  F_00401e70+0x353\n   4  00000000005add37  BaseThreadInitThunk+0x17\n   5  00007ff862fff2bc  RtlUserThreadStart+0x2c\nrhtest: not translated: 00401930\n   0  00000000600091f3  GenUnimplemented+0xd3\n   1  0000000060023c11  F_00401930+0x31\n   2  0000000060025649  F_00401ad0+0x199\n   3  00000000600263f3  F_00401e70+0x353\n   4  00000000005add37  BaseThreadInitThunk+0x17\n   5  00007ff862fff2bc  RtlUserThreadStart+0x2c",
+  "detail": "--- expected\n+++ actual\n@@ -12,9 +12,9 @@\n events = 964592513 (0x397e8381)\n-nested = 7014 (0x00001b66)\n-events = -282517251 (0xef2920fd)\n-ctor = 67 (0x00000043)\n-events = 63148701 (0x03c3929d)\n-seh = -536865279 (0xe0001601)\n+nested = 0 (0x00000000)\n+events = 964592513 (0x397e8381)\n+ctor = 0 (0x00000000)\n+events = 964592513 (0x397e8381)\n+seh = 0 (0x00000000)\n finally_param = 2107 (0x0000083b)\n-checksum = 0x5774e739\n-exit = 57\n+checksum = 0x575c90be\n+exit = 62\n\nstderr:\n   5  00007fff796ff2bc  RtlUserThreadStart+0x2c\nrhtest: not translated: 004012e0\n   0  00000000600091f3  GenUnimplemented+0xd3\n   1  0000000060023b91  F_004012e0+0x31\n   2  0000000060025625  F_00401ad0+0x175\n   3  00000000600263f3  F_00401e70+0x353\n   4  000000000046dd37  BaseThreadInitThunk+0x17\n   5  00007fff796ff2bc  RtlUserThreadStart+0x2c\nrhtest: not translated: 00401930\n   0  00000000600091f3  GenUnimplemented+0xd3\n   1  0000000060023c11  F_00401930+0x31\n   2  0000000060025649  F_00401ad0+0x199\n   3  00000000600263f3  F_00401e70+0x353\n   4  000000000046dd37  BaseThreadInitThunk+0x17\n   5  00007fff796ff2bc  RtlUserThreadStart+0x2c",
   "fidelity": {
    "by_size": 0.942,
    "functions": 112,
@@ -347,7 +347,7 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  },
  "eh-Od": {
   "accuracy": {
@@ -367,7 +367,7 @@
    "identical": 22,
    "mean": 0.5014
   },
-  "detail": "--- expected\n+++ actual\n@@ -1,20 +1,20 @@\n-by_int = 1010 (0x000003f2)\n-events = 3332 (0x00000d04)\n-by_base = 2142 (0x0000085e)\n-events = 3205416 (0x0030e928)\n-by_std = 3112 (0x00000c28)\n-events = -1214559124 (0xb79b4c6c)\n-by_any = 4000 (0x00000fa0)\n-events = 1039789776 (0x3df9eed0)\n-by_none = 1 (0x00000001)\n-events = 1073179329 (0x3ff76ac1)\n-rethrows = 4243 (0x00001093)\n-events = 964592513 (0x397e8381)\n-nested = 7014 (0x00001b66)\n-events = -282517251 (0xef2920fd)\n-ctor = 67 (0x00000043)\n-events = 63148701 (0x03c3929d)\n+by_int = 0 (0x00000000)\n+events = 0 (0x00000000)\n+by_base = 0 (0x00000000)\n+events = 0 (0x00000000)\n+by_std = 0 (0x00000000)\n+events = 0 (0x00000000)\n+by_any = 0 (0x00000000)\n+events = 0 (0x00000000)\n+by_none = 0 (0x00000000)\n+events = 0 (0x00000000)\n+rethrows = 0 (0x00000000)\n+events = 0 (0x00000000)\n+nested = 0 (0x00000000)\n+events = 0 (0x00000000)\n+ctor = 0 (0x00000000)\n+events = 0 (0x00000000)\n seh = -536865279 (0xe0001601)\n-finally_param = 2107 (0x0000083b)\n-checksum = 0x5774e739\n-exit = 57\n+finally_param = 0 (0x00000000)\n\nstderr:\nrhtest: not translated: 00401690\n   0  00000000600091f3  GenUnimplemented+0xd3\n   1  0000000060023cf1  F_00401690+0x31\n   2  0000000060025e90  F_004020e0+0x180\n   3  0000000060026a63  F_004022c0+0x353\n   4  000000000046dd37  BaseThreadInitThunk+0x17\n   5  00007ff862fff2bc  RtlUserThreadStart+0x2c\nrhtest: not translated: 004018be\n   0  00000000600091f3  GenUnimplemented+0xd3\n   1  0000000060023d71  F_004018be+0x31\n   2  0000000060024b48  F_00401830+0x118\n   3  0000000060025ece  F_004020e0+0x1be\n   4  0000000060026a63  F_004022c0+0x353\n   5  000000000046dd37  BaseThreadInitThunk+0x17\n   6  00007ff862fff2bc  RtlUserThreadStart+0x2c",
+  "detail": "--- expected\n+++ actual\n@@ -1,20 +1,20 @@\n-by_int = 1010 (0x000003f2)\n-events = 3332 (0x00000d04)\n-by_base = 2142 (0x0000085e)\n-events = 3205416 (0x0030e928)\n-by_std = 3112 (0x00000c28)\n-events = -1214559124 (0xb79b4c6c)\n-by_any = 4000 (0x00000fa0)\n-events = 1039789776 (0x3df9eed0)\n-by_none = 1 (0x00000001)\n-events = 1073179329 (0x3ff76ac1)\n-rethrows = 4243 (0x00001093)\n-events = 964592513 (0x397e8381)\n-nested = 7014 (0x00001b66)\n-events = -282517251 (0xef2920fd)\n-ctor = 67 (0x00000043)\n-events = 63148701 (0x03c3929d)\n+by_int = 0 (0x00000000)\n+events = 0 (0x00000000)\n+by_base = 0 (0x00000000)\n+events = 0 (0x00000000)\n+by_std = 0 (0x00000000)\n+events = 0 (0x00000000)\n+by_any = 0 (0x00000000)\n+events = 0 (0x00000000)\n+by_none = 0 (0x00000000)\n+events = 0 (0x00000000)\n+rethrows = 0 (0x00000000)\n+events = 0 (0x00000000)\n+nested = 0 (0x00000000)\n+events = 0 (0x00000000)\n+ctor = 0 (0x00000000)\n+events = 0 (0x00000000)\n seh = -536865279 (0xe0001601)\n-finally_param = 2107 (0x0000083b)\n-checksum = 0x5774e739\n-exit = 57\n+finally_param = 0 (0x00000000)\n\nstderr:\nrhtest: not translated: 00401690\n   0  00000000600091f3  GenUnimplemented+0xd3\n   1  0000000060023cf1  F_00401690+0x31\n   2  0000000060025e90  F_004020e0+0x180\n   3  0000000060026a63  F_004022c0+0x353\n   4  00000000005add37  BaseThreadInitThunk+0x17\n   5  00007fff796ff2bc  RtlUserThreadStart+0x2c\nrhtest: not translated: 004018be\n   0  00000000600091f3  GenUnimplemented+0xd3\n   1  0000000060023d71  F_004018be+0x31\n   2  0000000060024b48  F_00401830+0x118\n   3  0000000060025ece  F_004020e0+0x1be\n   4  0000000060026a63  F_004022c0+0x353\n   5  00000000005add37  BaseThreadInitThunk+0x17\n   6  00007fff796ff2bc  RtlUserThreadStart+0x2c",
   "fidelity": {
    "by_size": 0.935,
    "functions": 130,
@@ -378,7 +378,7 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  },
  "engine-GL": {
   "accuracy": {
@@ -407,7 +407,7 @@
    "translated": 109
   },
   "status": "PASS",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  },
  "engine-O2": {
   "accuracy": {
@@ -436,7 +436,7 @@
    "translated": 110
   },
   "status": "PASS",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  },
  "engine-Od": {
   "accuracy": {
@@ -465,7 +465,7 @@
    "translated": 137
   },
   "status": "PASS",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  },
  "float-IA32": {
   "accuracy": {
@@ -479,11 +479,11 @@
    "stub": 0
   },
   "bytes": {
-   "by_size": 0.4507,
+   "by_size": 0.4389,
    "bytes_identical": 35,
    "equivalent": 1,
    "identical": 36,
-   "mean": 0.6522
+   "mean": 0.6517
   },
   "detail": "--- expected\n+++ actual\n@@ -43,5 +43,5 @@\n pair_scale = 0x40118000:0x00000000\n-fixed_8_24 = 998169600 (0x3b7edc00)\n-table_entry = 0xc075b000:0x00000000\n-checksum = 0xb383b3d8\n-exit = 88\n+fixed_8_24 = 1145044992 (0x44400000)\n+table_entry = 0x4160040c:0x00000000\n+checksum = 0x07615d9d\n+exit = 29\n\nstderr:\nrhtest: 9 bytes of the code section's data kept\nrhtest: import api-ms-win-crt-math-l1-1-0.dll!_CIsqrt has no x64 export (needs an adapter of its own)\nrhtest: reference mapped at 0x400000 (0x6000 bytes): 95 entry jumps (0 too close to the next), 37 imports resolved, 1 missing\nrhtest: running the reference's entry 0x402ca0",
   "fidelity": {
@@ -496,7 +496,7 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  },
  "float-O2": {
   "accuracy": {
@@ -510,11 +510,11 @@
    "stub": 0
   },
   "bytes": {
-   "by_size": 0.4635,
+   "by_size": 0.4537,
    "bytes_identical": 31,
    "equivalent": 1,
    "identical": 32,
-   "mean": 0.6251
+   "mean": 0.6232
   },
   "detail": "--- expected\n+++ actual\n@@ -43,5 +43,5 @@\n pair_scale = 0x40118000:0x00000000\n-fixed_8_24 = 998169600 (0x3b7edc00)\n-table_entry = 0xc075b000:0x00000000\n-checksum = 0x74bb836d\n-exit = 109\n+fixed_8_24 = 1249910784 (0x4a802000)\n+table_entry = 0x4160040c:0x00000000\n+checksum = 0x52379556\n+exit = 86\n\nstderr:\nrhtest: 9 bytes of the code section's data kept\nrhtest: reference mapped at 0x400000 (0x6000 bytes): 96 entry jumps (0 too close to the next), 38 imports resolved, 0 missing\nrhtest: running the reference's entry 0x402e70",
   "fidelity": {
@@ -527,7 +527,7 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  },
  "float-Od": {
   "accuracy": {
@@ -541,13 +541,13 @@
    "stub": 0
   },
   "bytes": {
-   "by_size": 0.4811,
+   "by_size": 0.4814,
    "bytes_identical": 32,
    "equivalent": 2,
    "identical": 34,
    "mean": 0.648
   },
-  "detail": "--- expected\n+++ actual\n@@ -43,5 +43,2 @@\n pair_scale = 0x40118000:0x00000000\n-fixed_8_24 = 998169600 (0x3b7edc00)\n-table_entry = 0xc075b000:0x00000000\n-checksum = 0x74bb836d\n-exit = 109\n+exit = 3221225477\n\nstderr:\nrhtest: 9 bytes of the code section's data kept\nrhtest: reference mapped at 0x400000 (0x6000 bytes): 107 entry jumps (0 too close to the next), 39 imports resolved, 0 missing\nrhtest: running the reference's entry 0x402e90\nrhipper: unhandled exception C0000005; the chain:\n  the fault, at:\n   0  0000000060026c3b  F_004024d0+0x2b\n   1  00000000600238c9  W_004024d0+0x9\n   2  000000006002515b  F_00401000+0x155b\n   3  0000000060027e3a  F_00402ca0+0x36a\n   4  00000000005bdd37  BaseThreadInitThunk+0x17\n   5  00007ff862fff2bc  RtlUserThreadStart+0x2c\n  node 0541FF0C handler 004037C0 FuncInfo 00000000 scope table 00404608 state -1366904163",
+  "detail": "--- expected\n+++ actual\n@@ -43,5 +43,2 @@\n pair_scale = 0x40118000:0x00000000\n-fixed_8_24 = 998169600 (0x3b7edc00)\n-table_entry = 0xc075b000:0x00000000\n-checksum = 0x74bb836d\n-exit = 109\n+exit = 3221225477\n\nstderr:\nrhtest: 9 bytes of the code section's data kept\nrhtest: reference mapped at 0x400000 (0x6000 bytes): 107 entry jumps (0 too close to the next), 39 imports resolved, 0 missing\nrhtest: running the reference's entry 0x402e90\nrhipper: unhandled exception C0000005; the chain:\n  the fault, at:\n   0  0000000060026c1b  F_004024d0+0x2b\n   1  00000000600238c9  W_004024d0+0x9\n   2  000000006002513b  F_00401000+0x153b\n   3  0000000060027e1a  F_00402ca0+0x36a\n   4  00000000005ddd37  BaseThreadInitThunk+0x17\n   5  00007fff796ff2bc  RtlUserThreadStart+0x2c\n  node 054AFF0C handler 004037C0 FuncInfo 00000000 scope table 00404608 state 1716537741",
   "fidelity": {
    "by_size": 1.0,
    "functions": 106,
@@ -558,7 +558,7 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  },
  "fpenv-IA32": {
   "accuracy": {
@@ -587,7 +587,7 @@
    "translated": 63
   },
   "status": "PASS",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  },
  "fpenv-O2": {
   "accuracy": {
@@ -616,7 +616,7 @@
    "translated": 65
   },
   "status": "PASS",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  },
  "fpenv-Od": {
   "accuracy": {
@@ -645,7 +645,7 @@
    "translated": 71
   },
   "status": "PASS",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  },
  "int64-O2": {
   "accuracy": {
@@ -674,7 +674,7 @@
    "translated": 92
   },
   "status": "PASS",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  },
  "int64-Od": {
   "accuracy": {
@@ -703,7 +703,7 @@
    "translated": 95
   },
   "status": "PASS",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  },
  "misc-O2": {
   "accuracy": {
@@ -723,7 +723,7 @@
    "identical": 25,
    "mean": 0.6064
   },
-  "detail": "--- expected\n+++ actual\n@@ -22,6 +22,6 @@\n folded_index = 906954521 (0x360f0719)\n-lex_switch = -1356447612 (0xaf264084)\n-early_push = 7813470 (0x0077395e)\n+lex_switch = 7 (0x00000007)\n+early_push = 0 (0x00000000)\n bom_kind = 960 (0x000003c0)\n-checksum = 0x18f710de\n-exit = 94\n+checksum = 0xe6ffcf98\n+exit = 24\n\nstderr:\nrhtest: not translated: 00401c40\n   0  0000000060009443  GenUnimplemented+0xd3\n   1  0000000060025111  F_00401c40+0x31\n   2  00000000600262cf  F_00401bc0+0x7f\n   3  0000000060026eeb  F_00401f80+0xa1b\n   4  000000006002919f  F_00403070+0x37f\n   5  000000000046dd37  BaseThreadInitThunk+0x17\n   6  00007ff862fff2bc  RtlUserThreadStart+0x2c\nrhtest: not translated: 004013a0\n   0  0000000060009443  GenUnimplemented+0xd3\n   1  00000000600250d1  F_004013a0+0x31\n   2  0000000060026efe  F_00401f80+0xa2e\n   3  000000006002919f  F_00403070+0x37f\n   4  000000000046dd37  BaseThreadInitThunk+0x17\n   5  00007ff862fff2bc  RtlUserThreadStart+0x2c",
+  "detail": "--- expected\n+++ actual\n@@ -22,6 +22,6 @@\n folded_index = 906954521 (0x360f0719)\n-lex_switch = -1356447612 (0xaf264084)\n-early_push = 7813470 (0x0077395e)\n+lex_switch = 7 (0x00000007)\n+early_push = 0 (0x00000000)\n bom_kind = 960 (0x000003c0)\n-checksum = 0x18f710de\n-exit = 94\n+checksum = 0xe6ffcf98\n+exit = 24\n\nstderr:\nrhtest: not translated: 00401c40\n   0  0000000060009443  GenUnimplemented+0xd3\n   1  0000000060025111  F_00401c40+0x31\n   2  00000000600262cf  F_00401bc0+0x7f\n   3  0000000060026eeb  F_00401f80+0xa1b\n   4  000000006002919f  F_00403070+0x37f\n   5  000000000046dd37  BaseThreadInitThunk+0x17\n   6  00007fff796ff2bc  RtlUserThreadStart+0x2c\nrhtest: not translated: 004013a0\n   0  0000000060009443  GenUnimplemented+0xd3\n   1  00000000600250d1  F_004013a0+0x31\n   2  0000000060026efe  F_00401f80+0xa2e\n   3  000000006002919f  F_00403070+0x37f\n   4  000000000046dd37  BaseThreadInitThunk+0x17\n   5  00007fff796ff2bc  RtlUserThreadStart+0x2c",
   "fidelity": {
    "by_size": 0.902,
    "functions": 96,
@@ -734,7 +734,7 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  },
  "misc-Od": {
   "accuracy": {
@@ -763,7 +763,7 @@
    "translated": 103
   },
   "status": "PASS",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  },
  "seh-O2": {
   "accuracy": {
@@ -783,7 +783,7 @@
    "identical": 25,
    "mean": 0.5783
   },
-  "detail": "--- expected\n+++ actual\n@@ -26,3 +26,3 @@\n finally return small = 1 (0x00000001)\n-finally trail = 534411079 (0x1fda7747)\n+finally trail = 912434 (0x000dec32)\n guarded leaf = 8 (0x00000008)\n@@ -36,3 +36,3 @@\n guarded trail = 7111 (0x00001bc7)\n-checksum = 0x4c0806ba\n-exit = 58\n+checksum = 0x85838ec4\n+exit = 68\n\nstderr:\nrhtest: 9 bytes of the code section's data kept\nrhtest: reference mapped at 0x400000 (0x5000 bytes): 101 entry jumps (2 too close to the next), 49 imports resolved, 0 missing\nrhtest: running the reference's entry 0x402340\nrhtest: not translated: 00401540\n   0  00000000600091f3  GenUnimplemented+0xd3\n   1  0000000060024181  F_00401540+0x31\n   2  0000000060027bc4  F_00402150+0x444\n   3  000000000057dd37  BaseThreadInitThunk+0x17\n   4  00007ff862fff2bc  RtlUserThreadStart+0x2c",
+  "detail": "--- expected\n+++ actual\n@@ -26,3 +26,3 @@\n finally return small = 1 (0x00000001)\n-finally trail = 534411079 (0x1fda7747)\n+finally trail = 912434 (0x000dec32)\n guarded leaf = 8 (0x00000008)\n@@ -36,3 +36,3 @@\n guarded trail = 7111 (0x00001bc7)\n-checksum = 0x4c0806ba\n-exit = 58\n+checksum = 0x85838ec4\n+exit = 68\n\nstderr:\nrhtest: 9 bytes of the code section's data kept\nrhtest: reference mapped at 0x400000 (0x5000 bytes): 101 entry jumps (2 too close to the next), 49 imports resolved, 0 missing\nrhtest: running the reference's entry 0x402340\nrhtest: not translated: 00401540\n   0  00000000600091f3  GenUnimplemented+0xd3\n   1  0000000060024181  F_00401540+0x31\n   2  0000000060027bc4  F_00402150+0x444\n   3  000000000046dd37  BaseThreadInitThunk+0x17\n   4  00007fff796ff2bc  RtlUserThreadStart+0x2c",
   "fidelity": {
    "by_size": 0.979,
    "functions": 102,
@@ -794,7 +794,7 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  },
  "seh-Od": {
   "accuracy": {
@@ -814,7 +814,7 @@
    "identical": 24,
    "mean": 0.4767
   },
-  "detail": "--- expected\n+++ actual\n@@ -25,6 +25,6 @@\n finally return big = 10 (0x0000000a)\n-finally return small = 1 (0x00000001)\n-finally trail = 534411079 (0x1fda7747)\n-guarded leaf = 8 (0x00000008)\n-guarded leaf again = 10 (0x0000000a)\n+finally return small = 0 (0x00000000)\n+finally trail = 912434 (0x000dec32)\n+guarded leaf = 0 (0x00000000)\n+guarded leaf again = 0 (0x00000000)\n scribble = 8512 (0x00002140)\n@@ -36,3 +36,3 @@\n guarded trail = 7111 (0x00001bc7)\n-checksum = 0x4c0806ba\n-exit = 58\n+checksum = 0x009d94db\n+exit = 91\n\nstderr:\n   5  00007ff862fff2bc  RtlUserThreadStart+0x2c\nrhtest: not translated: 00401ae0\n   0  00000000600091f3  GenUnimplemented+0xd3\n   1  0000000060024201  F_00401ae0+0x31\n   2  000000006002851f  F_00402510+0x42f\n   3  000000000046dd37  BaseThreadInitThunk+0x17\n   4  00007ff862fff2bc  RtlUserThreadStart+0x2c\nrhtest: not translated: 00401cee\n   0  00000000600091f3  GenUnimplemented+0xd3\n   1  0000000060024241  F_00401cee+0x31\n   2  0000000060026c69  F_00401c60+0x139\n   3  0000000060027010  F_00401ea0+0x60\n   4  0000000060028535  F_00402510+0x445\n   5  000000000046dd37  BaseThreadInitThunk+0x17\n   6  00007ff862fff2bc  RtlUserThreadStart+0x2c",
+  "detail": "--- expected\n+++ actual\n@@ -25,6 +25,6 @@\n finally return big = 10 (0x0000000a)\n-finally return small = 1 (0x00000001)\n-finally trail = 534411079 (0x1fda7747)\n-guarded leaf = 8 (0x00000008)\n-guarded leaf again = 10 (0x0000000a)\n+finally return small = 0 (0x00000000)\n+finally trail = 912434 (0x000dec32)\n+guarded leaf = 0 (0x00000000)\n+guarded leaf again = 0 (0x00000000)\n scribble = 8512 (0x00002140)\n@@ -36,3 +36,3 @@\n guarded trail = 7111 (0x00001bc7)\n-checksum = 0x4c0806ba\n-exit = 58\n+checksum = 0x009d94db\n+exit = 91\n\nstderr:\n   5  00007fff796ff2bc  RtlUserThreadStart+0x2c\nrhtest: not translated: 00401ae0\n   0  00000000600091f3  GenUnimplemented+0xd3\n   1  0000000060024201  F_00401ae0+0x31\n   2  000000006002851f  F_00402510+0x42f\n   3  00000000005fdd37  BaseThreadInitThunk+0x17\n   4  00007fff796ff2bc  RtlUserThreadStart+0x2c\nrhtest: not translated: 00401cee\n   0  00000000600091f3  GenUnimplemented+0xd3\n   1  0000000060024241  F_00401cee+0x31\n   2  0000000060026c69  F_00401c60+0x139\n   3  0000000060027010  F_00401ea0+0x60\n   4  0000000060028535  F_00402510+0x445\n   5  00000000005fdd37  BaseThreadInitThunk+0x17\n   6  00007fff796ff2bc  RtlUserThreadStart+0x2c",
   "fidelity": {
    "by_size": 0.976,
    "functions": 108,
@@ -825,7 +825,7 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  },
  "stl-O2": {
   "accuracy": {
@@ -845,7 +845,7 @@
    "identical": 149,
    "mean": 0.4518
   },
-  "detail": "--- expected\n+++ actual\n@@ -35,5 +35,2 @@\n list splice = 369830286 (0x160b298e)\n-ostream = 631541188 (0x25a48dc4)\n-istream = 440921586 (0x1a47edf2)\n-checksum = 0x111a1f1a\n-exit = 26\n+exit = 3221225477\n\nstderr:\n   3  000000006005752a  F_004149a0+0x2fa\n   4  00000000004bdd37  BaseThreadInitThunk+0x17\n   5  00007ff862fff2bc  RtlUserThreadStart+0x2c\nrhipper: unhandled exception C0000005; the chain:\n  the fault, at:\n   0  00000000600335aa  F_004091a0+0xca\n   1  0000000060034f22  F_00409c40+0xc2\n   2  0000000060041d7a  F_00410650+0x22a\n   3  000000006005752a  F_004149a0+0x2fa\n   4  00000000004bdd37  BaseThreadInitThunk+0x17\n   5  00007ff862fff2bc  RtlUserThreadStart+0x2c\n  node 0544FB20 handler 0044166D FuncInfo 0044FEE4 scope table 00000000 state -1\n  node 0544FC00 handler 00441725 FuncInfo 0044FB6C scope table 00000000 state -1\n  node 0544FE40 handler 00441EA7 FuncInfo 0044FA40 scope table 00000000 state 4\n  node 0544FAEC handler 0544FB34 FuncInfo 00000000 scope table 00000000 state 0",
+  "detail": "--- expected\n+++ actual\n@@ -35,5 +35,2 @@\n list splice = 369830286 (0x160b298e)\n-ostream = 631541188 (0x25a48dc4)\n-istream = 440921586 (0x1a47edf2)\n-checksum = 0x111a1f1a\n-exit = 26\n+exit = 3221225477\n\nstderr:\n   3  000000006005752a  F_004149a0+0x2fa\n   4  00000000004bdd37  BaseThreadInitThunk+0x17\n   5  00007fff796ff2bc  RtlUserThreadStart+0x2c\nrhipper: unhandled exception C0000005; the chain:\n  the fault, at:\n   0  00000000600335aa  F_004091a0+0xca\n   1  0000000060034f22  F_00409c40+0xc2\n   2  0000000060041d7a  F_00410650+0x22a\n   3  000000006005752a  F_004149a0+0x2fa\n   4  00000000004bdd37  BaseThreadInitThunk+0x17\n   5  00007fff796ff2bc  RtlUserThreadStart+0x2c\n  node 053CFB20 handler 0044166D FuncInfo 0044FEE4 scope table 00000000 state -1\n  node 053CFC00 handler 00441725 FuncInfo 0044FB6C scope table 00000000 state -1\n  node 053CFE40 handler 00441EA7 FuncInfo 0044FA40 scope table 00000000 state 4\n  node 053CFAEC handler 053CFB34 FuncInfo 00000000 scope table 00000000 state 0",
   "fidelity": {
    "by_size": 0.997,
    "functions": 1488,
@@ -856,7 +856,7 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  },
  "stl-Od": {
   "accuracy": {
@@ -876,7 +876,7 @@
    "identical": 125,
    "mean": 0.4475
   },
-  "detail": "--- expected\n+++ actual\n@@ -35,5 +35,2 @@\n list splice = 369830286 (0x160b298e)\n-ostream = 631541188 (0x25a48dc4)\n-istream = 440921586 (0x1a47edf2)\n-checksum = 0x111a1f1a\n-exit = 26\n+exit = 3221225477\n\nstderr:\n   5  00000000004cdd37  BaseThreadInitThunk+0x17\n   6  00007ff862fff2bc  RtlUserThreadStart+0x2c\nrhipper: unhandled exception C0000005; the chain:\n  the fault, at:\n   0  000000006004a2ea  F_00411560+0xca\n   1  000000006004cfe1  F_00412800+0xc1\n   2  0000000060029ab8  F_00402a60+0x128\n   3  00000000600762a2  F_00420460+0x2b2\n   4  00000000004cdd37  BaseThreadInitThunk+0x17\n   5  00007ff862fff2bc  RtlUserThreadStart+0x2c\n  node 0556FAE0 handler 0044DC8D FuncInfo 0045C250 scope table 00000000 state -1\n  node 0556FBE0 handler 0044DD45 FuncInfo 0045BEB4 scope table 00000000 state -1\n  node 0556FBD0 handler 00000000 FuncInfo 00000000 scope table 00000000 state 0\n  node 0556FE70 handler 0044CF7B FuncInfo 0045BA14 scope table 00000000 state 1\n  node 0556FAFC handler 0556FD58 FuncInfo 00000000 scope table 00000000 state 0",
+  "detail": "--- expected\n+++ actual\n@@ -35,5 +35,2 @@\n list splice = 369830286 (0x160b298e)\n-ostream = 631541188 (0x25a48dc4)\n-istream = 440921586 (0x1a47edf2)\n-checksum = 0x111a1f1a\n-exit = 26\n+exit = 3221225477\n\nstderr:\n   5  00000000004cdd37  BaseThreadInitThunk+0x17\n   6  00007fff796ff2bc  RtlUserThreadStart+0x2c\nrhipper: unhandled exception C0000005; the chain:\n  the fault, at:\n   0  000000006004a2ea  F_00411560+0xca\n   1  000000006004cfe1  F_00412800+0xc1\n   2  0000000060029ab8  F_00402a60+0x128\n   3  00000000600762a2  F_00420460+0x2b2\n   4  00000000004cdd37  BaseThreadInitThunk+0x17\n   5  00007fff796ff2bc  RtlUserThreadStart+0x2c\n  node 0556FAE0 handler 0044DC8D FuncInfo 0045C250 scope table 00000000 state -1\n  node 0556FBE0 handler 0044DD45 FuncInfo 0045BEB4 scope table 00000000 state -1\n  node 0556FBD0 handler 00000000 FuncInfo 00000000 scope table 00000000 state 0\n  node 0556FE70 handler 0044CF7B FuncInfo 0045BA14 scope table 00000000 state 1\n  node 0556FAFC handler 0556FD58 FuncInfo 00000000 scope table 00000000 state 0",
   "fidelity": {
    "by_size": 0.999,
    "functions": 2361,
@@ -887,7 +887,7 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  },
  "stlio-O2": {
   "accuracy": {
@@ -907,7 +907,7 @@
    "identical": 113,
    "mean": 0.4344
   },
-  "detail": "--- expected\n+++ actual\n@@ -1,4 +1 @@\n-ostream = 631541188 (0x25a48dc4)\n-istream = 440921586 (0x1a47edf2)\n-checksum = 0xdf2e0f4d\n-exit = 77\n+exit = 3221225477\n\nstderr:\n   3  000000006003fa71  F_0040c9d0+0x361\n   4  000000000061dd37  BaseThreadInitThunk+0x17\n   5  00007ff862fff2bc  RtlUserThreadStart+0x2c\nrhipper: unhandled exception C0000005; the chain:\n  the fault, at:\n   0  000000006002e8ba  F_00405de0+0xca\n   1  000000006002f552  F_00406390+0xc2\n   2  0000000060037536  F_00409f60+0x1d6\n   3  000000006003fa71  F_0040c9d0+0x361\n   4  000000000061dd37  BaseThreadInitThunk+0x17\n   5  00007ff862fff2bc  RtlUserThreadStart+0x2c\n  node 0565FBF0 handler 0042AEBD FuncInfo 004379A0 scope table 00000000 state -1\n  node 0565FCD0 handler 0042AF75 FuncInfo 004375DC scope table 00000000 state -1\n  node 0565FE50 handler 0042B46C FuncInfo 004374D8 scope table 00000000 state 4\n  node 0565FA8C handler 0000027F FuncInfo 00000000 scope table 00000000 state 0",
+  "detail": "--- expected\n+++ actual\n@@ -1,4 +1 @@\n-ostream = 631541188 (0x25a48dc4)\n-istream = 440921586 (0x1a47edf2)\n-checksum = 0xdf2e0f4d\n-exit = 77\n+exit = 3221225477\n\nstderr:\n   3  000000006003fa61  F_0040c9d0+0x361\n   4  000000000049dd37  BaseThreadInitThunk+0x17\n   5  00007fff796ff2bc  RtlUserThreadStart+0x2c\nrhipper: unhandled exception C0000005; the chain:\n  the fault, at:\n   0  000000006002e8ba  F_00405de0+0xca\n   1  000000006002f552  F_00406390+0xc2\n   2  0000000060037536  F_00409f60+0x1d6\n   3  000000006003fa61  F_0040c9d0+0x361\n   4  000000000049dd37  BaseThreadInitThunk+0x17\n   5  00007fff796ff2bc  RtlUserThreadStart+0x2c\n  node 0563FBF0 handler 0042AEBD FuncInfo 004379A0 scope table 00000000 state -1\n  node 0563FCD0 handler 0042AF75 FuncInfo 004375DC scope table 00000000 state -1\n  node 0563FE50 handler 0042B46C FuncInfo 004374D8 scope table 00000000 state 4\n  node 0563FA8C handler 0000027F FuncInfo 00000000 scope table 00000000 state 0",
   "fidelity": {
    "by_size": 0.996,
    "functions": 1153,
@@ -918,7 +918,7 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  },
  "stlio-Od": {
   "accuracy": {
@@ -938,7 +938,7 @@
    "identical": 87,
    "mean": 0.4248
   },
-  "detail": "--- expected\n+++ actual\n@@ -1,4 +1 @@\n-ostream = 631541188 (0x25a48dc4)\n-istream = 440921586 (0x1a47edf2)\n-checksum = 0xdf2e0f4d\n-exit = 77\n+exit = 3221225477\n\nstderr:\n   5  0000000060025e79  W_00421395+0x9\n   6  00000000600655e3  F_0041beb3+0x63\n   7  00000000600490f1  F_0040f860+0x131\n   8  0000000060048904  F_0040f5d0+0xb4\n   9  00000000005add37  BaseThreadInitThunk+0x17\n  10  00007ff862fff2bc  RtlUserThreadStart+0x2c\nrhtest: not translated: 00401a03\n   0  0000000060009323  GenUnimplemented+0xd3\n   1  0000000060026421  F_00401a03+0x31\n   2  0000000060027f11  F_00401780+0x4f1\n   3  0000000060026d2e  F_00401120+0x14e\n   4  0000000060026b3c  F_004010c0+0x2c\n   5  0000000060048b88  F_0040f5d0+0x338\n   6  00000000005add37  BaseThreadInitThunk+0x17\n   7  00007ff862fff2bc  RtlUserThreadStart+0x2c",
+  "detail": "--- expected\n+++ actual\n@@ -1,4 +1 @@\n-ostream = 631541188 (0x25a48dc4)\n-istream = 440921586 (0x1a47edf2)\n-checksum = 0xdf2e0f4d\n-exit = 77\n+exit = 3221225477\n\nstderr:\n   5  0000000060025e79  W_00421395+0x9\n   6  00000000600655e3  F_0041beb3+0x63\n   7  00000000600490f1  F_0040f860+0x131\n   8  0000000060048904  F_0040f5d0+0xb4\n   9  000000000049dd37  BaseThreadInitThunk+0x17\n  10  00007fff796ff2bc  RtlUserThreadStart+0x2c\nrhtest: not translated: 00401a03\n   0  0000000060009323  GenUnimplemented+0xd3\n   1  0000000060026421  F_00401a03+0x31\n   2  0000000060027f11  F_00401780+0x4f1\n   3  0000000060026d2e  F_00401120+0x14e\n   4  0000000060026b3c  F_004010c0+0x2c\n   5  0000000060048b88  F_0040f5d0+0x338\n   6  000000000049dd37  BaseThreadInitThunk+0x17\n   7  00007fff796ff2bc  RtlUserThreadStart+0x2c",
   "fidelity": {
    "by_size": 0.999,
    "functions": 1432,
@@ -949,7 +949,7 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  },
  "sys-O2": {
   "accuracy": {
@@ -978,7 +978,7 @@
    "translated": 68
   },
   "status": "PASS",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  },
  "sys-Od": {
   "accuracy": {
@@ -1007,7 +1007,7 @@
    "translated": 73
   },
   "status": "PASS",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  },
  "win-O2": {
   "accuracy": {
@@ -1036,7 +1036,7 @@
    "translated": 62
   },
   "status": "PASS",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  },
  "win-Od": {
   "accuracy": {
@@ -1065,6 +1065,6 @@
    "translated": 67
   },
   "status": "PASS",
-  "when": "2026-10-30 15:11"
+  "when": "2026-10-30 19:52"
  }
 }

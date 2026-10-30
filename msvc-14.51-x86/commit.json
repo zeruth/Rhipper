@@ -1,1 +1,1 @@
-{"sha": "8e8a4a45c024ab7291afc104d7059b39a850fa04", "date": "2026-10-30T10:05:31-04:00", "subject": "fix: x87 results beside a call's, constant call slots, outer-call words, misplaced bodies"}
+{"sha": "b1923d41146c1f6dcc8d2f487f812aae548f8cf3", "date": "2026-10-30T14:47:35-04:00", "subject": "fix: x87 leaves as call fixups, varargs methods, frame end pointers, outer-call words, stub forms"}
