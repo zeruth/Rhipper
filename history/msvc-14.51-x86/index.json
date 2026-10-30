@@ -1690,5 +1690,17 @@
   "stubs": 0,
   "perfect": 2994,
   "translated": 2994
+ },
+ {
+  "sha": "2f72e6326ce9be1139039912be4ede7443a35954",
+  "date": "2026-10-29T20:55:02-04:00",
+  "subject": "fix(decompiler, translate32, fidelity32): a floating-point operation kept for the flags it sets",
+  "run": "2026-10-30 01:46 UTC",
+  "file": "2f72e6326ce9be1139039912be4ede7443a35954.json",
+  "passing": 32,
+  "projects": 32,
+  "stubs": 0,
+  "perfect": 3188,
+  "translated": 3193
  }
 ]

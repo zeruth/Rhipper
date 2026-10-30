@@ -26,7 +26,7 @@
    "translated": 102
   },
   "status": "PASS",
-  "when": "2026-10-30 01:12"
+  "when": "2026-10-30 01:46"
  },
  "calls-O2": {
   "accuracy": {
@@ -40,7 +40,7 @@
    "stub": 0
   },
   "bytes": {
-   "by_size": 0.5494,
+   "by_size": 0.5493,
    "bytes_identical": 43,
    "equivalent": 2,
    "identical": 45,
@@ -55,7 +55,7 @@
    "translated": 104
   },
   "status": "PASS",
-  "when": "2026-10-30 01:12"
+  "when": "2026-10-30 01:46"
  },
  "calls-Od": {
   "accuracy": {
@@ -84,7 +84,7 @@
    "translated": 110
   },
   "status": "PASS",
-  "when": "2026-10-30 01:12"
+  "when": "2026-10-30 01:46"
  },
  "com-O2": {
   "accuracy": {
@@ -113,7 +113,7 @@
    "translated": 81
   },
   "status": "PASS",
-  "when": "2026-10-30 01:12"
+  "when": "2026-10-30 01:46"
  },
  "com-Od": {
   "accuracy": {
@@ -142,7 +142,7 @@
    "translated": 96
   },
   "status": "PASS",
-  "when": "2026-10-30 01:12"
+  "when": "2026-10-30 01:46"
  },
  "core-O2": {
   "accuracy": {
@@ -171,7 +171,7 @@
    "translated": 122
   },
   "status": "PASS",
-  "when": "2026-10-30 01:12"
+  "when": "2026-10-30 01:46"
  },
  "core-Od": {
   "accuracy": {
@@ -200,7 +200,7 @@
    "translated": 127
   },
   "status": "PASS",
-  "when": "2026-10-30 01:12"
+  "when": "2026-10-30 01:46"
  },
  "cpp-O2": {
   "accuracy": {
@@ -218,7 +218,7 @@
    "bytes_identical": 70,
    "equivalent": 1,
    "identical": 71,
-   "mean": 0.7313
+   "mean": 0.7312
   },
   "fidelity": {
    "by_size": 1.0,
@@ -229,7 +229,7 @@
    "translated": 162
   },
   "status": "PASS",
-  "when": "2026-10-30 01:12"
+  "when": "2026-10-30 01:46"
  },
  "cpp-Od": {
   "accuracy": {
@@ -258,7 +258,7 @@
    "translated": 258
   },
   "status": "PASS",
-  "when": "2026-10-30 01:12"
+  "when": "2026-10-30 01:46"
  },
  "crt-O2": {
   "accuracy": {
@@ -287,7 +287,7 @@
    "translated": 76
   },
   "status": "PASS",
-  "when": "2026-10-30 01:12"
+  "when": "2026-10-30 01:46"
  },
  "crt-Od": {
   "accuracy": {
@@ -316,7 +316,7 @@
    "translated": 91
   },
   "status": "PASS",
-  "when": "2026-10-30 01:12"
+  "when": "2026-10-30 01:46"
  },
  "eh-O2": {
   "accuracy": {
@@ -345,7 +345,7 @@
    "translated": 115
   },
   "status": "PASS",
-  "when": "2026-10-30 01:12"
+  "when": "2026-10-30 01:46"
  },
  "eh-Od": {
   "accuracy": {
@@ -374,17 +374,17 @@
    "translated": 136
   },
   "status": "PASS",
-  "when": "2026-10-30 01:12"
+  "when": "2026-10-30 01:46"
  },
  "engine-GL": {
   "accuracy": {
-   "accurate": 93,
-   "behavior differs": 0,
+   "accurate": 92,
+   "behavior differs": 1,
    "byte_identical_or_equivalent": 37,
    "equivalent bytes": 1,
    "functions": 93,
    "identical": 36,
-   "same behavior": 56,
+   "same behavior": 55,
    "stub": 0
   },
   "bytes": {
@@ -395,15 +395,15 @@
    "mean": 0.6725
   },
   "fidelity": {
-   "by_size": 1.0,
+   "by_size": 0.999,
    "functions": 93,
    "mean": 1.0,
-   "perfect": 93,
+   "perfect": 92,
    "stubs": 0,
    "translated": 93
   },
   "status": "PASS",
-  "when": "2026-10-30 01:12"
+  "when": "2026-10-30 01:46"
  },
  "engine-O2": {
   "accuracy": {
@@ -432,7 +432,7 @@
    "translated": 95
   },
   "status": "PASS",
-  "when": "2026-10-30 01:12"
+  "when": "2026-10-30 01:46"
  },
  "engine-Od": {
   "accuracy": {
@@ -461,7 +461,7 @@
    "translated": 114
   },
   "status": "PASS",
-  "when": "2026-10-30 01:12"
+  "when": "2026-10-30 01:46"
  },
  "float-IA32": {
   "accuracy": {
@@ -490,17 +490,17 @@
    "translated": 91
   },
   "status": "PASS",
-  "when": "2026-10-30 01:12"
+  "when": "2026-10-30 01:46"
  },
  "float-O2": {
   "accuracy": {
-   "accurate": 93,
-   "behavior differs": 0,
+   "accurate": 90,
+   "behavior differs": 3,
    "byte_identical_or_equivalent": 31,
    "equivalent bytes": 1,
    "functions": 93,
    "identical": 30,
-   "same behavior": 62,
+   "same behavior": 59,
    "stub": 0
   },
   "bytes": {
@@ -511,15 +511,15 @@
    "mean": 0.6193
   },
   "fidelity": {
-   "by_size": 1.0,
+   "by_size": 0.991,
    "functions": 93,
-   "mean": 1.0,
-   "perfect": 93,
+   "mean": 0.992,
+   "perfect": 90,
    "stubs": 0,
    "translated": 93
   },
   "status": "PASS",
-  "when": "2026-10-30 01:12"
+  "when": "2026-10-30 01:46"
  },
  "float-Od": {
   "accuracy": {
@@ -537,18 +537,105 @@
    "bytes_identical": 32,
    "equivalent": 2,
    "identical": 34,
-   "mean": 0.6455
+   "mean": 0.6454
   },
   "fidelity": {
-   "by_size": 1.0,
+   "by_size": 0.995,
    "functions": 104,
-   "mean": 1.0,
-   "perfect": 104,
+   "mean": 0.997,
+   "perfect": 103,
    "stubs": 0,
    "translated": 104
   },
   "status": "PASS",
-  "when": "2026-10-30 01:12"
+  "when": "2026-10-30 01:46"
+ },
+ "fpenv-IA32": {
+  "accuracy": {
+   "accurate": 63,
+   "behavior differs": 0,
+   "byte_identical_or_equivalent": 18,
+   "equivalent bytes": 1,
+   "functions": 63,
+   "identical": 17,
+   "same behavior": 45,
+   "stub": 0
+  },
+  "bytes": {
+   "by_size": 0.516,
+   "bytes_identical": 17,
+   "equivalent": 1,
+   "identical": 18,
+   "mean": 0.6452
+  },
+  "fidelity": {
+   "by_size": 1.0,
+   "functions": 63,
+   "mean": 1.0,
+   "perfect": 63,
+   "stubs": 0,
+   "translated": 63
+  },
+  "status": "PASS",
+  "when": "2026-10-30 01:46"
+ },
+ "fpenv-O2": {
+  "accuracy": {
+   "accurate": 65,
+   "behavior differs": 0,
+   "byte_identical_or_equivalent": 20,
+   "equivalent bytes": 1,
+   "functions": 65,
+   "identical": 19,
+   "same behavior": 45,
+   "stub": 0
+  },
+  "bytes": {
+   "by_size": 0.5046,
+   "bytes_identical": 19,
+   "equivalent": 1,
+   "identical": 20,
+   "mean": 0.6439
+  },
+  "fidelity": {
+   "by_size": 1.0,
+   "functions": 65,
+   "mean": 1.0,
+   "perfect": 65,
+   "stubs": 0,
+   "translated": 65
+  },
+  "status": "PASS",
+  "when": "2026-10-30 01:46"
+ },
+ "fpenv-Od": {
+  "accuracy": {
+   "accurate": 71,
+   "behavior differs": 0,
+   "byte_identical_or_equivalent": 21,
+   "equivalent bytes": 1,
+   "functions": 71,
+   "identical": 20,
+   "same behavior": 50,
+   "stub": 0
+  },
+  "bytes": {
+   "by_size": 0.508,
+   "bytes_identical": 20,
+   "equivalent": 1,
+   "identical": 21,
+   "mean": 0.6255
+  },
+  "fidelity": {
+   "by_size": 1.0,
+   "functions": 71,
+   "mean": 1.0,
+   "perfect": 71,
+   "stubs": 0,
+   "translated": 71
+  },
+  "status": "PASS",
+  "when": "2026-10-30 01:46"
  },
  "int64-O2": {
   "accuracy": {
@@ -577,7 +664,7 @@
    "translated": 92
   },
   "status": "PASS",
-  "when": "2026-10-30 01:12"
+  "when": "2026-10-30 01:46"
  },
  "int64-Od": {
   "accuracy": {
@@ -606,7 +693,7 @@
    "translated": 95
   },
   "status": "PASS",
-  "when": "2026-10-30 01:12"
+  "when": "2026-10-30 01:46"
  },
  "misc-O2": {
   "accuracy": {
@@ -635,7 +722,7 @@
    "translated": 83
   },
   "status": "PASS",
-  "when": "2026-10-30 01:12"
+  "when": "2026-10-30 01:46"
  },
  "misc-Od": {
   "accuracy": {
@@ -664,7 +751,7 @@
    "translated": 89
   },
   "status": "PASS",
-  "when": "2026-10-30 01:12"
+  "when": "2026-10-30 01:46"
  },
  "seh-O2": {
   "accuracy": {
@@ -693,7 +780,7 @@
    "translated": 94
   },
   "status": "PASS",
-  "when": "2026-10-30 01:12"
+  "when": "2026-10-30 01:46"
  },
  "seh-Od": {
   "accuracy": {
@@ -722,7 +809,7 @@
    "translated": 101
   },
   "status": "PASS",
-  "when": "2026-10-30 01:12"
+  "when": "2026-10-30 01:46"
  },
  "sys-O2": {
   "accuracy": {
@@ -751,7 +838,7 @@
    "translated": 68
   },
   "status": "PASS",
-  "when": "2026-10-30 01:12"
+  "when": "2026-10-30 01:46"
  },
  "sys-Od": {
   "accuracy": {
@@ -780,7 +867,7 @@
    "translated": 73
   },
   "status": "PASS",
-  "when": "2026-10-30 01:12"
+  "when": "2026-10-30 01:46"
  },
  "win-O2": {
   "accuracy": {
@@ -809,7 +896,7 @@
    "translated": 62
   },
   "status": "PASS",
-  "when": "2026-10-30 01:12"
+  "when": "2026-10-30 01:46"
  },
  "win-Od": {
   "accuracy": {
@@ -838,6 +925,6 @@
    "translated": 67
   },
   "status": "PASS",
-  "when": "2026-10-30 01:12"
+  "when": "2026-10-30 01:46"
  }
 }

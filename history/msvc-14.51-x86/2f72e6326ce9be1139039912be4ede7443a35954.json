@@ -1,0 +1,936 @@
+{
+ "sha": "2f72e6326ce9be1139039912be4ede7443a35954",
+ "date": "2026-10-29T20:55:02-04:00",
+ "subject": "fix(decompiler, translate32, fidelity32): a floating-point operation kept for the flags it sets",
+ "run": "2026-10-30 01:46 UTC",
+ "summary": {
+  "calls-GL": {
+   "accuracy": {
+    "accurate": 102,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 37,
+    "equivalent bytes": 2,
+    "functions": 102,
+    "identical": 35,
+    "same behavior": 65,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.5154,
+    "bytes_identical": 35,
+    "equivalent": 2,
+    "identical": 37,
+    "mean": 0.6766
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 102,
+    "mean": 1.0,
+    "perfect": 102,
+    "stubs": 0,
+    "translated": 102
+   },
+   "status": "PASS",
+   "when": "2026-10-30 01:46"
+  },
+  "calls-O2": {
+   "accuracy": {
+    "accurate": 104,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 45,
+    "equivalent bytes": 2,
+    "functions": 104,
+    "identical": 43,
+    "same behavior": 59,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.5493,
+    "bytes_identical": 43,
+    "equivalent": 2,
+    "identical": 45,
+    "mean": 0.7251
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 104,
+    "mean": 1.0,
+    "perfect": 104,
+    "stubs": 0,
+    "translated": 104
+   },
+   "status": "PASS",
+   "when": "2026-10-30 01:46"
+  },
+  "calls-Od": {
+   "accuracy": {
+    "accurate": 110,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 40,
+    "equivalent bytes": 1,
+    "functions": 110,
+    "identical": 39,
+    "same behavior": 70,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.558,
+    "bytes_identical": 39,
+    "equivalent": 1,
+    "identical": 40,
+    "mean": 0.6917
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 110,
+    "mean": 1.0,
+    "perfect": 110,
+    "stubs": 0,
+    "translated": 110
+   },
+   "status": "PASS",
+   "when": "2026-10-30 01:46"
+  },
+  "com-O2": {
+   "accuracy": {
+    "accurate": 81,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 26,
+    "equivalent bytes": 1,
+    "functions": 81,
+    "identical": 25,
+    "same behavior": 55,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.544,
+    "bytes_identical": 25,
+    "equivalent": 1,
+    "identical": 26,
+    "mean": 0.7059
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 81,
+    "mean": 1.0,
+    "perfect": 81,
+    "stubs": 0,
+    "translated": 81
+   },
+   "status": "PASS",
+   "when": "2026-10-30 01:46"
+  },
+  "com-Od": {
+   "accuracy": {
+    "accurate": 96,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 25,
+    "equivalent bytes": 1,
+    "functions": 96,
+    "identical": 24,
+    "same behavior": 71,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.5164,
+    "bytes_identical": 24,
+    "equivalent": 1,
+    "identical": 25,
+    "mean": 0.6644
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 96,
+    "mean": 1.0,
+    "perfect": 96,
+    "stubs": 0,
+    "translated": 96
+   },
+   "status": "PASS",
+   "when": "2026-10-30 01:46"
+  },
+  "core-O2": {
+   "accuracy": {
+    "accurate": 122,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 46,
+    "equivalent bytes": 4,
+    "functions": 122,
+    "identical": 42,
+    "same behavior": 76,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.5959,
+    "bytes_identical": 42,
+    "equivalent": 4,
+    "identical": 46,
+    "mean": 0.6915
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 122,
+    "mean": 1.0,
+    "perfect": 122,
+    "stubs": 0,
+    "translated": 122
+   },
+   "status": "PASS",
+   "when": "2026-10-30 01:46"
+  },
+  "core-Od": {
+   "accuracy": {
+    "accurate": 127,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 45,
+    "equivalent bytes": 1,
+    "functions": 127,
+    "identical": 44,
+    "same behavior": 82,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.5497,
+    "bytes_identical": 44,
+    "equivalent": 1,
+    "identical": 45,
+    "mean": 0.7011
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 127,
+    "mean": 1.0,
+    "perfect": 127,
+    "stubs": 0,
+    "translated": 127
+   },
+   "status": "PASS",
+   "when": "2026-10-30 01:46"
+  },
+  "cpp-O2": {
+   "accuracy": {
+    "accurate": 162,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 71,
+    "equivalent bytes": 1,
+    "functions": 162,
+    "identical": 70,
+    "same behavior": 91,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.5816,
+    "bytes_identical": 70,
+    "equivalent": 1,
+    "identical": 71,
+    "mean": 0.7312
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 162,
+    "mean": 1.0,
+    "perfect": 162,
+    "stubs": 0,
+    "translated": 162
+   },
+   "status": "PASS",
+   "when": "2026-10-30 01:46"
+  },
+  "cpp-Od": {
+   "accuracy": {
+    "accurate": 258,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 30,
+    "equivalent bytes": 1,
+    "functions": 258,
+    "identical": 29,
+    "same behavior": 228,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.5011,
+    "bytes_identical": 29,
+    "equivalent": 1,
+    "identical": 30,
+    "mean": 0.6066
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 258,
+    "mean": 1.0,
+    "perfect": 258,
+    "stubs": 0,
+    "translated": 258
+   },
+   "status": "PASS",
+   "when": "2026-10-30 01:46"
+  },
+  "crt-O2": {
+   "accuracy": {
+    "accurate": 76,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 21,
+    "equivalent bytes": 1,
+    "functions": 76,
+    "identical": 20,
+    "same behavior": 55,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.4924,
+    "bytes_identical": 20,
+    "equivalent": 1,
+    "identical": 21,
+    "mean": 0.623
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 76,
+    "mean": 1.0,
+    "perfect": 76,
+    "stubs": 0,
+    "translated": 76
+   },
+   "status": "PASS",
+   "when": "2026-10-30 01:46"
+  },
+  "crt-Od": {
+   "accuracy": {
+    "accurate": 91,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 22,
+    "equivalent bytes": 1,
+    "functions": 91,
+    "identical": 21,
+    "same behavior": 69,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.5212,
+    "bytes_identical": 21,
+    "equivalent": 1,
+    "identical": 22,
+    "mean": 0.6196
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 91,
+    "mean": 1.0,
+    "perfect": 91,
+    "stubs": 0,
+    "translated": 91
+   },
+   "status": "PASS",
+   "when": "2026-10-30 01:46"
+  },
+  "eh-O2": {
+   "accuracy": {
+    "accurate": 115,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 31,
+    "equivalent bytes": 1,
+    "functions": 115,
+    "identical": 30,
+    "same behavior": 84,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.4978,
+    "bytes_identical": 30,
+    "equivalent": 1,
+    "identical": 31,
+    "mean": 0.5759
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 115,
+    "mean": 1.0,
+    "perfect": 115,
+    "stubs": 0,
+    "translated": 115
+   },
+   "status": "PASS",
+   "when": "2026-10-30 01:46"
+  },
+  "eh-Od": {
+   "accuracy": {
+    "accurate": 136,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 22,
+    "equivalent bytes": 1,
+    "functions": 136,
+    "identical": 21,
+    "same behavior": 114,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.4721,
+    "bytes_identical": 21,
+    "equivalent": 1,
+    "identical": 22,
+    "mean": 0.5019
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 136,
+    "mean": 1.0,
+    "perfect": 136,
+    "stubs": 0,
+    "translated": 136
+   },
+   "status": "PASS",
+   "when": "2026-10-30 01:46"
+  },
+  "engine-GL": {
+   "accuracy": {
+    "accurate": 92,
+    "behavior differs": 1,
+    "byte_identical_or_equivalent": 37,
+    "equivalent bytes": 1,
+    "functions": 93,
+    "identical": 36,
+    "same behavior": 55,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.5124,
+    "bytes_identical": 36,
+    "equivalent": 1,
+    "identical": 37,
+    "mean": 0.6725
+   },
+   "fidelity": {
+    "by_size": 0.999,
+    "functions": 93,
+    "mean": 1.0,
+    "perfect": 92,
+    "stubs": 0,
+    "translated": 93
+   },
+   "status": "PASS",
+   "when": "2026-10-30 01:46"
+  },
+  "engine-O2": {
+   "accuracy": {
+    "accurate": 95,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 38,
+    "equivalent bytes": 1,
+    "functions": 95,
+    "identical": 37,
+    "same behavior": 57,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.5238,
+    "bytes_identical": 37,
+    "equivalent": 1,
+    "identical": 38,
+    "mean": 0.6862
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 95,
+    "mean": 1.0,
+    "perfect": 95,
+    "stubs": 0,
+    "translated": 95
+   },
+   "status": "PASS",
+   "when": "2026-10-30 01:46"
+  },
+  "engine-Od": {
+   "accuracy": {
+    "accurate": 114,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 22,
+    "equivalent bytes": 1,
+    "functions": 114,
+    "identical": 21,
+    "same behavior": 92,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.5293,
+    "bytes_identical": 21,
+    "equivalent": 1,
+    "identical": 22,
+    "mean": 0.6588
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 114,
+    "mean": 1.0,
+    "perfect": 114,
+    "stubs": 0,
+    "translated": 114
+   },
+   "status": "PASS",
+   "when": "2026-10-30 01:46"
+  },
+  "float-IA32": {
+   "accuracy": {
+    "accurate": 91,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 36,
+    "equivalent bytes": 1,
+    "functions": 91,
+    "identical": 35,
+    "same behavior": 55,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.4482,
+    "bytes_identical": 35,
+    "equivalent": 1,
+    "identical": 36,
+    "mean": 0.6543
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 91,
+    "mean": 1.0,
+    "perfect": 91,
+    "stubs": 0,
+    "translated": 91
+   },
+   "status": "PASS",
+   "when": "2026-10-30 01:46"
+  },
+  "float-O2": {
+   "accuracy": {
+    "accurate": 90,
+    "behavior differs": 3,
+    "byte_identical_or_equivalent": 31,
+    "equivalent bytes": 1,
+    "functions": 93,
+    "identical": 30,
+    "same behavior": 59,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.4589,
+    "bytes_identical": 30,
+    "equivalent": 1,
+    "identical": 31,
+    "mean": 0.6193
+   },
+   "fidelity": {
+    "by_size": 0.991,
+    "functions": 93,
+    "mean": 0.992,
+    "perfect": 90,
+    "stubs": 0,
+    "translated": 93
+   },
+   "status": "PASS",
+   "when": "2026-10-30 01:46"
+  },
+  "float-Od": {
+   "accuracy": {
+    "accurate": 104,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 34,
+    "equivalent bytes": 2,
+    "functions": 104,
+    "identical": 32,
+    "same behavior": 70,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.4796,
+    "bytes_identical": 32,
+    "equivalent": 2,
+    "identical": 34,
+    "mean": 0.6454
+   },
+   "fidelity": {
+    "by_size": 0.995,
+    "functions": 104,
+    "mean": 0.997,
+    "perfect": 103,
+    "stubs": 0,
+    "translated": 104
+   },
+   "status": "PASS",
+   "when": "2026-10-30 01:46"
+  },
+  "fpenv-IA32": {
+   "accuracy": {
+    "accurate": 63,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 18,
+    "equivalent bytes": 1,
+    "functions": 63,
+    "identical": 17,
+    "same behavior": 45,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.516,
+    "bytes_identical": 17,
+    "equivalent": 1,
+    "identical": 18,
+    "mean": 0.6452
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 63,
+    "mean": 1.0,
+    "perfect": 63,
+    "stubs": 0,
+    "translated": 63
+   },
+   "status": "PASS",
+   "when": "2026-10-30 01:46"
+  },
+  "fpenv-O2": {
+   "accuracy": {
+    "accurate": 65,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 20,
+    "equivalent bytes": 1,
+    "functions": 65,
+    "identical": 19,
+    "same behavior": 45,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.5046,
+    "bytes_identical": 19,
+    "equivalent": 1,
+    "identical": 20,
+    "mean": 0.6439
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 65,
+    "mean": 1.0,
+    "perfect": 65,
+    "stubs": 0,
+    "translated": 65
+   },
+   "status": "PASS",
+   "when": "2026-10-30 01:46"
+  },
+  "fpenv-Od": {
+   "accuracy": {
+    "accurate": 71,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 21,
+    "equivalent bytes": 1,
+    "functions": 71,
+    "identical": 20,
+    "same behavior": 50,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.508,
+    "bytes_identical": 20,
+    "equivalent": 1,
+    "identical": 21,
+    "mean": 0.6255
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 71,
+    "mean": 1.0,
+    "perfect": 71,
+    "stubs": 0,
+    "translated": 71
+   },
+   "status": "PASS",
+   "when": "2026-10-30 01:46"
+  },
+  "int64-O2": {
+   "accuracy": {
+    "accurate": 92,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 27,
+    "equivalent bytes": 1,
+    "functions": 92,
+    "identical": 26,
+    "same behavior": 65,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.4619,
+    "bytes_identical": 26,
+    "equivalent": 1,
+    "identical": 27,
+    "mean": 0.5616
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 92,
+    "mean": 1.0,
+    "perfect": 92,
+    "stubs": 0,
+    "translated": 92
+   },
+   "status": "PASS",
+   "when": "2026-10-30 01:46"
+  },
+  "int64-Od": {
+   "accuracy": {
+    "accurate": 95,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 26,
+    "equivalent bytes": 1,
+    "functions": 95,
+    "identical": 25,
+    "same behavior": 69,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.4508,
+    "bytes_identical": 25,
+    "equivalent": 1,
+    "identical": 26,
+    "mean": 0.5667
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 95,
+    "mean": 1.0,
+    "perfect": 95,
+    "stubs": 0,
+    "translated": 95
+   },
+   "status": "PASS",
+   "when": "2026-10-30 01:46"
+  },
+  "misc-O2": {
+   "accuracy": {
+    "accurate": 83,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 22,
+    "equivalent bytes": 1,
+    "functions": 83,
+    "identical": 21,
+    "same behavior": 61,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.5239,
+    "bytes_identical": 21,
+    "equivalent": 1,
+    "identical": 22,
+    "mean": 0.6167
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 83,
+    "mean": 1.0,
+    "perfect": 83,
+    "stubs": 0,
+    "translated": 83
+   },
+   "status": "PASS",
+   "when": "2026-10-30 01:46"
+  },
+  "misc-Od": {
+   "accuracy": {
+    "accurate": 89,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 21,
+    "equivalent bytes": 1,
+    "functions": 89,
+    "identical": 20,
+    "same behavior": 68,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.4919,
+    "bytes_identical": 20,
+    "equivalent": 1,
+    "identical": 21,
+    "mean": 0.5952
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 89,
+    "mean": 1.0,
+    "perfect": 89,
+    "stubs": 0,
+    "translated": 89
+   },
+   "status": "PASS",
+   "when": "2026-10-30 01:46"
+  },
+  "seh-O2": {
+   "accuracy": {
+    "accurate": 94,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 24,
+    "equivalent bytes": 1,
+    "functions": 94,
+    "identical": 23,
+    "same behavior": 70,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.4655,
+    "bytes_identical": 23,
+    "equivalent": 1,
+    "identical": 24,
+    "mean": 0.599
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 94,
+    "mean": 1.0,
+    "perfect": 94,
+    "stubs": 0,
+    "translated": 94
+   },
+   "status": "PASS",
+   "when": "2026-10-30 01:46"
+  },
+  "seh-Od": {
+   "accuracy": {
+    "accurate": 101,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 22,
+    "equivalent bytes": 1,
+    "functions": 101,
+    "identical": 21,
+    "same behavior": 79,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.4203,
+    "bytes_identical": 21,
+    "equivalent": 1,
+    "identical": 22,
+    "mean": 0.5069
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 101,
+    "mean": 1.0,
+    "perfect": 101,
+    "stubs": 0,
+    "translated": 101
+   },
+   "status": "PASS",
+   "when": "2026-10-30 01:46"
+  },
+  "sys-O2": {
+   "accuracy": {
+    "accurate": 68,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 22,
+    "equivalent bytes": 1,
+    "functions": 68,
+    "identical": 21,
+    "same behavior": 46,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.6686,
+    "bytes_identical": 21,
+    "equivalent": 1,
+    "identical": 22,
+    "mean": 0.7321
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 68,
+    "mean": 1.0,
+    "perfect": 68,
+    "stubs": 0,
+    "translated": 68
+   },
+   "status": "PASS",
+   "when": "2026-10-30 01:46"
+  },
+  "sys-Od": {
+   "accuracy": {
+    "accurate": 73,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 23,
+    "equivalent bytes": 1,
+    "functions": 73,
+    "identical": 22,
+    "same behavior": 50,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.5691,
+    "bytes_identical": 22,
+    "equivalent": 1,
+    "identical": 23,
+    "mean": 0.6899
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 73,
+    "mean": 1.0,
+    "perfect": 73,
+    "stubs": 0,
+    "translated": 73
+   },
+   "status": "PASS",
+   "when": "2026-10-30 01:46"
+  },
+  "win-O2": {
+   "accuracy": {
+    "accurate": 62,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 20,
+    "equivalent bytes": 1,
+    "functions": 62,
+    "identical": 19,
+    "same behavior": 42,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.5888,
+    "bytes_identical": 19,
+    "equivalent": 1,
+    "identical": 20,
+    "mean": 0.7226
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 62,
+    "mean": 1.0,
+    "perfect": 62,
+    "stubs": 0,
+    "translated": 62
+   },
+   "status": "PASS",
+   "when": "2026-10-30 01:46"
+  },
+  "win-Od": {
+   "accuracy": {
+    "accurate": 67,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 21,
+    "equivalent bytes": 1,
+    "functions": 67,
+    "identical": 20,
+    "same behavior": 46,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.5331,
+    "bytes_identical": 20,
+    "equivalent": 1,
+    "identical": 21,
+    "mean": 0.6816
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 67,
+    "mean": 1.0,
+    "perfect": 67,
+    "stubs": 0,
+    "translated": 67
+   },
+   "status": "PASS",
+   "when": "2026-10-30 01:46"
+  }
+ }
+}
