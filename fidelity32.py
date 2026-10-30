@@ -155,6 +155,7 @@ class Fn:
         self.float_at: dict[int, str] = {}   # a float constant's reference address -> its f: key
         self.packed: set[int] = set()        # 16-byte float constants read whole
         self.str_at: dict[str, set] = {}     # a string's s: key -> the reference addresses it is at
+        self.imms: set[int] = set()          # every immediate above 0x10000, whatever it was taken for
 
 
 def dead_stack_stores(insns: list) -> set[int]:
@@ -423,8 +424,11 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
                 if mn == "lea" and src is not None and src.mem.base and \
                         canon_reg(insn.reg_name(src.mem.base)) in STACK_PTRS | stackp:
                     stackp.add(r0)
+                # (or a copy of esp or ebp itself: a realigned frame's anchor, `push ebx; mov ebx, esp;
+                # and esp, -8`, its arguments at [ebx + 8] on: no fields. 58 of a client's functions
+                # missed "field 0xc", their second argument, 2026-10-30)
                 elif mn == "mov" and src is not None and src.type == x86.X86_OP_REG and \
-                        canon_reg(insn.reg_name(src.reg)) in stackp:
+                        canon_reg(insn.reg_name(src.reg)) in STACK_PTRS | stackp:
                     stackp.add(r0)
                 elif r0 in stackp and not (mn in ("add", "sub", "inc", "dec", "cmp", "test", "push")
                                            and (src is None or src.type != x86.X86_OP_MEM)):
@@ -550,6 +554,13 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
                             k = f"a:{disp & 0xFFFFFFFF:x}"
                         if k != "code" and not (img is ref and disp & 0xFFFFFFFF in img.iat):
                             f.consts[k] += 1
+                            # (a global's value loaded into a register, `mov ecx, [0x14c4e78]`: as an
+                            # immediate moved there, what a callee taking nothing in ecx drops below.
+                            # A manager's method that never reads `this` (0xb595f0, `ret 4`), its
+                            # caller's dead `this` load, 91 of a client's functions, 2026-10-30)
+                            if mn == "mov" and op is ops[-1] and ops[0].type == x86.X86_OP_REG \
+                                    and not op.mem.base and not op.mem.index:
+                                reg_imms.setdefault(canon_reg(insn.reg_name(ops[0].reg)), []).append(k)
                         continue
                     # (not an indexed operand's: `[esi + eax*4 + 4]` is an array offset, which the
                     # other compiler folds as it likes)
@@ -571,6 +582,8 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
                     if v == own:
                         continue                       # (GEN_ENTER's own address)
                     k = global_or_const(v, mn, 0) if v > 0x10000 else None
+                    if v > 0x10000:
+                        f.imms.add(v)
                     if k is not None:
                         if k != "code":
                             f.consts[k] += 1
@@ -609,7 +622,14 @@ def near(k, have: set) -> bool:
         # (a global within 16 bytes of one the other side uses: neighbours stored as one vector,
         # `movups [g], xmm0` for four of them, or one address made from another's register)
         v = int(k[2:], 16)
-        return any(f"g:{v + d:x}" in have for d in range(-15, 16) if d)
+        if any(f"g:{v + d:x}" in have for d in range(-15, 16) if d):
+            return True
+        # (or its address folded into a scaled index, as an array's below: `table[-i]` of a
+        # pointer table at 0x10efcc8 as `mov eax, 0x43bf32; sub rax, rbx; mov eax, [rax*4]`, the
+        # x64 compiler's (0x10efcc8 / 4 - i) * 4, a client's 0xb1a580 scored 0, 2026-10-30)
+        # (as an integer, or as a "global" itself where the quotient falls in the image, 0x43bf32)
+        return any(f"{p}:{(v + d) // s:x}" in have for p in ("i", "g") for s in (2, 4, 8)
+                   for d in range(-16, 17) if (v + d) % s == 0)
     if isinstance(k, str) and k.startswith("a:"):
         # (an array's base, a float array read through a register: the other side's array, or an
         # element of it the decompiler folded the index into, within 256 bytes on)
@@ -645,6 +665,19 @@ def presence(ref: Counter, port: Counter, source: set[int] = frozenset(),
             addrs = ref_at.get(k, set()) if k.startswith("s:") else {int(k[2:], 16)}
             if any(((a - d) & 0xFFFFFFFF) in port_addrs for a in addrs for d in port_ints):
                 return True
+            # (or folded into a scaled index, the address over the element's size an immediate of
+            # the port's, whatever it was taken for: `table[-i]` of a pointer table at 0x10efcc8
+            # as `mov eax, 0x43bf32; sub rax, rbx; mov eax, [rax*4]`, 0x43bf32 in the reference's
+            # code range, a client's 0xb1a580 scored 0, 2026-10-30)
+            if k.startswith("g:") and any((a + d) % s == 0 and (a + d) // s in port_ints
+                                          for a in addrs for s in (2, 4, 8) for d in range(-16, 17)):
+                return True
+        # (a global the translation names, `REFP(0x1159910)`, that its compiler dropped as a dead
+        # store: a constructor's base vtable at +0x11c overwritten by the derived one's straight
+        # after, both in the C, the first gone from the x64 code. As an integer the C has, below.
+        # 25 of a client's network work definitions, 2026-10-30)
+        if isinstance(k, str) and k.startswith("g:") and int(k[2:], 16) in source:
+            return True
         # (0.0, the reference's constant in memory: the x64 compiler's is `xorps xmm0, xmm0`, no
         # constant at all, rhtest float-O2's 0x402320)
         if k in ("f:0", "f:-0", "f:0.0"):
@@ -680,6 +713,13 @@ def presence(ref: Counter, port: Counter, source: set[int] = frozenset(),
             if v == 0x1f and any(division_magic(m, source) for m in ref if isinstance(m, str) and m.startswith("i:")):
                 return True
             if division_magic(k, source):
+                return True
+            # (a signed remainder by a power of two as the reference's compiler made it, `and edx,
+            # 0x8000001f; jns; dec; or edx, -0x20; inc` for `x % 32`, which the decompiler folds to
+            # `x & 0x1f` where the sign cannot matter (a shift's count): the mask, its sign bit
+            # aside. The CRT's 80-bit helpers, __ZeroTail's, 85 of a client's functions, 2026-10-30)
+            low = v & 0x7FFFFFFF
+            if v & 0x80000000 and low and low & (low + 1) == 0 and (low in source or f"i:{low:x}" in have):
                 return True
             # (or shifted: a bitfield's store the decompiler folds, `(s * 0x3e8 & 0xffff) << 16` as
             # `s * 0x3e80000`, `(x & 0x7f) << 3` as `x & 0x3f8`, rhtest misc's bitfields)
@@ -763,6 +803,12 @@ def main() -> None:
     ap.add_argument("--html-only", action="store_true",
                     help="only build/fidelity.html, from the last build/fidelity.json (and bytes32.json)")
     ap.add_argument("--quiet", action="store_true", help="the totals only")
+    ap.add_argument("--only", nargs="*", default=[], metavar="ADDR",
+                    help="measure only these functions, merged into the last build/fidelity.json, each "
+                         "printed with its score before and after: a fix's check in seconds, not the whole port")
+    ap.add_argument("--low", action="store_true",
+                    help="measure only the functions the last build/fidelity.json has below 1.0 or as stubs "
+                         "(with --only's too), merged into it")
     ap.add_argument("--port", type=Path, help="the port to measure (default rhipper.json \"run\" \"exe\"): "
                                               "best one with its translation built /Od /Ob0")
     args = ap.parse_args()
@@ -793,6 +839,9 @@ def main() -> None:
     stubbed = {int(a, 16): why for a, why in manifest.get("stubs", {}).items()}
 
     by_name = {e["name"]: a for a, e in cor.items()}
+    # (and by the name less its namespaces, where one function has it)
+    tails = Counter(e["name"].rsplit("::", 1)[-1] for e in cor.values())
+    by_tail = {e["name"].rsplit("::", 1)[-1]: a for a, e in cor.items() if tails[e["name"].rsplit("::", 1)[-1]] == 1}
     # (each function's stack parameters, as the decompiler signed it: what a call's pushes past
     # them carry is read by nothing)
     arity = {a: n for a, e in cor.items() if e.get("c") and (n := stack_arity(e["c"])) is not None}
@@ -811,6 +860,10 @@ def main() -> None:
             t = n[len("thunk_"):] if n.startswith("thunk_") else n
             if t in by_name:
                 out.add(by_name[t])
+            # (or named in a namespace the warning leaves out: `__ftol2` is Global::__ftol2, and
+            # its call was counted missing in 23 of a client's functions, __CIfmod's in 9, 2026-10-30)
+            elif t in by_tail:
+                out.add(by_tail[t])
             elif re.fullmatch(r"FUN_[0-9a-f]{8}", t):
                 out.add(int(t[4:], 16))
             else:
@@ -841,6 +894,25 @@ def main() -> None:
             translations[int(m.group(1), 16)] = re.sub(r"GEN_ENTER\([^;]*\);", "", m.group(0))
     procs, inline_sites = F.load_pdb(port)
     proc_at = {va: (size, name) for va, size, name in procs}
+    # (the import adapters the linker folded into one, identical code at one address (/OPT:ICF):
+    # gen_imp_DecodePointer and gen_imp_EncodePointer, both `return p`, named after one of them,
+    # so every call of the other read as a different import. 27 of a client's C runtime
+    # functions missed DecodePointer or EncodePointer, 2026-10-30)
+    # (the publics have every name, the module's procedures the folded one alone: with Ghidra32.h's
+    # gen_top_i, `return (uintptr_t)(unsigned)x`, the same code, the procedure was gen_top_i and
+    # the call no import's at all)
+    pe = pefile.PE(str(port_exe), fast_load=True)
+    names_at: dict[int, set] = {}
+    for m in re.finditer(r"`(gen_imp_\w+)`\s*\n\s*flags = function, addr = (\d+):(\d+)", F.pdbutil("-publics")):
+        seg, off = int(m.group(2)), int(m.group(3))
+        if 0 < seg <= len(pe.sections):
+            va = pe.OPTIONAL_HEADER.ImageBase + pe.sections[seg - 1].VirtualAddress + off
+            names_at.setdefault(va, set()).add("imp:" + m.group(1)[len("gen_imp_"):].lstrip("_"))
+    folded = {n: group for group in names_at.values() if len(group) > 1 for n in group}
+    # (an adapter's address named for another function: by the adapter's name)
+    for va, group in names_at.items():
+        if va in proc_at and not proc_at[va][1].startswith("gen_imp_"):
+            proc_at[va] = (proc_at[va][0], "gen_imp_" + sorted(group)[0][len("imp:"):])
     f_of_ref = {}
     for va, size, name in procs:
         m = re.fullmatch(r"F_([0-9a-f]{8})", name)
@@ -996,8 +1068,20 @@ def main() -> None:
         e = cor.get(x)
         return f"{x:08x} {e['name']}" if e else f"{x:08x}"
 
+    # (a subset: --only's functions and --low's, measured alone and merged into the last report)
+    subset, previous = None, {}
+    if args.only or args.low:
+        if OUT_JSON.exists():
+            previous = {int(r["addr"], 16): r for r in json.loads(OUT_JSON.read_text(encoding="utf-8"))}
+        subset = {int(x.lower().removeprefix("0x").removeprefix("fun_").removeprefix("f_"), 16) for x in args.only}
+        if args.low:
+            subset |= {a for a, r in previous.items() if r.get("kind") == "stub" or (r.get("score") or 0) < 0.999}
+        print(f"measuring {len(subset)} functions", flush=True)
+
     rows = []
     for a in sorted(cor):
+        if subset is not None and a not in subset:
+            continue
         e = cor[a]
         size = e.get("size", 0)
         row = {"addr": f"{a:08x}", "name": e["name"], "size": size}
@@ -1029,6 +1113,20 @@ def main() -> None:
         injected = injections(e["c"])
         rseq = [x for x in ref_calls(rf) if x not in injected]
         pseq = port_calls(pva, pf)
+        # (a folded adapter's call as the name the reference calls among those it stands for)
+        # (dealt out by what the reference calls of each: a function calling both DecodePointer and
+        # EncodePointer, two calls of one folded address, has one of each)
+        if folded and any(x in folded for x in pseq):
+            want = Counter(x for x in rseq if x in folded)
+            mapped = []
+            for x in pseq:
+                if x in folded:
+                    pick = max(sorted(folded[x]), key=lambda n: want[n])
+                    if want[pick] > 0:
+                        want[pick] -= 1
+                        x = pick
+                mapped.append(x)
+            pseq = mapped
         # (a callee the port does not call whose own calls it makes instead: inlined, the decompiler
         # following a conditional tail jump into it, `je abort` in the C runtime's __vcrt_getptd,
         # abort's body printed in its caller's. The same behavior; its calls stand for it)
@@ -1085,7 +1183,7 @@ def main() -> None:
         fields, missing_fields = presence(rf.fields, pf.fields, source, (globals_of(rf), globals_of(pf)))
         port_addrs = globals_of(pf) | {x for xs in pf.str_at.values() for x in xs}
         # (an immediate, or a displacement from a register holding the other: `lea rcx, [rax + 0x50]`)
-        port_ints = {int(k[2:], 16) for k in pf.consts if k.startswith("i:")} | set(pf.fields)
+        port_ints = {int(k[2:], 16) for k in pf.consts if k.startswith("i:")} | set(pf.fields) | pf.imms
         consts, missing_consts = presence(rf.consts, pf.consts, source, moved=(rf.str_at, port_addrs, port_ints))
         parts = {
             "calls": calls,
@@ -1111,6 +1209,23 @@ def main() -> None:
                 if row[k]:
                     print(f"  {k}: {row[k]}")
 
+    if subset is not None:
+        # (each measured function against its last score, then the whole report again, merged)
+        moved = 0
+        for r in rows:
+            before = previous.get(int(r["addr"], 16), {}).get("score")
+            if before is None or abs(before - r["score"]) > 0.0005:
+                moved += 1
+            if args.only or before is None or abs(before - r["score"]) > 0.0005:
+                b = "-" if before is None else f"{before:.3f}"
+                why = r.get("why") or "; ".join(f"{k.replace('_', ' ')} {r[k][:3]}" for k in
+                                                 ("missing_calls", "extra_calls", "missing_fields", "missing_consts")
+                                                 if r.get(k))
+                print(f"  {r['addr']}  {b} -> {r['score']:.3f}  {r['name'][:32]:<32} {why[:110]}")
+        print(f"{len(rows)} measured, {moved} changed")
+        merged = dict(previous)
+        merged.update({int(r["addr"], 16): r for r in rows})
+        rows = [merged[a] for a in sorted(merged)]
     OUT_JSON.write_text(json.dumps(rows, indent=1), encoding="utf-8")
     scored = [r for r in rows if r["kind"] != "stub"]
     stubs = [r for r in rows if r["kind"] == "stub"]
