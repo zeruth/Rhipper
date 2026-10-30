@@ -234,8 +234,40 @@ def dead_stack_stores(insns: list) -> set[int]:
     return out
 
 
+def stack_arity(c: str) -> int | None:
+    """The stack parameters a decompiled function's signature takes (`this` in ecx, __fastcall's
+    two and register inputs `in_eax` not among them), or None for a variadic or unreadable one."""
+    head = re.sub(r"/\*.*?\*/", "", c, flags=re.S).split("{", 1)[0]
+    k = head.rfind(")")
+    depth, i = 0, k
+    while i >= 0:
+        depth += {")": 1, "(": -1}.get(head[i], 0)
+        if depth == 0:
+            break
+        i -= 1
+    if k < 0 or i < 0:
+        return None
+    inner = head[i + 1:k].strip()
+    if inner in ("", "void"):
+        return 0
+    parts, depth, cur = [], 0, ""
+    for ch in inner:
+        depth += {"(": 1, "<": 1, ")": -1, ">": -1}.get(ch, 0)
+        if ch == "," and depth == 0:
+            parts.append(cur)
+            cur = ""
+        else:
+            cur += ch
+    parts.append(cur)
+    if any(p.strip() == "..." for p in parts):
+        return None
+    n = sum(not re.search(r"\bin_[a-z]{2,3}\s*$", p.strip()) for p in parts)
+    n -= {"__thiscall": 1, "__fastcall": 2}.get(next((cc for cc in ("__thiscall", "__fastcall") if cc in head), ""), 0)
+    return max(n, 0)
+
+
 def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, port: bool,
-         dead: set[int] = frozenset(), injected: set[int] = frozenset()) -> Fn:
+         dead: set[int] = frozenset(), injected: set[int] = frozenset(), arity: dict | None = None) -> Fn:
     """A function's features. `ref` names the reference's globals and strings: the port reads
     them at the reference's own addresses. `dead`: the starts of blocks the decompiler proved
     unreachable, left out to the next jump or return (__RTC_Initialize's loop over an empty table).
@@ -251,6 +283,8 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
     pushed: list = []                       # the integer immediates pushed since the last call
     ecx_fields: list = []                   # the fields read into ecx since the last call
     reg_fields: dict = {}                   # register -> the fields read into it since the last call
+    reg_imms: dict = {}                     # register -> the constants computed into it since then
+    args: list = []                         # each push since the last call: the constants it carries
 
     def inside(t):
         return any(lo <= t < hi for lo, hi in ranges)
@@ -415,10 +449,24 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
                                 del f.fields[d]
                     ecx_fields = []
                 last_cl = None
+                # (the constants of arguments pushed past what the callee takes, which nothing
+                # reads: sized operator delete's `add edx, 0x23; push edx; push eax; call delete` of
+                # a callee that takes the pointer alone, the port passing none, rhtest stl-O2)
+                if mn == "call" and arity and ops and ops[0].type == x86.X86_OP_IMM:
+                    n = arity.get(ops[0].imm & 0xFFFFFFFF)
+                    if n is not None:
+                        for ks in args[:max(0, len(args) - n)]:
+                            for k in ks:
+                                if f.consts.get(k):
+                                    f.consts[k] -= 1
+                                    if f.consts[k] <= 0:
+                                        del f.consts[k]
                 if mn == "call":
                     ecx_fields = []
                     reg_fields = {}
                     pushed = []
+                    args = []
+                    reg_imms = {}
                 if ops and ops[0].type == x86.X86_OP_IMM:
                     t = ops[0].imm
                     if not inside(t):
@@ -431,6 +479,15 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
                     if slot in img.iat:
                         f.calls.append((insn.address, "imp:" + img.iat[slot]))
                     continue
+            # (what each push carries, and what a register holds of the constants computed into it)
+            if mn == "push" and ops:
+                if ops[0].type == x86.X86_OP_REG:
+                    args.append(list(reg_imms.get(canon_reg(insn.reg_name(ops[0].reg)), ())))
+                else:
+                    args.append([])
+            elif ops and ops[0].type == x86.X86_OP_REG and not any(o.type == x86.X86_OP_IMM for o in ops[1:]) \
+                    and mn in ("mov", "lea", "movzx", "movsx", "pop", "xor"):
+                reg_imms[canon_reg(insn.reg_name(ops[0].reg))] = []
             # (ecx computed from another register: the fields that register holds reach ecx)
             if ops and ops[0].type == x86.X86_OP_REG and insn.reg_name(ops[0].reg) == "ecx" and mn != "lea":
                 for op in ops[1:]:
@@ -499,6 +556,10 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
                             last_cl = f"i:{v:x}"
                         if mn == "push":
                             pushed.append(f"i:{v:x}")
+                            if args:
+                                args[-1].append(f"i:{v:x}")
+                        elif ops[0].type == x86.X86_OP_REG:
+                            reg_imms.setdefault(canon_reg(insn.reg_name(ops[0].reg)), []).append(f"i:{v:x}")
     return f
 
 
@@ -677,6 +738,9 @@ def main() -> None:
     stubbed = {int(a, 16): why for a, why in manifest.get("stubs", {}).items()}
 
     by_name = {e["name"]: a for a, e in cor.items()}
+    # (each function's stack parameters, as the decompiler signed it: what a call's pushes past
+    # them carry is read by nothing)
+    arity = {a: n for a, e in cor.items() if e.get("c") and (n := stack_arity(e["c"])) is not None}
 
     def injections(c: str) -> set:
         """The callees the decompiler replaced with p-code (call fixups) in a function, by the
@@ -876,7 +940,8 @@ def main() -> None:
             rows.append(row)
             continue
         dead = {int(x, 16) for x in re.findall(r"Removing unreachable block \(ram,0x([0-9a-f]+)\)", e["c"])}
-        rf = scan(ref, ref, md32, own_pieces(a, sorted(pieces.get(a, [(a, a + size)]))), a, False, dead, fixed_up)
+        rf = scan(ref, ref, md32, own_pieces(a, sorted(pieces.get(a, [(a, a + size)]))), a, False, dead, fixed_up,
+                  arity)
         pva = f_of_ref[a]
         psize = proc_at[pva][0]
         pf = scan(port, ref, md64, [(pva, pva + psize)], a, True)

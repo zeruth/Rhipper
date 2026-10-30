@@ -5516,7 +5516,10 @@ class Translator32:
             name = m.group(1)
             # (a relative spelling: the full name it is the suffix of)
             name = self.odd_suffix.get(name) or name
-            rest = body[m.end():].lstrip()
+            # (what follows in the piece matched: an offset into the whole body is past every
+            # string literal before, and a call there read as a value, `((code *)REFP(0x411e30))(..)`,
+            # the destructors of a function with a string, rhtest stl-Od)
+            rest = m.string[m.end():].lstrip()
             if name in self.odd_functions:
                 a = self.by_printed[name]
                 return f"F_{a:08x}" if rest.startswith("(") else f"((code *)REFP(0x{a:x}))"
