@@ -255,6 +255,7 @@ def analyse(root: int, ranges):
     in_width: dict[int, int] = {}             # input register -> the widest read of it as an input
     stack_hi = 0                              # highest entry-relative byte read above the return address
     slots: dict[int, str] = {}                # stack parameter offset -> "d"/"f": read as a double/float
+    slot_acc: dict[int, set] = {}             # parameter slot -> {(width, writes, byte in slot)}
     touched: set[int] = set()                 # parameter slots something else used first
     addr_taken = False                        # `lea r, [param]`: the parameter block as an array (varargs)
     direct_hi = 0                             # highest parameter byte read other than by address
@@ -276,6 +277,7 @@ def analyse(root: int, ranges):
     # mov edi, edx; ret`, the other read nowhere else: no input. The static CRT's memset keeps edi
     # so, and its edi became an input of everything calling memset, rhtest stl /MT)
     reg_saves: set[int] = set()
+    cleaned_later: set[int] = set()            # (the `add esp, k` a call's cleanup took already)
     full = (X.X86_REG_EAX, X.X86_REG_ECX, X.X86_REG_EDX, X.X86_REG_EBX, X.X86_REG_ESI, X.X86_REG_EDI)
     movs = {a: (i.operands[0].reg, i.operands[1].reg) for a, i in insns.items()
             if i.mnemonic == "mov" and len(i.operands) == 2
@@ -423,6 +425,10 @@ def analyse(root: int, ranges):
                 stack_hi = max(stack_hi, off + (width or 4))
                 if mn != "lea":
                     direct_hi = max(direct_hi, off + (width or 4))
+                    # (each access's width and whether it writes: a slot only ever read a byte at a
+                    # time is a byte parameter, slot "b")
+                    slot_acc.setdefault(off - off % 4, set()).add(
+                        (op.size or 4, bool(op.access & 2), off % 4))          # (2: CS_AC_WRITE)
                 if mn == "lea":
                     addr_taken = True
                     lea_offs.add(off)
@@ -574,7 +580,7 @@ def analyse(root: int, ranges):
                 # (right after a call, its arguments' cleanup: the call consumed them already)
                 after_call = prv[a] is not None and insns[prv[a]].mnemonic == "call" \
                     and prv[a] + insns[prv[a]].size == a
-                if mn == "add" and not after_call:
+                if mn == "add" and not after_call and a not in cleaned_later:
                     pushed = max(0, pushed - src.imm)
             elif mn == "mov" and src.type == X.X86_OP_REG and src.reg == X.X86_REG_EBP:
                 esp = ebp
@@ -680,6 +686,13 @@ def analyse(root: int, ranges):
                     # got no argument, read the host runtime's slot 3 for the CRT's thread data,
                     # and the host's freed it at exit, rhtest msvc-16.00-x86 2026-10-24)
                     pass
+                elif t is not None and t in _cdecl_args and (lc := later_cleanup(insns, nxt, a, True)) is not None:
+                    # (the caller's cleanup a few instructions on, less than the callee's words:
+                    # what it leaves is room for the next call's, `call _Ffmt; ...; add esp, 8;
+                    # movsd [esp], xmm0; push ...; call sprintf_s`, num_put's double. Taken as
+                    # the callee's 16 and the add again, sprintf_s lost its double, rhtest stl)
+                    pushed = max(0, pushed - lc[0])
+                    cleaned_later.add(lc[1])
                 elif t is not None and t in _cdecl_args:
                     pushed = max(0, pushed - _cdecl_args[t])
                 elif known == 0 and (slot if slot is not None else _thunk_slot.get(t)) in _imp_params \
@@ -694,7 +707,10 @@ def analyse(root: int, ranges):
             # eax, ecx and edx are the callee's to clobber; the stack probe's eax only (`push ecx ...
             # pop ecx`: a method with a large frame reads its `this` after it. FUN_00403800 lost its
             # ecx and passed 0 for the string it fills, WinMain's first crash, 2026-10-24)
-            if t is not None and any(h in name for h in ALLOCA):
+            # (and the frame prologs, which write eax alone: the exit lambda reads its `this` in
+            # ecx after `call __SEH_prolog4`, and taken for clobbered, it was a local the decompiler
+            # lost, `*in_ECX`, a fault at exit, rhtest stl /MT)
+            if t is not None and (any(h in name for h in ALLOCA) or re.search(r"(?:SEH|EH)_prolog", name)):
                 mask |= EAX
             else:
                 mask |= VOLATILE
@@ -1248,6 +1264,11 @@ def analyse(root: int, ranges):
                     o.type == X.X86_OP_REG and o.reg == X.X86_REG_ESP for o in po):
                 if pm == "call":
                     stop = p
+                # (a cleanup that left room behind it, `call _Ffmt; ...; add esp, 8; movsd [esp],
+                # xmm0; push ...`: the words outstanding at the call, as visit counts them, the
+                # double num_put hands sprintf_s, rhtest stl)
+                if p in cleaned_later and state[a][3] > n:
+                    n = state[a][3]
                 break
         # (no more than its own cleanup, where it has one: sscanf's `add esp, 0x1c` after scan's
         # seven, the save of esi before them no eighth)
@@ -1412,6 +1433,15 @@ def analyse(root: int, ranges):
     x87_data = any(insns[a].mnemonic.startswith("f") and insns[a].mnemonic not in X87_CONTROL for a in state) \
         or any(insns[a].mnemonic == "call" and _target(insns[a]) is None for a in state) \
         or any(indirect_tail_jump(insns[a]) for a in state)
+    # (a parameter slot only ever read, and a byte at a time at its low byte: a byte parameter,
+    # "b". The caller pushes the register it set the byte of, `mov dl, al; push edx`, and the upper
+    # three bytes are what the register held: as a 4-byte parameter the decompiler kept them,
+    # `CONCAT31((int3)((uint)extraout_EDX >> 8), (char)uVar6)`, a register it lost, std::getline's
+    # operator>> a stub, rhtest stl)
+    for off, acc in slot_acc.items():
+        if off >= 4 and off not in slots and off not in lea_offs and acc \
+                and all(w == 1 and not wr and b == 0 for w, wr, b in acc):
+            slots[off] = "b"
     return {"reg_handoff": reg_handoff(insns, prv, state), "fpu_clear": fpu_clear, "x87_data": x87_data, "x87_own_ret": x87_own_ret, "local_block": block, "passed": passed, "tail_jumps": tail_jumps, "eh_imms": eh_imms,
             "frame": -floor[0] if floor[0] is not None and floor[0] < 0 else None,"inputs": inputs, "in_width": in_width, "stack_hi": stack_hi, "slots": slots,
             "addr_taken": addr_taken, "calls": calls, "variadic": variadic, "call_pushes": call_pushes, "pushes_past": pushes_past,
@@ -1999,10 +2029,11 @@ REG_RETS = {"esi": "si4", "edi": "di4", "ebx": "bx4"}
 RET_RANK = {"i1": 1, "i2": 2, "i4": 3, "f4": 4, "d8": 4, "s4": 4, "q8": 4, "i8": 5}
 
 
-def later_cleanup(insns, nxt, a) -> int | None:
+def later_cleanup(insns, nxt, a, where: bool = False):
     """The caller's `add esp, k` after the call at `a`: right after it, or a few instructions on
     in the straight line, nothing between moving esp or leaving (/LTCG schedules the result's
-    first read ahead of it: sort_check's `call isort; mov eax, [esp + 0x14]; add esp, 4`)."""
+    first read ahead of it: sort_check's `call isort; mov eax, [esp + 0x14]; add esp, 4`).
+    With `where`, (k, the add's address)."""
     p, end = nxt[a], a + insns[a].size
     for _ in range(6):
         if p is None or p != end or p not in insns:
@@ -2012,7 +2043,7 @@ def later_cleanup(insns, nxt, a) -> int | None:
         mn, ops = pi.mnemonic, pi.operands
         if mn == "add" and len(ops) == 2 and ops[0].type == X.X86_OP_REG and ops[0].reg == X.X86_REG_ESP \
                 and ops[1].type == X.X86_OP_IMM:
-            return ops[1].imm
+            return (ops[1].imm, p) if where else ops[1].imm
         if mn in ("call", "jmp", "ret", "push", "pop") or mn.startswith(("j", "loop")) or \
                 X.X86_REG_ESP in regs_access(pi)[1]:
             return None
@@ -4238,7 +4269,7 @@ def main() -> None:
                 stack_params.append(["d", 8])
                 off += 8
                 continue
-            stack_params.append([k, 4] if k in ("f", "n") else ["i", 4])
+            stack_params.append([k, 4] if k in ("f", "n", "b") else ["i", 4])
             off += 4
         params = [["i", 4]] * len(regs) + stack_params
         # (a method made __thiscall that reads no `this`, a vtable's or a pointer to member's: its

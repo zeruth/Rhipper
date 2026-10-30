@@ -1088,8 +1088,22 @@ unsigned int Kmt_Escape(uint32_t p) {
 
 // a function the reference resolves by name that the runtime gives it in a 32-bit form: NVAPI's
 // QueryInterface, the kernel display functions with structures of their own
+// (AppPolicyGetProcessTerminationMethod, which the static C runtime finds at exit by name: the token
+// a pseudo-handle, sign-extended, the policy's 32-bit address. Called as it was, with 32-bit
+// arguments, the x64 function faulted, rhtest stl /MT's exit)
+LONG(WINAPI* g_appPolicyTermination)(HANDLE, int*) = nullptr;
+unsigned int AppPolicy_GetProcessTerminationMethod(uint32_t token, uint32_t policy) {
+    return static_cast<unsigned int>(g_appPolicyTermination(
+        reinterpret_cast<HANDLE>(static_cast<intptr_t>(static_cast<int32_t>(token))),
+        reinterpret_cast<int*>(static_cast<uintptr_t>(policy))));
+}
+
 uint32_t Com32Proc(uint32_t module, const char* name) {
     HMODULE m = reinterpret_cast<HMODULE>(static_cast<uintptr_t>(module));
+    if (strcmp(name, "AppPolicyGetProcessTerminationMethod") == 0) {
+        g_appPolicyTermination = reinterpret_cast<LONG(WINAPI*)(HANDLE, int*)>(GetProcAddress(m, name));
+        return g_appPolicyTermination ? Low(reinterpret_cast<void*>(AppPolicy_GetProcessTerminationMethod)) : 0;
+    }
     if (strcmp(name, "D3DKMTOpenAdapterFromHdc") == 0) {
         g_kmtOpenAdapterFromHdc = reinterpret_cast<LONG(APIENTRY*)(OpenAdapterFromHdc64*)>(GetProcAddress(m, name));
         return g_kmtOpenAdapterFromHdc ? Low(reinterpret_cast<void*>(Kmt_OpenAdapterFromHdc)) : 0;

@@ -3032,6 +3032,64 @@ class Translator32:
                     return False
         return True
 
+    def literal_places(self, body: str, a: int | None = None) -> str:
+        """A string literal used beside a reference address inside or just past its own bytes,
+        `widen("0123456789ABCDEFabcdef-+Xx", &DAT_0042c4c7, buf)`: the reference's copy of it,
+        REFP. The decompiler prints the string the reference points to; as the port's own copy,
+        `last - first` measured from two images, and std::num_get's widen copied gigabytes, rhtest
+        stl /MT's istream."""
+        # (and any literal the image holds once: the reference's own copy, as the reference points
+        # to it. strtol's digit is its memchr's result less the table's address, which the
+        # decompiler folded to `(char)pvVar5 + 'p'`, the low byte of 0x42f690: through the port's
+        # copy every digit was wrong, and `in >> a` overflowed, rhtest stl /MT)
+        if '"' not in body:
+            return body
+        import pefile
+        if self._pe is None:
+            self._pe = pefile.PE(str(project.EXE), fast_load=True)
+        if not hasattr(self, "_image_data"):
+            base = self._pe.OPTIONAL_HEADER.ImageBase
+            self._image_data = [(base + s.VirtualAddress, s.get_data()) for s in self._pe.sections]
+        # (the copies the function's own code names, `push 0x42f690`: where the image holds two,
+        # the one it uses)
+        code = self.ref_code(a) if a is not None else b""
+        out = []
+        for line in body.split("\n"):
+            if '"' not in line:
+                out.append(line)
+                continue
+            refs = [int(x, 16) for x in re.findall(r"&REFG\(undefined, (0x[0-9a-f]+)\)", line)]
+
+            def rep(m):
+                text = m.group(1)
+                try:
+                    raw = text.encode("latin-1").decode("unicode_escape").encode("latin-1")
+                except Exception:
+                    return m.group(0)
+                if not raw:
+                    return m.group(0)
+                places, tails = [], []
+                for va, data in self._image_data:
+                    k = data.find(raw + b"\0")
+                    while k >= 0:
+                        # (a string's own start, a NUL or the section's start before it; another
+                        # string's tail only where there is none)
+                        (places if k == 0 or data[k - 1] == 0 else tails).append(va + k)
+                        k = data.find(raw + b"\0", k + 1)
+                every = places + tails
+                named = [p for p in every if code and p.to_bytes(4, "little") in code]
+                if len(named) == 1:
+                    return f"((char *)REFP(0x{named[0]:x}))"
+                near = [p for p in every if any(p < r <= p + len(raw) + 1 for r in refs)]
+                if near:
+                    return f"((char *)REFP(0x{near[0]:x}))"
+                places = places or tails
+                if len(places) == 1 and not code:
+                    return f"((char *)REFP(0x{places[0]:x}))"
+                return m.group(0)
+            out.append(re.sub(r'(?<![\w\\L])"((?:\\.|[^"\\])*)"', rep, line))
+        return "\n".join(out)
+
     def unread_params(self, c: str) -> set[str]:
         """The callee-saved registers the decompiler lost that are only whole arguments of direct
         calls whose callee never reads that parameter: a catch's continuation cut from its body
@@ -4087,6 +4145,14 @@ class Translator32:
         # __fltin2, its _CRT_DOUBLE's halves, rhtest msvc-16.00-x86 crt)
         body = self.paren_pieces(body)
         self.leftover_members(body, a)
+        # (a pointer cast of an 8-byte integer, `(int *)local_30`: its low four bytes, the decompiler's
+        # truncation. Whole on x64, the sentry's ok flag in the pointer's upper half, and ostream's
+        # operator<< faulted, rhtest stl /MT)
+        wide = set(re.findall(r"(?m)^[ \t]+(?:undefined8|ulonglong|longlong|qword|uint8|int8)\s+([A-Za-z_]\w*)\s*;",
+                              split_decls(body)[0]))
+        if wide:
+            body = re.sub(r"(\(\s*[A-Za-z_][\w ]*?\s*\*+\s*\))(\s*)(" + "|".join(map(re.escape, sorted(wide)))
+                          + r")\b(?!\s*(?:\.|\[|->))", r"\1\2(uint)\3", body)
         # (types before names: a C++ type in a cast, `(Client::UI::Foo *)`, is no symbol)
         body = self.types(body)
         # (`a + -b` as `a - b`, the same for integers and pointers: a 32-bit unsigned b negated is
@@ -4103,6 +4169,7 @@ class Translator32:
         parts = self.sigs[a].name.split("::")[:-1]
         self.cur_call_ns = ["::".join(parts[:k]) + "::" for k in range(len(parts), 0, -1)]
         body = self.names(body)
+        body = self.literal_places(body, a)
         body = interlocked(body)
         body = jump_calls(body, self.linked_jumps)
         body = CC.sub("", body)
@@ -4172,7 +4239,8 @@ class Translator32:
             # two. The CRT's __crt_seh_guarded_call<void>::operator(), __thiscall by its FID
             # signature, gave `this` [ebp + 8], and its __finally funclet read the lock's pointer
             # there, rhtest stl-O2's startup)
-            head = self.corpus[a]["c"].split("{", 1)[0]
+            # (the signature's own convention, not a Function ID comment's above it)
+            head = strip_comments(self.corpus[a]["c"]).split("{", 1)[0]
             ccm = CC.search(head)
             in_regs = {"__thiscall": 1, "__fastcall": 2}.get(ccm.group(1) if ccm else "", 0)
             at_slot, fixed = [], 0
@@ -4927,7 +4995,10 @@ class Translator32:
                 conv = "GEN_TOD" if t in ("double", "float8", "float10") else "GEN_TOF"
                 rep = f"(({t})gen_bits2f((unsigned int)(uintptr_t)({operand})))" if k == "ptr" else f"(({t}){conv}({operand}))"
             else:
-                if k in ("ptr", "int"):
+                # (an int too: its 32 bits zero-extended, as the reference's pointer is. Sign-extended
+                # on x64, `p = (uint *)((int)p - 1)` from 0 was never `(uint *)0xffffffff`, and the
+                # CRT's big-integer shift ran off the stack's end, rhtest stl /MT's double formatting)
+                if k == "ptr":
                     continue
                 rep = f"(({t})(uintptr_t)gen_fl2bits((float)({operand})))" if k == "float" else f"(({t})GEN_TOP({operand}))"
             out.append(body[i:m.start()])

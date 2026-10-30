@@ -444,6 +444,10 @@ extern "C" unsigned int gen_teb32(void) {
             *reinterpret_cast<uint32_t*>(p + 0x08) = gen_ref_base;                // ImageBaseAddress
             *reinterpret_cast<uint32_t*>(p + 0x18) =
                 static_cast<uint32_t>(reinterpret_cast<uintptr_t>(GetProcessHeap()));  // ProcessHeap
+            // (and ProcessParameters, zeroed: the static C runtime's exit reads its Flags, whether
+            // the process is a packaged app's, and a null one faulted, rhtest stl /MT)
+            *reinterpret_cast<uint32_t*>(p + 0x10) = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(
+                HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, 0x400)));
             peb = p;
         }
         auto t = static_cast<uint8_t*>(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, 0x1000));

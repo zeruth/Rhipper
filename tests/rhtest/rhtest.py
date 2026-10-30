@@ -109,13 +109,15 @@ PROGRAMS = {
     "sys": (["sys.c"], ["O2", "Od"]),
     "com": (["com.cpp"], ["O2", "Od"]),
     "stl": (["stl.cpp"], ["O2", "Od"]),
+    # (stl's string streams alone, /MT as stl is: a failing part tried on a smaller program)
+    "stlio": (["stlio.cpp"], ["O2", "Od"]),
     "fpenv": (["fpenv.c"], ["O2", "Od", "IA32"]),
     "seh": (["seh.c"], ["O2", "Od"]),
 }
 # (a program's own C runtime, over its toolset's: the C++ library linked in, /MT, as a game links
 # it, its code translated with the program's. /MD's msvcp140.dll methods take x86-laid-out C++
 # objects, std::cout's and every stream's, which no x64 DLL can be handed, 2026-10-29)
-PROGRAM_CRT = {"stl": "/MT"}
+PROGRAM_CRT = {"stl": "/MT", "stlio": "/MT"}
 STEPS = ["ref", "import", "facts", "ghidra", "translate", "port", "run", "fidelity", "bytes"]
 # workers for the tools that take them (protos32.py, translate32.py, the port's MSBuild): serial
 # unless --jobs says otherwise, so a test run leaves the machine usable (Ghidra: one shard)

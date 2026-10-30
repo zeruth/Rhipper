@@ -29,6 +29,7 @@ unsigned int g_from = 0;
 bool g_started = true;
 Record g_buf[4096];
 unsigned g_used = 0;
+bool g_sync = false;
 
 void FlushLocked() {
     if (g_file && g_used) {
@@ -59,6 +60,8 @@ void RefTraceStart() {
     }
     wchar_t max[24] = {};
     g_left = RefEnv("TRACE_MAX", max, 24) ? _wcstoui64(max, nullptr, 10) : 2000000;
+    wchar_t sync[8] = {};
+    g_sync = RefEnv("TRACE_SYNC", sync, 8) != 0;
     wchar_t from[24] = {};
     if (RefEnv("TRACE_FROM", from, 24)) {
         g_from = static_cast<unsigned int>(wcstoul(from, nullptr, 16));
@@ -201,5 +204,7 @@ dumped:
     }
     g_left--;
     g_buf[g_used++] = Record{GetCurrentThreadId(), addr, {a0, a1, a2, a3}};
-    if (g_used == sizeof g_buf / sizeof g_buf[0]) FlushLocked();
+    // (<ENV>_TRACE_SYNC: each record written as it comes, slow: a port that dies with no handler
+    // running, its last calls kept, 2026-10-30)
+    if (g_used == sizeof g_buf / sizeof g_buf[0] || g_sync) FlushLocked();
 }

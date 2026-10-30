@@ -283,7 +283,7 @@ public class ApplyFacts extends GhidraScript {
                         params.add(new ParameterImpl("param_" + (params.size() + 1), t,
                                 new ghidra.program.model.listing.VariableStorage(currentProgram, off, t.getLength()),
                                 currentProgram));
-                        off += t.getLength();
+                        off += Math.max(4, t.getLength());           // (a byte's slot is a word)
                     }
                     boolean callee = o.get("callee_cleans").getAsBoolean() && stack > 0;
                     f.updateFunction(callee ? "__stdcall" : "__cdecl", f.getReturn(), params,
@@ -315,7 +315,7 @@ public class ApplyFacts extends GhidraScript {
                             params.add(new ParameterImpl("param_" + (params.size() + 1), t,
                                     new ghidra.program.model.listing.VariableStorage(currentProgram, off, t.getLength()),
                                     currentProgram));
-                            off += t.getLength();
+                            off += Math.max(4, t.getLength());       // (a byte's slot is a word)
                         }
                         f.updateFunction(cc, f.getReturn(), params, FunctionUpdateType.CUSTOM_STORAGE, true,
                                 SourceType.ANALYSIS);
@@ -597,6 +597,36 @@ public class ApplyFacts extends GhidraScript {
         println("ApplyFacts: 64-bit and float helper call fixups set " + set);
     }
 
+    // The other functions whose decompilation runs through f's code: each one that jumps into f's
+    // body past its entry (a catch continuation's body, `jmp` from the function it was cut from,
+    // which the decompiler follows into it). A call-site signature is looked up by the function
+    // decompiled, so each needs its own (cached per f)
+    private final Map<Function, java.util.Set<Function>> sharersOf = new HashMap<>();
+    private java.util.Set<Function> sharers(Function f) {
+        java.util.Set<Function> out = sharersOf.get(f);
+        if (out != null) return out;
+        out = new java.util.HashSet<>();
+        ghidra.program.model.symbol.ReferenceManager rm = currentProgram.getReferenceManager();
+        ghidra.program.model.address.AddressIterator dests = rm.getReferenceDestinationIterator(f.getBody(), true);
+        while (dests.hasNext()) {
+            Address d = dests.next();
+            if (d.equals(f.getEntryPoint())) continue;
+            for (ghidra.program.model.symbol.Reference r : rm.getReferencesTo(d)) {
+                if (!r.getReferenceType().isJump() || f.getBody().contains(r.getFromAddress())) continue;
+                Function g = getFunctionContaining(r.getFromAddress());
+                if (g != null && !g.equals(f)) out.add(g);
+            }
+        }
+        // (and those whose body overlaps f's)
+        java.util.Iterator<Function> also = currentProgram.getFunctionManager().getFunctionsOverlapping(f.getBody());
+        while (also.hasNext()) {
+            Function g = also.next();
+            if (!g.equals(f)) out.add(g);
+        }
+        sharersOf.put(f, out);
+        return out;
+    }
+
     // A function's stack parameters as protos32.py read them ("params" after its `nreg` register
     // ones): a slot read as a double one 8-byte parameter, as a float a float, else 4 bytes. All
     // 4-byte integers, a double was two and the decompiler read it `*(double *)&param_3` (rhtest
@@ -609,11 +639,14 @@ public class ApplyFacts extends GhidraScript {
         if (ps != null) {
             for (int i = nreg; i < ps.size() && bytes < stack; i++) {
                 String k = ps.get(i).getAsJsonArray().get(0).getAsString();
+                // (and a byte parameter, "b": its slot read one byte at a time, the caller's other
+                // three bytes whatever the register it pushed held, which a 4-byte parameter kept)
                 DataType t = k.equals("d") ? ghidra.program.model.data.DoubleDataType.dataType
                         : k.equals("f") ? ghidra.program.model.data.FloatDataType.dataType
-                        : k.equals("n") ? concreteInt(4) : u4;
+                        : k.equals("n") ? concreteInt(4)
+                        : k.equals("b") ? Undefined.getUndefinedDataType(1) : u4;
                 out.add(t);
-                bytes += t.getLength();
+                bytes += Math.max(4, t.getLength());
             }
         }
         for (; bytes < stack; bytes += 4) out.add(u4);
@@ -2593,12 +2626,7 @@ public class ApplyFacts extends GhidraScript {
                 // from a body that falls into it shares its code, and the body decompiled its
                 // virtual call with no `this`, `(**(code **)(*piVar4 + 8))()`, a fault in
                 // operator<<, rhtest stl /MT)
-                java.util.Iterator<Function> also = currentProgram.getFunctionManager()
-                        .getFunctionsOverlapping(new ghidra.program.model.address.AddressSet(at));
-                while (also.hasNext()) {
-                    Function g = also.next();
-                    if (!g.equals(f)) writeOverride.invoke(null, g, at, sig);
-                }
+                for (Function g : sharers(f)) writeOverride.invoke(null, g, at, sig);
             } catch (Exception ex) {
                 if (firstError == null) {
                     Throwable cause = ex.getCause() != null ? ex.getCause() : ex;

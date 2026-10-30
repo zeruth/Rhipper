@@ -161,8 +161,17 @@ def main():
     nm = names()
     # (and the reference's import thunks, `KERNEL32.DLL::GetCurrentThreadId`'s `jmp [iat]`: the
     # translation calls the import itself, through no thunk the port's trace records)
+    # (and a thunk, `jmp target` alone: the translation calls its target, recorded next in both)
     skip = frozenset(addr for addr, n in nm.items() if any(h in n for h in HELPERS)
-                     or re.search(r"\.(?:dll|DLL|drv|DRV)::", n)) | {int(x, 16) for x in a.skip}
+                     or re.search(r"\.(?:dll|DLL|drv|DRV)::", n) or n.startswith("thunk_")) | {int(x, 16) for x in a.skip}
+    # (and a catch's continuation, on its parent's frame (`in_ebp`): the reference's body falls into
+    # it, a call in its record, where the translation's runs on inline, rhtest stl's streams)
+    corpus = project.ROOT / "build" / "corpus.jsonl"
+    if corpus.exists():
+        for line in corpus.open(encoding="utf-8"):
+            r = json.loads(line)
+            if re.search(r"\bint in_ebp\b", r.get("c", "").split("{", 1)[0]):
+                skip = skip | {int(r["addr"], 16)}
     # (and the compiler's arithmetic helpers helpers32.py identified, which the translation does
     # inline: `__time64`'s __aulldiv parted a client's runs, 2026-10-25)
     hp = FACTS / "helpers32.json"
