@@ -1,1 +1,1 @@
-{"sha": "1593c3eefc6db8a866a0b41b1d468bd87d4ee2c7", "date": "2026-10-30T03:49:03-04:00", "subject": "fix(fidelity32): the fields read into a register pushed past what the callee takes"}
+{"sha": "4ca9f13b8b5301e4fcfb93cd6f9fb44148942cb5", "date": "2026-10-30T04:24:48-04:00", "subject": "fix(protos32, fidelity32): float arguments placed below a frame with no locals, arguments pushed before a branch join; rhtest cases"}

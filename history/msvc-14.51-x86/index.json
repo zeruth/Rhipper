@@ -1798,5 +1798,17 @@
   "stubs": 4,
   "perfect": 9661,
   "translated": 9665
+ },
+ {
+  "sha": "4ca9f13b8b5301e4fcfb93cd6f9fb44148942cb5",
+  "date": "2026-10-30T04:24:48-04:00",
+  "subject": "fix(protos32, fidelity32): float arguments placed below a frame with no locals, arguments pushed before a branch join; rhtest cases",
+  "run": "2026-10-30 09:28 UTC",
+  "file": "4ca9f13b8b5301e4fcfb93cd6f9fb44148942cb5.json",
+  "passing": 34,
+  "projects": 36,
+  "stubs": 4,
+  "perfect": 9676,
+  "translated": 9690
  }
 ]
