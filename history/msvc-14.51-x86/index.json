@@ -1786,5 +1786,17 @@
   "stubs": 4,
   "perfect": 9661,
   "translated": 9665
+ },
+ {
+  "sha": "1593c3eefc6db8a866a0b41b1d468bd87d4ee2c7",
+  "date": "2026-10-30T03:49:03-04:00",
+  "subject": "fix(fidelity32): the fields read into a register pushed past what the callee takes",
+  "run": "2026-10-30 08:53 UTC",
+  "file": "1593c3eefc6db8a866a0b41b1d468bd87d4ee2c7.json",
+  "passing": 36,
+  "projects": 36,
+  "stubs": 4,
+  "perfect": 9661,
+  "translated": 9665
  }
 ]
