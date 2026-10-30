@@ -443,6 +443,42 @@ public class ApplyFacts extends GhidraScript {
     // decompiles to the 64-bit operation itself. As calls, divmod64's remainder was `in_ebx` and
     // `extraout_ECX`, and every 64-bit shift's count `CONCAT31(extraout_ECX >> 8, 0x20)` (rhtest
     // int64, 2026-10-24)
+    // __SEH_prolog4's p-code from its bytes (`push handler; push fs:[0]; ...; mov eax,
+    // [__security_cookie]; ...; mov fs:[0], eax; ret`), or null where the image has none or another
+    private String seh_prolog4_body() throws Exception {
+        String tmpl = "68????????64ff35000000008b442410896c24108d6c24102be0535657a1????????3145fc33c550"
+                + "8965e8ff75f88b45fcc745fcfeffffff8945f88d45f064a300000000c3";
+        for (Function f : currentProgram.getFunctionManager().getFunctions(true)) {
+            if (!f.getName().replaceFirst("^_+", "").equals("SEH_prolog4")) continue;
+            byte[] b = new byte[tmpl.length() / 2];
+            try {
+                currentProgram.getMemory().getBytes(f.getEntryPoint(), b);
+            } catch (Exception ex) {
+                return null;
+            }
+            for (int i = 0; i < b.length; i++) {
+                String want = tmpl.substring(2 * i, 2 * i + 2);
+                if (!want.equals("??") && Integer.parseInt(want, 16) != (b[i] & 0xff)) return null;
+            }
+            long handler = (b[1] & 0xffL) | (b[2] & 0xffL) << 8 | (b[3] & 0xffL) << 16 | (b[4] & 0xffL) << 24;
+            long cookie = (b[0x1e] & 0xffL) | (b[0x1f] & 0xffL) << 8 | (b[0x20] & 0xffL) << 16 | (b[0x21] & 0xffL) << 24;
+            // (run after the call pushed its return address: the scope table at ESP + 4, the locals'
+            // size at ESP + 8, whose slot becomes the frame's ebp)
+            return "frame:4 = ESP + 8; size:4 = *:4 frame; *:4 frame = EBP; EBP = frame;\n"
+                    + "p:4 = EBP - 12; *:4 p = 0x" + Long.toHexString(handler) + ":4;\n"
+                    + "fsp:4 = FS_OFFSET; old:4 = *:4 fsp; p = EBP - 16; *:4 p = old;\n"
+                    + "p = EBP - 4; scope:4 = *:4 p; cp:4 = 0x" + Long.toHexString(cookie) + ":4; ck:4 = *:4 cp;\n"
+                    + "p = EBP - 8; *:4 p = scope ^ ck;\n"
+                    + "p = EBP - 4; *:4 p = 0xfffffffe:4;\n"
+                    + "ESP = EBP - 16; ESP = ESP - size;\n"
+                    + "ESP = ESP - 4; *:4 ESP = EBX; ESP = ESP - 4; *:4 ESP = ESI; ESP = ESP - 4; *:4 ESP = EDI;\n"
+                    + "ESP = ESP - 4; *:4 ESP = ck ^ EBP;\n"
+                    + "p = EBP - 24; *:4 p = ESP;\n"
+                    + "*:4 fsp = EBP - 16;";
+        }
+        return null;
+    }
+
     private void applyLongHelpers32() throws Exception {
         // (a fixup runs after the call pushed its return address, as x86win.cspec's alloca_probe
         // and SEH_prolog4 read theirs: the arguments from ESP + 4, and the helper's `ret 16` is
@@ -550,6 +586,13 @@ public class ApplyFacts extends GhidraScript {
             bodies.put("m_" + math[i], "p:4 = ESP + 4; d:8 = *:8 p; t:8 = from_bcd(d); r:8 = fpatan(t, " + k + ":4);"
                     + push87 + " ST0 = float2float(r);" + pop0);
         }
+        // (the static CRT's __SEH_prolog4 as it is: the cspec's fixup sets up ebp and esp and leaves
+        // the EH4 node unbuilt and unlinked, so the frame's `ExceptionList = local_14` at exit put
+        // an uninitialized word in fs:[0] and the scope table's slot was a dead store. Its handler
+        // and the cookie's address are the routine's own immediates, read where its bytes are
+        // exactly the VS2015+ routine's, rhtest stl /MT)
+        String prolog4 = seh_prolog4_body();
+        if (prolog4 != null) bodies.put("SEH_prolog4", prolog4);
         Class<?> se = Function.class.getClassLoader().loadClass("ghidra.program.database.SpecExtension");
         Object ext = se.getConstructor(ghidra.program.model.listing.Program.class).newInstance(currentProgram);
         java.lang.reflect.Method add = se.getMethod("addReplaceCompilerSpecExtension", String.class,

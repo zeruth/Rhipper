@@ -154,6 +154,7 @@ class Fn:
         self.mnemonics: list[str] = []
         self.float_at: dict[int, str] = {}   # a float constant's reference address -> its f: key
         self.packed: set[int] = set()        # 16-byte float constants read whole
+        self.str_at: dict[str, set] = {}     # a string's s: key -> the reference addresses it is at
 
 
 def dead_stack_stores(insns: list) -> set[int]:
@@ -267,7 +268,8 @@ def stack_arity(c: str) -> int | None:
 
 
 def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, port: bool,
-         dead: set[int] = frozenset(), injected: set[int] = frozenset(), arity: dict | None = None) -> Fn:
+         dead: set[int] = frozenset(), injected: set[int] = frozenset(), arity: dict | None = None,
+         takes_ecx: set | frozenset = frozenset()) -> Fn:
     """A function's features. `ref` names the reference's globals and strings: the port reads
     them at the reference's own addresses. `dead`: the starts of blocks the decompiler proved
     unreachable, left out to the next jump or return (__RTC_Initialize's loop over an empty table).
@@ -310,6 +312,7 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
         if s is None:
             s = ref.wstr(v)
         if s is not None:
+            f.str_at.setdefault("s:" + s, set()).add(v)
             return "s:" + s
         # (an address in the reference's code is a function's or a jump table's: the port has its
         # own tables, and a function taken as a value is a call target, not data)
@@ -457,6 +460,20 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
                 # (the constants of arguments pushed past what the callee takes, which nothing
                 # reads: sized operator delete's `add edx, 0x23; push edx; push eax; call delete` of
                 # a callee that takes the pointer alone, the port passing none, rhtest stl-O2)
+                # (and what is loaded into ecx for a callee that takes nothing there: an atexit
+                # thunk's `mov ecx, obj; jmp dtor` to a body that never reads ecx, rhtest stl-O2)
+                if mn in ("call", "jmp") and arity and ops and ops[0].type == x86.X86_OP_IMM:
+                    t = ops[0].imm & 0xFFFFFFFF
+                    # (or a tail jump, the range's last instruction, into code the decompiler took
+                    # into this function, whose own signature takes nothing in ecx)
+                    tail_in = mn == "jmp" and t not in arity and at + 1 == len(insns) and own not in takes_ecx
+                    if (t in arity and t not in takes_ecx) or tail_in:
+                        for k in reg_imms.get(canon_reg("ecx"), ()):
+                            if f.consts.get(k):
+                                f.consts[k] -= 1
+                                if f.consts[k] <= 0:
+                                    del f.consts[k]
+                        reg_imms.pop(canon_reg("ecx"), None)
                 if mn == "call" and arity and ops and ops[0].type == x86.X86_OP_IMM:
                     n = arity.get(ops[0].imm & 0xFFFFFFFF)
                     if n is not None:
@@ -519,6 +536,11 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
                             if len(raw) == op.size:
                                 f.consts[F.float_text(raw)] += 1
                         continue
+                    # (a switch's jump table, `jmp [eax*4 + 0x4242fc]`: the compiler's lowering of
+                    # the cases, no constant of the source; its first entry's bytes read as a
+                    # string, "3AB", rhtest stl-O2's undname)
+                    if mn == "jmp" and op.mem.index:
+                        continue
                     k = global_or_const(disp & 0xFFFFFFFF, mn, op.size)
                     if k is not None and disp > 0x10000:
                         # (a float read through a register, `movsd xmm0, [edx + 0x405090]`: an array's
@@ -552,6 +574,10 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
                     if k is not None:
                         if k != "code":
                             f.consts[k] += 1
+                            if mn == "mov" and ops[0].type == x86.X86_OP_REG:
+                                reg_imms.setdefault(canon_reg(insn.reg_name(ops[0].reg)), []).append(k)
+                            elif mn == "push" and args:
+                                args[-1].append(k)
                     # (not the stack's own arithmetic, `sub esp, k` or a realignment `and esp, -0x40`,
                     # nor a SIMD op's lane control, `shufps xmm1, xmm0, 0xdd`: the machine's, no
                     # constant of the source)
@@ -598,7 +624,8 @@ def near(k, have: set) -> bool:
 
 
 def presence(ref: Counter, port: Counter, source: set[int] = frozenset(),
-             bases: tuple[set[int], set[int]] = (frozenset(), frozenset())) -> tuple[float | None, list]:
+             bases: tuple[set[int], set[int]] = (frozenset(), frozenset()),
+             moved: tuple[dict, set, set] | None = None) -> tuple[float | None, list]:
     """The share of what the reference uses that the port uses too, by presence: how often a
     constant or field appears is the compilers' (unrolling, what stays in a register), x86 and x64
     apart. And what it misses. `source`: the integers the translation's C has, where an integer
@@ -611,6 +638,13 @@ def presence(ref: Counter, port: Counter, source: set[int] = frozenset(),
     def kept(k):
         if near(k, have):
             return True
+        # (a string or global the port reaches from another by one of its immediates: a choice of
+        # three messages as `0x44f5d8 + (b ? -0x18 : 0)`, ios_base::clear's, rhtest stl-Od)
+        if moved and isinstance(k, str) and k[:2] in ("s:", "g:"):
+            ref_at, port_addrs, port_ints = moved
+            addrs = ref_at.get(k, set()) if k.startswith("s:") else {int(k[2:], 16)}
+            if any(((a - d) & 0xFFFFFFFF) in port_addrs for a in addrs for d in port_ints):
+                return True
         # (0.0, the reference's constant in memory: the x64 compiler's is `xorps xmm0, xmm0`, no
         # constant at all, rhtest float-O2's 0x402320)
         if k in ("f:0", "f:-0", "f:0.0"):
@@ -636,6 +670,10 @@ def presence(ref: Counter, port: Counter, source: set[int] = frozenset(),
             # (or a subtraction at a word's or byte's width as its addition, `c - 0x27` of a
             # ushort as `add ecx, 0xffd9`, the CRT's hex digits in rhtest stl-O2)
             if any(v < (1 << w) and (-v) & ((1 << w) - 1) in source for w in (8, 16)):
+                return True
+            # (or a word's or byte's mask kept at 32 bits, its upper bits set: `and eax, 0xffff23ff`
+            # for a ushort's `& 0x23ff`, the x87 control word's rounding cleared, rhtest stl-O2)
+            if any(v >> w == (1 << (32 - w)) - 1 and v & ((1 << w) - 1) in source for w in (8, 16)):
                 return True
             # (a division by a constant as the reference's compiler made it: its divisor's
             # reciprocal, and the signed one's `>> 31` correction, where the translation divides)
@@ -758,6 +796,11 @@ def main() -> None:
     # (each function's stack parameters, as the decompiler signed it: what a call's pushes past
     # them carry is read by nothing)
     arity = {a: n for a, e in cor.items() if e.get("c") and (n := stack_arity(e["c"])) is not None}
+    # (and those whose signature takes ecx: `this`, __fastcall's first, a register input)
+    takes_ecx = {a for a, e in cor.items()
+                 if re.search(r"__thiscall|__fastcall|\bin_ecx\b|\bin_ECX\b|\bin_CL\b|\bin_cl\b",
+                              re.sub(r"/\*.*?\*/", "", e.get("c", ""), flags=re.S).split("{", 1)[0])
+                 or not e.get("c")}
 
     def injections(c: str) -> set:
         """The callees the decompiler replaced with p-code (call fixups) in a function, by the
@@ -978,7 +1021,7 @@ def main() -> None:
             continue
         dead = {int(x, 16) for x in re.findall(r"Removing unreachable block \(ram,0x([0-9a-f]+)\)", e["c"])}
         rf = scan(ref, ref, md32, own_pieces(a, sorted(pieces.get(a, [(a, a + size)]))), a, False, dead, fixed_up,
-                  arity)
+                  arity, takes_ecx)
         pva = f_of_ref[a]
         psize = proc_at[pva][0]
         pf = scan(port, ref, md64, [(pva, pva + psize)], a, True)
@@ -1011,11 +1054,14 @@ def main() -> None:
                 rf.consts.pop(f"g:{g:x}", None)
         # (a float constant one side loads as a float and the other moves as bits, `movsd xmm0,
         # [0x404288]` and `mov rax, [0x404288]` into a select: the same constant, by its address)
-        for one, other in ((rf, pf), (pf, rf)):
-            for v, k in one.float_at.items():
-                g = f"g:{v:x}"
-                if g in other.consts:
-                    other.consts[k] += other.consts.pop(g)
+        # (on both sides alike: one read as a float and its address pushed besides, `push 0x453c58`
+        # for a callee, left the reference's g: unmatched by the port's, converted, rhtest stl-O2)
+        floats = {**pf.float_at, **rf.float_at}
+        for v, k in floats.items():
+            g = f"g:{v:x}"
+            for side in (rf, pf):
+                if g in side.consts:
+                    side.consts[k] += side.consts.pop(g)
         # (a 16-byte constant one side reads whole, `movaps xmm0, [0x404290]` for two doubles of
         # an array it fills, and the other a lane at a time: the same constant, by a lane's value)
         for v in rf.packed:
@@ -1037,7 +1083,9 @@ def main() -> None:
         source = literals(translations.get(a, ""))
         globals_of = (lambda fn: {int(k[2:], 16) for k in fn.consts if k.startswith("g:")})
         fields, missing_fields = presence(rf.fields, pf.fields, source, (globals_of(rf), globals_of(pf)))
-        consts, missing_consts = presence(rf.consts, pf.consts, source)
+        port_addrs = globals_of(pf) | {x for xs in pf.str_at.values() for x in xs}
+        port_ints = {int(k[2:], 16) for k in pf.consts if k.startswith("i:")}
+        consts, missing_consts = presence(rf.consts, pf.consts, source, moved=(rf.str_at, port_addrs, port_ints))
         parts = {
             "calls": calls,
             "fields": fields,
