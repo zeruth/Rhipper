@@ -1625,7 +1625,18 @@ public class ApplyFacts extends GhidraScript {
             for (Function f : currentProgram.getFunctionManager().getFunctions(true)) {
                 if (!f.hasNoReturn() || listed.contains(f.getEntryPoint()) || f.isThunk()) continue;
                 boolean returns = false;
+                // (or an SEH frame linked and a trap the flow ends on, `__try { __debugbreak(); }`:
+                // it returns through its __except continuation, as noreturn.py has it. Ghidra's
+                // own analysis marked rhtest seh's instructions() noreturn, its caller cut there)
+                boolean linksEh = false, traps = false;
                 for (Instruction in : currentProgram.getListing().getInstructions(f.getBody(), true)) {
+                    String mn = in.getMnemonicString().toUpperCase();
+                    if (mn.equals("MOV") && in.toString().toUpperCase().replace(" ", "").contains("FS:[0X0],")) linksEh = true;
+                    if (mn.equals("INT3") || mn.equals("HLT") || mn.equals("UD2")) traps = true;
+                    if (linksEh && traps) {
+                        returns = true;
+                        break;
+                    }
                     if (in.getFlowType().isTerminal() && in.getMnemonicString().toUpperCase().contains("RET")) {
                         returns = true;
                         break;

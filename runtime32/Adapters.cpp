@@ -530,7 +530,24 @@ void UnwindFrame(uint32_t node) {
 // __except whose filter says so), the frames above it unwound, then its catch run and the
 // function landed at the continuation the catch returns, or the __except's block. Returns where
 // a filter says to go on (EXCEPTION_CONTINUE_EXECUTION)
+// the reference's vectored handlers, AddVectoredExceptionHandler's (the first to be called first):
+// each takes the reference's EXCEPTION_POINTERS before any frame does. Registered with Windows, they
+// never saw an exception the runtime dispatches itself, RaiseException's (rhtest seh's vectored)
+std::mutex g_vectoredLock;
+std::vector<uint32_t> g_vectored;
+
 void Dispatch(Thrown t) {
+    {
+        std::vector<uint32_t> hs;
+        {
+            std::lock_guard<std::mutex> g(g_vectoredLock);
+            hs = g_vectored;
+        }
+        for (uint32_t h : hs) {
+            // (EXCEPTION_CONTINUE_EXECUTION: the raise returns)
+            if (static_cast<int32_t>(Call1(h, t.pointers)) == -1) return;
+        }
+    }
     for (uint32_t node = Head(); node != kEndOfChain && node != 0; node = U(node)) {
         uint32_t handler = U(node + 4);
         if (uint32_t fi = FuncInfoOf(handler)) {
@@ -717,6 +734,11 @@ int gen_seh_hardware(EXCEPTION_POINTERS* ep) {
     if (head == eh::kEndOfChain || head == 0) return 0;
     HwFault& f = t_fault;
     f.ctx = *ep->ContextRecord;
+    // (the copy without the extended state's flag: its XSAVE area lies past the CONTEXT the record
+    // points at, not in this copy, and RtlRestoreContext failed on it and returned, the trampoline
+    // spinning in its `for (;;)` after a filter's EXCEPTION_CONTINUE_EXECUTION, rhtest seh-O2's
+    // continue_execution)
+    f.ctx.ContextFlags &= ~(CONTEXT_XSTATE & ~CONTEXT_AMD64);
     f.code = static_cast<uint32_t>(r->ExceptionCode);
     f.n = r->NumberParameters < 4 ? r->NumberParameters : 4;
     for (uint32_t k = 0; k < f.n; k++) f.a[k] = static_cast<uint32_t>(r->ExceptionInformation[k]);
@@ -747,6 +769,26 @@ unsigned int gen_imp_RaiseException(uint32_t code, uint32_t flags, uint32_t n, u
         CxxThrow(a[0], a[1], a[2]);
     eh::Thrown t{code, 0, 0, eh::Pointers(code, flags, n, a), false};
     eh::Dispatch(t);
+    return 0;
+}
+// (a vectored handler of the reference's: kept for eh::Dispatch, its 32-bit EXCEPTION_POINTERS,
+// first or last as asked; the handle the reference holds is its function's address)
+unsigned int gen_imp_AddVectoredExceptionHandler(uint32_t first, uint32_t fn) {
+    std::lock_guard<std::mutex> g(eh::g_vectoredLock);
+    if (first)
+        eh::g_vectored.insert(eh::g_vectored.begin(), fn);
+    else
+        eh::g_vectored.push_back(fn);
+    return fn;
+}
+unsigned int gen_imp_RemoveVectoredExceptionHandler(uint32_t h) {
+    std::lock_guard<std::mutex> g(eh::g_vectoredLock);
+    for (auto it = eh::g_vectored.begin(); it != eh::g_vectored.end(); ++it) {
+        if (*it == h) {
+            eh::g_vectored.erase(it);
+            return 1;
+        }
+    }
     return 0;
 }
 

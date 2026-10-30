@@ -5023,6 +5023,18 @@ class Translator32:
         small = {}
         decls = re.sub(r"(?m)^(\s+)([A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*(?:\[\s*((?:0x)?[0-9a-f]+)\s*\])?\s*;",
                        opaque, decls)
+
+        # (and one of a template's or a lambda's type the body reaches no member of,
+        # `__crt_seh_guarded_call<void> local_5;`, `<lambda_32aa...> local_9;`: its bytes, as the
+        # export sizes it. The static CRT's guarded calls take its address only, rhtest stl /MT)
+        def opaque_t(m):
+            word, name = m.group(2).strip(), m.group(3)
+            if word not in self.composite_sizes or re.search(rf"\b{name}\b\s*(?:\.|->)", rest):
+                return m.group(0)
+            size = max(1, self.composite_sizes[word])
+            return f"{m.group(1)}undefined{size} {name};" if size in (1, 2, 4, 8) else \
+                f"{m.group(1)}undefined1 {name}[{size}];"
+        decls = re.sub(r"(?m)^(\s+)((?:[A-Za-z_][\w:]*)?<[^;\n]*>)\s+([A-Za-z_]\w*)\s*;", opaque_t, decls)
         # (and copied whole through a pointer, `*param_1 = _Var1;`: all its bytes, not the one
         # byte the `undefined *` it became points at)
         for name, size in small.items():
@@ -5059,7 +5071,13 @@ class Translator32:
         # names with templates, backquoted scopes or spaces first (`ComBase<IDropTarget,...>::
         # vftable`, `` `long___stdcall_AppException(undefined *)'::__l2::Callback::vftable``):
         # each ends at a call's `(` or a scope's last part, and is found by scanning back
+        # (a qualified name the decompiler wrapped after its scope, `__crt_seh_guarded_call<void>::`
+        # then `operator()<<lambda_...>,...>` on the next line: one name, as the corpus has it,
+        # the static CRT's guarded calls, rhtest stl's /MT construct_ptd)
+        body = re.sub(r"::[ \t]*\n[ \t]*(?=[\w~<])", "::", body)
         body = self.odd_names(body)
+        # (a cast to a lambda's type, its object's address: a pointer, `(<lambda_15ade...> *)&local_18`)
+        body = re.sub(r"\(\s*<lambda_[0-9a-f]+>\s*\*\s*\)", "(void *)", body)
 
         # (an operator of the same class, called unqualified: std::exception's copy constructor's
         # `operator=(this,param_1)`, rhtest msvc-16.00-x86 cpp 2026-10-25)

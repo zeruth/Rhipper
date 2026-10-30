@@ -81,6 +81,7 @@ def body_facts(b: Binary):
         tails = set()
         indirect_out = False
         raises_cxx = raises_cxx_call = False
+        links_eh = trap_end = False
         for st, en in pieces:
             o = b.off(st)
             mn = None
@@ -100,6 +101,9 @@ def body_facts(b: Binary):
                             raises_cxx = True
                     if mn == "call" and ops.startswith("dword ptr [0x") and int(ops[11:-1], 16) in dead_slots:
                         raises_cxx_call = True
+                    # (an SEH frame linked, `mov fs:[0], eax`)
+                    if mn == "mov" and ops.startswith("dword ptr fs:[0],"):
+                        links_eh = True
                 if mn in ("ret", "retf", "iretq", "iretd", "iret"):
                     has_ret = True
                 elif mn == "jmp":
@@ -126,6 +130,12 @@ def body_facts(b: Binary):
             # is a tail call to whatever follows. .pdata pieces end on a ret or jmp. A range
             # that ends on a call ends there because the callee does not return (a throw
             # helper's _CxxThrowException), so it continues only if the callee does.
+            # (a piece the flow ends on a trap, `__try { __debugbreak(); }`'s int3 or a privileged
+            # hlt, in a function with an SEH frame: the exception its handler takes, and it returns
+            # through its __except continuation, a piece of its own. Read as noreturn, rhtest seh's
+            # instructions() cut its caller off after it, and four tests never ran)
+            if mn in ("int3", "hlt", "ud2"):
+                trap_end = True
             if X86 and mn not in ("ret", "retf", "iret", "iretd", "jmp", "int3", "ud2", "hlt", None):
                 if mn == "call" and ops.startswith("0x"):
                     tails.add(int(ops, 16))
@@ -133,6 +143,8 @@ def body_facts(b: Binary):
                     tails.add(DEAD)
                 elif b.func_containing(en) != root:
                     tails.add(en)
+        if links_eh and trap_end:
+            indirect_out = True
         if raises_cxx and raises_cxx_call:
             # MSVC's _CxxThrowException: RaiseException(0xE06D7363 'msc', ...) then a ret the
             # compiler knows is never reached (it declares the function noreturn)
