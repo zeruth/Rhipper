@@ -1678,5 +1678,17 @@
   "stubs": 0,
   "perfect": 249,
   "translated": 249
+ },
+ {
+  "sha": "d2d93a3dc2c1a677139774d56deea904e7951f1c",
+  "date": "2026-10-29T20:24:32-04:00",
+  "subject": "ci(rhtest): every program that passes locally on msvc-14.51-x86, all but fpenv and stl",
+  "run": "2026-10-30 01:12 UTC",
+  "file": "d2d93a3dc2c1a677139774d56deea904e7951f1c.json",
+  "passing": 29,
+  "projects": 29,
+  "stubs": 0,
+  "perfect": 2994,
+  "translated": 2994
  }
 ]

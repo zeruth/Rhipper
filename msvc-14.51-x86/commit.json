@@ -1,1 +1,1 @@
-{"sha": "dd6f5f601373393252f17a3ee9789905e2282387", "date": "2026-10-29T18:27:37-04:00", "subject": "ci(release): a Rhipper bundle per VERSION, for rhipper-ide"}
+{"sha": "d2d93a3dc2c1a677139774d56deea904e7951f1c", "date": "2026-10-29T20:24:32-04:00", "subject": "ci(rhtest): every program that passes locally on msvc-14.51-x86, all but fpenv and stl"}

@@ -1,0 +1,129 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>rhtest-engine-Od fidelity</title>
+<style>
+:root { --bg:#f7f7f5; --card:#fff; --fg:#1b1b19; --muted:#6d6c66; --line:#e6e5e0; --track:#efeee9;
+  --b10:#1f9d55; --b9:#56b04a; --b8:#8cbd3f; --b7:#b8c13a; --b6:#d8b532; --b5:#e39a2c; --b4:#e57f2a;
+  --b3:#e0632c; --b2:#d84b33; --b1:#c9393b; --b0:#b02a3f; --stub:#8b8a95;
+  --a3:#17834a; --a2:#2fa565; --a1:#79c28e; }
+@media (prefers-color-scheme: dark) { :root { --bg:#141416; --card:#1c1c20; --fg:#ecebe7; --muted:#9b9a94;
+  --line:#2b2b31; --track:#26262c; --stub:#5f5e6a; } }
+* { box-sizing:border-box; }
+body { background:var(--bg); color:var(--fg); font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif; margin:0;
+  padding:28px 16px; }
+main { max-width:1180px; margin:0 auto; }
+h1 { font-size:22px; margin:0 0 2px; letter-spacing:-.01em; } h2 { font-size:16px; margin:0; }
+.sub, .muted { color:var(--muted); } .sub { margin-bottom:20px; font-size:13px; }
+.tiles { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:10px; margin-bottom:18px; }
+.tile { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px; }
+.tile b { display:block; font-size:22px; font-variant-numeric:tabular-nums; } .tile span { color:var(--muted); font-size:12px; }
+section { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px 18px; margin-bottom:16px; }
+.sh { display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; margin-bottom:12px; } .sh .muted { font-size:12px; }
+.stack { display:flex; height:16px; border-radius:8px; overflow:hidden; background:var(--track); margin-bottom:14px; }
+.seg { height:100%; } .seg + .seg { box-shadow:inset 1px 0 0 var(--card); }
+.row { display:grid; grid-template-columns:110px 1fr 80px 64px 64px; gap:10px; align-items:center; padding:3px 0; }
+.row.head { font-size:11px; } .row.head .track { background:none; height:auto; }
+.lbl { display:flex; align-items:center; gap:8px; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.dot { width:10px; height:10px; border-radius:3px; display:inline-block; }
+.track { position:relative; height:10px; background:var(--track); border-radius:5px; overflow:hidden; }
+.fill { position:absolute; left:0; top:0; bottom:0; border-radius:5px; } .fill.ghost { opacity:.28; }
+.v { text-align:right; font-variant-numeric:tabular-nums; font-size:13px; }
+.b10 { background:var(--b10); } .b9 { background:var(--b9); } .b8 { background:var(--b8); } .b7 { background:var(--b7); }
+.b6 { background:var(--b6); } .b5 { background:var(--b5); } .b4 { background:var(--b4); } .b3 { background:var(--b3); }
+.b2 { background:var(--b2); } .b1 { background:var(--b1); } .b0 { background:var(--b0); } .stub { background:var(--stub); }
+.a3 { background:var(--a3); } .a2 { background:var(--a2); } .a1 { background:var(--a1); }
+.row { grid-template-columns:150px 1fr 80px 64px 64px; }
+.controls { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; align-items:center; }
+input, select, button { font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:8px;
+  padding:6px 10px; }
+input { flex:1; min-width:200px; } button { cursor:pointer; } button:disabled { opacity:.4; cursor:default; }
+.wrap { overflow-x:auto; } table { border-collapse:collapse; width:100%; font-size:13px; }
+th, td { text-align:left; padding:5px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+th { color:var(--muted); font-weight:600; cursor:pointer; user-select:none; white-space:nowrap; }
+th.on::after { content:" ↓"; } th.on.up::after { content:" ↑"; }
+.num { text-align:right; font-variant-numeric:tabular-nums; } td.addr { font-family:ui-monospace,Consolas,monospace; }
+.pill { display:inline-block; min-width:52px; text-align:center; border-radius:6px; padding:1px 6px; color:#fff;
+  font-weight:600; font-variant-numeric:tabular-nums; }
+td.notes { color:var(--muted); max-width:420px; }
+@media (max-width:640px) { .row { grid-template-columns:84px 1fr 56px 0 52px; } .row > .v:nth-child(4) { display:none; } }
+</style></head><body><main>
+<h1>rhtest-engine-Od fidelity</h1>
+<div class="sub">Each reference function against its translation. 2026-10-30 01:04</div>
+<div class="tiles">
+<div class="tile"><b>114</b><span>functions</span></div>
+<div class="tile"><b>114</b><span>translated</span></div>
+<div class="tile"><b>114</b><span>at 100% fidelity</span></div>
+<div class="tile"><b>0</b><span>stubs</span></div>
+<div class="tile"><b>100.0%</b><span>mean fidelity</span></div>
+<div class="tile"><b>100.0%</b><span>fidelity by size</span></div>
+<div class="tile"><b>114 / 114</b><span>accurate</span></div><div class="tile"><b>100.0%</b><span>accurate by size</span></div><div class="tile"><b>22</b><span>byte-identical or equivalent</span></div>
+</div>
+<section><div class="sh"><h2>Accuracy</h2><span class="muted">identical or equivalent bytes (bytes32), else the same behavior (fidelity 100%): the compiler&#x27;s own choices are no fault</span></div><div class="stack"><span class="seg a3" style="width:6.312%" title="identical: 21 functions, 6.3% of the code"></span><span class="seg a2" style="width:0.869%" title="equivalent bytes: 1 functions, 0.9% of the code"></span><span class="seg a1" style="width:92.819%" title="same behavior: 92 functions, 92.8% of the code"></span></div><div class="row head"><div class="lbl"></div><div class="track muted">bar: share of code by size (faint: of functions)</div><div class="v muted">functions</div><div class="v muted">of all</div><div class="v muted">of code</div></div><div class="row"><div class="lbl"><i class="dot a3"></i>identical</div><div class="track"><div class="fill a3" style="width:6.312%"></div><div class="fill ghost a3" style="width:18.421%"></div></div><div class="v">21</div><div class="v muted">18.4%</div><div class="v">6.3%</div></div><div class="row"><div class="lbl"><i class="dot a2"></i>equivalent bytes</div><div class="track"><div class="fill a2" style="width:0.869%"></div><div class="fill ghost a2" style="width:0.877%"></div></div><div class="v">1</div><div class="v muted">0.9%</div><div class="v">0.9%</div></div><div class="row"><div class="lbl"><i class="dot a1"></i>same behavior</div><div class="track"><div class="fill a1" style="width:92.819%"></div><div class="fill ghost a1" style="width:80.702%"></div></div><div class="v">92</div><div class="v muted">80.7%</div><div class="v">92.8%</div></div><div class="row"><div class="lbl"><i class="dot b2"></i>behavior differs</div><div class="track"><div class="fill b2" style="width:0.000%"></div><div class="fill ghost b2" style="width:0.000%"></div></div><div class="v">0</div><div class="v muted">0.0%</div><div class="v">0.0%</div></div><div class="row"><div class="lbl"><i class="dot stub"></i>stub</div><div class="track"><div class="fill stub" style="width:0.000%"></div><div class="fill ghost stub" style="width:0.000%"></div></div><div class="v">0</div><div class="v muted">0.0%</div><div class="v">0.0%</div></div></section><section><div class="sh"><h2>Fidelity</h2><span class="muted">each function&#x27;s calls, fields and constants against the reference&#x27;s</span></div><div class="stack"><span class="seg b10" style="width:100.000%" title="100%: 114 functions, 100.0% of the code"></span></div><div class="row head"><div class="lbl"></div><div class="track muted">bar: share of code by size (faint: of functions)</div><div class="v muted">functions</div><div class="v muted">of all</div><div class="v muted">of code</div></div><div class="row"><div class="lbl"><i class="dot b10"></i>100%</div><div class="track"><div class="fill b10" style="width:100.000%"></div><div class="fill ghost b10" style="width:100.000%"></div></div><div class="v">114</div><div class="v muted">100.0%</div><div class="v">100.0%</div></div><div class="row"><div class="lbl"><i class="dot b9"></i>90–99%</div><div class="track"><div class="fill b9" style="width:0.000%"></div><div class="fill ghost b9" style="width:0.000%"></div></div><div class="v">0</div><div class="v muted">0.0%</div><div class="v">0.0%</div></div><div class="row"><div class="lbl"><i class="dot b8"></i>80–89%</div><div class="track"><div class="fill b8" style="width:0.000%"></div><div class="fill ghost b8" style="width:0.000%"></div></div><div class="v">0</div><div class="v muted">0.0%</div><div class="v">0.0%</div></div><div class="row"><div class="lbl"><i class="dot b7"></i>70–79%</div><div class="track"><div class="fill b7" style="width:0.000%"></div><div class="fill ghost b7" style="width:0.000%"></div></div><div class="v">0</div><div class="v muted">0.0%</div><div class="v">0.0%</div></div><div class="row"><div class="lbl"><i class="dot b6"></i>60–69%</div><div class="track"><div class="fill b6" style="width:0.000%"></div><div class="fill ghost b6" style="width:0.000%"></div></div><div class="v">0</div><div class="v muted">0.0%</div><div class="v">0.0%</div></div><div class="row"><div class="lbl"><i class="dot b5"></i>50–59%</div><div class="track"><div class="fill b5" style="width:0.000%"></div><div class="fill ghost b5" style="width:0.000%"></div></div><div class="v">0</div><div class="v muted">0.0%</div><div class="v">0.0%</div></div><div class="row"><div class="lbl"><i class="dot b4"></i>40–49%</div><div class="track"><div class="fill b4" style="width:0.000%"></div><div class="fill ghost b4" style="width:0.000%"></div></div><div class="v">0</div><div class="v muted">0.0%</div><div class="v">0.0%</div></div><div class="row"><div class="lbl"><i class="dot b3"></i>30–39%</div><div class="track"><div class="fill b3" style="width:0.000%"></div><div class="fill ghost b3" style="width:0.000%"></div></div><div class="v">0</div><div class="v muted">0.0%</div><div class="v">0.0%</div></div><div class="row"><div class="lbl"><i class="dot b2"></i>20–29%</div><div class="track"><div class="fill b2" style="width:0.000%"></div><div class="fill ghost b2" style="width:0.000%"></div></div><div class="v">0</div><div class="v muted">0.0%</div><div class="v">0.0%</div></div><div class="row"><div class="lbl"><i class="dot b1"></i>10–19%</div><div class="track"><div class="fill b1" style="width:0.000%"></div><div class="fill ghost b1" style="width:0.000%"></div></div><div class="v">0</div><div class="v muted">0.0%</div><div class="v">0.0%</div></div><div class="row"><div class="lbl"><i class="dot b0"></i>0–9%</div><div class="track"><div class="fill b0" style="width:0.000%"></div><div class="fill ghost b0" style="width:0.000%"></div></div><div class="v">0</div><div class="v muted">0.0%</div><div class="v">0.0%</div></div><div class="row"><div class="lbl"><i class="dot stub"></i>stub</div><div class="track"><div class="fill stub" style="width:0.000%"></div><div class="fill ghost stub" style="width:0.000%"></div></div><div class="v">0</div><div class="v muted">0.0%</div><div class="v">0.0%</div></div></section>
+<section><div class="sh"><h2>Functions</h2><span class="muted" id="count"></span></div>
+<div class="controls">
+<input id="q" placeholder="search address, name or what differs" autocomplete="off">
+<select id="kind"><option value="">all kinds</option><option value="translated">translated</option>
+<option value="stub">stubs</option><option value="folded">folded</option><option value="imperfect">below 100%</option>
+<option value="inaccurate">not accurate</option></select>
+<button id="prev">‹</button><span class="muted" id="pg"></span><button id="next">›</button>
+</div>
+<div class="wrap"><table><thead><tr><th data-k="0">address</th><th data-k="1">function</th>
+<th data-k="2" class="num">size</th><th data-k="10">accuracy</th><th data-k="4" class="num on up">fidelity</th><th data-k="5" class="num">calls</th>
+<th data-k="6" class="num">fields</th><th data-k="7" class="num">consts</th><th data-k="8" class="num">bytes</th><th>what differs</th></tr></thead>
+<tbody id="rows"></tbody></table></div></section>
+</main>
+<script>
+const D = [["00401000","FUN_00401000",31,"translated",1.0,1.0,null,null,1.0,"","identical"],["00401020","FUN_00401020",149,"translated",1.0,1.0,1.0,1.0,0.243,"","same behavior"],["004010c0","FUN_004010c0",402,"translated",1.0,1.0,null,1.0,0.307,"extra calls: imp:setjmp3","same behavior"],["00401260","FUN_00401260",296,"translated",1.0,1.0,null,1.0,0.229,"extra calls: imp:setjmp3","same behavior"],["00401390","FUN_00401390",82,"translated",1.0,1.0,1.0,null,0.405,"","same behavior"],["004013f0","FUN_004013f0",190,"translated",1.0,1.0,null,1.0,0.217,"extra calls: imp:setjmp3","same behavior"],["004014b0","FUN_004014b0",210,"translated",1.0,1.0,null,1.0,0.39,"","same behavior"],["00401590","FUN_00401590",70,"translated",1.0,1.0,null,1.0,0.583,"","same behavior"],["004015e0","FUN_004015e0",246,"translated",1.0,1.0,null,1.0,0.826,"","same behavior"],["004016e0","FUN_004016e0",58,"translated",1.0,null,1.0,1.0,0.923,"","same behavior"],["00401720","FUN_00401720",23,"translated",1.0,null,null,1.0,0.857,"","same behavior"],["00401740","FUN_00401740",60,"translated",1.0,1.0,1.0,1.0,0.909,"","same behavior"],["00401780","std::ios_base::_Iosarray::_Iosarray",53,"translated",1.0,null,1.0,null,0.919,"","same behavior"],["004017c0","FUN_004017c0",43,"translated",1.0,null,1.0,null,0.897,"","same behavior"],["004017f0","FUN_004017f0",23,"translated",1.0,null,null,1.0,0.857,"","same behavior"],["00401810","FUN_00401810",49,"translated",1.0,null,1.0,1.0,0.71,"","same behavior"],["00401850","FUN_00401850",48,"translated",1.0,1.0,1.0,1.0,0.811,"","same behavior"],["00401880","FUN_00401880",20,"translated",1.0,null,null,1.0,0.8,"","same behavior"],["004018a0","FUN_004018a0",20,"translated",1.0,null,null,1.0,0.8,"","same behavior"],["004018c0","FUN_004018c0",20,"translated",1.0,1.0,null,null,0.522,"","same behavior"],["004018e0","FUN_004018e0",20,"translated",1.0,null,null,1.0,0.8,"","same behavior"],["00401900","FUN_00401900",20,"translated",1.0,1.0,null,null,0.522,"","same behavior"],["00401920","FUN_00401920",16,"translated",1.0,null,null,null,0.824,"","same behavior"],["00401930","FUN_00401930",64,"translated",1.0,1.0,1.0,null,0.92,"","same behavior"],["00401970","FUN_00401970",42,"translated",1.0,1.0,null,null,0.8,"","same behavior"],["004019a0","FUN_004019a0",190,"translated",1.0,1.0,null,1.0,0.657,"","same behavior"],["00401a60","FUN_00401a60",81,"translated",1.0,1.0,null,1.0,0.467,"","same behavior"],["00401ac0","FID_conflict_`scalar_deleting_destructor'_00401ac0",46,"translated",1.0,1.0,null,null,0.895,"","same behavior"],["00401af0","FID_conflict_`scalar_deleting_destructor'_00401af0",46,"translated",1.0,1.0,null,null,0.895,"","same behavior"],["00401b20","FID_conflict_`scalar_deleting_destructor'_00401b20",46,"translated",1.0,1.0,null,1.0,0.895,"","same behavior"],["00401b50","FID_conflict_`scalar_deleting_destructor'_00401b50",46,"translated",1.0,1.0,null,null,0.895,"","same behavior"],["00401b80","FID_conflict_`scalar_deleting_destructor'_00401b80",46,"translated",1.0,1.0,null,1.0,0.895,"","same behavior"],["00401bb0","FUN_00401bb0",17,"translated",1.0,null,null,null,0.56,"","same behavior"],["00401bd0","FUN_00401bd0",82,"translated",1.0,1.0,1.0,1.0,0.825,"","same behavior"],["00401c30","FUN_00401c30",17,"translated",1.0,null,1.0,null,0.842,"","same behavior"],["00401c50","FUN_00401c50",17,"translated",1.0,null,null,null,0.842,"","same behavior"],["00401c70","FUN_00401c70",17,"translated",1.0,null,1.0,null,0.842,"","same behavior"],["00401c90","FUN_00401c90",17,"translated",1.0,null,1.0,null,0.842,"","same behavior"],["00401cb0","FUN_00401cb0",18,"translated",1.0,null,1.0,null,0.842,"","same behavior"],["00401cd0","FUN_00401cd0",27,"translated",1.0,null,1.0,null,0.88,"","same behavior"],["00401cf0","FUN_00401cf0",51,"translated",1.0,null,null,null,0.372,"","same behavior"],["00401d30","FUN_00401d30",71,"translated",1.0,null,1.0,1.0,0.926,"","same behavior"],["00401d80","FUN_00401d80",287,"translated",1.0,null,1.0,null,0.21,"","same behavior"],["00401ea0","FUN_00401ea0",32,"translated",1.0,1.0,null,null,0.625,"","same behavior"],["00401ec0","FUN_00401ec0",24,"translated",1.0,null,null,null,0.438,"","same behavior"],["00401ee0","FUN_00401ee0",280,"translated",1.0,null,1.0,1.0,0.133,"","same behavior"],["00402000","FUN_00402000",18,"translated",1.0,null,null,null,0.737,"","same behavior"],["00402020","FUN_00402020",14,"translated",1.0,null,null,null,0.824,"","same behavior"],["00402030","FUN_00402030",10,"translated",1.0,null,null,1.0,1.0,"","identical"],["00402040","FUN_00402040",98,"translated",1.0,1.0,null,1.0,1.0,"","identical"],["004020b0","FUN_004020b0",130,"translated",1.0,1.0,null,1.0,0.711,"","same behavior"],["00402140","FUN_00402140",51,"translated",1.0,1.0,null,1.0,0.489,"","same behavior"],["00402180","FUN_00402180",76,"translated",1.0,1.0,null,1.0,0.5,"","same behavior"],["004021d0","FUN_004021d0",133,"translated",1.0,1.0,null,null,0.598,"","same behavior"],["00402260","FUN_00402260",52,"translated",1.0,1.0,null,1.0,0.895,"","same behavior"],["004022a0","FUN_004022a0",155,"translated",1.0,1.0,null,1.0,0.667,"","same behavior"],["00402340","FUN_00402340",69,"translated",1.0,null,null,1.0,0.636,"","same behavior"],["00402390","FUN_00402390",63,"translated",1.0,1.0,null,1.0,1.0,"","identical"],["004023d0","FUN_004023d0",16,"translated",1.0,1.0,null,null,0.667,"","same behavior"],["004023e0","__security_check_cookie",14,"folded",1.0,null,null,null,0.444,"injected at every call site (a call fixup)","same behavior"],["004023f0","MemMapBase::`scalar_deleting_destructor'",36,"translated",1.0,1.0,null,1.0,1.0,"","identical"],["00402420","FUN_00402420",8,"translated",1.0,1.0,null,null,0.0,"","same behavior"],["00402430","FUN_00402430",8,"translated",1.0,1.0,null,null,0.0,"","same behavior"],["00402440","__aullshr",31,"folded",1.0,null,null,null,0.244,"injected at every call site (a call fixup)","same behavior"],["00402460","FUN_00402460",175,"translated",1.0,1.0,null,null,0.852,"","same behavior"],["00402510","FUN_00402510",8,"translated",1.0,1.0,null,null,1.0,"","identical"],["00402520","FUN_00402520",18,"translated",1.0,1.0,null,null,1.0,"","identical"],["00402540","FUN_00402540",407,"translated",1.0,1.0,null,1.0,0.557,"extra calls: 00402b80 guard_check_icall, imp:setjmp3","same behavior"],["004026c3","FUN_004026c3",21,"translated",1.0,1.0,null,null,0.526,"","same behavior"],["004026d8","FUN_004026d8",59,"translated",1.0,1.0,null,null,0.326,"","same behavior"],["00402730","entry",10,"translated",1.0,1.0,null,null,1.0,"","identical"],["00402750","FUN_00402750",68,"translated",1.0,null,1.0,1.0,1.0,"","equivalent bytes"],["004027a0","FUN_004027a0",60,"translated",1.0,1.0,1.0,1.0,0.902,"","same behavior"],["004027e0","FUN_004027e0",57,"translated",1.0,1.0,null,1.0,0.75,"","same behavior"],["00402820","FUN_00402820",160,"translated",1.0,1.0,null,1.0,0.716,"","same behavior"],["004028d0","FUN_004028d0",162,"translated",1.0,1.0,1.0,1.0,0.39,"extra calls: imp:setjmp3","same behavior"],["00402972","FUN_00402972",19,"translated",1.0,null,null,1.0,0.143,"","same behavior"],["00402985","FUN_00402985",30,"translated",1.0,null,null,null,0.191,"","same behavior"],["004029b0","___scrt_release_startup_lock",29,"translated",1.0,1.0,null,1.0,0.96,"","same behavior"],["004029d0","FUN_004029d0",41,"translated",1.0,1.0,null,1.0,0.88,"","same behavior"],["00402a00","FUN_00402a00",76,"translated",1.0,1.0,null,1.0,0.5,"","same behavior"],["00402a50","FUN_00402a50",174,"translated",1.0,1.0,null,1.0,0.631,"","same behavior"],["00402b00","FUN_00402b00",3,"translated",1.0,null,null,null,1.0,"","identical"],["00402b10","FUN_00402b10",6,"translated",1.0,null,null,null,1.0,"","identical"],["00402b20","FUN_00402b20",6,"translated",1.0,null,null,1.0,1.0,"","identical"],["00402b30","FUN_00402b30",12,"translated",1.0,1.0,null,1.0,1.0,"","identical"],["00402b40","FUN_00402b40",3,"translated",1.0,null,null,null,1.0,"","identical"],["00402b50","FUN_00402b50",32,"translated",1.0,1.0,null,1.0,0.667,"","same behavior"],["00402b80","guard_check_icall",3,"translated",1.0,null,null,null,1.0,"","identical"],["00402b90","FUN_00402b90",6,"translated",1.0,null,null,1.0,1.0,"","identical"],["00402ba0","FUN_00402ba0",6,"translated",1.0,null,null,1.0,1.0,"","identical"],["00402bb0","FUN_00402bb0",29,"translated",1.0,1.0,1.0,1.0,0.714,"","same behavior"],["00402bd0","FUN_00402bd0",12,"translated",1.0,null,null,1.0,0.571,"","same behavior"],["00402be0","FUN_00402be0",6,"translated",1.0,null,null,1.0,1.0,"","identical"],["00402bf0","FUN_00402bf0",6,"translated",1.0,null,null,1.0,1.0,"","identical"],["00402c00","FUN_00402c00",10,"translated",1.0,1.0,null,null,0.0,"","same behavior"],["00402c20","FUN_00402c20",66,"translated",1.0,1.0,1.0,1.0,1.0,"","identical"],["00402c70","FUN_00402c70",12,"translated",1.0,1.0,null,null,1.0,"","identical"],["00402c80","FUN_00402c80",85,"translated",1.0,1.0,1.0,1.0,1.0,"","identical"],["00402ce0","FUN_00402ce0",46,"folded",1.0,null,null,null,0.1,"the decompiler proved it does nothing (unreachable blocks removed)","same behavior"],["00402d10","FUN_00402d10",46,"folded",1.0,null,null,null,0.1,"the decompiler proved it does nothing (unreachable blocks removed)","same behavior"],["00402d40","__except_handler4",47,"translated",1.0,1.0,null,1.0,0.65,"","same behavior"],["00402d70","FUN_00402d70",811,"translated",1.0,1.0,null,1.0,0.149,"","same behavior"],["004030a0","___scrt_is_ucrt_dll_in_use",12,"translated",1.0,null,null,1.0,0.571,"","same behavior"],["00403160","FUN_00403160",129,"translated",1.0,null,null,1.0,0.667,"","same behavior"],["004031f0","Unwind@004031f0",11,"translated",1.0,1.0,null,null,0.333,"","same behavior"],["004031fb","Unwind@004031fb",11,"translated",1.0,1.0,null,null,0.333,"","same behavior"],["00403206","Unwind@00403206",11,"translated",1.0,1.0,null,null,0.333,"","same behavior"],["00403216","FUN_00403216",48,"translated",1.0,1.0,null,1.0,0.1,"","same behavior"],["00403240","Unwind@00403240",8,"translated",1.0,1.0,null,null,0.333,"","same behavior"],["00403248","Unwind@00403248",8,"translated",1.0,1.0,null,null,0.333,"","same behavior"],["00403255","FUN_00403255",29,"translated",1.0,1.0,null,1.0,0.118,"","same behavior"],["00403272","Unwind@00403272",8,"translated",1.0,1.0,null,null,0.333,"","same behavior"],["0040327f","FUN_0040327f",29,"translated",1.0,1.0,null,1.0,0.118,"","same behavior"]];
+const HAS_BYTES = true;
+const PER = 200;
+const GOOD = new Set(['identical', 'equivalent bytes', 'same behavior']);
+const ACC = {'identical': 'a3', 'equivalent bytes': 'a2', 'same behavior': 'a1', 'behavior differs': 'b2', 'stub': 'stub'};
+let key = 4, up = true, page = 0, view = D;
+const css = getComputedStyle(document.documentElement);
+const band = v => v >= .999 ? 'b10' : 'b' + Math.max(0, Math.floor(v * 10));
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]);
+const num = v => v === null || v === undefined ? '<td class="num muted">–</td>' : `<td class="num">${(100 * v).toFixed(0)}%</td>`;
+function apply() {
+  const q = document.getElementById('q').value.trim().toLowerCase();
+  const k = document.getElementById('kind').value;
+  view = D.filter(r => (!k || (k === 'imperfect' ? r[3] !== 'folded' && r[4] < .999
+      : k === 'inaccurate' ? !GOOD.has(r[10]) : r[3] === k))
+    && (!q || r[0].includes(q) || r[1].toLowerCase().includes(q) || String(r[9]).toLowerCase().includes(q)));
+  view.sort((a, b) => {
+    const x = a[key], y = b[key];
+    const c = x === y ? b[2] - a[2] : (x === null ? 1 : y === null ? -1 : (x < y ? -1 : 1));
+    return up || x === y ? c : -c;
+  });
+  page = 0; draw();
+}
+function draw() {
+  const pages = Math.max(1, Math.ceil(view.length / PER));
+  page = Math.min(page, pages - 1);
+  document.getElementById('count').textContent = `${view.length.toLocaleString()} of ${D.length.toLocaleString()}`;
+  document.getElementById('pg').textContent = `${page + 1} / ${pages}`;
+  document.getElementById('prev').disabled = page === 0;
+  document.getElementById('next').disabled = page >= pages - 1;
+  document.getElementById('rows').innerHTML = view.slice(page * PER, page * PER + PER).map(r => {
+    const score = r[3] === 'stub' ? '<span class="pill stub">stub</span>'
+      : `<span class="pill ${band(r[4])}">${(100 * r[4]).toFixed(1)}%</span>`;
+    const by = HAS_BYTES ? (r[8] === null ? '<td class="num muted">–</td>'
+      : `<td class="num"><span class="pill ${band(r[8])}">${(100 * r[8]).toFixed(0)}%</span></td>`) : '';
+    const acc = `<td><span class="pill ${ACC[r[10]]}">${esc(r[10])}</span></td>`;
+    return `<tr><td class="addr">${r[0]}</td><td>${esc(r[1])}</td><td class="num">${r[2]}</td>${acc}
+      <td class="num">${score}</td>${num(r[5])}${num(r[6])}${num(r[7])}${by}<td class="notes">${esc(r[9])}</td></tr>`;
+  }).join('');
+}
+let t;
+document.getElementById('q').addEventListener('input', () => { clearTimeout(t); t = setTimeout(apply, 150); });
+document.getElementById('kind').addEventListener('change', apply);
+document.getElementById('prev').addEventListener('click', () => { page--; draw(); });
+document.getElementById('next').addEventListener('click', () => { page++; draw(); });
+document.querySelectorAll('th[data-k]').forEach(th => th.addEventListener('click', () => {
+  const k = +th.dataset.k;
+  up = key === k ? !up : k === 4 || k === 8 || k === 0;
+  key = k;
+  document.querySelectorAll('th').forEach(h => h.classList.remove('on', 'up'));
+  th.classList.add('on'); if (up) th.classList.add('up');
+  apply();
+}));
+apply();
+</script></body></html>
