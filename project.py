@@ -24,7 +24,9 @@ the working directory. Paths in it are relative to the file's directory.
       "hooks": {"pre_link": ["tools/gen_api.py", "--emit"]},
       "handlers": {"roots": "build/script-handlers.json", "stubs": "src/ScriptStubs.cpp"},
       "facts_extra": ["tools/bindings.py"],                  project fact extractors, run with the rest
-      "translate_args": ["--all", "--depth", "24", "--fix", "--jobs", "4"]    pipeline.sh's translate
+      "translate_args": ["--all", "--depth", "24", "--fix", "--jobs", "4"],   pipeline.sh's translate
+      "jobs": 4                                              pipeline32.py's workers (protos32,
+                                                             translate32, MSBuild /m), --jobs overrides
     }
 
 Optional, for the tools that use them: "process" (the reference's process name, iat_dump.py),
@@ -61,6 +63,7 @@ DEFAULTS = {
     "handlers": {"roots": "build/script-handlers.json", "stubs": None},
     "facts_extra": [],
     "translate_args": ["--all", "--depth", "24", "--fix", "--jobs", "4"],
+    "jobs": 4,
 }
 
 

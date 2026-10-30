@@ -14,6 +14,8 @@
 
     python pipeline32.py [--from STEP] [--only STEP] [--jobs N] [--run-secs S]
 
+--jobs defaults to rhipper.json "jobs" (4).
+
 Run from inside the project (or with RHIPPER_PROJECT set): project.py finds its rhipper.json.
 """
 from __future__ import annotations
@@ -180,7 +182,8 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--from", dest="start", default="facts", choices=STEPS)
     ap.add_argument("--only", choices=STEPS)
-    ap.add_argument("--jobs", type=int, default=4)
+    # (rhipper.json "jobs": a machine another translation shares takes fewer)
+    ap.add_argument("--jobs", type=int, default=int(project.CONFIG["jobs"]))
     ap.add_argument("--run-secs", type=int, default=90)
     # (pipeline.sh's own options, as it hands them on)
     ap.add_argument("--facts", action="store_true", help="facts only")
