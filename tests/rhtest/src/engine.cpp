@@ -4,7 +4,9 @@
 // slot with `this` still in ecx; `getter()->f()->g(0, &a, &b, n)`, a getter of no words before
 // calls taking the words pushed ahead of it; a float read through a byte-swapping stream reader
 // (`call read; fld [local]; ret`); a reference count released on a worker thread while the main
-// thread spins on a member lock.
+// thread spins on a member lock; a vector's floats forwarded to another virtual slot from a frame with
+// no locals; a singleton's method that never reads `this`; an outer call's arguments pushed before the
+// branches that make its object; a 16-byte aligned local's realigned frame.
 #include <windows.h>
 #include <intrin.h>
 #include <string.h>
@@ -261,6 +263,73 @@ NOINLINE static void shared_object()
     check("shared refs", (u32)s.release());
 }
 
+// ---- a vector's floats forwarded to another virtual slot, a frame with no locals ------------------
+// (`sub esp, 0xc` then each float stored to [esp + k], room for the call's arguments, not the frame's:
+// taken for the frame, a client's GameObject::vf4 called its slot with none of its three floats)
+
+class Mover {
+public:
+    Mover() : x(0), y(0), z(0), moves(0) {}
+    NOINLINE virtual void moveTo(float nx, float ny, float nz) { x = nx; y = ny; z = nz; moves++; }
+    NOINLINE virtual void moveToV(const float *v) { moveTo(v[0], v[1], v[2]); }
+    float x, y, z;
+    u32 moves;
+};
+
+// ---- a singleton's method that never reads `this`, its caller's dead `mov ecx, [g]` ----------------
+
+class Registry {
+public:
+    NOINLINE u32 stamp(u32 *p) { if (p) p[1] += 3; return p ? p[1] : 0; }
+};
+static Registry *volatile g_registry;
+
+// ---- an outer call's arguments pushed before the branches that make its object --------------------
+// (`push n; push 0x11; c ? call a->get : call b->get; jmp join; join: mov ecx, eax; call use`: each
+// branch's getter takes none of the words, the joined call both)
+
+class Obj {
+public:
+    u32 base;
+    NOINLINE u32 use(u32 tag, u32 n) { return base * tag + n; }
+};
+class Maker {
+public:
+    Obj o;
+    NOINLINE virtual Obj *get() { return &o; }
+};
+
+NOINLINE static u32 join_args(Maker *a, Maker *b, int c, u32 n)
+{
+    return (c ? a->get() : b->get())->use(0x11, n);
+}
+
+// ---- a 16-byte aligned local: the realigned frame's arguments read through ebx ------------------
+
+NOINLINE static u32 aligned_sum(u32 a, u32 b)
+{
+    __declspec(align(16)) volatile u32 v[4];
+    v[0] = a; v[1] = b; v[2] = a ^ b; v[3] = a + b;
+    return v[0] * 3 + v[1] * 5 + v[2] + v[3] * 7;
+}
+
+NOINLINE static void engine_shapes()
+{
+    Mover m;
+    float v[3] = { 1.5f, (float)seed(), -2.25f };
+    m.moveToV(v);
+    check("mover", (u32)(int)(m.x * 4 + m.y * 16 + m.z * 64) + m.moves);
+    static Registry r;
+    u32 slot[2] = { seed(), seed() * 2 };
+    g_registry = &r;
+    check("registry", g_registry->stamp(slot) + g_registry->stamp(slot));
+    Maker a, b;
+    a.o.base = seed();
+    b.o.base = seed() + 100;
+    check("join args", join_args(&a, &b, (int)(seed() & 1), 9) + join_args(&a, &b, 0, 4) * 3);
+    check("aligned", aligned_sum(seed(), seed() * 11));
+}
+
 extern "C" void rhtest_run(void)
 {
     streams();
@@ -268,4 +337,5 @@ extern "C" void rhtest_run(void)
     getter_chains();
     float_reader();
     shared_object();
+    engine_shapes();
 }

@@ -209,6 +209,17 @@ NOINLINE u32 kind_switch(u32 id, int *table) {
     return (u32)*p + 100;
 }
 
+/* a signed remainder by a power of two as a shift count, the C runtime's __ZeroTail: MSVC's
+   `and edx, 0x8000001f; jns; dec; or edx, -0x20; inc` for `bit % 32`, which the decompiler folds
+   to `bit & 0x1f` (a shift masks its count) */
+NOINLINE u32 zero_tail(const u32 *words, int bit) {
+    int i = bit / 32;
+    if (words[i] & ~(0xffffffffu << (31 - bit % 32))) return 0;
+    for (i++; i < 3; i++)
+        if (words[i]) return 0;
+    return 1;
+}
+
 NOINLINE u32 sieve(u32 limit) {
     static u8 composite[2000];
     u32 i, j, count = 0;
@@ -456,6 +467,10 @@ static void level2(void) {
     check("fallthrough", h);
     check("sparse", sparse(1) | sparse(s * 1000 / 7) << 4 | sparse(65535) << 8 | sparse(1000000) << 12 | sparse(s) << 16);
     check("vowels", vowels("the quick brown fox jumps over every lazy dog"));
+    {
+        static u32 tail[3] = { 0x80000000u, 0, 0 };
+        check("zero_tail", zero_tail(tail, (int)s) | zero_tail(tail, 0) << 1 | zero_tail(tail, 40 + (int)s) << 2);
+    }
     {
         static int kinds[4] = { 40, 41, 42, 43 };
         for (h = 0, k = 0; k < 16; k++) h = h * 7 + kind_switch((k + s) | (k << 16), kinds);

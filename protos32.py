@@ -295,6 +295,13 @@ def analyse(root: int, ranges):
             reg_saves.add(a)
     floor = [None, None, None]                # the locals a `sub esp, n` makes: bottom, top; the
                                               # frame's allocation (its first after `mov ebp, esp`)
+    # (a frame with no locals, nothing addressed below ebp: a `sub esp, k` in it is a call's
+    # arguments' room, not the frame's allocation. `push ebp; mov ebp, esp; ...; sub esp, 0xc; fstp
+    # [esp + 8]; ...; call [vt + 0x14]`, GameObject::vf4 forwarding a vector's three floats to its
+    # own slot 5: taken for the frame, the call passed none and the port's callee read garbage,
+    # 102 of a client's functions, 2026-10-30)
+    no_locals = not any(op.type == X.X86_OP_MEM and op.mem.base == X.X86_REG_EBP and op.mem.disp < 0
+                        for i in insns.values() for op in i.operands)
 
     def merge(a, s):
         old = state.get(a)
@@ -556,7 +563,8 @@ def analyse(root: int, ranges):
                 # passes a double and an int. Counted as the push alone, the method popped 4 of its
                 # 16 bytes and the epilogue's `pop ebx` read a local, unaff_EBX, rhtest
                 # msvc-14.51-x86 com-O2 2026-10-27)
-                args_room = mn == "sub" and ebp is not None and floor[2] is None and saved_before(insns, prv, a)
+                args_room = mn == "sub" and ebp is not None and floor[2] is None \
+                    and (saved_before(insns, prv, a) or no_locals)
                 if args_room:
                     pushed += src.imm
                 elif mn == "sub" and (floor[0] is not None or floor[2] == -1) and floor[2] != a:
@@ -3200,6 +3208,13 @@ def next_call_deficit(insns, prv, nxt, a, depth=0) -> int:
             if after <= 0:
                 return deficit
             after -= 4
+        # (an unconditional jump to a join followed there: each branch pushes the outer call's
+        # arguments, calls the getter, and jumps to the one `mov ecx, eax; call f`. Stopped at the
+        # jump, the getter took f's two words and f read the caller's saved ebx and edi, a client's
+        # 0x871f60 and 10 more stubbed unaff_EBX, 2026-10-30)
+        elif pi.mnemonic == "jmp" and _target(pi) in insns:
+            p = end = _target(pi)
+            continue
         elif pi.mnemonic in ("ret", "jmp") or pi.mnemonic.startswith("j"):
             return deficit
         # (room made for arguments stored rather than pushed, `sub esp, 0x10` then `fstp [esp + 8]`

@@ -467,18 +467,38 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
                 # a callee that takes the pointer alone, the port passing none, rhtest stl-O2)
                 # (and what is loaded into ecx for a callee that takes nothing there: an atexit
                 # thunk's `mov ecx, obj; jmp dtor` to a body that never reads ecx, rhtest stl-O2)
-                if mn in ("call", "jmp") and arity and ops and ops[0].type == x86.X86_OP_IMM:
-                    t = ops[0].imm & 0xFFFFFFFF
+                # (an import takes nothing in ecx either: `call [slot]`, or its thunk `jmp [slot]`
+                # called, GetCurrentThreadId's in a client's 0x500f70 after `mov ecx, [0x1375a1c]`,
+                # 10 like it, 2026-10-30)
+                to_import = False
+                if mn == "call" and ops and ops[0].type == x86.X86_OP_MEM and not ops[0].mem.base \
+                        and not ops[0].mem.index and (ops[0].mem.disp & 0xFFFFFFFF) in img.iat:
+                    to_import = True
+                elif mn in ("call", "jmp") and ops and ops[0].type == x86.X86_OP_IMM:
+                    code = img.read(ops[0].imm & 0xFFFFFFFF, 6)
+                    to_import = len(code) == 6 and code[:2] == b"\xff\x25" \
+                        and int.from_bytes(code[2:6], "little") in img.iat
+                if mn in ("call", "jmp") and (arity or to_import) and ops \
+                        and (ops[0].type == x86.X86_OP_IMM or to_import):
+                    t = ops[0].imm & 0xFFFFFFFF if ops[0].type == x86.X86_OP_IMM else None
                     # (or a tail jump, the range's last instruction, into code the decompiler took
                     # into this function, whose own signature takes nothing in ecx)
                     tail_in = mn == "jmp" and t not in arity and at + 1 == len(insns) and own not in takes_ecx
-                    if (t in arity and t not in takes_ecx) or tail_in:
+                    if (t in arity and t not in takes_ecx) or tail_in or to_import:
                         for k in reg_imms.get(canon_reg("ecx"), ()):
                             if f.consts.get(k):
                                 f.consts[k] -= 1
                                 if f.consts[k] <= 0:
                                     del f.consts[k]
                         reg_imms.pop(canon_reg("ecx"), None)
+                        # (and the fields read into it, `mov ecx, [esi + 0xc]; call f` of a callee
+                        # that never reads ecx: its dead `this`, 13 of a client's functions)
+                        for d in ecx_fields:
+                            if f.fields.get(d):
+                                f.fields[d] -= 1
+                                if f.fields[d] <= 0:
+                                    del f.fields[d]
+                        ecx_fields = []
                 if mn == "call" and arity and ops and ops[0].type == x86.X86_OP_IMM:
                     n = arity.get(ops[0].imm & 0xFFFFFFFF)
                     if n is not None:
