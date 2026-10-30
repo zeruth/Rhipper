@@ -1,1 +1,1 @@
-{"sha": "4ca9f13b8b5301e4fcfb93cd6f9fb44148942cb5", "date": "2026-10-30T04:24:48-04:00", "subject": "fix(protos32, fidelity32): float arguments placed below a frame with no locals, arguments pushed before a branch join; rhtest cases"}
+{"sha": "c988ea4517b56f1a8d6deadfeb9353da194b6117", "date": "2026-10-30T04:36:55-04:00", "subject": "fix(fidelity32): dead `this` through imports, empty methods and register chains; scaled indices; empty strings"}
