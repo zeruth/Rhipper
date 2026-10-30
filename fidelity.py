@@ -53,7 +53,7 @@ import tags as tagscan
 from corpus import load_corpus
 from pebin import Binary
 
-from project import CONFIG, ROOT
+from project import CONFIG, ROOT, suggested
 # the newer of the two builds: tools/translate64.py links build/cmake, the user builds
 # cmake-build-release from CLion. Measuring the older one tied today's tags to yesterday's
 # functions (210 hand ports went untied, 2026-10-18). The port is the project's build target.
@@ -299,7 +299,8 @@ def thunk_target(addr: str) -> str:
 
 def ref_is_lib(cor: dict, a: int) -> bool:
     entry = cor.get(a)
-    if entry is None:
+    # (a name only a model suggested counts as none)
+    if entry is None or a in suggested():
         return False
     name = entry["name"]
     return not name.startswith(REF_KEEP) and "::" not in name
@@ -926,7 +927,7 @@ def main() -> None:
         result = None
         entry = cor.get(a)
         size = entry.get("size", 0) if entry else 0
-        if a not in port_of_ref and 0x30 <= size <= 0x2000 and entry and entry["name"].startswith("FUN_"):
+        if a not in port_of_ref and 0x30 <= size <= 0x2000 and entry and (entry["name"].startswith("FUN_") or a in suggested()):
             mnemonics = ref_features(a).mnemonics
             lo = bisect.bisect_left(crt_sizes, int(size * 0.6))
             hi = bisect.bisect_right(crt_sizes, int(size * 1.6) + 1)

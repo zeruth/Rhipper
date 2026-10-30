@@ -101,6 +101,20 @@ CORPUS = BUILD / "corpus.jsonl"
 SOURCES = [ROOT / s for s in CONFIG["sources"]]
 
 
+_suggested: set[int] | None = None
+
+
+def suggested() -> set[int]:
+    """The functions only a model named (data/names_llm.json): to the extractors and the fidelity
+    measure still unnamed, `FUN_`, so a suggested name never makes a game function a library one,
+    nor keeps a CRT signature, RTTI slot or misplaced entry from being found."""
+    global _suggested
+    if _suggested is None:
+        p = ROOT / "data" / "names_llm.json"
+        _suggested = {int(k, 16) for k in json.loads(p.read_text(encoding="utf-8"))["functions"]} if p.exists() else set()
+    return _suggested
+
+
 def path(rel: str | None) -> Path | None:
     """A project-relative setting as a path (None stays None)."""
     return None if rel is None else ROOT / rel

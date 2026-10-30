@@ -59,7 +59,7 @@ PER_FILE = 400
 
 # the type words Ghidra32.h defines (or C has)
 KNOWN_TYPES = {
-    "gen_v16", "gen_v8", "gen_v12", "gen_v24", "gen_v32", "gen_v48", "gen_v64", "gen_code32", "void", "char", "short", "int", "long", "float", "double", "bool", "wchar_t", "signed", "unsigned",
+    "gen_v16", "gen_r16", "gen_v8","gen_v12", "gen_v24", "gen_v32", "gen_v48", "gen_v64", "gen_code32", "void", "char", "short", "int", "long", "float", "double", "bool", "wchar_t", "signed", "unsigned",
     "undefined", "undefined1", "undefined2", "undefined3", "undefined4", "undefined5", "undefined6",
     "undefined7", "undefined8", "byte", "uchar", "uint1", "sbyte", "int1", "ushort", "word", "wchar16", "uint2",
     "int2", "uint", "uint3", "uint4", "dword", "int3", "int4", "ulong", "longlong", "ulonglong", "qword",
@@ -441,6 +441,15 @@ def v16_forms(c: str) -> str:
     # (the first bytes of one, `*(undefined1 (*) [12])*(undefined1 (*) [16])(pfVar25 + 8)`: those
     # bytes where it is, C's inner `*` being the whole array, FUN_00d5c7e0 in a VS2010 client 2026-10-25)
     c = re.sub(r"\*\s*\(\s*(gen_v\d+)\s*\*\s*\)\s*\*\s*\(\s*gen_v\d+\s*\*\s*\)", r"*(\1 *)", c)
+    # (a function returning one, protos32's "v16", `undefined1 [16] FUN_00666280(...)`: C returns no
+    # array, so its value as gen_r16, an __m128 in xmm0 as the reference's. Each `return auVar3;`
+    # stores into a 16-byte local of its own, which the copies and pseudo-ops below take, and returns
+    # that, GEN_R16. 0x666280's rsqrtps, typed uint before, its body lost, 2026-10-30)
+    if re.search(r"(?m)^undefined1\s*\[\s*16\s*\][ \t\n]", c.split("{", 1)[0]):
+        c = re.sub(r"\{[ \t]*\n", "{\n  undefined1 gen_rv16 [16];\n", c, count=1)
+        c = re.sub(r"(?m)^([ \t]*)return\s+([^;]+);",
+                   lambda m: f"{m.group(1)}gen_rv16 = {' '.join(m.group(2).split())};\n"
+                             f"{m.group(1)}return GEN_R16(gen_rv16);", c)
     # (and one copied whole, `auVar1 = *(gen_v16 *)p;`, `*p = auVar1;`: 16 bytes)
     arrays = set(re.findall(r"(?m)^[ \t]+undefined1\s+([A-Za-z_]\w*)\s*\[\s*(?:" + V_SIZES + r")\s*\]\s*;", c))
     ptrs = set(re.findall(r"\bgen_v\d+\s*\*\s*([A-Za-z_]\w*)", c))
@@ -449,6 +458,13 @@ def v16_forms(c: str) -> str:
         e = e.strip()
         return e in arrays or bool(re.match(r"\*\s*\(\s*gen_v(?:" + V_SIZES + r")\s*\*\s*\)", e)) \
             or any(re.fullmatch(r"\*\s*" + p + r"|" + p + r"\s*\[[^\]]+\]", e) for p in ptrs)
+
+    # (and a call's into a 16-byte local, `auVar1 = FUN_00666280(param_1);`: the callee's gen_r16
+    # stored there, GEN_R16_SET. A bare call is assigned a 16-byte array only for a 16-byte result,
+    # a narrower one the decompiler widens, ZEXT, 2026-10-30)
+    c = re.sub(r"(?m)^([ \t]*)([^=;\n{}()]+?)\s*=\s*((?:thunk_)?FUN_[0-9a-f]{8}\s*\([^;\n]*\));[ \t]*$",
+               lambda m: f"{m.group(1)}GEN_R16_SET({m.group(2).strip()}, {m.group(3)});"
+               if v16(m.group(2)) else m.group(0), c)
 
     def copy(m):
         lhs, rhs = m.group(2), m.group(3)
@@ -1812,7 +1828,11 @@ def libm_flag(c: str) -> str | None:
     the tail masks with 0xfffff (rhtest msvc-16.00-x86 float, 4 stubs a project)."""
     if not re.search(r"\bin_ZF\b", c):
         return None
-    m = re.search(r"\(\s*(param_\d+)\s*&\s*0xfffff\s*\)", c)
+    # (or that word in eax, where __fload_withFB and __checkTOS_withFB leave it: a VS2010 client's
+    # cos/sin/tan/atan tails (0xc4ca78, 0xc4ce38, 0xc4d5e8, 0xc4f398) read only the low word off
+    # the stack and test `in_eax & 0xfffff`; eax is the high word where ZF is set and its exponent
+    # bits alone where not, the same test either way, 2026-10-30)
+    m = re.search(r"\(\s*(param_\d+|in_eax)\s*&\s*0xfffff\s*\)", c)
     if not m:
         return None
     return f"(({m.group(1)} & 0x7ff00000) == 0x7ff00000)"
@@ -1859,6 +1879,10 @@ def upper_only(c: str) -> set[str]:
     # what ecx was, its upper bytes a bool argument's, hkaSplineCompressedAnimation::vf4)
     upper = lambda v: (rf"(?:\(u?int3\)\(\s*(?:\(u?int\)\s*)?(?:gen_fl2bits\(\s*{re.escape(v)}\s*\)|{re.escape(v)})\s*>>\s*8\s*\)"
                        rf"|\b{re.escape(v)}\s*&\s*0xffffff00\b"
+                       # (or above any low word, `CONCAT22((short)((uint)V >> 0x10), in_FPUControlWord)`:
+                       # an x87 tail's `push edx; fnstcw [esp]`, the saved control word in edx's slot,
+                       # 0xc4ca78 and its kin, 2026-10-30)
+                       rf"|CONCAT22\(\(short\)\((?:\(uint\))?{re.escape(v)}\s*>>\s*0x10\),"
                        rf"|CONCAT22\(\(short\)\((?:\(uint\))?{re.escape(v)}\s*>>\s*0x10\),\s*\(ushort\)\(byte\){re.escape(v)}\)"
                        # (and with the flags set in, `CONCAT22((short)((uint)V >> 0x10), CONCAT11(f,
                        # (char)V))`, the status word's bits computed over the rest)
@@ -1919,7 +1943,7 @@ def upper_only(c: str) -> set[str]:
     out = set()
     # (and a callee-saved register's, the caller's bits above a byte set over it, `sete bl; push
     # ebx`: `CONCAT31((int3)((uint)unaff_EBX >> 8), b == 0)`, a bool argument, 0x79dbe0)
-    for n in set(re.findall(r"\b(?:extraout_E[A-D]X|unaff_E(?:[A-D]X|SI|DI))(?:_\d+)?\b", c)):
+    for n in set(re.findall(r"\b(?:extraout_E[A-D]X|unaff_E(?:[A-D]X|SI|DI)|in_E[A-D]X)(?:_\d+)?\b", c)):
         ok = True
         for i, l in enumerate(lines):
             if not re.search(rf"\b{n}\b", l) or re.match(rf"^\s*[\w ]+?[\s*]+{n}\s*;\s*$", l):
@@ -1994,7 +2018,10 @@ def filler_args(c: str) -> set[str]:
     # (not a callee-saved register as the function found it, `FUN_0042cc20(local_5c, uVar1,
     # unaff_EDI)`: that was a word pushed earlier for a later call, -1 there, the call before
     # given it instead (protos32 next_call_deficit); 0 for it made an empty string, 2026-10-26)
-    for n in set(re.findall(r"\bextraout_E[ACD]X(?:_\d+)?\b|\bin_XMM\d+_D[a-d]\b", c)):
+    # (and the return address handed on whole: the CRT's x87 tails pass their frame to
+    # _startOneArgErrorHandling, the saved control word, that word and the double above it, and
+    # it reads the word and the double, 0xc4ca78 and its kin, 2026-10-30)
+    for n in set(re.findall(r"\bextraout_E[ACD]X(?:_\d+)?\b|\bin_XMM\d+_D[a-d]\b|\bunaff_retaddr\b", c)):
         if filler(n, [n]):
             out.add(n)
     return out
@@ -2167,8 +2194,26 @@ def x87_icall_results(c: str) -> str:
                 # the read can have on the other way, an assert's handler through a pointer,
                 # `if (n == 0) { (*DAT_015d861c)("pTrackData != 0", ..); }`, 0xcddf40)
                 o = block_open(k)
+                # (and an if/else whole, from the else's `}` back to its `if`: the read after both
+                # branches has the value from before them, a clip's `vf + 0xa8` result kept across
+                # `if (..) { local_c = vf_ac(); } else { local_c = 0.0; }`, 0xbe61e0)
+                while o is not None and re.match(r"\s*(?:\}\s*)?else\s*\{\s*$", lines[o]):
+                    if lines[o].strip().startswith("}"):
+                        depth, s2 = 1, o - 1
+                        while s2 >= 0:
+                            depth += lines[s2].count("}") - lines[s2].count("{")
+                            if depth <= 0:
+                                break
+                            s2 -= 1
+                        o = s2 if s2 >= 0 and depth == 0 else None
+                    else:
+                        # (`}` on the line before, `else {` on its own)
+                        p2 = o - 1
+                        while p2 >= 0 and not lines[p2].strip():
+                            p2 -= 1
+                        o = block_open(p2) if p2 >= 0 and lines[p2].strip() == "}" else None
                 if o is None or not lines[o].rstrip().endswith("{") \
-                        or not re.match(r"\s*if \(", lines[stmt_start(o)]):
+                        or not re.match(r"\s*(?:\}\s*else\s+)?if \(", lines[stmt_start(o)]):
                     return None
                 k = stmt_start(o) - 1
                 continue
@@ -2189,6 +2234,22 @@ def x87_icall_results(c: str) -> str:
         if uses:
             firsts.setdefault(stmt_start(uses[0]), []).append(v)
     for first, group in sorted(firsts.items()):
+        # (one name, its call earlier in the same statement assigned to a float local: that local,
+        # `(dVar6 = (**(code **)(*p + 0xa4))(), fVar7 < extraout_ST0)`, a clip's time compare)
+        if len(group) == 1:
+            v = group[0]
+            end = first
+            while end < len(lines) and not re.search(r"\b" + v + r"\b", lines[end]):
+                end += 1
+            stmt = " ".join(lines[first:end + 1])
+            at = stmt.find(v)
+            m = None
+            for m2 in re.finditer(r"\b([A-Za-z_]\w*)\s*=\s*\(\*+\s*\(code \*+\)", stmt[:at]):
+                m = m2
+            if m and re.search(r"(?m)^\s*(?:float10|float|double)\s+" + re.escape(m.group(1)) + r"\s*;", c):
+                for i in range(first, end + 1):
+                    lines[i] = re.sub(r"\b" + v + r"\b", f"(float10){m.group(1)}", lines[i])
+                continue
         # back from the first read: as many indirect call statements as names, plain ones between
         calls, k = [], first - 1
         while k >= 0 and len(calls) < len(group):
@@ -2228,6 +2289,16 @@ def x87_icall_results(c: str) -> str:
         # one call's value: read later, it is still that call's)
         if len(calls) != len(group):
             calls = far_calls(first, len(group)) or calls
+        # (or the one call through a pointer whose result goes nowhere before the read in the whole
+        # function: the value the compiler kept for it, past loops' heads the walk cannot cross. A
+        # clip's `vf + 0xa4` duration, divided inside its track loop, 0xbe06d0)
+        # (and several names, as many such calls before them as names, in order: Ghidra numbers
+        # each call's result as the calls come, a clip blend's `vf + 0xb4` of its param and of its
+        # child, 0xbc4740)
+        if len(calls) != len(group):
+            unassigned = [(cs[0], j, None) for j in range(first) if (cs := call_stmt(j)) and cs[1] is None]
+            if len(unassigned) == len(group):
+                calls = list(reversed(unassigned))
         if len(calls) != len(group):
             continue
         # (a call whose result goes to an integer returns in eax, not st0: `uVar3 = (*vf)(p); cVar2 =
@@ -2315,6 +2386,12 @@ def load_corpus() -> dict[int, dict]:
             # from the __CIsin fixup: a double's value here, no C type of its own)
             if "(unkbyte10)" in r["c"]:
                 r["c"] = r["c"].replace("(unkbyte10)", "")
+            # (FPREM's quotient, truncated through the 10-byte integer and back, `(float10)(unkint10)
+            # (in_ST1 / in_st0)`: C's trunc, a double's value here. As a cast to bytes it was
+            # vec_forms' vector, the C runtime's fmod loop 0xc4d3e4, 2026-10-30)
+            if "(unkint10)" in r["c"] or "(unkuint10)" in r["c"]:
+                r["c"] = re.sub(r"\(float10\)\s*\(unku?int10\)\s*(?:\(|([A-Za-z_]\w*)\b(?!\s*\())",
+                                lambda m: f"(float10)trunc({m.group(1)})" if m.group(1) else "(float10)trunc(", r["c"])
             if "switchdataD_" in r["c"]:
                 r["c"] = switch_offset(r["c"])
             # (a qualified name the decompiler wrapped, its class alone on a line and `::vf3(` on the
@@ -3231,6 +3308,26 @@ class Translator32:
             if '"' not in line:
                 out.append(line)
                 continue
+
+            # (a literal the decompiler cut short, `"5_DBLEGACYRETAINE\' AS ... COLUMN_..." /* TRUNCATED
+            # STRING LITERAL */`, its first bytes and "...": the reference's own copy, the address its
+            # code names whose bytes start so, `push 0x121bdc6`, 2KB of SQL a client's 0xb3aec0 hands
+            # its hooks. As written the port passed another string, 2026-10-30)
+            def trunc(m):
+                try:
+                    raw = m.group(1).encode("latin-1").decode("unicode_escape").encode("latin-1")
+                except Exception:
+                    return m.group(0)
+                hits = set()
+                for va, data in self._image_data:
+                    k = data.find(raw)
+                    while k >= 0:
+                        if (va + k).to_bytes(4, "little") in code:
+                            hits.add(va + k)
+                        k = data.find(raw, k + 1)
+                return f"((char *)REFP(0x{hits.pop():x}))" if len(hits) == 1 else m.group(0)
+            if code and "TRUNCATED STRING LITERAL" in line:
+                line = re.sub(r'(?<![\w\\L])"((?:\\.|[^"\\])*)\.\.\."\s*/\* TRUNCATED STRING LITERAL \*/', trunc, line)
             refs = [int(x, 16) for x in re.findall(r"&REFG\(undefined, (0x[0-9a-f]+)\)", line)]
 
             def rep(m):
@@ -3253,6 +3350,16 @@ class Translator32:
                 named = [p for p in every if code and p.to_bytes(4, "little") in code]
                 if len(named) == 1:
                     return f"((char *)REFP(0x{named[0]:x}))"
+                # (or an address inside its bytes the code names, where the C does arithmetic on the
+                # literal: `*(int *)("bgcommon/nature/sky/texture/sky_016.tex" + i * 8 + 0xc)`, the
+                # decompiler's base for `mov eax, [edi*8 + 0x1093a00]`, a table of 8-byte records
+                # whose element -1 overlaps the string. Through the port's copy the read went past
+                # its end, a client's 0x4a9ff0 and 0x4aeb20, 2026-10-30)
+                if code and re.match(r"\s*[+\[]", line[m.end():]):
+                    inner = [p for p in every if any((p + d).to_bytes(4, "little") in code
+                                                      for d in range(1, len(raw) + 1))]
+                    if len(inner) == 1:
+                        return f"((char *)REFP(0x{inner[0]:x}))"
                 near = [p for p in every if any(p < r <= p + len(raw) + 1 for r in refs)]
                 if near:
                     return f"((char *)REFP(0x{near[0]:x}))"
@@ -3270,7 +3377,10 @@ class Translator32:
         hands it whatever is on the stack, `FUN_00402096(this, &stack0xfffffffc, unaff_EDI)`
         (rhtest stl-O2's stream extractors). 0 in the port."""
         out = set()
-        for n in set(re.findall(r"\bunaff_E(?:BX|SI|DI|BP)(?:_\d+)?\b", c)):
+        # (and a stack word past the function's own, handed to a callee that never reads that
+        # parameter: a tail jump's forwarding, `____mb_cur_max_func(0, in_stack_00000008)` of a
+        # function that reads none, the CRT's ____mb_cur_max_l_func)
+        for n in set(re.findall(r"\b(?:unaff_E(?:BX|SI|DI|BP)(?:_\d+)?|in_stack_[0-9a-f]{8})\b", c)):
             uses = [m for m in re.finditer(r"\b" + re.escape(n) + r"\b", c)]
             ok = bool(uses)
             for m in uses:
@@ -3362,14 +3472,18 @@ class Translator32:
             if not m:
                 continue
             prev = lines[i - 1]
-            call = re.fullmatch(r"\s*(?:[\w.\->\[\]]+\s*=\s*)?(?:\([^()]*\))?\s*([A-Za-z_]\w*)\s*\(.*\);\s*", prev)
+            # (a qualified name too, crtsigs.py's `Global::__load_CW`: by a bare identifier no call,
+            # and the C runtime's sqrt and log tails 0xc4bdbd, 0xc496d8 and 3 like them kept
+            # extraout_ST0, stubs, 2026-10-30)
+            call = re.fullmatch(r"\s*(?:[\w.\->\[\]]+\s*=\s*)?(?:\([^()]*\))?\s*(" + IDENT + r")\s*\(.*\);\s*", prev)
             if not call:
                 continue
             a2 = self.by_printed.get(call.group(1))
             # (or one known by name to leave st0's value as it was: the CRT's __convertTOStoQNaN
             # makes a signalling NaN in st0 a quiet one, `fadd` of a NaN, which the port's SSE does
             # of itself; its name from Function ID or crtsigs.py)
-            named_keep = a2 is not None and self.corpus.get(a2, {}).get("name") in ST0_VALUE_KEEPERS
+            named_keep = a2 is not None and \
+                self.corpus.get(a2, {}).get("name", "").split("::")[-1] in ST0_VALUE_KEEPERS
             if a2 is None or (a2 not in self.keeps_st0 and not named_keep):
                 continue
             # (st0 before the call: the x87 value the call is handed, `FUN_0040382c(hi, in_st0);
@@ -3742,6 +3856,17 @@ class Translator32:
                 out.add(n)
         return out
 
+    def upper_lanes(self, a: int, c: str) -> set[str]:
+        """An xmm register's upper half as the function found it (`in_XMM2_Qb`, `in_XMM0_Dd`) where its
+        facts take no more of the register than a double, or none of it: the caller's leftover, which
+        the C runtime's hand-written SSE2 math carries through packed ops into lanes it never returns.
+        asin's 0xc6790e, `movlpd xmm2, [c]; ...; andpd xmm2, xmm7` and `pmovmskb eax, xmm0; and eax,
+        0x80`, its sign alone; 0 for them, as its caller's `movq xmm0, [esp]` leaves xmm0's
+        (2026-10-30). Not one the facts take as a float, `xmm1`: an __m128 argument's packed reads
+        give that width, and its upper lanes are its own."""
+        regs = self.param_regs.get(a, [])
+        return {n for n, k in set(re.findall(r"\b(in_XMM(\d)_(?:Qb|D[cd]))\b", c)) if f"xmm{k}" not in regs}
+
     # ---- one function ---------------------------------------------------------------------------
     def why_not(self, a: int) -> str | None:
         c = self.entry_registers(a, self.kept_inputs(self.kept_st0(stack_vs_const(neg_scaled(v16_forms(cpu_state(array_stores(locked_reads(strip_comments(self.corpus[a]["c"]))))))))))
@@ -3754,7 +3879,7 @@ class Translator32:
         # (and a full xmm register as an SSE pseudo-op's destination found it: zeroed, sse_ops)
         # (and a call's x87 result made its assignment, x87_icall_results)
         ok = returned_only(c) | self.unread_result(a, c) | self.noreturn_args_only(a, c) | filler_args(c) | upper_only(c) | declared_only(c) | \
-            self.after_float_call(c) | \
+            self.after_float_call(c) | self.upper_lanes(a, c) | \
             self.unread_params(c) | \
             context_capture(c) | {"in_FPUControlWord", "in_FPUStatusWord"} | ({"in_ZF"} if libm_flag(c) else set()) | \
             set(re.findall(r"(?m)^\s*(extraout_ST0(?:_\d+)?) = \(\*", c)) | \
@@ -4769,7 +4894,7 @@ class Translator32:
         # (Ghidra's stack pieces, `_uStack_1c`; not a library signature's `_StackCookie`)
         # (one the function declares is a local of its own: __setmbcp_nolock's `_cpinfo _Stack_1c;`,
         # a struct the decompiler named so, 2026-10-24)
-        left = next((m for m in re.finditer(r"::|`|\bregister0x|\b_(?:local|param|[a-z]*Stack(?![A-Za-z])|auStack)\w*|\bin_(?!E[ACD]X\b|E[ACD]X_\d+\b|[ACD][LX]\b|[ACD][LX]_\d+\b|XMM\d+\b|XMM\d+_D[a-d]\b|ST0\b)[A-Z]", code_only)
+        left = next((m for m in re.finditer(r"::|`|\bregister0x|\b_(?:local|param|[a-z]*Stack(?![A-Za-z])|auStack)\w*|\bin_(?!E[ACD]X\b|E[ACD]X_\d+\b|[ACD][LX]\b|[ACD][LX]_\d+\b|XMM\d+\b|XMM\d+_D[a-d]\b|XMM\d+_Q[ab]\b|ST0\b)[A-Z]", code_only)
                      if not (m.group(0).startswith("_") and re.search(
                          rf"^[ \t]+[\w ]+?[\s*]{re.escape(m.group(0))}(?:\s*\[\w+\])?;", code_only, re.M))), None)
         if left:
@@ -4802,7 +4927,7 @@ class Translator32:
         # the passes above read the declarations as `type name;`)
         # (and those only a call that does not return is given, noreturn_args_only)
         for n in returned_only(c) | self.unread_result(a, c) | self.noreturn_args_only(a, c) | filler_args(c) | upper_only(c) | context_capture(c) \
-                | self.unread_params(c) | self.after_float_call(c):
+                | self.unread_params(c) | self.after_float_call(c) | self.upper_lanes(a, c):
             # (a pointer's too, `undefined * extraout_EAX;`: as no match it stayed uninitialized)
             body = re.sub(r"(?m)^(\s*[A-Za-z_][\w ]*?[\s*]+" + n + r")\s*;", r"\1 = 0;", body, count=1)
         body = re.sub(r"(?m)^([ \t]*[A-Za-z_][\w ]*?[ \t*]+cap_(?:[A-Z]{2,3}|EBP|retaddr))\s*;", r"\1 = 0;", body)
@@ -5396,6 +5521,10 @@ class Translator32:
         # (a structure of 8 bytes or fewer returned by value comes back in edx:eax: its bits.
         # VS2010's __Getcoll's _Collvec)
         w = re.sub(r"^(?:struct\s+)?", "", CC.sub("", t).strip())
+        # (a vector in xmm0, protos32's "v16", `undefined1 [16]`: gen_r16, Ghidra32.h's __m128, as C
+        # returns no array; v16_forms returns the body's 16 bytes as one. 0x666280 2026-10-30)
+        if re.fullmatch(r"undefined1\s*\[\s*16\s*\]", w):
+            return "gen_r16"
         if w not in KNOWN_TYPES and self.composite_sizes.get(w) in (1, 2, 4, 8):
             return "unsigned long long" if self.composite_sizes[w] == 8 else "unsigned int"
         t = self.type_text(t)
@@ -6127,6 +6256,9 @@ class Translator32:
             return f"static unsigned int W_{a:08x}({sig}) {{ return (unsigned int)({width}){call}; }}"
         if not conv:
             return None
+        # (a 16-byte vector one, gen_r16: its __m128 as it is, 2026-10-30)
+        if ret == "gen_r16":
+            return f"static gen_r16 W_{a:08x}({sig}) {{ return {call}; }}"
         if ret == "void":
             return f"static unsigned int W_{a:08x}({sig}) {{ {call}; return 0; }}"
         if "*" in ret:
@@ -6135,7 +6267,10 @@ class Translator32:
             return f"static unsigned long long W_{a:08x}({sig}) {{ return (unsigned long long){call}; }}"
         return f"static unsigned int W_{a:08x}({sig}) {{ return (unsigned int){call}; }}"
 
-    def emit(self, translated: dict[int, str], stubbed: dict[int, str]) -> list[Path]:
+    def emit(self, translated: dict[int, str], stubbed: dict[int, str],
+             layout: dict[int, int] | None = None) -> list[Path]:
+        """layout: each function's file as the last run wrote it (--update), a new one in its
+        predecessor's: only the files of the functions that changed are written again."""
         GEN.mkdir(parents=True, exist_ok=True)
         decls = {a: self.stub_decl(a) for a in self.corpus}
         # every function's prototype, translated or not
@@ -6171,6 +6306,9 @@ class Translator32:
         # miscompile otherwise, found only by the crash it leads to)
         suspect = {}
         for a in list(translated):
+            # (one read back from the last run's files has its suspect line already, --update)
+            if "GEN_SUSPECT(" in translated[a]:
+                continue
             names = uninit_locals(translated[a])
             # (a stack slot the reference never writes either, its address never taken: its own
             # garbage, a structure's padding copied whole, `mov eax, [ebp - 4]; mov [ecx + 0xc], eax`
@@ -6186,9 +6324,17 @@ class Translator32:
                                        lambda m: m.group(1) + f'\n  GEN_SUSPECT(0x{a:x}u, "{", ".join(names)}");',
                                        translated[a], count=1)
         items = sorted(translated.items())
-        for k in range(0, len(items), PER_FILE):
-            chunk = items[k:k + PER_FILE]
-            path = GEN / f"translated_{k // PER_FILE:03d}.c"
+        if layout is not None:
+            groups: dict[int, list] = {}
+            last = 0
+            for a, t in items:
+                last = layout.get(a, last)
+                groups.setdefault(last, []).append((a, t))
+            chunks = [(k, groups[k]) for k in sorted(groups)]
+        else:
+            chunks = [(k // PER_FILE, items[k:k + PER_FILE]) for k in range(0, len(items), PER_FILE)]
+        for k, chunk in chunks:
+            path = GEN / f"translated_{k:03d}.c"
             # (4717, recursive on all paths: a function whose other path ends in a call that does not
             # return, which the port's declarations do not say. VS2010's /MT dive() bottoms out in
             # the CRT's translated longjmp, rhtest msvc-16.00-x86 misc)
@@ -6221,6 +6367,9 @@ class Translator32:
             r = "" if ret == "void" else (" return 0;" if "*" not in ret else " return 0;")
             if ret not in ("void",) and not any(x in ret for x in ("*",)) and ret.split()[-1] in FLOATS:
                 r = " return 0.0;"
+            # (a 16-byte vector one's, gen_r16: its lanes 0, as C converts no 0 to an __m128, 2026-10-30)
+            if ret == "gen_r16":
+                r = " return _mm_setzero_ps();"
             s.append(f"{d} {{ {body}{r} }}")
         write(GEN / "stubs.c", "\n".join(s) + "\n")
         # the jumps the runtime writes at each reference entry
@@ -6501,8 +6650,19 @@ def main() -> None:
     ap.add_argument("--keep-demoted", action="store_true",
                     help="start from the last run's demotions (by default every function is tried again: "
                          "a fix in the translator shows as a round with none)")
+    ap.add_argument("--update", nargs="*", help="these functions (hex, or @file of them) translated again into "
+                    "the last run's files, only the changed files compiled")
     args = ap.parse_args()
     t = Translator32()
+    if args.update:
+        addrs = set()
+        for x in args.update:
+            if x.startswith("@"):
+                addrs |= {int(y, 16) for y in Path(x[1:]).read_text().split() if y.strip()}
+            else:
+                addrs.add(int(x, 16))
+        update(t, addrs, args.jobs)
+        return
     only = {int(x, 16) for x in args.only} if args.only else None
     demoted = json.loads(DEMOTED.read_text()) if DEMOTED.exists() and args.keep_demoted else {}
     many = len(t.corpus) if only is None else len(only)
@@ -6512,6 +6672,70 @@ def main() -> None:
     finally:
         if pool is not None:
             pool.terminate()
+
+
+def read_gen() -> tuple[dict[int, str], dict[int, int], set[int]]:
+    """The last run's translations as it wrote them, each function's file, and its stubs."""
+    translated, layout = {}, {}
+    for path in sorted(GEN.glob("translated_*.c")):
+        k = int(path.stem.split("_")[1])
+        lines = path.read_text(encoding="utf-8").split("\n")[2:]
+        block: list[str] = []
+
+        def flush():
+            text = "\n".join(block).rstrip("\n")
+            m = re.search(r"(?m)^\S[^\n]*?\bF_([0-9a-f]{8})\s*\(", text)
+            if m:
+                translated[int(m.group(1), 16)] = text
+                layout[int(m.group(1), 16)] = k
+        for line in lines:
+            if line.startswith("/* ref: ") and block:
+                flush()
+                block = []
+            block.append(line)
+        if block:
+            flush()
+    stubs = {int(x, 16) for x in re.findall(r"\bF_([0-9a-f]{8})\s*\(", (GEN / "stubs.c").read_text(encoding="utf-8"))}
+    return translated, layout, stubs
+
+
+def update(t: Translator32, addrs: set[int], jobs: int) -> None:
+    """--update: these functions translated again into the last run's files, each where it was
+    (a new one beside its predecessor), and only the files that changed compiled: seconds for a
+    group of problem functions, where a whole run is many minutes."""
+    old, layout, stubs = read_gen()
+    demoted: dict[str, str] = {}
+    for _ in range(4):
+        new_t, new_s = t.translate_all(addrs, demoted, None)
+        translated = {a: x for a, x in old.items() if a not in addrs}
+        translated.update({a: x for a, x in new_t.items() if a in addrs})
+        stubbed = {a: "" for a in stubs if a not in addrs and a not in translated}
+        stubbed.update({a: r for a, r in new_s.items() if a in addrs})
+        before = {p: p.read_text(encoding="utf-8") for p in GEN.glob("translated_*.c")}
+        files = t.emit(translated, stubbed, layout)
+        changed = [p for p in files if before.get(p) != p.read_text(encoding="utf-8")]
+        print(f"update: {len(new_t)} of {len(addrs)} translated, {len(changed)} files written")
+        with ThreadPoolExecutor(max(1, jobs)) as compilers:
+            results = dict(zip(changed, compilers.map(compile_one, changed)))
+        new = 0
+        for path, errs in results.items():
+            starts = function_at_line(path)
+            for line, msg in errs or ():
+                owner = None
+                for k, a in starts:
+                    if k <= line:
+                        owner = a
+                    else:
+                        break
+                if owner is not None and owner in addrs and f"{owner:08x}" not in demoted:
+                    demoted[f"{owner:08x}"] = msg[:160]
+                    print(f"  demoted {owner:08x}: {msg[:160]}")
+                    new += 1
+        if not new:
+            break
+    for extra in ("stubs.c", "jumps.c", "imports.c"):
+        errs = compile_one(GEN / extra)
+        print(f"  {extra}: {'ok' if not errs else errs[:3]}")
 
 
 def rounds(t: Translator32, args, only: set[int] | None, demoted: dict[str, str], pool) -> None:

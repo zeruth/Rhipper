@@ -124,7 +124,9 @@ def write_structs(project, name: str) -> None:
     the project's winning. Kept in one project alone, the VS2010 CRT's _LocaleUpdate and DName
     were placeholders in every rhtest msvc-16.00-x86 program, and their users stubs."""
     merged: dict = {}
-    for src in (HERE / "toolchains" / name / "structs.json", project.ROOT / "data" / "structs.json"):
+    # (data/structs_llm.json: layouts a model suggested, unreviewed, which the project's own override)
+    for src in (HERE / "toolchains" / name / "structs.json", project.ROOT / "data" / "structs_llm.json",
+                project.ROOT / "data" / "structs.json"):
         if src.exists():
             merged.update(json.loads(src.read_text(encoding="utf-8")).get("structs", {}))
     dest = project.FACTS / "structs.json"

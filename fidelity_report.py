@@ -31,7 +31,10 @@ def reference_counts() -> tuple[int, set[str]]:
     library code (the game functions coverage is counted over)."""
     from corpus import load_corpus
     from fidelity import REF_KEEP
+    from project import suggested
     cor = load_corpus()
+    # (a name only a model suggested counts as none: the game's function it was)
+    cor = {a: ({**e, "name": f"FUN_{a:08x}"} if a in suggested() else e) for a, e in cor.items()}
     # (less third-party code by range, tools/fidelity_exceptions.json: the codecs' assembly)
     exceptions = json.loads((ROOT / "tools/fidelity_exceptions.json").read_text(encoding="utf-8"))
     ranges = [(int(r["from"], 16), int(r["to"], 16)) for r in exceptions.get("third_party", [])]

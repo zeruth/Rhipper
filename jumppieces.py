@@ -18,6 +18,7 @@ import json
 from capstone import CS_ARCH_X86, CS_MODE_32, Cs
 from capstone import x86_const as X
 
+import project
 from pebin import EXE, FACTS, Binary
 
 
@@ -50,7 +51,7 @@ def main() -> None:
     pointed = {int(s, 16) for e in vt for s in e["slots"]}
     pieces = []
     for e in entries:
-        if not name[e].startswith("FUN_") or e in called or e in pointed or e not in jumped:
+        if not (name[e].startswith("FUN_") or e in project.suggested()) or e in called or e in pointed or e not in jumped:
             continue
         k = bisect.bisect_left(entries, e) - 1
         prev = entries[k] if k >= 0 else None

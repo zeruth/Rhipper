@@ -144,14 +144,17 @@ public class ApplyFacts extends GhidraScript {
         // (the static C runtime's functions by their bytes, crtsigs.py: first, RTTI's and the hand
         // names after them winning)
         File crt = new File(dir, "names_crt.json");
-        if (crt.exists()) applyNames(read(crt));
+        if (crt.exists()) applyNames(read(crt), "identified: ");
         // (an x86 binary's virtual functions by their RTTI classes, rtti32.py: before the hand
         // names, which win)
         File rtti = new File(dir, "names_rtti.json");
-        if (rtti.exists()) applyNames(read(rtti));
+        if (rtti.exists()) applyNames(read(rtti), "identified: ");
+        // (names a model suggested, data/names_llm.json, unreviewed: after RTTI's, the hand names win)
+        File llm = new File(dir, "names_llm.json");
+        if (llm.exists()) applyNames(read(llm), "suggested: ");
         // hand-identified names last, so they win over anything extracted
         File names = new File(dir, "names.json");
-        if (names.exists()) applyNames(read(names));
+        if (names.exists()) applyNames(read(names), "identified: ");
         // after the names and varargs, so each slot takes its target's final signature
         File fp = new File(dir, "funcptrs.json");
         if (fp.exists()) applyFuncptrs(read(fp));
@@ -264,7 +267,7 @@ public class ApplyFacts extends GhidraScript {
                     for (JsonElement r : o.getAsJsonArray("regs")) {
                         String reg = r.getAsString();
                         // (an xmm register: a float, in its low lane, as /LTCG passes one)
-                        boolean xmm = reg.startsWith("xmm"), st = reg.equals("st0");
+                        boolean xmm = reg.startsWith("xmm"), st = reg.equals("st0") || reg.equals("st1");
                         // (`xmm2d`: a double in its low 8 bytes, protos32.py's for an `sd` read)
                         boolean dbl = xmm && reg.endsWith("d");
                         if (dbl) reg = reg.substring(0, reg.length() - 1);
@@ -295,6 +298,11 @@ public class ApplyFacts extends GhidraScript {
                     int nreg = cc.equals("__fastcall") ? 2 : cc.equals("__thiscall") ? 1 : 0;
                     List<DataType> st = stackTypes32(o, nreg, stack);
                     boolean floats = st.stream().anyMatch(t -> t.getLength() != 4 || !(t instanceof Undefined));
+                    // (and one of more words than the convention's stack entry places, x86win.cspec's
+                    // 500 bytes: each at its offset, as for a float. FUN_00b2f1e0 hands a 0x208-byte
+                    // block on by value, 130 words; assigned by the convention, its decompilation
+                    // failed, "Cannot assign parameter address", 2026-10-30)
+                    if (stack > 496) floats = true;
                     if (!floats) {
                         for (int i = 0; i < nreg; i++) params.add(new ParameterImpl("param_" + (i + 1), u4, currentProgram));
                         for (DataType t : st)
@@ -1135,6 +1143,25 @@ public class ApplyFacts extends GhidraScript {
         println("ApplyFacts: x86 keep conventions made " + made + " of " + names.size());
     }
 
+    // x86win.cspec's __cdecl with its stack entry past 500 bytes, made once as a compiler spec
+    // extension, for a call of more words than the convention places (applyCallsites, 2026-10-30)
+    private String wideCdecl = null;
+    private String wideCdecl32() throws Exception {
+        if (wideCdecl != null) return wideCdecl;
+        String cspec = new String(java.nio.file.Files.readAllBytes(ghidra.framework.Application
+                .getModuleDataFile("x86", "languages/x86win.cspec").getFile(false).toPath()));
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile(
+                "<prototype name=\"__cdecl\".*?</prototype>", java.util.regex.Pattern.DOTALL).matcher(cspec);
+        if (!m.find()) throw new IllegalStateException("no __cdecl in x86win.cspec");
+        String x = m.group().replaceFirst("name=\"__cdecl\"", "name=\"__cdecl_wide\"")
+                .replace("maxsize=\"500\"", "maxsize=\"4096\"");
+        Class<?> se = Function.class.getClassLoader().loadClass("ghidra.program.database.SpecExtension");
+        Object ext = se.getConstructor(ghidra.program.model.listing.Program.class).newInstance(currentProgram);
+        se.getMethod("addReplaceCompilerSpecExtension", String.class, ghidra.util.task.TaskMonitor.class)
+                .invoke(ext, x, monitor);
+        return wideCdecl = "__cdecl_wide";
+    }
+
     // A return its callers read (protos32.py "ret": al/ax/eax "i1"/"i2"/"i4", edx:eax "i8", st0 "f4"/"d8"):
     // Ghidra's type where it is one of that width and kind, else one that is. Ghidra had left
     // the allocator FUN_004067a0 void, and its callers' use of eax was lost
@@ -1168,6 +1195,21 @@ public class ApplyFacts extends GhidraScript {
             if (!f.hasCustomVariableStorage()) f.setCustomVariableStorage(true);
             f.setReturn(want, new ghidra.program.model.listing.VariableStorage(currentProgram,
                     currentProgram.getRegister(q ? "XMM0_Qa" : "XMM0_Da")), SourceType.ANALYSIS);
+            returnsSet++;
+            return;
+        }
+        // (a vector of four floats in xmm0, protos32.py's "v16": a function of packed ops only,
+        // `rsqrtps xmm2, xmm1; ...; mulps xmm0, xmm1; ret`, typed uint by its `mov eax, [ebp + 8]`
+        // and its result lost, 0x666280 2026-10-30)
+        if (kind.equals("v16")) {
+            DataType want = new ghidra.program.model.data.ArrayDataType(
+                    ghidra.program.model.data.Undefined1DataType.dataType, 16, 1);
+            if (want.isEquivalent(have) && f.hasCustomVariableStorage()
+                    && f.getReturn().getVariableStorage().getRegister() != null
+                    && f.getReturn().getVariableStorage().getRegister().getName().equals("XMM0")) return;
+            if (!f.hasCustomVariableStorage()) f.setCustomVariableStorage(true);
+            f.setReturn(want, new ghidra.program.model.listing.VariableStorage(currentProgram,
+                    currentProgram.getRegister("XMM0")), SourceType.ANALYSIS);
             returnsSet++;
             return;
         }
@@ -1684,13 +1726,19 @@ public class ApplyFacts extends GhidraScript {
     }
 
     // data/names.json: functions identified by hand, with the evidence as a comment.
-    private void applyNames(JsonObject root) throws Exception {
+    private void applyNames(JsonObject root, String commentPrefix) throws Exception {
         for (Map.Entry<String, JsonElement> e : root.getAsJsonObject("functions").entrySet()) {
             Function f = functionAt(addr(e.getKey()));
             if (f == null) continue;
+            // (a suggested name only where nothing better is: unnamed, an RTTI slot, or an earlier
+            // suggestion; never over a CRT signature's)
+            if (commentPrefix.startsWith("suggested") && !f.getName().startsWith("FUN_")
+                    && !f.getName().matches("vf\\d+")
+                    && !String.valueOf(currentProgram.getListing().getComment(
+                            ghidra.program.model.listing.CodeUnit.PLATE_COMMENT, f.getEntryPoint())).startsWith("suggested")) continue;
             JsonObject n = e.getValue().getAsJsonObject();
             name(f, n.has("ns") ? n.get("ns").getAsString() : "Global", n.get("name").getAsString());
-            if (n.has("evidence")) setPlateComment(f.getEntryPoint(), "identified: " + n.get("evidence").getAsString());
+            if (n.has("evidence")) setPlateComment(f.getEntryPoint(), commentPrefix + n.get("evidence").getAsString());
         }
     }
 
@@ -2828,6 +2876,20 @@ public class ApplyFacts extends GhidraScript {
             JsonObject ccs = root.has("cc") ? root.getAsJsonObject("cc") : null;
             String cc = ccs != null && ccs.has(e.getKey()) ? ccs.get(e.getKey()).getAsString() : null;
             if (cc != null) key.append("_").append(cc.replace("__", ""));
+            // (a __cdecl call of more words than the convention's stack entry places, x86win.cspec's
+            // 500 bytes: under a __cdecl of its own with room for them, wideCdecl32. FUN_00b2f1e0's
+            // `call [ebp - 4]` at 0xb2f2fe hands on a 0x208-byte block, 130 words, and the
+            // override failed its decompilation, "Cannot assign parameter address", 2026-10-30)
+            int argBytes = 0;
+            for (JsonElement w : args) argBytes += Math.max(4, (w.getAsJsonArray().get(1).getAsInt() + 3) & ~3);
+            if (currentProgram.getDefaultPointerSize() == 4 && argBytes > 500 && (cc == null || "__cdecl".equals(cc))) {
+                try {
+                    cc = wideCdecl32();
+                    key.append("_wide");
+                } catch (Exception ex) {
+                    printerr("ApplyFacts: no wide __cdecl for " + at + ": " + ex);
+                }
+            }
             // a direct call (to a variadic function, tools/protos.py) returns what its callee
             // does; an indirect one a register's worth
             DataType ret = Undefined.getUndefinedDataType(8);

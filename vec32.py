@@ -34,8 +34,10 @@ OPS = {
 # (and the ones with an integer result, anywhere in an expression)
 INT_OPS = {"pcmpestri": "vviii", "pcmpestri_flags": "vviii", "pcmpistri": "vvi", "pcmpistri_flags": "vvi"}
 
+# (a piece wider than 8 bytes, `auVar2._0_13_ = auVar1._0_13_`, not only 16 and up: GEN_PIECE holds 8,
+# and an SSE byte unpack's 9- to 15-byte pieces overran it, FUN_00d357c0 2026-10-30)
 TRIGGER = re.compile(r"\b(?:ZEXT\d+|SUB\d+|CONCAT\d+|" + "|".join(map(re.escape, sorted(OPS) + sorted(INT_OPS)))
-                     + r")\s*\(|\._\d+_(?:1[6-9]|[2-6]\d)_|\(\s*undefined1\s*\[|\b(?:pcmp[ei]stri_flags)\b")
+                     + r")\s*\(|\._\d+_(?:9|1\d|[2-6]\d)_|\(\s*undefined1\s*\[|\b(?:pcmp[ei]stri_flags)\b")
 
 TOKEN = re.compile(r"""\s*(?:
     (?P<num>0x[0-9a-fA-F]+[uUlL]*|\d+\.\d*(?:[eE][-+]?\d+)?[fFlL]?|\d+[uUlL]*)
@@ -244,8 +246,10 @@ class Writer:
     """One statement's vector parts written as C: arrays and ptrs the function's vectors (name ->
     bytes), pre the statements its temporaries take"""
 
-    def __init__(self, text: str, arrays: dict, ptrs: dict, temps: list):
+    def __init__(self, text: str, arrays: dict, ptrs: dict, temps: list, scalars=()):
         self.text, self.arrays, self.ptrs, self.temps = text, arrays, ptrs, temps
+        # (the wide integers among the arrays, vec_forms' `unkuint9 Var19;`)
+        self.scalars = scalars
         self.pre: list[str] = []
 
     def src(self, n: Node) -> str:
@@ -349,6 +353,12 @@ class Writer:
             return f"((unsigned char *)({self.ptr(n.b)}) + {a})"
         if k == "cast" and w:
             t = self.temp()
+            # (of a vector, `(undefined1 [10])SUB1510(x << 0x30,5)` of the decompiler's `(unkint10)`:
+            # its bytes, zero-extended. As a scalar its SUB stayed unwritten, FUN_00d357c0 2026-10-30)
+            wx = self.width(n.x)
+            if wx:
+                self.pre.append(f"gen_vset({t}, 64, {self.ptr(n.x)}, {wx});")
+                return t
             self.pre.append(f"gen_vzext({t}, (unsigned long long)({self.scalar(n.x)}), 8);")
             return t
         if k == "call" and n.f.k == "id":
@@ -415,6 +425,20 @@ class Writer:
         if not self.has_vector(n):
             return self.src(n)
         k = n.k
+        # (a wide value cast to an integer, `(short)Var19`, `(int)CONCAT82(..)`: its low bytes. Not a
+        # byte array's own name, `(int)local_18`, which C converts as its address. FUN_00d357c0's
+        # unpack, 2026-10-30)
+        if k == "cast" and "*" not in n.type and not self.width(n) \
+                and not re.search(r"\b(?:float\d*|double)\b", n.type):
+            x = n.x
+            while x.k == "paren":
+                x = x.x
+            wx = self.width(x)
+            if wx and (x.k != "id" or x.v in self.scalars):
+                return f"(({n.type})gen_vbits({self.ptr(x)}, {wx}, 0, {min(wx, 8)}))"
+        # (and a wide integer whole anywhere else: no C value holds it)
+        if k == "id" and n.v in self.scalars:
+            raise Fail(f"a {self.arrays[n.v]}-byte integer whole")
         if k == "call" and n.f.k == "id":
             f = n.f.v
             m = re.fullmatch(r"SUB(\d\d)(\d)", f)
@@ -450,6 +474,10 @@ class Writer:
             m = re.fullmatch(r"_(\d+)_(\d+)_", n.name)
             if m:
                 a, b = int(m.group(1)), int(m.group(2))
+                # (a 3, 5, 6 or 7-byte one as the decompiler wrote it, for GEN_PIECE: as 8 bytes,
+                # `auVar8._6_7_ = ..` wrote past a 13-byte array's end, FUN_00d357c0 2026-10-30)
+                if b not in (1, 2, 4, 8) and n.b.k == "id":
+                    return self.src(n)
                 t = {1: "unsigned char", 2: "unsigned short", 4: "unsigned int"}.get(b, "unsigned long long")
                 return f"(*({t} *)((unsigned char *)({self.ptr(n.b)}) + {a}))"
         # (anything else: its children rewritten, its own text kept between them)
@@ -513,6 +541,11 @@ class Writer:
 
 DECL_ARRAY = re.compile(r"(?m)^[ \t]+(?:undefined1|unsigned char)\s+([A-Za-z_]\w*)\s*\[\s*(\d+)\s*\]\s*;")
 DECL_PTR = re.compile(r"\bgen_v(\d+)\s*\*\s*(?:PTR32\s+)?([A-Za-z_]\w*)\s*[;,)]")
+# (Ghidra's 9- to 15-byte integers, a local and a cast: `unkuint9 Var19;`, `(unkint10)x`)
+WIDE_DECL = re.compile(r"(?m)^([ \t]+)unk(?:byte|u?int)(9|1[0-5])[ \t]+([A-Za-z_]\w*)[ \t]*;")
+WIDE_CAST = re.compile(r"\(\s*unk(?:byte|u?int)(9|1[0-5])\s*\)")
+# (the x87's operations, whose 10-byte temporaries are values: x87_pow's, translate32)
+X87_USE = re.compile(r"\b(?:from_bcd|fscale|fpatan|f2xm1|fyl2x|fsin|fcos|fptan|fprem1?|frndint)\s*\(")
 # (a statement's expression: the forms Ghidra writes a line in)
 FORMS = [re.compile(p, re.S) for p in (
     r"(?P<a>[ \t]*(?:\}\s*)?(?:else\s+)?if\s*\()(?P<e>.*)(?P<b>\)\s*(?:\{|goto\s+\w+\s*;|return\b.*;|break\s*;|continue\s*;)?[ \t]*)$",
@@ -523,9 +556,25 @@ FORMS = [re.compile(p, re.S) for p in (
 
 
 def vec_forms(c: str) -> str:
-    if not TRIGGER.search(c):
+    # (Ghidra's 9- to 15-byte integers, `unkuint9 Var19;`, `unkbyte10 Var8;` and casts to them,
+    # `(unkint10)SUB1510(auVar24 << 0x30,5)`: the decompiler's pieces of an SSE byte unpack against
+    # zero (punpcklbw, punpcklwd), which no C type holds. Vectors of their bytes, as wide as the
+    # type, read whole only through a cast to a scalar (Writer.scalar). FUN_00d357c0 and 3 like it,
+    # a colour unpack, and FUN_00d85b30, stubs 2026-10-30)
+    # (not an x87 temporary's, `Var1 = from_bcd(x)`: x87_pow's, a double's value)
+    scalars = {}
+    for m in WIDE_DECL.finditer(c):
+        if not any(X87_USE.search(l) for l in c.split("\n") if re.search(r"\b" + m.group(3) + r"\b", l)):
+            scalars[m.group(3)] = m.group(0)
+    if scalars:
+        c = WIDE_DECL.sub(lambda m: f"{m.group(1)}undefined1 {m.group(3)} [{m.group(2)}];"
+                          if m.group(3) in scalars else m.group(0), c)
+    if WIDE_CAST.search(c):
+        c = "\n".join(l if X87_USE.search(l) else WIDE_CAST.sub(r"(undefined1 [\1])", l) for l in c.split("\n"))
+    if not TRIGGER.search(c) and not scalars:
         return c
-    arrays = {m.group(1): int(m.group(2)) for m in DECL_ARRAY.finditer(c) if int(m.group(2)) >= 12}
+    # (from 9 bytes: an SSE register's pieces are any width, `undefined1 auVar20 [11];`)
+    arrays = {m.group(1): int(m.group(2)) for m in DECL_ARRAY.finditer(c) if int(m.group(2)) > 8}
     ptrs = {m.group(2): int(m.group(1)) for m in DECL_PTR.finditer(c)}
     if not arrays and not ptrs and "pcmp" not in c:
         return c
@@ -547,15 +596,25 @@ def vec_forms(c: str) -> str:
     # (and a statement naming one of its vectors, `auVar6 = auVar6 | auVar2;`: an operator on it)
     named = re.compile(r"\b(?:" + "|".join(map(re.escape, sorted(arrays) + sorted(ptrs))) + r")\b") \
         if arrays or ptrs else None
+    # (and each statement naming a wide integer. One this cannot write leaves that integer's
+    # declaration as the decompiler's, the function a stub as before, not an array C assigns)
+    wide = re.compile(r"\b(?:" + "|".join(map(re.escape, sorted(scalars))) + r")\b") if scalars else None
+    unwritten = set()
     for group in groups:
         line = group[0].rstrip() + "".join(" " + g.strip() for g in group[1:])
-        hit = TRIGGER.search(line) or (named is not None and named.search(line) and re.search(r"[|^~]|[^&]&[^&]", line))
-        new = rewrite(line, arrays, ptrs, temps) if hit else None
+        hit = TRIGGER.search(line) or (named is not None and named.search(line) and re.search(r"[|^~]|[^&]&[^&]", line)) \
+            or (wide is not None and wide.search(line))
+        new = rewrite(line, arrays, ptrs, temps, scalars) if hit else None
+        if new is None and wide is not None and not DECL_ARRAY.match(line):
+            unwritten |= set(wide.findall(line))
         out.extend(group if new is None else new)
-    return "\n".join(out)
+    c = "\n".join(out)
+    for name in unwritten:
+        c = re.sub(r"(?m)^[ \t]+undefined1 " + re.escape(name) + r" \[\d+\];", lambda _m: scalars[name], c)
+    return c
 
 
-def rewrite(line: str, arrays: dict, ptrs: dict, temps: list) -> list[str] | None:
+def rewrite(line: str, arrays: dict, ptrs: dict, temps: list, scalars=()) -> list[str] | None:
     """one statement's line with its vector parts written as C, the temporaries' statements first;
     None where it has none, or one this cannot write"""
     if re.match(r"\s*(?:undefined|unsigned|gen_v)\w*[\s*]", line) and "=" not in line:
@@ -583,7 +642,7 @@ def rewrite(line: str, arrays: dict, ptrs: dict, temps: list) -> list[str] | Non
             lead = re.match(r"\s*", p).group(0)
             try:
                 n = parse(p)
-                w = Writer(p.strip(), arrays, ptrs, temps)
+                w = Writer(p.strip(), arrays, ptrs, temps, scalars)
                 n = parse(p.strip())
                 body = w.scalar(n) if w.has_vector(n) else p.strip()
             except Fail:
@@ -601,7 +660,7 @@ def rewrite(line: str, arrays: dict, ptrs: dict, temps: list) -> list[str] | Non
             n = parse(e)
         except Fail:
             continue
-        w = Writer(e, arrays, ptrs, temps)
+        w = Writer(e, arrays, ptrs, temps, scalars)
         try:
             if not w.has_vector(n):
                 return None

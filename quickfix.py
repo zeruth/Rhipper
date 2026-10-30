@@ -93,6 +93,8 @@ def stub_line(t, a: int) -> str:
     r = "" if ret == "void" else " return 0;"
     if ret != "void" and "*" not in ret and ret.split()[-1] in translate32.FLOATS:
         r = " return 0.0;"
+    if ret == "gen_r16":
+        r = " return _mm_setzero_ps();"
     return f"{d} {{ {body}{r} }}"
 
 

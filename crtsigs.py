@@ -22,6 +22,8 @@ from pathlib import Path
 
 import capstone as C
 
+import project
+
 HERE = Path(__file__).resolve().parent
 MIN_LEN = 12          # (shorter is too common a run of bytes to name anything by)
 SCAN = 4096           # (the most of a function's bytes masked and compared)
@@ -169,7 +171,8 @@ def apply() -> None:
         a = int(f["entry"], 16)
         # (only a function nothing named: Function ID's and the RTTI's names stand, an alias's
         # other spelling, `__alloca_probe` for `__chkstk`, no better)
-        if not f["name"].startswith("FUN_"):
+        # (a name only a model suggested counts as none)
+        if not f["name"].startswith("FUN_") and a not in project.suggested():
             continue
         if digest(masked(img, a, 64)[:MIN_LEN]) not in prefixes:
             continue

@@ -274,6 +274,13 @@ static GEN_INLINE __m128 gen_ldps(const void *p) { return _mm_loadu_ps((const fl
 static GEN_INLINE __m128i gen_ldi(const void *p) { return _mm_loadu_si128((const __m128i *)p); }
 static GEN_INLINE void gen_stps(void *p, __m128 v) { _mm_storeu_ps((float *)p, v); }
 static GEN_INLINE void gen_sti(void *p, __m128i v) { _mm_storeu_si128((__m128i *)p, v); }
+/* (a function's 16-byte result, protos32.py's "v16", Ghidra's `undefined1 [16]` in xmm0: an __m128,
+   which C returns where it cannot an array, and in xmm0 as the reference's code does under x86's
+   convention. translate32's v16_forms returns the body's 16 bytes through GEN_R16 and stores a
+   call's into its local through GEN_R16_SET. 0x666280's rsqrtps, 2026-10-30) */
+typedef __m128 gen_r16;
+#define GEN_R16(a) gen_ldps(a)
+#define GEN_R16_SET(lhs, v) gen_stps(&(lhs), (v))
 static GEN_INLINE void gen_minps(void *r, const void *a, const void *b) { gen_stps(r, _mm_min_ps(gen_ldps(a), gen_ldps(b))); }
 static GEN_INLINE void gen_maxps(void *r, const void *a, const void *b) { gen_stps(r, _mm_max_ps(gen_ldps(a), gen_ldps(b))); }
 static GEN_INLINE void gen_divps(void *r, const void *a, const void *b) { gen_stps(r, _mm_div_ps(gen_ldps(a), gen_ldps(b))); }
@@ -832,6 +839,10 @@ static GEN_INLINE double gen_x87math(double x, int k) {
    ApplyFacts' __CIsin / __CIcos fixups) */
 #define fsin(x) sin(x)
 #define fcos(x) cos(x)
+/* and the x87's scale and power of two, as the decompiler names them in the C runtime's own math
+   (`fscale(st0, st1)`: st0 * 2^trunc(st1); `f2xm1(x)`: 2^x - 1) */
+#define fscale(a, b) ldexp((double)(a), (int)(double)(b))
+#define f2xm1(x) (exp2((double)(x)) - 1.0)
 #define builtin_strncpy(d, s, n) ((void)strncpy((char *)(d), (const char *)(s), (n)))
 #define builtin_memcpy(d, s, n) ((void)memcpy((void *)(d), (const void *)(s), (n)))
 #define builtin_memset(d, c, n) ((void)memset((void *)(d), (c), (n)))

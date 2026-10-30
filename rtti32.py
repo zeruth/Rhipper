@@ -62,7 +62,7 @@ def main() -> None:
         return cstr(td + 8) if td and u32(td + 8) is not None else ""
 
     unnamed = {int(f["entry"], 16) for f in json.loads((FACTS / "functions.json").read_text())["functions"]
-               if f["name"].startswith("FUN_")}
+               if f["name"].startswith("FUN_") or int(f["entry"], 16) in project.suggested()}
     vtables = json.loads((FACTS / "vtables.json").read_text())["vtables"]
 
     classes: dict[int, str] = {}           # vtable -> class
