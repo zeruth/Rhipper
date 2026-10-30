@@ -1,1 +1,1 @@
-{"sha": "5c53dfb43aa474d8667f05af4b0f23a54852c5c3", "date": "2026-10-30T04:43:29-04:00", "subject": "fix(fidelity32): imports by ordinal named, thunk tables, 2^32 and dead float loads"}
+{"sha": "bab6e29dbbe080d1399c9f49956cf3e2e5ce0ae0", "date": "2026-10-30T07:48:03-04:00", "subject": "fix: a client's fidelity batches -- x87/SSE/int64 own results, argument room, misplaced entries, translator stubs"}

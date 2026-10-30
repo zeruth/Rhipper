@@ -1,0 +1,129 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>rhtest-fpenv-Od fidelity</title>
+<style>
+:root { --bg:#f7f7f5; --card:#fff; --fg:#1b1b19; --muted:#6d6c66; --line:#e6e5e0; --track:#efeee9;
+  --b10:#1f9d55; --b9:#56b04a; --b8:#8cbd3f; --b7:#b8c13a; --b6:#d8b532; --b5:#e39a2c; --b4:#e57f2a;
+  --b3:#e0632c; --b2:#d84b33; --b1:#c9393b; --b0:#b02a3f; --stub:#8b8a95;
+  --a3:#17834a; --a2:#2fa565; --a1:#79c28e; }
+@media (prefers-color-scheme: dark) { :root { --bg:#141416; --card:#1c1c20; --fg:#ecebe7; --muted:#9b9a94;
+  --line:#2b2b31; --track:#26262c; --stub:#5f5e6a; } }
+* { box-sizing:border-box; }
+body { background:var(--bg); color:var(--fg); font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif; margin:0;
+  padding:28px 16px; }
+main { max-width:1180px; margin:0 auto; }
+h1 { font-size:22px; margin:0 0 2px; letter-spacing:-.01em; } h2 { font-size:16px; margin:0; }
+.sub, .muted { color:var(--muted); } .sub { margin-bottom:20px; font-size:13px; }
+.tiles { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:10px; margin-bottom:18px; }
+.tile { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px; }
+.tile b { display:block; font-size:22px; font-variant-numeric:tabular-nums; } .tile span { color:var(--muted); font-size:12px; }
+section { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px 18px; margin-bottom:16px; }
+.sh { display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; margin-bottom:12px; } .sh .muted { font-size:12px; }
+.stack { display:flex; height:16px; border-radius:8px; overflow:hidden; background:var(--track); margin-bottom:14px; }
+.seg { height:100%; } .seg + .seg { box-shadow:inset 1px 0 0 var(--card); }
+.row { display:grid; grid-template-columns:110px 1fr 80px 64px 64px; gap:10px; align-items:center; padding:3px 0; }
+.row.head { font-size:11px; } .row.head .track { background:none; height:auto; }
+.lbl { display:flex; align-items:center; gap:8px; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.dot { width:10px; height:10px; border-radius:3px; display:inline-block; }
+.track { position:relative; height:10px; background:var(--track); border-radius:5px; overflow:hidden; }
+.fill { position:absolute; left:0; top:0; bottom:0; border-radius:5px; } .fill.ghost { opacity:.28; }
+.v { text-align:right; font-variant-numeric:tabular-nums; font-size:13px; }
+.b10 { background:var(--b10); } .b9 { background:var(--b9); } .b8 { background:var(--b8); } .b7 { background:var(--b7); }
+.b6 { background:var(--b6); } .b5 { background:var(--b5); } .b4 { background:var(--b4); } .b3 { background:var(--b3); }
+.b2 { background:var(--b2); } .b1 { background:var(--b1); } .b0 { background:var(--b0); } .stub { background:var(--stub); }
+.a3 { background:var(--a3); } .a2 { background:var(--a2); } .a1 { background:var(--a1); }
+.row { grid-template-columns:150px 1fr 80px 64px 64px; }
+.controls { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; align-items:center; }
+input, select, button { font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:8px;
+  padding:6px 10px; }
+input { flex:1; min-width:200px; } button { cursor:pointer; } button:disabled { opacity:.4; cursor:default; }
+.wrap { overflow-x:auto; } table { border-collapse:collapse; width:100%; font-size:13px; }
+th, td { text-align:left; padding:5px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+th { color:var(--muted); font-weight:600; cursor:pointer; user-select:none; white-space:nowrap; }
+th.on::after { content:" ↓"; } th.on.up::after { content:" ↑"; }
+.num { text-align:right; font-variant-numeric:tabular-nums; } td.addr { font-family:ui-monospace,Consolas,monospace; }
+.pill { display:inline-block; min-width:52px; text-align:center; border-radius:6px; padding:1px 6px; color:#fff;
+  font-weight:600; font-variant-numeric:tabular-nums; }
+td.notes { color:var(--muted); max-width:420px; }
+@media (max-width:640px) { .row { grid-template-columns:84px 1fr 56px 0 52px; } .row > .v:nth-child(4) { display:none; } }
+</style></head><body><main>
+<h1>rhtest-fpenv-Od fidelity</h1>
+<div class="sub">Each reference function against its translation. 2026-10-30 12:34</div>
+<div class="tiles">
+<div class="tile"><b>71</b><span>functions</span></div>
+<div class="tile"><b>71</b><span>translated</span></div>
+<div class="tile"><b>71</b><span>at 100% fidelity</span></div>
+<div class="tile"><b>0</b><span>stubs</span></div>
+<div class="tile"><b>100.0%</b><span>mean fidelity</span></div>
+<div class="tile"><b>100.0%</b><span>fidelity by size</span></div>
+<div class="tile"><b>71 / 71</b><span>accurate</span></div><div class="tile"><b>100.0%</b><span>accurate by size</span></div><div class="tile"><b>21</b><span>byte-identical or equivalent</span></div>
+</div>
+<section><div class="sh"><h2>Accuracy</h2><span class="muted">identical or equivalent bytes (bytes32), else the same behavior (fidelity 100%): the compiler&#x27;s own choices are no fault</span></div><div class="stack"><span class="seg a3" style="width:5.895%" title="identical: 20 functions, 5.9% of the code"></span><span class="seg a2" style="width:0.875%" title="equivalent bytes: 1 functions, 0.9% of the code"></span><span class="seg a1" style="width:93.230%" title="same behavior: 50 functions, 93.2% of the code"></span></div><div class="row head"><div class="lbl"></div><div class="track muted">bar: share of code by size (faint: of functions)</div><div class="v muted">functions</div><div class="v muted">of all</div><div class="v muted">of code</div></div><div class="row"><div class="lbl"><i class="dot a3"></i>identical</div><div class="track"><div class="fill a3" style="width:5.895%"></div><div class="fill ghost a3" style="width:28.169%"></div></div><div class="v">20</div><div class="v muted">28.2%</div><div class="v">5.9%</div></div><div class="row"><div class="lbl"><i class="dot a2"></i>equivalent bytes</div><div class="track"><div class="fill a2" style="width:0.875%"></div><div class="fill ghost a2" style="width:1.408%"></div></div><div class="v">1</div><div class="v muted">1.4%</div><div class="v">0.9%</div></div><div class="row"><div class="lbl"><i class="dot a1"></i>same behavior</div><div class="track"><div class="fill a1" style="width:93.230%"></div><div class="fill ghost a1" style="width:70.423%"></div></div><div class="v">50</div><div class="v muted">70.4%</div><div class="v">93.2%</div></div><div class="row"><div class="lbl"><i class="dot b2"></i>behavior differs</div><div class="track"><div class="fill b2" style="width:0.000%"></div><div class="fill ghost b2" style="width:0.000%"></div></div><div class="v">0</div><div class="v muted">0.0%</div><div class="v">0.0%</div></div><div class="row"><div class="lbl"><i class="dot stub"></i>stub</div><div class="track"><div class="fill stub" style="width:0.000%"></div><div class="fill ghost stub" style="width:0.000%"></div></div><div class="v">0</div><div class="v muted">0.0%</div><div class="v">0.0%</div></div></section><section><div class="sh"><h2>Fidelity</h2><span class="muted">each function&#x27;s calls, fields and constants against the reference&#x27;s</span></div><div class="stack"><span class="seg b10" style="width:100.000%" title="100%: 71 functions, 100.0% of the code"></span></div><div class="row head"><div class="lbl"></div><div class="track muted">bar: share of code by size (faint: of functions)</div><div class="v muted">functions</div><div class="v muted">of all</div><div class="v muted">of code</div></div><div class="row"><div class="lbl"><i class="dot b10"></i>100%</div><div class="track"><div class="fill b10" style="width:100.000%"></div><div class="fill ghost b10" style="width:100.000%"></div></div><div class="v">71</div><div class="v muted">100.0%</div><div class="v">100.0%</div></div><div class="row"><div class="lbl"><i class="dot b9"></i>90–99%</div><div class="track"><div class="fill b9" style="width:0.000%"></div><div class="fill ghost b9" style="width:0.000%"></div></div><div class="v">0</div><div class="v muted">0.0%</div><div class="v">0.0%</div></div><div class="row"><div class="lbl"><i class="dot b8"></i>80–89%</div><div class="track"><div class="fill b8" style="width:0.000%"></div><div class="fill ghost b8" style="width:0.000%"></div></div><div class="v">0</div><div class="v muted">0.0%</div><div class="v">0.0%</div></div><div class="row"><div class="lbl"><i class="dot b7"></i>70–79%</div><div class="track"><div class="fill b7" style="width:0.000%"></div><div class="fill ghost b7" style="width:0.000%"></div></div><div class="v">0</div><div class="v muted">0.0%</div><div class="v">0.0%</div></div><div class="row"><div class="lbl"><i class="dot b6"></i>60–69%</div><div class="track"><div class="fill b6" style="width:0.000%"></div><div class="fill ghost b6" style="width:0.000%"></div></div><div class="v">0</div><div class="v muted">0.0%</div><div class="v">0.0%</div></div><div class="row"><div class="lbl"><i class="dot b5"></i>50–59%</div><div class="track"><div class="fill b5" style="width:0.000%"></div><div class="fill ghost b5" style="width:0.000%"></div></div><div class="v">0</div><div class="v muted">0.0%</div><div class="v">0.0%</div></div><div class="row"><div class="lbl"><i class="dot b4"></i>40–49%</div><div class="track"><div class="fill b4" style="width:0.000%"></div><div class="fill ghost b4" style="width:0.000%"></div></div><div class="v">0</div><div class="v muted">0.0%</div><div class="v">0.0%</div></div><div class="row"><div class="lbl"><i class="dot b3"></i>30–39%</div><div class="track"><div class="fill b3" style="width:0.000%"></div><div class="fill ghost b3" style="width:0.000%"></div></div><div class="v">0</div><div class="v muted">0.0%</div><div class="v">0.0%</div></div><div class="row"><div class="lbl"><i class="dot b2"></i>20–29%</div><div class="track"><div class="fill b2" style="width:0.000%"></div><div class="fill ghost b2" style="width:0.000%"></div></div><div class="v">0</div><div class="v muted">0.0%</div><div class="v">0.0%</div></div><div class="row"><div class="lbl"><i class="dot b1"></i>10–19%</div><div class="track"><div class="fill b1" style="width:0.000%"></div><div class="fill ghost b1" style="width:0.000%"></div></div><div class="v">0</div><div class="v muted">0.0%</div><div class="v">0.0%</div></div><div class="row"><div class="lbl"><i class="dot b0"></i>0–9%</div><div class="track"><div class="fill b0" style="width:0.000%"></div><div class="fill ghost b0" style="width:0.000%"></div></div><div class="v">0</div><div class="v muted">0.0%</div><div class="v">0.0%</div></div><div class="row"><div class="lbl"><i class="dot stub"></i>stub</div><div class="track"><div class="fill stub" style="width:0.000%"></div><div class="fill ghost stub" style="width:0.000%"></div></div><div class="v">0</div><div class="v muted">0.0%</div><div class="v">0.0%</div></div></section>
+<section><div class="sh"><h2>Functions</h2><span class="muted" id="count"></span></div>
+<div class="controls">
+<input id="q" placeholder="search address, name or what differs" autocomplete="off">
+<select id="kind"><option value="">all kinds</option><option value="translated">translated</option>
+<option value="stub">stubs</option><option value="folded">folded</option><option value="imperfect">below 100%</option>
+<option value="inaccurate">not accurate</option></select>
+<button id="prev">‹</button><span class="muted" id="pg"></span><button id="next">›</button>
+</div>
+<div class="wrap"><table><thead><tr><th data-k="0">address</th><th data-k="1">function</th>
+<th data-k="2" class="num">size</th><th data-k="10">accuracy</th><th data-k="4" class="num on up">fidelity</th><th data-k="5" class="num">calls</th>
+<th data-k="6" class="num">fields</th><th data-k="7" class="num">consts</th><th data-k="8" class="num">bytes</th><th>what differs</th></tr></thead>
+<tbody id="rows"></tbody></table></div></section>
+</main>
+<script>
+const D = [["00401000","FUN_00401000",31,"translated",1.0,1.0,null,null,1.0,"","identical"],["00401020","FUN_00401020",33,"translated",1.0,null,null,null,0.714,"","same behavior"],["00401050","FUN_00401050",23,"translated",1.0,null,null,null,0.5,"","same behavior"],["00401070","FUN_00401070",73,"translated",1.0,1.0,null,1.0,0.55,"","same behavior"],["004010c0","FUN_004010c0",456,"translated",1.0,1.0,null,1.0,0.711,"","same behavior"],["00401290","FUN_00401290",201,"translated",1.0,1.0,null,1.0,0.362,"","same behavior"],["00401360","FUN_00401360",427,"translated",1.0,1.0,null,1.0,0.724,"","same behavior"],["00401510","FUN_00401510",595,"translated",1.0,1.0,null,1.0,0.556,"","same behavior"],["00401770","FUN_00401770",1084,"translated",1.0,1.0,null,1.0,0.392,"","same behavior"],["00401bb0","FUN_00401bb0",418,"translated",1.0,1.0,null,1.0,0.415,"","same behavior"],["00401d60","FUN_00401d60",10,"translated",1.0,null,null,1.0,1.0,"","identical"],["00401d70","FUN_00401d70",98,"translated",1.0,1.0,null,1.0,1.0,"","identical"],["00401de0","FUN_00401de0",130,"translated",1.0,1.0,null,1.0,0.711,"","same behavior"],["00401e70","FUN_00401e70",51,"translated",1.0,1.0,null,1.0,0.489,"","same behavior"],["00401eb0","FUN_00401eb0",76,"translated",1.0,1.0,null,1.0,0.5,"","same behavior"],["00401f00","FUN_00401f00",133,"translated",1.0,1.0,null,null,0.571,"","same behavior"],["00401f90","FUN_00401f90",52,"translated",1.0,1.0,null,1.0,0.895,"","same behavior"],["00401fd0","FUN_00401fd0",155,"translated",1.0,1.0,null,1.0,0.667,"","same behavior"],["00402070","FUN_00402070",69,"translated",1.0,null,null,1.0,0.636,"","same behavior"],["004020c0","FUN_004020c0",63,"translated",1.0,1.0,null,1.0,1.0,"","identical"],["00402100","__aullshr",31,"folded",1.0,null,null,null,0.244,"injected at every call site (a call fixup)","same behavior"],["00402120","FUN_00402120",105,"translated",1.0,null,null,1.0,0.256,"","same behavior"],["00402190","FUN_00402190",162,"folded",1.0,null,null,null,null,"injected at every call site (a call fixup)","same behavior"],["00402240","FUN_00402240",47,"folded",1.0,null,null,null,null,"injected at every call site (a call fixup)","same behavior"],["00402270","FUN_00402270",121,"folded",1.0,null,null,null,null,"injected at every call site (a call fixup)","same behavior"],["004022b8","dtol3_getbits",54,"translated",1.0,null,null,1.0,0.119,"","same behavior"],["00402320","FUN_00402320",73,"folded",1.0,null,null,null,null,"injected at every call site (a call fixup)","same behavior"],["00402370","FUN_00402370",8,"translated",1.0,1.0,null,null,0.0,"","same behavior"],["00402380","FUN_00402380",8,"translated",1.0,1.0,null,null,0.0,"","same behavior"],["00402390","__security_check_cookie",14,"folded",1.0,null,null,null,0.857,"injected at every call site (a call fixup)","same behavior"],["004023a0","FUN_004023a0",175,"translated",1.0,1.0,null,null,0.852,"","same behavior"],["00402450","FUN_00402450",8,"translated",1.0,1.0,null,null,1.0,"","identical"],["00402460","FUN_00402460",18,"translated",1.0,1.0,null,null,1.0,"","identical"],["00402480","FUN_00402480",407,"translated",1.0,1.0,null,1.0,0.615,"extra calls: 00402de0 guard_check_icall, imp:setjmp3","same behavior"],["00402603","FUN_00402603",21,"translated",1.0,1.0,null,null,0.526,"","same behavior"],["00402618","FUN_00402618",59,"translated",1.0,1.0,null,null,0.326,"","same behavior"],["00402670","entry",10,"translated",1.0,1.0,null,null,1.0,"","identical"],["00402680","FUN_00402680",811,"translated",1.0,1.0,null,1.0,0.149,"","same behavior"],["004029b0","FUN_004029b0",68,"translated",1.0,null,1.0,1.0,1.0,"","equivalent bytes"],["00402a00","FUN_00402a00",60,"translated",1.0,1.0,1.0,1.0,0.902,"","same behavior"],["00402a40","FUN_00402a40",57,"translated",1.0,1.0,null,1.0,0.75,"","same behavior"],["00402a80","FUN_00402a80",160,"translated",1.0,1.0,null,1.0,0.716,"","same behavior"],["00402b30","FUN_00402b30",162,"translated",1.0,1.0,1.0,1.0,0.39,"extra calls: imp:setjmp3","same behavior"],["00402bd2","FUN_00402bd2",19,"translated",1.0,null,null,1.0,0.143,"","same behavior"],["00402be5","FUN_00402be5",30,"translated",1.0,null,null,null,0.191,"","same behavior"],["00402c10","___scrt_release_startup_lock",29,"translated",1.0,1.0,null,1.0,0.96,"","same behavior"],["00402c30","FUN_00402c30",41,"translated",1.0,1.0,null,1.0,0.88,"","same behavior"],["00402c60","FUN_00402c60",76,"translated",1.0,1.0,null,1.0,0.5,"","same behavior"],["00402cb0","FUN_00402cb0",174,"translated",1.0,1.0,null,1.0,0.631,"","same behavior"],["00402d60","FUN_00402d60",3,"translated",1.0,null,null,null,1.0,"","identical"],["00402d70","FUN_00402d70",6,"translated",1.0,null,null,null,1.0,"","identical"],["00402d80","FUN_00402d80",6,"translated",1.0,null,null,1.0,1.0,"","identical"],["00402d90","FUN_00402d90",12,"translated",1.0,1.0,null,1.0,1.0,"","identical"],["00402da0","FUN_00402da0",3,"translated",1.0,null,null,null,1.0,"","identical"],["00402db0","FUN_00402db0",32,"translated",1.0,1.0,null,1.0,0.667,"","same behavior"],["00402de0","guard_check_icall",3,"translated",1.0,null,null,null,1.0,"","identical"],["00402df0","FUN_00402df0",6,"translated",1.0,null,null,1.0,1.0,"","identical"],["00402e00","FUN_00402e00",6,"translated",1.0,null,null,1.0,1.0,"","identical"],["00402e10","FUN_00402e10",29,"translated",1.0,1.0,1.0,1.0,0.714,"","same behavior"],["00402e30","FUN_00402e30",12,"translated",1.0,null,null,1.0,0.571,"","same behavior"],["00402e40","FUN_00402e40",6,"translated",1.0,null,null,1.0,1.0,"","identical"],["00402e50","FUN_00402e50",6,"translated",1.0,null,null,1.0,1.0,"","identical"],["00402e60","FUN_00402e60",10,"translated",1.0,1.0,null,null,0.0,"","same behavior"],["00402e80","FUN_00402e80",66,"translated",1.0,1.0,1.0,1.0,1.0,"","identical"],["00402ed0","FUN_00402ed0",12,"translated",1.0,1.0,null,null,1.0,"","identical"],["00402ee0","FUN_00402ee0",85,"translated",1.0,1.0,1.0,1.0,1.0,"","identical"],["00402f40","FUN_00402f40",46,"folded",1.0,null,null,null,0.1,"the decompiler proved it does nothing (unreachable blocks removed)","same behavior"],["00402f70","FUN_00402f70",46,"folded",1.0,null,null,null,0.1,"the decompiler proved it does nothing (unreachable blocks removed)","same behavior"],["00402fa0","__except_handler4",47,"translated",1.0,1.0,null,1.0,0.65,"","same behavior"],["00402fd0","___scrt_is_ucrt_dll_in_use",12,"translated",1.0,null,null,1.0,0.571,"","same behavior"],["004030b0","FUN_004030b0",129,"translated",1.0,null,null,1.0,0.667,"","same behavior"]];
+const HAS_BYTES = true;
+const PER = 200;
+const GOOD = new Set(['identical', 'equivalent bytes', 'same behavior']);
+const ACC = {'identical': 'a3', 'equivalent bytes': 'a2', 'same behavior': 'a1', 'behavior differs': 'b2', 'stub': 'stub'};
+let key = 4, up = true, page = 0, view = D;
+const css = getComputedStyle(document.documentElement);
+const band = v => v >= .999 ? 'b10' : 'b' + Math.max(0, Math.floor(v * 10));
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]);
+const num = v => v === null || v === undefined ? '<td class="num muted">–</td>' : `<td class="num">${(100 * v).toFixed(0)}%</td>`;
+function apply() {
+  const q = document.getElementById('q').value.trim().toLowerCase();
+  const k = document.getElementById('kind').value;
+  view = D.filter(r => (!k || (k === 'imperfect' ? r[3] !== 'folded' && r[4] < .999
+      : k === 'inaccurate' ? !GOOD.has(r[10]) : r[3] === k))
+    && (!q || r[0].includes(q) || r[1].toLowerCase().includes(q) || String(r[9]).toLowerCase().includes(q)));
+  view.sort((a, b) => {
+    const x = a[key], y = b[key];
+    const c = x === y ? b[2] - a[2] : (x === null ? 1 : y === null ? -1 : (x < y ? -1 : 1));
+    return up || x === y ? c : -c;
+  });
+  page = 0; draw();
+}
+function draw() {
+  const pages = Math.max(1, Math.ceil(view.length / PER));
+  page = Math.min(page, pages - 1);
+  document.getElementById('count').textContent = `${view.length.toLocaleString()} of ${D.length.toLocaleString()}`;
+  document.getElementById('pg').textContent = `${page + 1} / ${pages}`;
+  document.getElementById('prev').disabled = page === 0;
+  document.getElementById('next').disabled = page >= pages - 1;
+  document.getElementById('rows').innerHTML = view.slice(page * PER, page * PER + PER).map(r => {
+    const score = r[3] === 'stub' ? '<span class="pill stub">stub</span>'
+      : `<span class="pill ${band(r[4])}">${(100 * r[4]).toFixed(1)}%</span>`;
+    const by = HAS_BYTES ? (r[8] === null ? '<td class="num muted">–</td>'
+      : `<td class="num"><span class="pill ${band(r[8])}">${(100 * r[8]).toFixed(0)}%</span></td>`) : '';
+    const acc = `<td><span class="pill ${ACC[r[10]]}">${esc(r[10])}</span></td>`;
+    return `<tr><td class="addr">${r[0]}</td><td>${esc(r[1])}</td><td class="num">${r[2]}</td>${acc}
+      <td class="num">${score}</td>${num(r[5])}${num(r[6])}${num(r[7])}${by}<td class="notes">${esc(r[9])}</td></tr>`;
+  }).join('');
+}
+let t;
+document.getElementById('q').addEventListener('input', () => { clearTimeout(t); t = setTimeout(apply, 150); });
+document.getElementById('kind').addEventListener('change', apply);
+document.getElementById('prev').addEventListener('click', () => { page--; draw(); });
+document.getElementById('next').addEventListener('click', () => { page++; draw(); });
+document.querySelectorAll('th[data-k]').forEach(th => th.addEventListener('click', () => {
+  const k = +th.dataset.k;
+  up = key === k ? !up : k === 4 || k === 8 || k === 0;
+  key = k;
+  document.querySelectorAll('th').forEach(h => h.classList.remove('on', 'up'));
+  th.classList.add('on'); if (up) th.classList.add('up');
+  apply();
+}));
+apply();
+</script></body></html>

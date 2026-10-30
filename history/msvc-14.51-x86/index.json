@@ -1834,5 +1834,17 @@
   "stubs": 0,
   "perfect": 1928,
   "translated": 1930
+ },
+ {
+  "sha": "bab6e29dbbe080d1399c9f49956cf3e2e5ce0ae0",
+  "date": "2026-10-30T07:48:03-04:00",
+  "subject": "fix: a client's fidelity batches -- x87/SSE/int64 own results, argument room, misplaced entries, translator stubs",
+  "run": "2026-10-30 12:49 UTC",
+  "file": "bab6e29dbbe080d1399c9f49956cf3e2e5ce0ae0.json",
+  "passing": 32,
+  "projects": 36,
+  "stubs": 6,
+  "perfect": 9747,
+  "translated": 9752
  }
 ]
