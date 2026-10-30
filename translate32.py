@@ -1633,6 +1633,12 @@ def returned_only(c: str) -> set[str]:
                 # (or a store the next statement overwrites, or a copy into a local only so stored)
                 if dead_store(s, n) or (m and m.group(2).strip() == n and dead_local(m.group(1))):
                     continue
+                # (or a copy into eax as the function found it, Ghidra's `in_EAX` reused as a local:
+                # garbage into what is garbage there already, the reference's own eax on a path that
+                # sets none. A bool method's path after a float callee, `in_EAX = extraout_EAX;
+                # ... return extraout_EAX;`, its callers reading nothing, a client's 0xaf94c0, 2026-10-30)
+                if m and m.group(2).strip() == n and re.fullmatch(r"in_E[ACD]X(?:_\d+)?", m.group(1)):
+                    continue
                 ok.discard(n)
                 changed = True
                 break
@@ -1781,7 +1787,11 @@ def upper_only(c: str) -> set[str]:
     and then `uVar9 = (uint3)((uint)pvVar5 >> 8)`, 2,283 calls on its startup path."""
     lines = c.split("\n")
     # (`(uint3)((uint)V >> 8)` or `(int3)(V >> 8)`: the three bytes above the low one)
-    upper = lambda v: rf"\(u?int3\)\(\s*(?:\(u?int\)\s*)?{re.escape(v)}\s*>>\s*8\s*\)"
+    # (or masked to them, `V & 0xffffff00`, the same bytes kept in place: a bool built in cl over
+    # what a callee left in ecx, `uVar5 = extraout_ECX & 0xffffff00; ... uVar5 | 1`, a client's
+    # 0x693180 and its like stubbed, 2026-10-30)
+    upper = lambda v: (rf"(?:\(u?int3\)\(\s*(?:\(u?int\)\s*)?{re.escape(v)}\s*>>\s*8\s*\)"
+                       rf"|\b{re.escape(v)}\s*&\s*0xffffff00\b)")
 
     def reads_upper_only(v):
         """every read of v in the function its upper bytes, one at least (its assignments aside)"""
@@ -1789,7 +1799,10 @@ def upper_only(c: str) -> set[str]:
         for l in lines:
             if not re.search(rf"\b{re.escape(v)}\b", l) or re.match(rf"^\s*[\w ]+?[\s*]+{re.escape(v)}\s*;\s*$", l):
                 continue
-            rest = re.sub(rf"^\s*{re.escape(v)}\s*=(?!=)", "", l)
+            # (its assignments anywhere on the line, a condition's comma expression's too, `(iVar2 =
+            # 0, x != y)`: writes, no reads. A client's dynamically loaded calls, 0xb23680 and 15
+            # like it, a bool argument built over a callee's ecx, 2026-10-30)
+            rest = re.sub(rf"\b{re.escape(v)}\s*=(?!=)", "", l)
             stripped = re.sub(upper(v), "", rest)
             if re.search(rf"\b{re.escape(v)}\b", stripped):
                 return False
@@ -1803,9 +1816,10 @@ def upper_only(c: str) -> set[str]:
             if re.match(rf"^\s*{re.escape(v)}\s*=(?!=)", l2):
                 break
             if re.search(rf"\b{re.escape(v)}\b", l2):
-                if re.search(rf"\b{re.escape(v)}\b", re.sub(upper(v), "", l2)):
+                reads = re.sub(upper(v), "", re.sub(rf"\b{re.escape(v)}\s*=(?!=)", "", l2))
+                if re.search(rf"\b{re.escape(v)}\b", reads):
                     return False
-                seen = True
+                seen = seen or re.search(upper(v), l2) is not None
         return seen
 
     out = set()
@@ -3531,6 +3545,11 @@ class Translator32:
         # (a qualified name too, `bVar1 = EventHandler::vf14((EventHandler *)this,param_1);` in a
         # quest handler's override, `this` read on through ecx: printed_addr)
         m = re.fullmatch(r"\s*(?:[\w.\->\[\]]+\s*=\s*)?(?:\([^()]*\))?\s*((?:[A-Za-z_]\w*::)*[A-Za-z_]\w*)\s*\((.*)\);\s*", line)
+        # (the statement's outer call a conversion around the real one, `fVar2 = gen_bits2f(
+        # FUN_00bd1f30(param_1, ..));`, a float result's bits: the one inside, as below. A clip's
+        # vf21 read its object on through ecx and was stubbed, 19 like it, 2026-10-30)
+        if m and self.printed_addr(m.group(1)) is None:
+            m = None
         if m:
             name, inner = m.group(1), m.group(2)
         else:
@@ -3569,6 +3588,34 @@ class Translator32:
             return None
         return arg
 
+    def after_float_call(self, c: str) -> set[str]:
+        """What eax or edx held after a call whose result is on the x87 stack: nothing the ABI
+        defines, the callee's scratch, garbage in the reference too. A message handler's path that
+        returns it, `dVar20 = FUN_0054cd20(&v); puVar6 = extraout_EAX; ... return puVar6;` (the
+        client's Order handler 0xa55f80, stubbed with 14 more), 0."""
+        out = set()
+        lines = c.split("\n")
+        for n in set(re.findall(r"\bextraout_E[AD]X(?:_\d+)?\b", c)):
+            first = next((i for i, l in enumerate(lines) if re.search(rf"\b{n}\b", l)
+                          and not re.fullmatch(rf"\s*(?!return\b)[A-Za-z_][\w ]*?[\s*]+{n}\s*;\s*", l)), None)
+            if first is None:
+                continue
+            # (the call it comes out of: the last one at or before its first use)
+            callee = None
+            for l in reversed(lines[max(0, first - 3):first + 1]):
+                calls = re.findall(r"\bFUN_([0-9a-f]{8})\s*\(", l)
+                if calls:
+                    callee = int(calls[-1], 16)
+                    break
+            sig = self.sigs.get(callee) if callee is not None else None
+            # (or void: protos32.py makes a callee void where no caller reads eax after it, so this
+            # is the decompiler's merge of a register, no read. The Order handler's
+            # `(FUN_00a6aed0(..), puVar6 = extraout_EAX_00, pvVar12 != 0)`)
+            # (by the signature's own type: ret_type makes void the port's word)
+            if sig is not None and (sig.ret.strip() == "void" or self.ret_type(sig.ret).strip() in FLOATS):
+                out.add(n)
+        return out
+
     # ---- one function ---------------------------------------------------------------------------
     def why_not(self, a: int) -> str | None:
         c = self.entry_registers(a, self.kept_inputs(self.kept_st0(stack_vs_const(neg_scaled(v16_forms(cpu_state(array_stores(locked_reads(strip_comments(self.corpus[a]["c"]))))))))))
@@ -3581,6 +3628,7 @@ class Translator32:
         # (and a full xmm register as an SSE pseudo-op's destination found it: zeroed, sse_ops)
         # (and a call's x87 result made its assignment, x87_icall_results)
         ok = returned_only(c) | self.unread_result(a, c) | self.noreturn_args_only(a, c) | filler_args(c) | upper_only(c) | declared_only(c) | \
+            self.after_float_call(c) | \
             self.unread_params(c) | \
             context_capture(c) | {"in_FPUControlWord", "in_FPUStatusWord"} | ({"in_ZF"} if libm_flag(c) else set()) | \
             set(re.findall(r"(?m)^\s*(extraout_ST0(?:_\d+)?) = \(\*", c)) | \
@@ -4579,7 +4627,7 @@ class Translator32:
         # the passes above read the declarations as `type name;`)
         # (and those only a call that does not return is given, noreturn_args_only)
         for n in returned_only(c) | self.unread_result(a, c) | self.noreturn_args_only(a, c) | filler_args(c) | upper_only(c) | context_capture(c) \
-                | self.unread_params(c):
+                | self.unread_params(c) | self.after_float_call(c):
             # (a pointer's too, `undefined * extraout_EAX;`: as no match it stayed uninitialized)
             body = re.sub(r"(?m)^(\s*[A-Za-z_][\w ]*?[\s*]+" + n + r")\s*;", r"\1 = 0;", body, count=1)
         body = re.sub(r"(?m)^([ \t]*[A-Za-z_][\w ]*?[ \t*]+cap_(?:[A-Z]{2,3}|EBP|retaddr))\s*;", r"\1 = 0;", body)
