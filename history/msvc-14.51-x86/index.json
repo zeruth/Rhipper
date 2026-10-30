@@ -1726,5 +1726,17 @@
   "stubs": 8,
   "perfect": 9421,
   "translated": 9645
+ },
+ {
+  "sha": "f7e457bb9beca61d6514467fa5d7cda69538eab0",
+  "date": "2026-10-30T00:30:00-04:00",
+  "subject": "fix(ApplyFacts, fidelity32): the static CRT's __SEH_prolog4 links its EH4 node",
+  "run": "2026-10-30 05:33 UTC",
+  "file": "f7e457bb9beca61d6514467fa5d7cda69538eab0.json",
+  "passing": 36,
+  "projects": 36,
+  "stubs": 8,
+  "perfect": 9621,
+  "translated": 9645
  }
 ]

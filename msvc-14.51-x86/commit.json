@@ -1,1 +1,1 @@
-{"sha": "eae0de82fb77b0d4d7eb64d972123b62aebc4a23", "date": "2026-10-30T00:06:08-04:00", "subject": "ci: rhtest stl and stlio on msvc-14.51-x86 (both variants PASS locally)"}
+{"sha": "f7e457bb9beca61d6514467fa5d7cda69538eab0", "date": "2026-10-30T00:30:00-04:00", "subject": "fix(ApplyFacts, fidelity32): the static CRT's __SEH_prolog4 links its EH4 node"}
