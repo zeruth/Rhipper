@@ -1,1 +1,1 @@
-{"sha": "2f72e6326ce9be1139039912be4ede7443a35954", "date": "2026-10-29T20:55:02-04:00", "subject": "fix(decompiler, translate32, fidelity32): a floating-point operation kept for the flags it sets"}
+{"sha": "5ed668397310b09b8b10fa7fc8e823270ecfa998", "date": "2026-10-29T23:12:30-04:00", "subject": "fix(fidelity32): an indexed float table's base folded into a scaled index"}

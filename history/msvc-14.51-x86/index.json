@@ -1702,5 +1702,17 @@
   "stubs": 0,
   "perfect": 3188,
   "translated": 3193
+ },
+ {
+  "sha": "5ed668397310b09b8b10fa7fc8e823270ecfa998",
+  "date": "2026-10-29T23:12:30-04:00",
+  "subject": "fix(fidelity32): an indexed float table's base folded into a scaled index",
+  "run": "2026-10-30 03:46 UTC",
+  "file": "5ed668397310b09b8b10fa7fc8e823270ecfa998.json",
+  "passing": 32,
+  "projects": 32,
+  "stubs": 0,
+  "perfect": 3190,
+  "translated": 3193
  }
 ]
