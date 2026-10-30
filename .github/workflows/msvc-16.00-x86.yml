@@ -19,3 +19,5 @@ jobs:
     uses: ./.github/workflows/rhtest.yml
     with:
       toolset: msvc-16.00-x86
+      # (its references: no stlio, the stream section msvc-14.51-x86's stl was split into)
+      programs: core int64 float calls crt cpp misc eh win engine sys com fpenv seh stl

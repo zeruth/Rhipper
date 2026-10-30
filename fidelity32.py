@@ -769,7 +769,22 @@ def main() -> None:
             out.append(t)
         return out
 
+    def through_thunks(t: int) -> int:
+        """a reference function by way of its local `jmp rel32` thunks (an unwind funclet's `jmp
+        0x409770` to `jmp 0x409320`, the translation calling F_00409770: as the reference's
+        ref_calls counts it, rhtest stl-O2)"""
+        for _ in range(4):
+            code = ref.read(t, 5)
+            if t in ref_thunk or len(code) < 5 or code[0] != 0xE9 or t not in entries:
+                break
+            t = (t + 5 + int.from_bytes(code[1:5], "little", signed=True)) & 0xFFFFFFFF
+        return t
+
     def port_calls(va: int, fn: Fn) -> list:
+        out = port_calls_raw(va, fn)
+        return [through_thunks(t) if isinstance(t, int) else t for t in out]
+
+    def port_calls_raw(va: int, fn: Fn) -> list:
         events = [(site, t) for site, t in fn.calls]
         events += [(site, ("inline", name)) for site, name in inline_sites.get(va, [])]
         events.sort(key=lambda e: e[0])
@@ -877,6 +892,13 @@ def main() -> None:
             inner = callees_of(c)
             if inner and set(inner) <= have | {c}:
                 rseq = [y for x in rseq for y in (inner if x == c else [x])]
+        # (a callee the translation calls that its compiler proved unreachable: vector's `if
+        # (size == 0xaaaaaaa) _Xlength()` of a signed difference divided by 0x18, which can never
+        # reach it, gone from the x64 build and kept by the reference's, rhtest stl-O2)
+        src = translations.get(a, "")
+        for c in [x for x in dict.fromkeys(rseq) if isinstance(x, int) and x not in have]:
+            if re.search(rf"\bF_{c:08x}\s*\(", src):
+                pseq.append(c)
         # (by which callees, not in what order: the order is each compiler's block layout, a cold
         # path's call last in one and first in the other, and two calls of one function in two
         # branches one call to a compiler that merges them)
