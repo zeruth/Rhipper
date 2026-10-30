@@ -4099,6 +4099,10 @@ class Translator32:
         body = re.sub(r"(?m)^([ \t]*)in_FPUControlWord\s*=\s*([^;\n]*);",
                       r"\1gen_set_x87_cw((unsigned short)(\2));", body)
         body = re.sub(r"\bin_FPUControlWord\b", "gen_x87_cw", body)
+        # (and the loads the patched SLEIGH keeps as operations, ghidra/sleigh/patch_sinc.py: `fldcw`
+        # the word, `fldenv` the environment's first word)
+        body = re.sub(r"\bx87_fldcw\s*\(", "gen_set_x87_cw((unsigned short)", body)
+        body = re.sub(r"\bx87_fldenv\s*\(", "gen_set_x87_cw(*(unsigned short *)", body)
         # (and the status word, `fnstsw`: the host's floating-point flags as x87 bits; cleared after
         # the read where the function runs fnclex, which the decompiler drops, protos32's fpu_clear:
         # __clrfp, rhtest msvc-16.00-x86 float)

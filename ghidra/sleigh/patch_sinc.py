@@ -9,6 +9,9 @@ The fixes:
       instruction left: the static C++ library's vectorized search and strstr decompiled to
       `bVar13 = (undefined1 *)0xfffffff3 < &stack0xffffff84` (rhtest stl /MT). CF, ZF, SF and OF
       are the bits of pcmpestri_flags / pcmpistri_flags (1, 2, 4, 8), Ghidra32.h's gen_ ones
+  FLDCW / FLDENV  also the operations x87_fldcw(word) and x87_fldenv(env): the control word's
+      load is otherwise a register write nothing reads, dropped (the CRT's `fldcw` restoring the
+      caller's word, _control87's `fldenv`); translate32.py makes them gen_set_x87_cw
 """
 import sys
 from pathlib import Path
@@ -42,6 +45,20 @@ FIXES = [
      "{ ECX = pcmpistri(XmmReg, m128, imm8:8); local f:4 = pcmpistri_flags(XmmReg, m128, imm8:8); pcmpstri_flags(f); }"),
     ("{ ECX = pcmpistri(XmmReg1, XmmReg2, imm8:8); }",
      "{ ECX = pcmpistri(XmmReg1, XmmReg2, imm8:8); local f:4 = pcmpistri_flags(XmmReg1, XmmReg2, imm8:8); pcmpstri_flags(f); }"),
+    # (the x87 control word's loads as operations: a write to FPUControlWord that nothing in the
+    # function reads again is dead to the decompiler, and went, `if (cw != 0x27f) fldcw cw` of the
+    # CRT's math exits and _control87's `fldenv`. x87_fldcw and x87_fldenv are translate32.py's
+    # gen_set_x87_cw, the runtime's virtual control word, rhtest stl /MT)
+    (":FLDCW m16      is",
+     f"{MARK}: the x87 control word's loads\n"
+     "define pcodeop x87_fldcw;\n"
+     "define pcodeop x87_fldenv;\n"
+     ":FLDCW m16      is"),
+    ("{ \n    FPUControlWord = m16; \n}",
+     "{ \n    FPUControlWord = m16; x87_fldcw(m16); \n}"),
+    (":FLDENV Mem     is vexMode=0 & byte=0xD9; (mod != 0b11 & reg_opcode=4) ... & Mem\n{\n",
+     ":FLDENV Mem     is vexMode=0 & byte=0xD9; (mod != 0b11 & reg_opcode=4) ... & Mem\n{\n"
+     "  x87_fldenv(Mem);\n"),
 ]
 
 

@@ -443,6 +443,16 @@ public class ApplyFacts extends GhidraScript {
     // decompiles to the 64-bit operation itself. As calls, divmod64's remainder was `in_ebx` and
     // `extraout_ECX`, and every 64-bit shift's count `CONCAT31(extraout_ECX >> 8, 0x20)` (rhtest
     // int64, 2026-10-24)
+    // whether bytes are a hex template's, `??` any byte
+    private static boolean bytesMatch(byte[] b, String tmpl) {
+        if (b.length < tmpl.length() / 2) return false;
+        for (int i = 0; i < tmpl.length() / 2; i++) {
+            String want = tmpl.substring(2 * i, 2 * i + 2);
+            if (!want.equals("??") && Integer.parseInt(want, 16) != (b[i] & 0xff)) return false;
+        }
+        return true;
+    }
+
     // __SEH_prolog4's p-code from its bytes (`push handler; push fs:[0]; ...; mov eax,
     // [__security_cookie]; ...; mov fs:[0], eax; ret`), or null where the image has none or another
     private String seh_prolog4_body() throws Exception {
@@ -593,6 +603,36 @@ public class ApplyFacts extends GhidraScript {
         // exactly the VS2015+ routine's, rhtest stl /MT)
         String prolog4 = seh_prolog4_body();
         if (prolog4 != null) bodies.put("SEH_prolog4", prolog4);
+        // (and the static CRT's x87 math helpers that answer in st0 and the flags, its log10's
+        // and the like: __fload_withFB, the argument's double on the x87 stack (a NaN or infinity
+        // built bit for bit, the routine's own `fld tbyte`), its exponent word in eax and ZF set
+        // for one; and the NaN check after it, `test eax, 0x80000; je; ...; fadd [1.0]`, a
+        // signaling NaN or infinity plus one. As calls, the caller read ZF and st0 from nowhere,
+        // `in_ZF`, `extraout_ST0`, and the helpers' own translations returned eax alone, rhtest
+        // stl /MT. By their exact bytes, a function ID name or none)
+        for (Function f : currentProgram.getFunctionManager().getFunctions(true)) {
+            byte[] b = new byte[67];
+            try {
+                currentProgram.getMemory().getBytes(f.getEntryPoint(), b);
+            } catch (Exception ex) {
+                continue;
+            }
+            if (bytesMatch(b, "8b4204250000f07f3d0000f07f7403dd02c38b420483ec0a0d0000ff7f894424068b42048b0a"
+                    + "0fa4c80bc1e10b89442404890c24db2c2483c40aa9000000008b4204c3")) {
+                bodies.put("fload_withFB", "p:4 = EDX + 4; hi:4 = *:4 p; lo:4 = *:4 EDX; d:8 = *:8 EDX;\n"
+                        + "e:4 = hi & 0x7ff00000; inf:1 = e == 0x7ff00000; zi:4 = zext(inf); zf:4 = zext(!inf);\n"
+                        + "EAX = (zi * hi) + (zf * e); ECX = (zi * (lo << 11)) + (zf * ECX); ZF = inf;\n"
+                        + push87 + " ST0 = float2float(d);" + pop0);
+                helperAt.put(f.getEntryPoint(), "fload_withFB");
+            } else if (bytesMatch(b, "a9000008007406b800000000c3dc05????????b800000000c3")) {
+                long c = (b[0xf] & 0xffL) | (b[0x10] & 0xffL) << 8 | (b[0x11] & 0xffL) << 16 | (b[0x12] & 0xffL) << 24;
+                bodies.put("x87_nan_add", "q:1 = (EAX & 0x80000) != 0; cp:4 = 0x" + Long.toHexString(c) + ":4;\n"
+                        + "c:8 = *:8 cp; nq:1 = !q; zq:4 = zext(nq); k:8 = int2float(zq); t:10 = float2float(c f* k);\n"
+                        + "ST0 = ST0 f+ t;\n"
+                        + "EAX = 0;" + pop0);
+                helperAt.put(f.getEntryPoint(), "x87_nan_add");
+            }
+        }
         Class<?> se = Function.class.getClassLoader().loadClass("ghidra.program.database.SpecExtension");
         Object ext = se.getConstructor(ghidra.program.model.listing.Program.class).newInstance(currentProgram);
         java.lang.reflect.Method add = se.getMethod("addReplaceCompilerSpecExtension", String.class,
@@ -938,6 +978,49 @@ public class ApplyFacts extends GhidraScript {
             }
         }
         println("ApplyFacts: functions at a jump target of the function before them merged into it " + merged);
+        // (and one only jumped to, from anywhere, that reads its return address's slot first:
+        // what the jumper pushed there, no return address. The static CRT's __math_exit, entered
+        // by `push edx; fnstcw [esp]; ...; jmp __math_exit` from its math routines, `mov ax, [esp]`
+        // the saved control word, `pop edx; ret` to the routine's caller. As a function it was a
+        // stub, unaff_retaddr; as their code, each routine's decompile follows into it, rhtest stl)
+        int tails = 0;
+        List<Function> jumpedOnly = new ArrayList<>();
+        for (Function f : currentProgram.getFunctionManager().getFunctions(true)) {
+            if (f.isExternal() || f.isThunk()) continue;
+            Instruction first = getInstructionAt(f.getEntryPoint());
+            if (first == null || first.getMnemonicString().equalsIgnoreCase("PUSH")) continue;
+            boolean readsSlot = false;
+            for (int k = 0; k < first.getNumOperands() && !readsSlot; k++) {
+                if (k == 0 && first.getNumOperands() > 1) continue;      // (the destination)
+                for (Object o : first.getOpObjects(k)) {
+                    if (o instanceof ghidra.program.model.lang.Register
+                            && ((ghidra.program.model.lang.Register) o).getName().equals("ESP")
+                            && first.getOpObjects(k).length == 1
+                            && first.getOperandRefType(k).isRead()) readsSlot = true;
+                }
+            }
+            if (!readsSlot) continue;
+            // (a jump by its instruction: tailJumps32 made each a call that returns, its reference a call)
+            boolean jumps = false, other = false;
+            List<Instruction> jumpers = new ArrayList<>();
+            for (ghidra.program.model.symbol.Reference r : getReferencesTo(f.getEntryPoint())) {
+                Instruction from = getInstructionAt(r.getFromAddress());
+                if (from != null && from.getMnemonicString().toUpperCase().startsWith("J")) {
+                    jumps = true;
+                    jumpers.add(from);
+                } else other = true;
+            }
+            if (jumps && !other) {
+                jumpedOnly.add(f);
+                for (Instruction j : jumpers) {
+                    if (j.getFlowOverride() == FlowOverride.CALL_RETURN) j.setFlowOverride(FlowOverride.NONE);
+                }
+            }
+        }
+        for (Function f : jumpedOnly) {
+            if (currentProgram.getFunctionManager().removeFunction(f.getEntryPoint())) tails++;
+        }
+        println("ApplyFacts: functions only jumped to that read their return address's slot, made their jumpers' code " + tails);
         // (the bodies cut short, looked for once the junk is gone: a function ending where a junk
         // one began runs on now)
         for (Function f : currentProgram.getFunctionManager().getFunctions(true)) {

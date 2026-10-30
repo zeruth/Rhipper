@@ -1084,7 +1084,8 @@ def main() -> None:
         globals_of = (lambda fn: {int(k[2:], 16) for k in fn.consts if k.startswith("g:")})
         fields, missing_fields = presence(rf.fields, pf.fields, source, (globals_of(rf), globals_of(pf)))
         port_addrs = globals_of(pf) | {x for xs in pf.str_at.values() for x in xs}
-        port_ints = {int(k[2:], 16) for k in pf.consts if k.startswith("i:")}
+        # (an immediate, or a displacement from a register holding the other: `lea rcx, [rax + 0x50]`)
+        port_ints = {int(k[2:], 16) for k in pf.consts if k.startswith("i:")} | set(pf.fields)
         consts, missing_consts = presence(rf.consts, pf.consts, source, moved=(rf.str_at, port_addrs, port_ints))
         parts = {
             "calls": calls,
