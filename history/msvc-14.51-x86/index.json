@@ -1750,5 +1750,17 @@
   "stubs": 4,
   "perfect": 9638,
   "translated": 9645
+ },
+ {
+  "sha": "c15079ae9a08883065adfc12c7798b73e7274cee",
+  "date": "2026-10-30T02:49:54-04:00",
+  "subject": "fix(ApplyFacts, translate32, Ghidra32.h): __SEH_epilog4 unlinks its node, pointer switches, float arguments",
+  "run": "2026-10-30 07:54 UTC",
+  "file": "c15079ae9a08883065adfc12c7798b73e7274cee.json",
+  "passing": 36,
+  "projects": 36,
+  "stubs": 4,
+  "perfect": 9658,
+  "translated": 9665
  }
 ]
