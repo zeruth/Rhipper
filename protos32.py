@@ -171,8 +171,208 @@ def regs_access(ins) -> tuple[tuple[int, ...], tuple[int, ...]]:
         # there and leaves alone, and 31 callers reading it after lost it, extraout_ECX, 2026-10-27)
         if self_move(ins):
             writes = [w for w in writes if w != ins.operands[0].reg]
+        # (nor is `pushal` a read of every register, `popal` putting them back: a save around
+        # `cpuid; rdtsc`. Read so, a timestamp counter took all six as inputs, and 0xdb45f0 calling
+        # it passed in_ecx, in_edx and in_ebx, a stub)
+        if ins.mnemonic in ("pushal", "pushad"):
+            reads = [x for x in reads if x in (X.X86_REG_ESP,)]
+        # (and `cpuid` there a serializing fence, its leaf whatever eax held, its results popped)
+        if ins.mnemonic == "cpuid":
+            reads = []
         r = ins._ra = (tuple(reads), tuple(writes))
     return r
+
+
+X87_PUSH = " ST7 = ST6; ST6 = ST5; ST5 = ST4; ST4 = ST3; ST3 = ST2; ST2 = ST1; ST1 = ST0;"
+
+
+def x87_leaf_pcode(b: Binary, root: int, ranges) -> str | None:
+    """The p-code of a small leaf that answers on the x87 stack, for a call fixup (ApplyFacts): the
+    decompiler models no x87 push at a call, so a caller's values deeper in the stack were lost
+    across one, `extraout_ST1`. A vector's component getter, `mov eax, [ebp + 8]; fld dword ptr
+    [ecx + eax*4]; ret 4`, 32 calls in a client's dot products and lengths. Inlined as its own
+    semantics, the call pushes as the instruction does. Straight-line code only: argument and
+    register loads, x87 loads and arithmetic on st0 from memory, the frame's setup, its ret."""
+    # (and one built of such leaves, straight-line too: its calls to them inlined, `call 0xd8b140;
+    # ...; fmulp st(1); ...; faddp st(1)`, a dot product of their components, and `call 0xd8c510;
+    # fsqrt`, a length. Each instruction as it is, on the machine's own registers and stack)
+    md = disassembler()
+    md.detail = True
+    if len(ranges) != 1:
+        return None
+    lo, hi = ranges[0]
+    if hi - lo > 160:
+        return None
+    gp = ("eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi")
+    out: list[str] = []
+    depth = 0                      # (the x87 values the code itself has pushed, net)
+    tmp = [0]
+
+    def q() -> str:
+        # (each temporary its own name: a callee's body inlined has its own renamed, inline())
+        tmp[0] += 1
+        return f"q{tmp[0]}"
+
+    def inline(body: str) -> str:
+        tmp[0] += 1
+        k = tmp[0]
+        return re.sub(r"\bq(\d+)\b", lambda m: f"q{k}x{m.group(1)}", body)
+    pop87 = " ST0 = ST1; ST1 = ST2; ST2 = ST3; ST3 = ST4; ST4 = ST5; ST5 = ST6; ST6 = ST7;"
+
+    def addr(op) -> str | None:
+        m = op.mem
+        if m.segment:
+            return None
+        parts = []
+        if m.base:
+            if md.reg_name(m.base) not in gp:
+                return None
+            parts.append(md.reg_name(m.base).upper())
+        if m.index:
+            if md.reg_name(m.index) not in gp:
+                return None
+            parts.append(f"({md.reg_name(m.index).upper()} * {m.scale})")
+        if m.disp or not parts:
+            parts.append(f"{m.disp & 0xFFFFFFFF:#x}:4")
+        return "(" + " + ".join(parts) + ")"
+
+    def val(op) -> str | None:
+        if op.type == X.X86_OP_REG:
+            n = md.reg_name(op.reg)
+            return n.upper() if n in gp else None
+        if op.type == X.X86_OP_IMM:
+            return f"{op.imm & 0xFFFFFFFF:#x}:4"
+        if op.type == X.X86_OP_MEM and op.size == 4:
+            a2 = addr(op)
+            return None if a2 is None else f"*:4 {a2}"
+        return None
+
+    def st(op) -> int | None:
+        if op.type == X.X86_OP_REG:
+            n = md.reg_name(op.reg)
+            if re.fullmatch(r"st\(\d\)", n):
+                return int(n[3])
+        return None
+
+    arith = {"fmul": "f*", "fadd": "f+", "fsub": "f-", "fdiv": "f/"}
+    for ins in md.disasm(bytes(b.image[b.off(lo):b.off(hi)]), lo):
+        mn, ops = ins.mnemonic, ins.operands
+        if mn == "ret":
+            if depth != 1:
+                return None
+            out.append(f"ESP = ESP + {4 + (ops[0].imm if ops else 0)};")
+            return "\n".join(out)
+        if mn == "push" and len(ops) == 1:
+            v = val(ops[0])
+            if v is None:
+                return None
+            t = q()
+            out.append(f"{t}:4 = {v}; ESP = ESP - 4; *:4 ESP = {t};")
+        elif mn == "pop" and len(ops) == 1 and ops[0].type == X.X86_OP_REG and md.reg_name(ops[0].reg) in gp:
+            out.append(f"{md.reg_name(ops[0].reg).upper()} = *:4 ESP; ESP = ESP + 4;")
+        elif mn == "mov" and len(ops) == 2 and ops[0].type == X.X86_OP_REG and md.reg_name(ops[0].reg) in gp:
+            v = val(ops[1])
+            if v is None:
+                return None
+            out.append(f"{md.reg_name(ops[0].reg).upper()} = {v};")
+        elif mn in ("add", "sub") and len(ops) == 2 and ops[0].type == X.X86_OP_REG \
+                and md.reg_name(ops[0].reg) == "esp" and ops[1].type == X.X86_OP_IMM:
+            out.append(f"ESP = ESP {'+' if mn == 'add' else '-'} {ops[1].imm};")
+        elif mn == "call" and ops and ops[0].type == X.X86_OP_IMM:
+            # (a callee with p-code of its own: its body after the return address's push)
+            body = _x87_bodies.get(ops[0].imm & 0xFFFFFFFF)
+            if body is None:
+                return None
+            out.append("ESP = ESP - 4;")
+            out.append(inline(body))
+            depth += 1
+        elif mn == "fld" and len(ops) == 1 and ops[0].type == X.X86_OP_MEM and ops[0].size in (4, 8):
+            a2 = addr(ops[0])
+            if a2 is None:
+                return None
+            t = q()
+            out.append(f"{t}:10 = float2float(*:{ops[0].size} {a2});" + X87_PUSH + f" ST0 = {t};")
+            depth += 1
+        elif mn == "fld" and len(ops) == 1 and st(ops[0]) is not None:
+            t = q()
+            out.append(f"{t}:10 = ST{st(ops[0])};" + X87_PUSH + f" ST0 = {t};")
+            depth += 1
+        elif mn in ("fld1", "fldz"):
+            t = q()
+            out.append(f"{t}:10 = int2float({1 if mn == 'fld1' else 0}:4);" + X87_PUSH + f" ST0 = {t};")
+            depth += 1
+        elif mn in arith and len(ops) == 1 and ops[0].type == X.X86_OP_MEM and ops[0].size in (4, 8):
+            a2 = addr(ops[0])
+            if a2 is None:
+                return None
+            out.append(f"ST0 = ST0 {arith[mn]} float2float(*:{ops[0].size} {a2});")
+        elif mn[:-1] in arith and mn.endswith("p") and len(ops) in (0, 1, 2):
+            # (`fmulp st(1)`, capstone's `st(1), st(0)` or none: st1 op st0, popped)
+            i = st(ops[0]) if ops else 1
+            if i is None:
+                return None
+            out.append(f"ST{i} = ST{i} {arith[mn[:-1]]} ST0;" + pop87)
+            depth -= 1
+        elif mn == "fsqrt":
+            out.append("ST0 = sqrt(ST0);")
+        elif mn == "fchs":
+            out.append("ST0 = f- ST0;")
+        elif mn == "fabs":
+            out.append("ST0 = abs(ST0);")
+        elif mn == "fxch" and (not ops or st(ops[0]) is not None):
+            i = st(ops[0]) if ops else 1
+            t = q()
+            out.append(f"{t}:10 = ST0; ST0 = ST{i}; ST{i} = {t};")
+        else:
+            return None
+        if depth < 0:
+            return None
+    return None
+
+
+# protos32's x87 leaves' p-code by address, for the ones built of them (x87_leaf_pcode)
+_x87_bodies: dict[int, str] = {}
+
+
+def x87_leaves(b: Binary, out: dict, ranges: dict) -> dict[int, str]:
+    """Every function answering on the x87 stack whose code x87_leaf_pcode reads, to a fixed point:
+    the ones built of leaves found on a later pass (a length of a dot product of a getter)."""
+    cand = [int(k, 16) for k, e in out.items() if e.get("ret") in ("f4", "d8") and int(k, 16) in ranges]
+    for _ in range(4):
+        grew = False
+        for f in cand:
+            if f in _x87_bodies:
+                continue
+            p = x87_leaf_pcode(b, f, ranges[f])
+            if p:
+                _x87_bodies[f] = p
+                grew = True
+        if not grew:
+            break
+    return dict(_x87_bodies)
+
+
+def frame_end_pointer(insns, nxt, a, r, off) -> bool:
+    """Whether `lea r, [frame + off]` at a is a pointer past a frame array: its register's first use,
+    along the straight line and an unconditional jump, a `sub r, k` that takes it below the return
+    address (off - k < 4), before anything reads it."""
+    q = nxt.get(a)
+    for _ in range(12):
+        if q is None or q not in insns:
+            return False
+        qi = insns[q]
+        qo = qi.operands
+        if qi.mnemonic == "jmp" and qo and qo[0].type == X.X86_OP_IMM:
+            q = qo[0].imm & 0xFFFFFFFF
+            continue
+        if qi.mnemonic == "sub" and len(qo) == 2 and qo[0].type == X.X86_OP_REG and qo[0].reg == r \
+                and qo[1].type == X.X86_OP_IMM:
+            return off - qo[1].imm < 4
+        reads, writes = regs_access(qi)
+        if r in reads or r in writes or qi.mnemonic in ("call", "ret") or qi.mnemonic.startswith("j"):
+            return False
+        q = nxt.get(q)
+    return False
 
 
 def self_move(ins) -> bool:
@@ -463,6 +663,12 @@ def analyse(root: int, ranges):
                         loc_store[off] = max(loc_store.get(off, 0), op.size or 4)
                 else:
                     loc_read.update(range(off, off + (op.size or 4)))
+            # (an array's end in the frame, `lea esi, [ebp + 8]; jmp; loop: sub esi, 0x74; ...`, its
+            # pointer stepped below the return address before any use: no parameter's address. Taken
+            # for one, a quest UI query 0x828fe0 read a word no caller passes, unaff_EDI in its callers)
+            if off >= 4 and mn == "lea" and ops and ops[0].type == X.X86_OP_REG \
+                    and frame_end_pointer(insns, nxt, a, ops[0].reg, off):
+                continue
             if off >= 4:
                 # (an unaligned parameter address taken, a byte's: a temporary in the dead slot of a
                 # parameter already read, to its word's end only. Havok's stream loader 0xdeb100 in a
@@ -3471,11 +3677,29 @@ def next_call_deficit(insns, prv, nxt, a, depth=0) -> int:
             # after: `push [g]; call [vt + 0x44]; mov ecx, eax; call 0x43f9c0; push eax; call
             # 0x42cc20 (ret 8)`, the global 0x42cc20's second. Stopped there, the getter took it
             # and 0x42cc20 read its caller's saved edi, a client's UI 0x48b290 and 3 like it)
-            pushed_on = q in insns and insns[q].mnemonic == "push" and insns[q].op_str == "eax"
+            # (pushed a few instructions on, eax untouched between: `call 0x42a990; mov ecx, [ebp -
+            # 0xc]; mov edx, [ecx]; push eax`)
+            pushed_on = False
+            q2 = q
+            for _ in range(5):
+                if q2 not in insns:
+                    break
+                qi2 = insns[q2]
+                # (or its 64-bit result, `call 0x43f9f0; push edx; push eax`)
+                if qi2.mnemonic == "push" and qi2.op_str in ("eax", "edx"):
+                    pushed_on = True
+                    break
+                if qi2.mnemonic in ("call", "ret") or qi2.mnemonic.startswith("j") \
+                        or X.X86_REG_EAX in regs_access(qi2)[1] or qi2.mnemonic == "push":
+                    break
+                q2 = nxt.get(q2)
             if take > after:
                 deficit += take - after
                 after = 0
-            elif chained or (take == 0 and after == 0 and pushed_on):
+            # (and with words already outstanding, whose own it leaves: `push ecx; call [vt + 0xc];
+            # push eax; call 0x42a990; push eax; push 0x40f; call [vt + 0x18]; mov ecx, eax; call
+            # 0x461820 (ret 0x10)`, every result an argument of the last, 4 of a client's)
+            elif chained or (take <= after and pushed_on):
                 after -= take
             else:
                 return deficit
@@ -3928,8 +4152,12 @@ def main() -> None:
     span_lo = [s3[0] for s3 in spans]
 
     def owner_of(t):
+        # (a few ranges back only: walked to the image's start for every function no range holds,
+        # it took protos32 from 4 minutes to 15 on a client)
         k = bisect.bisect_right(span_lo, t) - 1
-        while k >= 0 and spans[k][0] <= t:
+        for _ in range(16):
+            if k < 0 or spans[k][0] > t:
+                break
             if t < spans[k][1] and spans[k][2] != t:
                 return spans[k][2]
             k -= 1
@@ -4545,7 +4773,10 @@ def main() -> None:
         # [esp + 4], had none, and the decompiler's in_stack_00000004)
         stack = ret_n if callee_cleans and ret_n else max(0, stack_hi[f] - 4)
         stack = (stack + 3) & ~3
-        variadic = local[f].get("variadic") if not callee_cleans else None
+        # (a method's too, `this` in ecx and a plain `ret`, its caller popping the rest: a formatter
+        # `Log(this, fmt, ...)`, `lea eax, [ebp + 0xc]`. As a __thiscall's that pops nothing it read
+        # two, and its callers passed it their saved edi, a client's 0x4022b0 stubbed)
+        variadic = local[f].get("variadic") if not ret_n else None
         if variadic is not None:
             stack = 4 * variadic                  # (its fixed parameters; the rest each call's own)
         # (a __cdecl one every caller passes more than it reads: sized operator delete(p, size)
@@ -4726,6 +4957,8 @@ def main() -> None:
         "pointed": [hexa(g) for g in sorted(pointed)],
         # (functions made mid-instruction, each to its run's start: ApplyFacts applyLeaves)
         "misplaced": {hexa(e): hexa(s) for e, s in sorted(misplaced.items())},
+        # (small leaves answering on the x87 stack, as call fixups: x87_leaf_pcode)
+        "x87_leaves": {hexa(f): p for f, p in sorted(x87_leaves(b, out, ranges).items())},
         # (the locals one object spans below a pointer to it: ApplyFacts applyStackBlocks)
         "stack_blocks": {hexa(f): [v["local_block"]] for f, v in sorted(local.items()) if v.get("local_block")}})
     # each indirect call's convention and arguments: ApplyFacts' call-site signatures
@@ -4852,8 +5085,13 @@ def main() -> None:
                     n = min(n + m, k)
             fixed = out.get(hexa(t), {}).get("variadic")
             if fixed is not None and n // 4 > fixed:
-                calls[hexa(a)] = [["i", 4]] * (n // 4)
-                ccs[hexa(a)] = "__cdecl"
+                # (a method's with its `this` in ecx first, as its own signature has it)
+                if out.get(hexa(t), {}).get("cc") == "__thiscall":
+                    calls[hexa(a)] = [["i", 4]] * (n // 4 + 1)
+                    ccs[hexa(a)] = "__thiscall"
+                else:
+                    calls[hexa(a)] = [["i", 4]] * (n // 4)
+                    ccs[hexa(a)] = "__cdecl"
     shapes: dict[str, int] = {}
     for cc in ccs.values():
         shapes[cc] = shapes.get(cc, 0) + 1

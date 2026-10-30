@@ -939,7 +939,7 @@ def frame_locals(body: str, reserve: int = 0, minimum: int = 0, args: list[str] 
     room below its frame."""
     slots = [int(d, 16) for d in re.findall(r"\bGEN_SLOT\(0x([0-9a-f]+)\)", body)]
     # (and out_stack's places at the bottom of the room below the frame, GEN_LOW(d): d bytes up)
-    low = "GEN_LOW(" in body
+    low = "GEN_LOW(" in body or "GEN_ABOVE(" in body
     if not slots and not has_frame(body) and not args and not low:
         return body
     decls = list(FRAME_DECL.finditer(body))
@@ -953,6 +953,8 @@ def frame_locals(body: str, reserve: int = 0, minimum: int = 0, args: list[str] 
     size += reserve
     body = re.sub(r"\bGEN_SLOT\(0x([0-9a-f]+)\)", lambda m: f"(gen_frame + 0x{size - int(m.group(1), 16):x})", body)
     body = re.sub(r"\bGEN_LOW\(0x([0-9a-f]+)\)", r"(gen_frame + 0x\1)", body)
+    # (and an address above the entry's esp, the argument slot's offset k: the buffer's end + k)
+    body = re.sub(r"\bGEN_ABOVE\(0x([0-9a-f]+)\)", lambda m: f"(gen_frame + 0x{size + int(m.group(1), 16):x})", body)
     repl = {}
     for m in decls:
         t = " ".join(m.group(1).split())
@@ -1836,13 +1838,32 @@ def upper_only(c: str) -> set[str]:
     bool parameter whose callee reads the byte. The reference's bytes there are whatever eax held;
     0 in the port. A VS2010 client's 0x513790, `pvVar5 = extraout_EAX;` after EnterCriticalSection
     and then `uVar9 = (uint3)((uint)pvVar5 >> 8)`, 2,283 calls on its startup path."""
-    lines = c.split("\n")
+    # (a statement the decompiler wrapped over lines, on one: its pieces read together)
+    joined, buf = [], ""
+    for l in c.replace("\r", "").split("\n"):
+        buf = (buf + " " + l.strip()) if buf else l
+        if not l.strip() or re.search(r"[;{}:]\s*$", l) or l.strip().startswith(("/*", "#")):
+            joined.append(buf)
+            buf = ""
+    if buf:
+        joined.append(buf)
+    lines = joined
     # (`(uint3)((uint)V >> 8)` or `(int3)(V >> 8)`: the three bytes above the low one)
     # (or masked to them, `V & 0xffffff00`, the same bytes kept in place: a bool built in cl over
     # what a callee left in ecx, `uVar5 = extraout_ECX & 0xffffff00; ... uVar5 | 1`, a client's
     # 0x693180 and its like stubbed, 2026-10-30)
-    upper = lambda v: (rf"(?:\(u?int3\)\(\s*(?:\(u?int\)\s*)?{re.escape(v)}\s*>>\s*8\s*\)"
-                       rf"|\b{re.escape(v)}\s*&\s*0xffffff00\b)")
+    # (or the word around a status word's flags, `fnstsw ax; test ah, 0x44`: the decompiler's
+    # `CONCAT22((short)((uint)V >> 0x10),(ushort)(byte)V)`, every byte of eax but the flags it read
+    # into its compare already, a client's 0x5a0ab0 and 0x545bb0)
+    # (through a float's bits too, `(int3)((uint)gen_fl2bits(fVar10) >> 8)`: a float local holding
+    # what ecx was, its upper bytes a bool argument's, hkaSplineCompressedAnimation::vf4)
+    upper = lambda v: (rf"(?:\(u?int3\)\(\s*(?:\(u?int\)\s*)?(?:gen_fl2bits\(\s*{re.escape(v)}\s*\)|{re.escape(v)})\s*>>\s*8\s*\)"
+                       rf"|\b{re.escape(v)}\s*&\s*0xffffff00\b"
+                       rf"|CONCAT22\(\(short\)\((?:\(uint\))?{re.escape(v)}\s*>>\s*0x10\),\s*\(ushort\)\(byte\){re.escape(v)}\)"
+                       # (and with the flags set in, `CONCAT22((short)((uint)V >> 0x10), CONCAT11(f,
+                       # (char)V))`, the status word's bits computed over the rest)
+                       rf"|CONCAT22\(\(short\)\((?:\(uint\))?{re.escape(v)}\s*>>\s*0x10\),\s*CONCAT11\([^;]*?,\s*"
+                       rf"\(char\){re.escape(v)}\)\))")
 
     def reads_upper_only(v):
         """every read of v in the function its upper bytes, one at least (its assignments aside)"""
@@ -1904,9 +1925,15 @@ def upper_only(c: str) -> set[str]:
             if not re.search(rf"\b{n}\b", l) or re.match(rf"^\s*[\w ]+?[\s*]+{n}\s*;\s*$", l):
                 continue
             m = re.fullmatch(rf"\s*([A-Za-z_]\w*)\s*=\s*(?:\([^()]*\)\s*)?{n}\s*;\s*", l)
-            if m:
+            # (or in a condition's comma expression, `(b = f(x), uVar9 = extraout_EDX_00, b == 0)`,
+            # the rest of the line no read of it)
+            m2 = None if m else re.search(rf"(?:^|[(,;]\s*)([A-Za-z_]\w*)\s*=\s*(?:\([^()]*\)\s*)?{n}\s*(?=[,;)])", l)
+            if m2 and re.search(rf"\b{n}\b", l[:m2.start(1)] + l[m2.end():].replace(n, "", 1)):
+                m2 = None
+            if m or m2:
                 # (copied to a local: read for its upper bytes alone, next, or anywhere it is read)
-                ok = next_reads_upper(m.group(1), i) or reads_upper_only(m.group(1))
+                v2 = (m or m2).group(1)
+                ok = next_reads_upper(v2, i) or reads_upper_only(v2)
             elif re.search(rf"\b{n}\b", re.sub(upper(n), "", l)):
                 ok = False
             if not ok:
@@ -3377,8 +3404,17 @@ class Translator32:
         there. /LTCG keeps `this` in ecx across a call to a method that never writes ecx, and the
         decompiler, told the call kills it, lost it: FUN_00d7be90's `FUN_00d79e80(this); this =
         extraout_ECX;`, a stub on a VS2010 client's WinMain path, 2026-10-24."""
-        names = [(n, "ecx" if "ECX" in n else "edx")
-                 for n in sorted(set(re.findall(r"\bextraout_E[CD]X(?:_\d+)?\b", c)))]
+        # (and the decompiler's lowercase name for a custom callee's register argument the caller
+        # never set, `FUN_00d8b150(in_ecx, 1)` after `FUN_00d8b150(uVar3, 0)`: ecx kept through the
+        # call before, a matrix row's accessor 0xd8fa10)
+        # (never assigned in the function: one it assigns, `in_ecx_00 = in_ecx + 0x16;`, is a local
+        # of its own, and taken for a kept register 9 functions were assignments to an address)
+        lower = set(re.findall(r"\bin_e[cd]x_\d+\b", c))
+        if re.search(r"(?m)^\s+\w+\s+in_ecx;\s*$", c) and not re.search(r"\bin_ecx\b", c.split("{", 1)[0]):
+            lower.add("in_ecx")
+        lower = {n for n in lower if not re.search(rf"(?<![=!<>])\b{n}\s*=(?!=)", c)}
+        names = [(n, "ecx" if "cx" in n.lower() else "edx")
+                 for n in sorted(set(re.findall(r"\bextraout_E[CD]X(?:_\d+)?\b", c)) | lower)]
         # (and a local the decompiler declared and reads but never assigns: a kept register it
         # named for the parameter it is passed as, `this_00` in a VS2010 client's 0x50b800, ecx
         # its `this` across two calls that keep it; translated as written, an uninitialized local
@@ -3396,14 +3432,16 @@ class Translator32:
             return c
         # (a statement the decompiler wrapped over lines on one: the call above a use is the whole
         # statement, not its last line's tail, `uVar3 = FUN_00559f00(extraout_ECX_00,\n (float)...);`)
+        # (a qualified name wrapped at its `::`, `Client::Graphics::\n JobSystem<..>\n ::vftable`, joined
+        # with no space: as words apart, the name was no name, 0xbcab40 a stub at startup)
         joined, buf = [], ""
         for l in c.split("\n"):
             s = l.strip()
             if buf:
-                buf += " " + s
+                buf += ("" if buf.rstrip().endswith("::") or s.startswith("::") else " ") + s
             else:
                 buf = l.rstrip("\r")
-            if not s or s.endswith((";", "{", "}", ":", "*/")) or s.startswith(("/*", "#")):
+            if not s or (s.endswith((";", "{", "}", ":", "*/")) and not s.endswith("::")) or s.startswith(("/*", "#")):
                 joined.append(buf.rstrip("\r"))
                 buf = ""
         if buf:
@@ -4136,8 +4174,11 @@ class Translator32:
             base = body[start:m.start() + 1]
             n = m.group(2)
             t = {"4": "float", "8": "double"}.get(n, f"undefined{n}") if m.group(3) else f"undefined{n}"
-            rep = (f"(*({t} *)((char *)&{base} + {m.group(1)}))" if n in ("1", "2", "4", "8")
-                   else f"GEN_PIECE(&{base}, {m.group(1)}, {n})")
+            # (an array member's place, already its bytes' address, `((char *)(frame + 0x494) + 2)`
+            # for `local_30.sa_data`: a piece of it there, no address of an address, 0xdbf920)
+            addr = base if re.match(r"\(\s*\(\s*(?:char|undefined\d*|unsigned char)\s*\*\s*\)", base) else f"&{base}"
+            rep = (f"(*({t} *)((char *){addr} + {m.group(1)}))" if n in ("1", "2", "4", "8")
+                   else f"GEN_PIECE({addr}, {m.group(1)}, {n})")
             out.append(body[i:start])
             out.append(rep)
             i = m.end()
@@ -4154,7 +4195,10 @@ class Translator32:
                      if (m.group(1) in STRUCT_POINTERS and not m.group(2)) or (m.group(1) in STRUCT_TYPES and m.group(2))}
         spointers |= {n for t, n in self.sigs[a].params
                       if t.strip() in STRUCT_POINTERS or t.replace("*", "").strip() in STRUCT_TYPES}
-        rest = re.sub(r'L?"(?:\\.|[^"\\])*"', '""', body)
+        # (character literals first: `'"'` opened a string to the next quote, and a path's
+        # "hkxEnvironment.cpp" after it read as a member, 0xde59e0)
+        rest = re.sub(r"L?'(?:\\.|[^'\\\n])+'", "0", body)
+        rest = re.sub(r'L?"(?:\\.|[^"\\])*"', '""', rest)
         if structs:
             rest = re.sub(r"\b(?:" + "|".join(map(re.escape, structs)) + r")\s*(?:\[[^\]]*\])?(?:\.[A-Za-z_]\w*)+", "", rest)
             # (and an element of one as the decompiler indexes it, `(&local_298)[uVar5].left`)
@@ -4332,6 +4376,10 @@ class Translator32:
         # name. The C runtime's spawn copying "<SystemRoot>" by words, 0xc7e791)
         body = re.sub(r"(?<![\w$])_*(?:s|u|ws)_[\w<>:]*?_([0-9a-f]{8})\._(\d+)_([1248])_",
                       lambda m: f"(*(undefined{m.group(3)} *)REFP(0x{int(m.group(1), 16) + int(m.group(2)):x}))", body)
+        # (an in_addr's union, its one member at 0: `in.S_un._2_1_` a piece of `in`'s 4 bytes, a
+        # socket address printed with inet_ntoa, 0xdbf920)
+        body = re.sub(r"\b([A-Za-z_]\w*)\.S_un(?=\._\d+_\d+f?_|\.S_addr\b)", r"\1", body)
+        body = re.sub(r"\b([A-Za-z_]\w*)\.S_addr\b", r"(*(unsigned int *)&\1)", body)
         # (a piece the decompiler wrapped after its dot, `in_XMM3.\n _4_4f_`, whole again)
         body = re.sub(r"(\w)\.[ \t]*\r?\n[ \t]*(_\d+_\d+f?_)", r"\1.\2", body)
         body = re.sub(r"(\w)\.[ \t]+(_\d+_\d+f?_)", r"\1.\2", body)
@@ -4528,8 +4576,17 @@ class Translator32:
 
             def slot(m):
                 off = int(m.group(1), 16)
-                if off < 4 or off % 4 or (off - 4) // 4 >= words:
+                # (an address past the arguments taken, never a read: a frame array's end, `lea esi,
+                # [ebp + 8]` stepped down 0x74 at a time to destroy each, 0x828fe0. Above the
+                # frame's buffer as the reference's is above its frame, frame_locals' GEN_ABOVE)
+                if off >= 4 + 4 * words:
+                    return f"((undefined *)GEN_ABOVE(0x{off:x}))"
+                if off < 4:
                     raise ValueError(f"the caller's stack beyond its arguments (stack0x{m.group(1)})")
+                # (or a byte inside a word, `&stack0x0000000a`: a char parameter's slot's upper
+                # bytes used for a short, the reference's own scratch, a client's 0x62e0b0)
+                if off % 4:
+                    return f"((undefined *)&gen_args[{(off - 4) // 4}] + {off % 4})"
                 return f"((undefined *)&gen_args[{(off - 4) // 4}])"
             body = re.sub(r"\(uint\)\s*&\s*stack0x(?!f[0-9a-f]{7}\b)([0-9a-f]{8})",
                           lambda m: f"(uint)(uintptr_t){slot(m)}", body)
@@ -4919,7 +4976,8 @@ class Translator32:
             if n in var_types or n in labels or n in KNOWN_TYPES or n in C_WORDS or n in HEADER_NAMES:
                 continue
             # (and v16_forms' block-local temporary, small_array's gen_sa)
-            if n.startswith(("F_", "gen_imp_", "LAB_", "switchD_", "caseD_")) or n == "gen_sa" or n in header_names():
+            if n.startswith(("F_", "gen_imp_", "LAB_", "switchD_", "caseD_")) or n in ("gen_sa", "GEN_ABOVE") \
+                    or n in header_names():
                 continue
             raise ValueError(f"undeclared name {n}")
 
@@ -5371,6 +5429,11 @@ class Translator32:
                     continue
                 if "*" in t:
                     t = re.sub(r"\b" + re.escape(w) + r"\b", "undefined", t)
+                # (a composite of a scalar's size by value, its bytes: Ghidra's 1-byte placeholder
+                # for an RTTI class, `EventHandler param_2` beside `EventHandler *param_1`, a byte
+                # compared and stored, 0xb8c640)
+                elif self.composite_sizes.get(w) in (1, 2, 4, 8):
+                    t = re.sub(r"\b" + re.escape(w) + r"\b", f"undefined{self.composite_sizes[w]}", t)
                 else:
                     raise ValueError(f"type {w}")
         return ptr32_type(t)

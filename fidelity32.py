@@ -1299,7 +1299,11 @@ def main() -> None:
         warnings it leaves: a function's address, a thunk's target (`thunk_FUN_00402350`, which
         the reference's call reaches through), or an import (`imp:libm_sse2_sqrt_precise`)."""
         out = set()
-        for n in re.findall(r"Function: (\S+) replaced with injection", c):
+        # (an x87 leaf's fixup names its function's address, rh_x87leaf_ce61c0: a method's warning
+        # gives its bare name, `vf11`, which many share)
+        for x in re.findall(r"replaced with injection: rh_x87leaf_([0-9a-f]+)", c):
+            out.add(int(x, 16))
+        for n in re.findall(r"Function: (\S+) replaced with injection(?!: rh_x87leaf_)", c):
             t = n[len("thunk_"):] if n.startswith("thunk_") else n
             if t in by_name:
                 out.add(by_name[t])
@@ -1563,6 +1567,17 @@ def main() -> None:
         injected = injections(e["c"])
         rseq = [x for x in ref_calls(rf) if x not in injected]
         pseq = port_calls(pva, pf)
+        # (a static C runtime's function the port calls as the import of its name, the runtime's
+        # own: `__setjmp3` as imp:setjmp3, GEN_SETJMP. The same call)
+        imps = {x for x in pseq if isinstance(x, str) and x.startswith("imp:")}
+        if imps:
+            for i, x in enumerate(rseq):
+                if isinstance(x, int) and x in cor:
+                    # (by its bare name: scopes and Function ID's `FID_conflict:` off, `___longjmp_
+                    # internal` the CRT's longjmp)
+                    n = "imp:" + re.sub(r"_internal$", "", re.sub(r"^.*:", "", cor[x]["name"]).lstrip("_"))
+                    if n in imps:
+                        rseq[i] = n
         # (a folded adapter's call as the name the reference calls among those it stands for)
         # (dealt out by what the reference calls of each: a function calling both DecodePointer and
         # EncodePointer, two calls of one folded address, has one of each)

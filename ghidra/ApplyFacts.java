@@ -1941,7 +1941,75 @@ public class ApplyFacts extends GhidraScript {
 
     // The call targets and pointed-to code no function covered (protos.py, protos32.py "leaves",
     // "pointed"), made functions
+    // (small leaves that answer on the x87 stack as call fixups of their own semantics, protos32's
+    // x87_leaf_pcode: a call pushes the stack as the leaf's fld does, so a caller's values deeper
+    // in it stay where they were. As calls, a vector's dot product lost every product but the last,
+    // extraout_ST1, 20 of a client's stubs)
+    private void applyX87Leaves(JsonObject root) throws Exception {
+        if (!root.has("x87_leaves")) return;
+        Class<?> se = Function.class.getClassLoader().loadClass("ghidra.program.database.SpecExtension");
+        Object ext = se.getConstructor(ghidra.program.model.listing.Program.class).newInstance(currentProgram);
+        java.lang.reflect.Method add = se.getMethod("addReplaceCompilerSpecExtension", String.class,
+                ghidra.util.task.TaskMonitor.class);
+        int set = 0, bad = 0;
+        for (Map.Entry<String, JsonElement> e : root.getAsJsonObject("x87_leaves").entrySet()) {
+            Function f = getFunctionAt(addr(e.getKey()));
+            if (f == null) continue;
+            String name = "rh_x87leaf_" + e.getKey().replace("0x", "");
+            String xml = "<callfixup name=\"" + name + "\"><target name=\"" + name + "_target\"/><pcode><body><![CDATA[\n"
+                    + e.getValue().getAsString() + "\n]]></body></pcode></callfixup>";
+            try {
+                add.invoke(ext, xml, monitor);
+            } catch (java.lang.reflect.InvocationTargetException ex) {
+                printerr("ApplyFacts: call fixup " + name + " does not compile: " + ex.getCause());
+                bad++;
+                continue;
+            }
+            if (!name.equals(f.getCallFixup())) {
+                f.setCallFixup(name);
+                set++;
+            }
+        }
+        println("ApplyFacts: x87 leaves as call fixups " + set + " (" + bad + " not compiled)");
+    }
+
+    // (a function whose body stops after its first instruction, the bytes after it no code: Ghidra's
+    // disassembly cut short there, data laid over them. Three vtable methods of a client, `push ebx`
+    // their whole body, decompiled as in_stack stubs. Cleared to the next function and disassembled
+    // again, the body as its flow reaches)
+    private void regrowShortBodies() throws Exception {
+        Listing listing = currentProgram.getListing();
+        int grown = 0;
+        for (Function f : currentProgram.getFunctionManager().getFunctions(true)) {
+            if (f.isThunk() || f.isExternal() || f.getBody().getNumAddresses() > 2) continue;
+            Instruction first = listing.getInstructionAt(f.getEntryPoint());
+            if (first == null || !first.getFlowType().isFallthrough()) continue;
+            Address next = first.getMaxAddress().add(1);
+            // (its code there already, in no function: the body only, as its flow reaches)
+            if (listing.getInstructionAt(next) != null) {
+                if (getFunctionContaining(next) == null) {
+                    ghidra.app.cmd.function.CreateFunctionCmd.fixupFunctionBody(currentProgram, f, monitor);
+                    if (f.getBody().getNumAddresses() > 2) grown++;
+                }
+                continue;
+            }
+            Function after = getFunctionAfter(f.getEntryPoint());
+            Address end = after == null ? next.add(0x100) : after.getEntryPoint().subtract(1);
+            if (end.compareTo(next) < 0) continue;
+            if (listing.getInstructions(new ghidra.program.model.address.AddressSet(next, end), true).hasNext()) {
+                end = next.add(0);   // (some code there already: clear nothing past the gap's start)
+            }
+            clearListing(next, end);
+            disassemble(next);
+            ghidra.app.cmd.function.CreateFunctionCmd.fixupFunctionBody(currentProgram, f, monitor);
+            if (f.getBody().getNumAddresses() > 2) grown++;
+        }
+        println("ApplyFacts: functions cut short after their first instruction grown " + grown);
+    }
+
     private void applyLeaves(JsonObject root) throws Exception {
+        applyX87Leaves(root);
+        regrowShortBodies();
         // (functions an earlier run made mid-instruction, from a data word equal to an address
         // inside one (protos32 "misplaced"): removed, their instructions cleared, and the code run's
         // own start made the function. 0x730068 inside 0x730060's `mov edi, 1`, its decompilation
