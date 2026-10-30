@@ -303,6 +303,32 @@ def analyse(root: int, ranges):
     no_locals = not any(op.type == X.X86_OP_MEM and op.mem.base == X.X86_REG_EBP and op.mem.disp < 0
                         for i in insns.values() for op in i.operands)
 
+    # (and without a frame: the next call's ret reached with nothing giving the room back, no `add
+    # esp` or pop, so the callee popped it. 14.51's /O2 Mover::moveToV, `sub esp, 0xc; movss [esp +
+    # 8], xmm0; ...; call [eax]; ret 4`, took for its frame, passed slot 0 none of its floats)
+    def frameless_args(a):
+        q = nxt.get(a)
+        seen_call = False
+        for _ in range(40):
+            if q is None or q not in insns:
+                return False
+            i = insns[q]
+            m = i.mnemonic
+            if m.startswith("j") or m in ("pop", "leave", "int3"):
+                return False
+            if any(o.type == X.X86_OP_REG and o.reg == X.X86_REG_ESP for o in i.operands[:1]):
+                return False
+            if m == "call":
+                if seen_call:
+                    return False
+                seen_call = True
+            elif m == "ret":
+                return seen_call
+            elif not seen_call and any(o.type == X.X86_OP_MEM and o.mem.base == X.X86_REG_ESP for o in i.operands[1:]):
+                return False                    # (a slot read before the call: a local)
+            q = nxt.get(q)
+        return False
+
     def merge(a, s):
         old = state.get(a)
         if old is None:
@@ -563,8 +589,9 @@ def analyse(root: int, ranges):
                 # passes a double and an int. Counted as the push alone, the method popped 4 of its
                 # 16 bytes and the epilogue's `pop ebx` read a local, unaff_EBX, rhtest
                 # msvc-14.51-x86 com-O2 2026-10-27)
-                args_room = mn == "sub" and ebp is not None and floor[2] is None \
-                    and (saved_before(insns, prv, a) or no_locals)
+                args_room = mn == "sub" and floor[2] is None and (
+                    ebp is not None and (saved_before(insns, prv, a) or no_locals)
+                    or ebp is None and frameless_args(a))
                 if args_room:
                     pushed += src.imm
                 elif mn == "sub" and (floor[0] is not None or floor[2] == -1) and floor[2] != a:
@@ -1051,14 +1078,36 @@ def analyse(root: int, ranges):
             if insns[a].mnemonic != "ret":
                 continue
             q = prv.get(a)
+            # (past arithmetic on st0 with a memory operand, `fild [ebp + 8]; fmul dword ptr [m];
+            # ret 4`: a fixed-point value scaled to a float, its operand's width the result's. Taken
+            # for no result, 0xcfe760 and 3 like it returned their argument, 2026-10-30)
+            arith = None
             for _ in range(16):
                 if q is None or q not in insns:
                     break
                 qi = insns[q]
+                if qi.mnemonic in ("fmul", "fadd", "fsub", "fsubr", "fdiv", "fdivr") and len(qi.operands) == 1 \
+                        and qi.operands[0].type == X.X86_OP_MEM and arith is None:
+                    arith = qi.operands[0].size
+                    q = prv.get(q)
+                    continue
                 if qi.mnemonic.startswith("f") and qi.mnemonic not in X87_CONTROL:
                     ops = qi.operands
-                    if qi.mnemonic == "fld" and ops and ops[0].type == X.X86_OP_MEM:
+                    if arith is not None and qi.mnemonic in ("fld", "fild") and ops and ops[0].type == X.X86_OP_MEM:
+                        widths.add(arith)
+                    elif qi.mnemonic == "fld" and ops and ops[0].type == X.X86_OP_MEM:
                         widths.add(ops[0].size)
+                    # (a constant, `fldz` on the other path: no width of its own, the loads' then.
+                    # A getter's `test ecx, ecx; je; ...; fld [ebp - 4]; ret` or `fldz; ret`, typed
+                    # i4, its callers' tail jumps extraout_ST0 stubs, 27 of a client's)
+                    elif qi.mnemonic in ("fldz", "fld1", "fldpi", "fldl2e", "fldl2t", "fldlg2", "fldln2"):
+                        widths.add("const")
+                    # (or an integer loaded and converted, `fild dword ptr [ebp + 8]; ret 4`: a
+                    # table's short as a float, a double that holds any int exactly. Typed by its
+                    # callers alone, a virtual one with none returned its argument in eax, 0x9091b0
+                    # and 2 like it scored 0, 2026-10-30)
+                    elif qi.mnemonic == "fild" and ops and ops[0].type == X.X86_OP_MEM:
+                        widths.add(8)
                     else:
                         widths.add(None)
                     break
@@ -1066,8 +1115,94 @@ def analyse(root: int, ranges):
                     widths.add(None)
                     break
                 q = prv.get(q)
+        widths.discard("const")
         if widths in ({4}, {8}):
             x87_own_ret = "f4" if widths == {4} else "d8"
+        # (or every ret reached, along every way, with one value on the x87 stack, whatever made
+        # it: a vector length's `fsqrt` past its compares and copies, `fld st(0); fldz; fucompi
+        # st(2); ...; ret`, its callers' extraout_ST0 stubs. A double: as wide as the x87 result
+        # goes in C, a float's rounding none the reference did)
+        elif x87_depth_at_rets(insns, nxt, state, root) == {1}:
+            x87_own_ret = "d8"
+    # (and a 64-bit result of its own: every ret reached, past the epilogue's pops alone, from a
+    # load of eax and one of edx from a value's two words, `mov eax, [ecx + 8]; mov edx, [ecx +
+    # 0xc]; ret`. A JSON parser's IntToken::vf5, virtual, read by no caller it can see: typed i4,
+    # its value's high word was lost, 2026-10-30)
+    own_i8 = False
+    # (or a ret of both zeroed, `xor eax, eax; xor edx, edx`, the other path's 0, one ret at least
+    # loading the pair: a lookup's 64-bit field or none, 0xa35e40 2026-10-30)
+    rets_seen = 0
+    pairs = 0
+    for a in state:
+        if insns[a].mnemonic != "ret":
+            continue
+        rets_seen += 1
+        q, loads = prv.get(a), {}
+        zeroed = set()
+        r = q
+        for _ in range(6):
+            if r is None or r not in insns:
+                break
+            ri = insns[r]
+            if ri.mnemonic in ("pop", "leave") or ri.op_str == "esp, ebp":
+                r = prv.get(r)
+                continue
+            if ri.mnemonic == "xor" and len(ri.operands) == 2 and all(o.type == X.X86_OP_REG for o in ri.operands) \
+                    and ri.operands[0].reg == ri.operands[1].reg and ri.operands[0].reg in (X.X86_REG_EAX, X.X86_REG_EDX):
+                zeroed.add(ri.operands[0].reg)
+                r = prv.get(r)
+                continue
+            break
+        if zeroed == {X.X86_REG_EAX, X.X86_REG_EDX}:
+            continue
+        for _ in range(8):
+            if q is None or q not in insns:
+                break
+            qi = insns[q]
+            if qi.mnemonic in ("pop", "leave") or (qi.mnemonic == "mov" and qi.op_str in ("esp, ebp",)):
+                q = prv.get(q)
+                continue
+            ops = qi.operands
+            if qi.mnemonic == "mov" and len(ops) == 2 and ops[0].type == X.X86_OP_REG \
+                    and ops[0].reg in (X.X86_REG_EAX, X.X86_REG_EDX) and ops[1].type == X.X86_OP_MEM \
+                    and ops[0].reg not in loads:
+                loads[ops[0].reg] = (ops[1].mem.base, ops[1].mem.index, ops[1].mem.disp)
+                if len(loads) == 2:
+                    break
+                q = prv.get(q)
+                continue
+            break
+        lo, hi = loads.get(X.X86_REG_EAX), loads.get(X.X86_REG_EDX)
+        if not (lo and hi and lo[0] == hi[0] and lo[1] == hi[1] and hi[2] == lo[2] + 4):
+            rets_seen = -1
+            break
+        pairs += 1
+    own_i8 = rets_seen > 0 and pairs > 0
+    # (and an SSE result of its own: no call, eax never written, every ret reached past the
+    # epilogue's pops from a write of xmm0, the scalar ops all of one width. A reciprocal square
+    # root, `sqrtss xmm0, [ebp + 8]; ...; movaps xmm0, xmm1; pop ebp; ret`, read by no caller it
+    # can see: void, its float lost, 0xda1730 2026-10-30)
+    own_sse = None
+    def xmm_op(i):
+        return any(o.type == X.X86_OP_REG and X.X86_REG_XMM0 <= o.reg <= X.X86_REG_XMM7 for o in i.operands)
+    sse_w = {("q8" if i.mnemonic.endswith("sd") else "s4") for a, i in insns.items()
+             if a in state and xmm_op(i) and re.search(r"s[sd]$", i.mnemonic)}
+    sse_calls = any(i.mnemonic == "call" or i.mnemonic == "jmp" and _target(i) is None for a, i in insns.items() if a in state)
+    sse_eax = any(any(x in EAX_REGS for x in regs_access(i)[1]) for a, i in insns.items() if a in state)
+    if len(sse_w) == 1 and not sse_calls and not sse_eax:
+        ok = rets = 0
+        for a in state:
+            if insns[a].mnemonic != "ret":
+                continue
+            rets += 1
+            q = prv.get(a)
+            while q is not None and q in insns and (insns[q].mnemonic in ("pop", "leave")
+                                                     or insns[q].op_str == "esp, ebp"):
+                q = prv.get(q)
+            if q is not None and q in insns and X.X86_REG_XMM0 in regs_access(insns[q])[1]:
+                ok += 1
+        if rets and ok == rets:
+            own_sse = sse_w.pop()
     for a in state:
         if insns[a].mnemonic != "ret":
             continue
@@ -1265,8 +1400,13 @@ def analyse(root: int, ranges):
             if pm == "push":
                 n += 4
             # (room made for a double, `sub esp, 8; fstp qword ptr [esp]`: mixed_va's)
+            # (not the frame's own allocation, only its setup before it: `push ebp; mov ebp, esp;
+            # sub esp, 0x44; ...; push 4 words; call _sprintf_s` passed sprintf 21, the caller's
+            # locals and saved registers its varargs, 0xecb080 2026-10-30)
             elif pm == "sub" and len(po) == 2 and po[0].type == X.X86_OP_REG and po[0].reg == X.X86_REG_ESP \
                     and po[1].type == X.X86_OP_IMM:
+                if in_prologue(insns, prv, p):
+                    break
                 n += po[1].imm
             elif pm in ("call", "jmp", "ret") or pm.startswith("j") or any(
                     o.type == X.X86_OP_REG and o.reg == X.X86_REG_ESP for o in po):
@@ -1298,6 +1438,8 @@ def analyse(root: int, ranges):
                     m += 4
                 elif qm == "sub" and len(qo) == 2 and qo[0].type == X.X86_OP_REG and qo[0].reg == X.X86_REG_ESP \
                         and qo[1].type == X.X86_OP_IMM:
+                    if in_prologue(insns, prv, q):
+                        break
                     m += qo[1].imm
                 elif qm in ("call", "jmp", "ret") or qm.startswith("j") or any(
                         o.type == X.X86_OP_REG and o.reg == X.X86_REG_ESP for o in qo):
@@ -1450,7 +1592,7 @@ def analyse(root: int, ranges):
         if off >= 4 and off not in slots and off not in lea_offs and acc \
                 and all(w == 1 and not wr and b == 0 for w, wr, b in acc):
             slots[off] = "b"
-    return {"reg_handoff": reg_handoff(insns, prv, state), "fpu_clear": fpu_clear, "x87_data": x87_data, "x87_own_ret": x87_own_ret, "local_block": block, "passed": passed, "tail_jumps": tail_jumps, "eh_imms": eh_imms,
+    return {"reg_handoff": reg_handoff(insns, prv, state), "fpu_clear": fpu_clear, "x87_data": x87_data, "x87_own_ret": x87_own_ret, "own_i8": own_i8, "own_sse": own_sse, "local_block": block, "passed": passed, "tail_jumps": tail_jumps, "eh_imms": eh_imms,
             "frame": -floor[0] if floor[0] is not None and floor[0] < 0 else None,"inputs": inputs, "in_width": in_width, "stack_hi": stack_hi, "slots": slots,
             "addr_taken": addr_taken, "calls": calls, "variadic": variadic, "call_pushes": call_pushes, "pushes_past": pushes_past,
             "untyped_pushed": untyped_pushed,
@@ -2632,7 +2774,11 @@ def reused_slots(insns, prv, nxt, a, n):
     if p != a:
         return 0
     extra = 0
-    while cur + n + extra in stores:
+    # (a slot at or above the stack the previous call left, not one pushed since: `push ecx; mov
+    # eax, esp; mov [eax], ecx; ...; call [vt + 0x128]` fills a word pushed for the call after,
+    # next_call_deficit's, and taken for a reused one it went to the getter, the next call reading
+    # its caller's saved edi, 0x6ac6b0 2026-10-30)
+    while cur + n + extra in stores and cur + n + extra >= 0:
         extra += 4
     return extra
 
@@ -2773,7 +2919,8 @@ def x87_depth_at_rets(insns, nxt, state, root=None) -> set:
                 d += 1
             elif m in ("fcompp", "fucompp"):
                 d -= 2
-            elif m.startswith("f") and m.endswith("p") and not m.startswith(("fn", "fwait")):
+            # (and the popping compares to eflags, capstone's `fcompi`/`fucompi`)
+            elif m.startswith("f") and (m.endswith("p") or m in ("fcompi", "fucompi")) and not m.startswith(("fn", "fwait")):
                 d -= 1
             # (popping a value it did not load: a callee's result, or one it was handed)
             d = max(d, 0)
@@ -3318,7 +3465,39 @@ def code_pointers(b: Binary) -> set[int]:
         ins = next(md.disasm(bytes(b.image[o:o + 16]), insn, 1), None)
         if ins is not None and any(op.type == X.X86_OP_IMM and op.imm & 0xFFFFFFFF == t for op in ins.operands):
             out.add(t)
-    return {t for t in out if b.image[b.off(t)] not in (0x00, 0xCC)}
+    out = {t for t in out if b.image[b.off(t)] not in (0x00, 0xCC)}
+    # (and only on an instruction: the code from its run's start, past the int3 padding before it,
+    # decoded on to it. A data word that happens to equal an address inside an instruction, a
+    # constant in .rdata, made functions mid-instruction, 0x730068, 0x730069 and 0x73006d inside
+    # 0x730060's `mov edi, 1`, decompiled from garbage and stubbed; the run's own start instead)
+    # (nor on a conditional jump, flags no entry is handed: the run's start, as for misplaced)
+    def entry(t):
+        first = next(md.disasm_lite(bytes(b.image[b.off(t):b.off(t) + 16]), t), None)
+        if first and first[2].startswith("j") and first[2] != "jmp":
+            return entry_of_run(b, md, t, force=True)
+        return entry_of_run(b, md, t)
+    return {entry(t) for t in out}
+
+
+def entry_of_run(b: Binary, md, t: int, back: int = 256, force: bool = False) -> int:
+    """`t` when it begins an instruction of the code run it is in (decoded from just past the
+    int3 or zero padding before it), else that run's start (or the run's start whatever, force)"""
+    o = b.off(t)
+    start = o
+    # (the padding two int3s at least: a zero, or one 0xcc, is common inside an instruction)
+    while start > 1 and o - start < back and not (b.image[start - 1] == 0xCC and b.image[start - 2] == 0xCC):
+        start -= 1
+    if o - start >= back:
+        return t                                    # (no padding near: no telling)
+    s = b.va(start) if hasattr(b, "va") else t - (o - start)
+    if force:
+        return s
+    for ins in md.disasm_lite(bytes(b.image[start:o + 16]), s):
+        if ins[0] == t:
+            return t
+        if ins[0] > t:
+            return s
+    return t
 
 
 def import_args(b: Binary, ranges, funcs, takes: dict[int, int] | None = None) -> dict[str, int]:
@@ -3693,9 +3872,64 @@ def main() -> None:
     pointed = code_pointers(b)
     called = {t for v in local.values() for t, _u, _k in v.get("calls", ())
               if b.is_code(t) and b.func_containing(t) is None}
+    # (the functions an earlier run made mid-instruction, from a data word that equals an address
+    # inside one, that nothing calls: ApplyFacts removes them and makes the run's own start one.
+    # 0x730068, 0x730069 and 0x73006d inside 0x730060, decompiled from garbage, stubbed unaff_EBX)
+    targets = {t for v in local.values() for t, _u, _k in v.get("calls", ())}
+    md_runs = disassembler()
+    misplaced = {}
+    # (and one inside another function's body, called or jumped to from no other function: a data
+    # word that spells text equal to its address, "max" for 0x78616d, UTF-16 "nt" for 0x74006e,
+    # made a function on its owner's jump target. Its owner's branch there read as a call the port
+    # never makes, 3 of a client's, 2026-10-30)
+    spans = sorted((lo, hi, e2) for e2, rs in ranges.items() for lo, hi in rs)
+    span_lo = [s3[0] for s3 in spans]
+
+    def owner_of(t):
+        k = bisect.bisect_right(span_lo, t) - 1
+        while k >= 0 and spans[k][0] <= t:
+            if t < spans[k][1] and spans[k][2] != t:
+                return spans[k][2]
+            k -= 1
+        return None
+    from_others: dict[int, set] = {}
+    for f2, v in local.items():
+        for t, _u, _k in v.get("calls", ()):
+            from_others.setdefault(t, set()).add(f2)
+    # (the owner branching there itself, its own jump target: not a callback whose function a
+    # range drawn too wide happens to cover; nor a vtable's method or an EH continuation)
+    keep = eh_continuations(b, ranges, eh_funclets(b, local))
+    vt_path = FACTS / "vtables.json"
+    if vt_path.exists():
+        vt = json.loads(vt_path.read_text())
+        keep |= {int(x, 16) for tab in vt.get("vtables", []) for x in tab.get("slots", [])}
+    for f in funcs:
+        e = int(f["entry"], 16)
+        if not f["name"].startswith("FUN_") or not b.is_code(e) or e in keep:
+            continue
+        own = owner_of(e)
+        refs = from_others.get(e, set())
+        if own is not None and own in refs and not (refs - {own, e}):
+            misplaced[e] = own
+    for f in funcs:
+        e = int(f["entry"], 16)
+        if not f["name"].startswith("FUN_") or e in targets or not b.is_code(e) or e in misplaced:
+            continue
+        s = entry_of_run(b, md_runs, e)
+        # (or one that opens with a conditional jump, flags no function is handed: a run's middle,
+        # a data word equal to its address, `je 0x67004e` 15 bytes into 0x670020's copy loop,
+        # stubbed in_ZF, 2026-10-30)
+        if s == e:
+            first = next(md_runs.disasm_lite(bytes(b.image[b.off(e):b.off(e) + 16]), e), None)
+            if first and first[2].startswith("j") and first[2] != "jmp":
+                s = entry_of_run(b, md_runs, e, force=True)
+        if s != e:
+            misplaced[e] = s
     # (and the catch continuations inside a function's body, an entry the EH runtime calls)
     pointed |= eh_continuations(b, ranges, eh_funclets(b, local))
-    leaves = pointed | called
+    # (none of the misplaced made again from the data word that made them)
+    leaves = (pointed | called) - set(misplaced)
+    print(f"functions made where none starts, moved or removed: {len(misplaced)}", flush=True)
 
     # 3. register inputs through calls and tail jumps (not from a function that never returns:
     # __report_gsfailure saves every register into its crash context, and through
@@ -3971,6 +4205,12 @@ def main() -> None:
     for f, v in local.items():
         if v.get("x87_own_ret") and f not in ret_of:
             give(f, v["x87_own_ret"], "loads st0 before its ret")
+    for f, v in local.items():
+        if v.get("own_i8") and f not in ret_of:
+            give(f, "i8", "loads edx:eax from a value's two words before its ret")
+    for f, v in local.items():
+        if v.get("own_sse") and f not in ret_of:
+            give(f, v["own_sse"], "writes xmm0 before its ret")
     for f, v in local.items():
         if v.get("sets_eax") and f not in ret_of:
             give(f, f"i{v['sets_eax']}", "sets eax before its ret")
@@ -4426,6 +4666,8 @@ def main() -> None:
         "imports": import_args(b, ranges, funcs, {int(k, 16): v["stack"] for k, v in out.items()}),
         "leaves": [hexa(g) for g in sorted(leaves)],
         "pointed": [hexa(g) for g in sorted(pointed)],
+        # (functions made mid-instruction, each to its run's start: ApplyFacts applyLeaves)
+        "misplaced": {hexa(e): hexa(s) for e, s in sorted(misplaced.items())},
         # (the locals one object spans below a pointer to it: ApplyFacts applyStackBlocks)
         "stack_blocks": {hexa(f): [v["local_block"]] for f, v in sorted(local.items()) if v.get("local_block")}})
     # each indirect call's convention and arguments: ApplyFacts' call-site signatures

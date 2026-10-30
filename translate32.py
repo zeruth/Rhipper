@@ -79,6 +79,10 @@ STRUCT_TYPES = {"_FILETIME", "FILETIME", "_LARGE_INTEGER", "LARGE_INTEGER", "_UL
                 "_OSVERSIONINFOA", "OSVERSIONINFOA", "_OSVERSIONINFOW", "OSVERSIONINFOW", "_SYSTEM_INFO",
                 "SYSTEM_INFO", "tagPOINT", "POINT", "tagRECT", "RECT"}
 STRUCT_POINTERS = {"LPPOINT", "LPRECT"}
+# an x86 CRITICAL_SECTION's fields: (offset, type)
+CS_FIELDS = {"DebugInfo": (0, "unsigned int"), "LockCount": (4, "int"), "RecursionCount": (8, "int"),
+             "OwningThread": (0xc, "unsigned int"), "LockSemaphore": (0x10, "unsigned int"),
+             "SpinCount": (0x14, "unsigned int")}
 # the 8-byte ones a function takes or returns by value (in edx:eax on x86): 64-bit integers across
 # the call, the structure inside
 STRUCT8 = {"_FILETIME": "ULONGLONG", "FILETIME": "ULONGLONG", "_LARGE_INTEGER": "LONGLONG",
@@ -241,7 +245,23 @@ _ALIAS = re.compile(r"\b(" + "|".join(TYPE_ALIASES) + r")\b")
 _WINPTR = re.compile(r"\b(?!PTR_)(?:LP|P)C?[A-Z]+(?:_[A-Z]+)*\b")
 
 
+_LITERAL = re.compile(r'L?"(?:[^"\\\n]|\\.)*"|\'(?:[^\'\\\n]|\\.)+\'')
+
+
 def alias_types(text: str) -> str:
+    # (outside string and character literals: the C runtime's `__dupenv_s(&p, 0, "PATH")` passed
+    # "GEN_LPANY", PATH a P and capitals, and _spawnvpe searched no path, 2 of a client's)
+    parts = []
+    i = 0
+    for m in _LITERAL.finditer(text):
+        parts.append(_alias_code(text[i:m.start()]))
+        parts.append(m.group(0))
+        i = m.end()
+    parts.append(_alias_code(text[i:]))
+    return "".join(parts)
+
+
+def _alias_code(text: str) -> str:
     text = _ALIAS.sub(lambda m: TYPE_ALIASES[m.group(1)], text)
     # (not a name Ghidra32.h defines: POPCOUNT is a P and capitals too, and popcount's
     # `POPCOUNT(x)` became a call of a pointer type, rhtest misc-O2 2026-10-24)
@@ -400,6 +420,22 @@ def v16_forms(c: str) -> str:
     c = re.sub(r"\(\s*undefined1\s*\(\s*\*\s*\)\s*\[\s*(" + V_SIZES + r")\s*\]\s*\)", r"(gen_v\1 *)", c)
     # (and a function's return type, `undefined1 (*) [32]` on the line before its name)
     c = re.sub(r"(?m)^undefined1\s*\(\s*\*\s*\)\s*\[\s*(" + V_SIZES + r")\s*\]", r"gen_v\1 *", c)
+    # (a zeroed register's piece stored into a local's, `local_860._4_12_ = SUB1612((undefined1
+    # [16])0x0,4);`: those bytes zero. 2 of a client's large-frame initializers)
+    c = re.sub(r"(?m)^([ \t]*)([A-Za-z_]\w*)\._(\d+)_(\d+)_\s*=\s*SUB16\d+\(\s*\(\s*undefined1\s*\[\s*16\s*\]\s*\)\s*0x0\s*,\s*\d+\s*\);",
+               r"\1memset((char *)&\2 + \3, 0, \4);", c)
+    # (or a whole local, `stack0xffffffb4 = SUB1612(..)`, its N bytes)
+    c = re.sub(r"(?m)^([ \t]*)([A-Za-z_]\w*)\s*=\s*SUB16(\d+)\(\s*\(\s*undefined1\s*\[\s*16\s*\]\s*\)\s*0x0\s*,\s*\d+\s*\);",
+               r"\1memset(&\2, 0, \3);", c)
+    # (a value into a small array, `auVar6 = (undefined1 [4]) gen_fl2bits(x);`: its bytes, the
+    # array's size. A float's bits kept for an SSE op, 0xd473c0)
+    def small_array(m):
+        n = int(m.group(3))
+        t = {4: "unsigned int", 8: "unsigned long long"}[n]
+        ind = m.group(1)
+        return (f"{ind}{{\n{ind}  {t} gen_sa = ({t})({m.group(4)});\n"
+                f"{ind}  memcpy(&{m.group(2)}, &gen_sa, {n});\n{ind}}}")
+    c = re.sub(r"(?m)^([ \t]*)([A-Za-z_]\w*)\s*=\s*\(\s*undefined1\s*\[\s*([48])\s*\]\s*\)\s*([^;]+);[ \t]*$", small_array, c)
     c = re.sub(r"(?m)^([ \t]*)([^=;\n{}]+?)\s*=\s*\(\s*undefined1\s*\[\s*16\s*\]\s*\)\s*([^;\n]+);[ \t]*$",
                r"\1GEN_V16_SET(\2, \3);", c)
     # (the first bytes of one, `*(undefined1 (*) [12])*(undefined1 (*) [16])(pfVar25 + 8)`: those
@@ -491,6 +527,17 @@ def sse_ops(c: str, arrays: set[str], v16) -> str:
         m = re.fullmatch(r"ZEXT(?:[1248])16\((0x[0-9a-f]+|\d+)\)", e)
         if m:
             return f"(&(unsigned long long[2]){{{m.group(1)}, 0}})"
+        # (or an expression's, `ZEXT416((uint)gen_fl2bits(x))`: a float in the low lane, a scalar
+        # op's operand, the rest 0; 4 of a client's vector normalizations)
+        m = re.fullmatch(r"ZEXT([48])16\((.*)\)", e, re.S)
+        if m and match_paren(e, e.index("(")) == len(e):
+            if m.group(1) == "4":
+                return f"(&(unsigned int[4]){{(unsigned int)({m.group(2)}), 0, 0, 0}})"
+            return f"(&(unsigned long long[2]){{(unsigned long long)({m.group(2)}), 0}})"
+        # (a 16-byte global through the decompiler's cast, `*(undefined1 (*) [16])&DAT_01138af0`)
+        m = re.fullmatch(r"\*\s*\(\s*undefined1\s*\(\s*\*\s*\)\s*\[\s*16\s*\]\s*\)\s*&\s*(_*(?:DAT|UNK)_[0-9a-f]{8})", e)
+        if m:
+            return f"&({m.group(1)})"
         # (16 bytes read through an address, `*(undefined1 (*) [16])(&stack0xffffffe8 + i * 4)`: the
         # address, rhtest misc-O2's vpsllvd over an alloca'd buffer)
         m = re.fullmatch(r"\*\s*\(\s*(?:undefined1\s*\(\s*\*\s*\)\s*\[\s*16\s*\]|gen_v16\s*\*)\s*\)\s*(\(.*\))", e, re.S)
@@ -536,6 +583,10 @@ def sse_ops(c: str, arrays: set[str], v16) -> str:
             args = split_top(sm.group(4))
             dst = operand(sm.group(2), pre)
             ops = [operand(x, pre) for x in args]
+            # (the destination as it was, which rsqrtps, rcpps and sqrtps ignore (Ghidra32.h): any
+            # 16 bytes when the decompiler's is a lost register or an expression)
+            if sm.group(3) in ("rsqrtps", "rcpps", "sqrtps") and len(ops) == 2 and ops[0] is None:
+                ops[0] = "(&(unsigned long long[2]){0, 0})"
             if sm.group(3) in SSE_UNARY and dst is not None and ops and None not in ops:
                 # (a conversion of its source alone, whatever destination the decompiler adds)
                 line = f"{sm.group(1)}gen_{sm.group(3)}({dst}, {ops[-1]});"
@@ -1820,10 +1871,34 @@ def upper_only(c: str) -> set[str]:
                 if re.search(rf"\b{re.escape(v)}\b", reads):
                     return False
                 seen = seen or re.search(upper(v), l2) is not None
+        # (or none on to its next assignment but the loop's next round: from the top of the `do {`
+        # it is assigned in, `do { f(.., (uint)p & 0xffffff00); ..; p = extraout_ECX_00; } while`,
+        # a bool built over what each call left in ecx, 0xdad7f0)
+        if not seen:
+            # (out through the blocks it is in, an `if` inside the loop's body, to the `do {`)
+            depth, k = 0, i - 1
+            while k >= 0:
+                depth += lines[k].count("}") - lines[k].count("{")
+                if depth < 0:
+                    if lines[k].strip() == "do {":
+                        break
+                    depth = 0
+                k -= 1
+            if k >= 0 and lines[k].strip() == "do {":
+                for l2 in lines[k + 1:i]:
+                    if re.match(rf"^\s*{re.escape(v)}\s*=(?!=)", l2):
+                        break
+                    if re.search(rf"\b{re.escape(v)}\b", l2):
+                        reads = re.sub(upper(v), "", re.sub(rf"\b{re.escape(v)}\s*=(?!=)", "", l2))
+                        if re.search(rf"\b{re.escape(v)}\b", reads):
+                            return False
+                        seen = seen or re.search(upper(v), l2) is not None
         return seen
 
     out = set()
-    for n in set(re.findall(r"\bextraout_E[A-D]X(?:_\d+)?\b", c)):
+    # (and a callee-saved register's, the caller's bits above a byte set over it, `sete bl; push
+    # ebx`: `CONCAT31((int3)((uint)unaff_EBX >> 8), b == 0)`, a bool argument, 0x79dbe0)
+    for n in set(re.findall(r"\b(?:extraout_E[A-D]X|unaff_E(?:[A-D]X|SI|DI))(?:_\d+)?\b", c)):
         ok = True
         for i, l in enumerate(lines):
             if not re.search(rf"\b{n}\b", l) or re.match(rf"^\s*[\w ]+?[\s*]+{n}\s*;\s*$", l):
@@ -1915,6 +1990,8 @@ def x87_pow(c: str) -> str:
     # from_bcd(a); ... fscale(Var7, b) ... Var7 = from_bcd(c); ... fscale(Var7, d)`, a client's
     # camera update 0x4b1ed0, a stub on its frame path 2026-10-27)
     # (an assignment the decompiler wrapped over lines, `Var4 = from_bcd((unkbyte10)\n x);`, on one)
+    # (and its `;` alone on the next line, `uVar1 = from_bcd(..(x))))\n ;`, a float's ceil, 0xd8aa60)
+    c = re.sub(r"(?m)^([ \t]*\w+ = from_bcd\([^;]*\))[ \t]*\r?\n[ \t]*;", r"\1;", c)
     c = re.sub(r"(?m)^([ \t]*\w+ = from_bcd\()([^;]*?)\);",
                lambda m: m.group(1) + " ".join(m.group(2).split()) + ");", c)
     for var in set(re.findall(r"(?m)^[ \t]*(\w+) = from_bcd\(", c)):
@@ -1989,6 +2066,11 @@ def x87_icall_results(c: str) -> str:
             return None
         s = k
         while s > k - 4 and s >= 0:
+            # (only back over a statement's own continuation lines: not past one that ends a
+            # statement or opens a block, `(*vf)(p);\n if (b) {\n Leave(..);` taken for one call
+            # ending at Leave's line, an EnterCriticalSection pool's x87 getter a stub, 0xcc40d0)
+            if s < k and re.search(r"[;{}]\s*$", lines[s]):
+                return None
             m = re.match(r"\s*(?:([A-Za-z_]\w*)\s*=\s*)?(\(\*.*)", lines[s])
             if m and X87_ICALL.match(m.group(2)):
                 stmt = " ".join(l.strip() for l in lines[s:k + 1])
@@ -2054,10 +2136,12 @@ def x87_icall_results(c: str) -> str:
                 continue
             # (an `if` the decompiler wrapped, its condition over several lines, by its first)
             if l == "}":
+                # (whatever it calls: a call inside an `if` the read is reached around is no value
+                # the read can have on the other way, an assert's handler through a pointer,
+                # `if (n == 0) { (*DAT_015d861c)("pTrackData != 0", ..); }`, 0xcddf40)
                 o = block_open(k)
                 if o is None or not lines[o].rstrip().endswith("{") \
-                        or not re.match(r"\s*if \(", lines[stmt_start(o)]) or any(
-                        (cs2 := call_stmt(j)) and cs2[1] is None for j in range(o + 1, k)):
+                        or not re.match(r"\s*if \(", lines[stmt_start(o)]):
                     return None
                 k = stmt_start(o) - 1
                 continue
@@ -3558,12 +3642,16 @@ class Translator32:
             # block, extraout_ECX; 91 stubs in a client 2026-10-27)
             found = [mm for mm in re.finditer(r"(?<![\w:])((?:[A-Za-z_]\w*::)*[A-Za-z_]\w*)\s*\(", line)
                      if self.printed_addr(mm.group(1)) is not None]
-            if len(found) != 1 or lhs_ok:
+            if not found or lhs_ok:
                 return None
-            close = match_paren(line, found[0].end() - 1)
-            if close < 0:
+            # (of several, the one run last, its parenthesis closing last: the later of a
+            # condition's `&&` chain, or the outer of nested ones. `(b = FUN_00535b40(p), b != 0)
+            # && (u = FUN_00535990(p, k), ..)`, ecx 0x535990's `this` kept, 0x5409a0)
+            closes = [(match_paren(line, mm.end() - 1), mm) for mm in found]
+            if any(cl < 0 for cl, _ in closes):
                 return None
-            name, inner = found[0].group(1), line[found[0].end():close - 1]
+            close, last = max(closes, key=lambda x: x[0])
+            name, inner = last.group(1), line[last.end():close - 1]
         a2 = self.printed_addr(name)
         idx = self.keeps_in.get(a2, {}).get(reg) if a2 is not None else None
         if idx is None:
@@ -4069,6 +4157,8 @@ class Translator32:
         rest = re.sub(r'L?"(?:\\.|[^"\\])*"', '""', body)
         if structs:
             rest = re.sub(r"\b(?:" + "|".join(map(re.escape, structs)) + r")\s*(?:\[[^\]]*\])?(?:\.[A-Za-z_]\w*)+", "", rest)
+            # (and an element of one as the decompiler indexes it, `(&local_298)[uVar5].left`)
+            rest = re.sub(r"\(\s*&\s*(?:" + "|".join(map(re.escape, structs)) + r")\s*\)\s*\[[^\]]*\](?:\.[A-Za-z_]\w*)+", "", rest)
         if spointers:
             rest = re.sub(r"\b(?:" + "|".join(map(re.escape, spointers)) + r")\s*->\s*[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*", "", rest)
         m = re.search(r"[\w\)\]]\s*->\s*\w|(?<![\d.])\b[A-Za-z_]\w*\s*\.[A-Za-z_]|[\)\]]\s*\.[A-Za-z_]", rest)
@@ -4229,18 +4319,46 @@ class Translator32:
         wide = set(re.findall(r"(?m)^[ \t]+undefined8[ \t]+([A-Za-z_]\w*)[ \t]*;", body))
         if wide:
             body = re.sub(r"\(float\)\s*(" + "|".join(sorted(wide)) + r")\b(?![.\[(])", r"\1._0_4f_", body)
+        # (a field of an x86 CRITICAL_SECTION through a cast pointer, `((LPCRITICAL_SECTION)*p)[1]
+        # .DebugInfo`: its offset in the reference's 24-byte layout, the type C has only as bytes
+        # (GEN_CRITICAL_SECTION32). A lock table's "initialized" flag, 0xcc6700)
+        def cs_field(m):
+            off, t = CS_FIELDS[m.group(3)]
+            return f"(*({t} *)((char *)(uintptr_t)({m.group(1)}) + ({m.group(2)}) * 24 + {off}))"
+        body = re.sub(r"\(\s*\(\s*(?:LPCRITICAL_SECTION|PRTL_CRITICAL_SECTION)\s*\)\s*([^()]*?)\s*\)\s*\[\s*([^\]]+?)\s*\]\s*\.\s*("
+                      + "|".join(CS_FIELDS) + r")\b", cs_field, body)
+        # (a string label's piece, `s_<SystemRoot_01127fef._1_4_`: the bytes at its address plus
+        # the offset, as its own name's characters, `<` among them, would not survive the piece's
+        # name. The C runtime's spawn copying "<SystemRoot>" by words, 0xc7e791)
+        body = re.sub(r"(?<![\w$])_*(?:s|u|ws)_[\w<>:]*?_([0-9a-f]{8})\._(\d+)_([1248])_",
+                      lambda m: f"(*(undefined{m.group(3)} *)REFP(0x{int(m.group(1), 16) + int(m.group(2)):x}))", body)
+        # (a piece the decompiler wrapped after its dot, `in_XMM3.\n _4_4f_`, whole again)
+        body = re.sub(r"(\w)\.[ \t]*\r?\n[ \t]*(_\d+_\d+f?_)", r"\1.\2", body)
+        body = re.sub(r"(\w)\.[ \t]+(_\d+_\d+f?_)", r"\1.\2", body)
         # (not a field's, `local_20.x._0_4_`: members() places the field first, paren_pieces after)
         body = re.sub(r"(?<![.\w>])(?<!\.\s)\b([A-Za-z_]\w*(?:\[[^\]\[]*\])?)\._(\d+)_(\d+)(f?)_", piece, body)
         # (a float lane in a bit mask, `~-(uint)(fVar15 < fVar11) & auVar2._4_4_`: Ghidra's SSE
         # compare-and-select, its float and its bits in one expression C cannot have)
         # (the lane itself an operand of the bit operator: not one assigned bits through the
         # decompiler's bit views, `piece = gen_bits2f(gen_fl2bits(x) ^ mask)`, rhtest float)
-        for line in body.split("\n"):
+        # (by statement, the decompiler's wrapped lines joined: `gen_fl2bits((c - a * b)\n * d) &
+        # m` read line by line had its second line's `) &` after a lane)
+        for line in (re.sub(r"\s*\n\s*", " ", s) for s in re.split(r"(?<=[;{}])[ \t]*\n", body)):
             if "(*(float *)((char *)&" in line:
                 rest = re.sub(r"\(\*\(float \*\)\(\(char \*\)&[\w\[\]]+ \+ \d+\)\)", "LANE", line)
                 rest = re.sub(r"\(\w[\w ]*\*\)&|&\w", "", rest)
                 # (its bits are no lane: `(uint)gen_fl2bits(c.x) ^ ...`, vec_check)
-                rest = re.sub(r"\bgen_fl2bits\(\s*LANE\s*\)", "BITS", rest)
+                # (nor an expression's bits, `gen_fl2bits((c - LANE * LANE) * LANE) & mask`, its
+                # parentheses balanced: an SSE reciprocal's Newton step masked, 7 of a client's)
+                while True:
+                    m = re.search(r"\bgen_fl2bits\(", rest)
+                    if not m:
+                        break
+                    depth, j = 1, m.end()
+                    while j < len(rest) and depth:
+                        depth += {"(": 1, ")": -1}.get(rest[j], 0)
+                        j += 1
+                    rest = rest[:m.start()] + "BITS" + rest[j:]
                 if re.search(r"LANE\s*\)*\s*(?<![&|])[&|^](?![&|=])|(?<![&|])[&|^~](?![&|=])\s*\(*\s*LANE", rest):
                     raise ValueError("an SSE lane in a bit mask")
         # (and a piece of a parenthesized expression: `(*ptd)._0_4_`)
@@ -4800,7 +4918,8 @@ class Translator32:
             n = m.group(1)
             if n in var_types or n in labels or n in KNOWN_TYPES or n in C_WORDS or n in HEADER_NAMES:
                 continue
-            if n.startswith(("F_", "gen_imp_", "LAB_", "switchD_", "caseD_")) or n in header_names():
+            # (and v16_forms' block-local temporary, small_array's gen_sa)
+            if n.startswith(("F_", "gen_imp_", "LAB_", "switchD_", "caseD_")) or n == "gen_sa" or n in header_names():
                 continue
             raise ValueError(f"undeclared name {n}")
 
@@ -4859,14 +4978,16 @@ class Translator32:
         # through gen_fcode, a double's type, as each such callee's entry returns it (jumps.c W_).
         # Through code, an unsigned int's, the number taken was what eax held, 2026-10-26)
         floats = {n for n, t in var_types.items() if t.strip() in ("float", "double", "float10", "float8")}
+        # (and dereferenced first, `(*((code *)vt[1]))(this)`: a virtual slot's, 14.51's /O2
+        # IntToken::value called through its vtable, its 64-bit result's high word lost, rhtest engine)
         if floats:
-            body = re.sub(r"(?m)^(\s*)(" + "|".join(sorted(map(re.escape, floats))) + r")(\s*=\s*)\(\(code \*\)",
-                          r"\1\2\3((gen_fcode *)", body)
+            body = re.sub(r"(?m)^(\s*)(" + "|".join(sorted(map(re.escape, floats))) + r")(\s*=\s*)(\(\*\s*)?\(\(code \*\)",
+                          r"\1\2\3\4((gen_fcode *)", body)
         # (and one whose edx:eax result goes to an 8-byte integer: through gen_lcode, its rax whole)
         longs = {n for n, t in var_types.items() if t.strip() in ("ulonglong", "longlong", "undefined8", "uint8", "int8")}
         if longs:
-            body = re.sub(r"(?m)^(\s*)(" + "|".join(sorted(map(re.escape, longs))) + r")(\s*=\s*)\(\(code \*\)",
-                          r"\1\2\3((gen_lcode *)", body)
+            body = re.sub(r"(?m)^(\s*)(" + "|".join(sorted(map(re.escape, longs))) + r")(\s*=\s*)(\(\*\s*)?\(\(code \*\)",
+                          r"\1\2\3\4((gen_lcode *)", body)
         return body.replace("code * PTR32", "gen_code32")
 
     @staticmethod
@@ -5667,6 +5788,11 @@ class Translator32:
             signed = {1: "char", 2: "short", 4: "int", 8: "longlong"}.get(n)
             if signed and seen and seen <= {signed} | ({"long"} if n == 4 else set()):
                 return f"REFG({signed}, 0x{addr:x})"
+            # (or the float it gave one, its every use `gen_fl2bits(DAT_x)` the bits: as undefined4,
+            # an unsigned, each converted by value. /GL's inlined seed() read a global the function
+            # stored to a float local, and `seed() + 100` came out the float's bits, rhtest engine-GL)
+            if seen and seen == {{4: "float", 8: "double"}.get(n)}:
+                return f"REFG({next(iter(seen))}, 0x{addr:x})"
             # (and the one pointer type it gave a 4-byte one: its arithmetic steps the pointee.
             # A client's resource manager, `int *DAT_x`, passed `DAT_x + 1` as an interface's this:
             # as undefined4 a byte on, not four, the next object's field read as a list, 2026-10-26)

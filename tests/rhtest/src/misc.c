@@ -434,8 +434,14 @@ NOINLINE u32 early_push(u32 s) {
     return h;
 }
 
+/* a string literal spelled as a Windows pointer typedef, "PATH" (P and capitals): the literal as
+ * written, not the translator's type name for such typedefs (the C runtime's _spawnvpe searched
+ * "GEN_LPANY") */
+NOINLINE u32 char_sum(const char *p, u32 k) { u32 h = k; while (*p) h = h * 31 + (u8)*p++; return h; }
+
 void rhtest_run(void) {
     u32 s = seed();   /* 7 */
+    check("typedef literal", char_sum("PATH", s) ^ char_sum("LPCSTR", s + 1));
     check("tls_static", tls_static(s));
     check("tls_api", tls_api(s));
     check("rotates", rotates(0x12345678u * s, (int)s));

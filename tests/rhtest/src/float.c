@@ -151,6 +151,18 @@ float g_scale = 1.5f;
 double g_offset = -0.125;
 NOINLINE double scaled(double v) { return v * g_scale + g_offset; }
 
+/* x87 results of their own, read by no caller the facts see (called through a pointer): a
+ * fixed-point word scaled, `fild [ebp + 8]; fmul dword ptr [m]; ret 4`, and a short table's entry
+ * converted, `fild word ptr [..]; ret`. Typed by their callers alone, they returned their
+ * argument (a VS2010 client's 0xcfe760 and 0x9091b0) */
+NOINLINE float fixed_8_24(const i32 *p) { return (float)(*p >> 8) * (1.0f / 8388608.0f); }
+static const short g_table[4] = { 12, -340, 5600, -7 };
+NOINLINE double table_entry(u32 i) { return (double)g_table[i & 3]; }
+typedef float (*FixedFn)(const i32 *);
+typedef double (*EntryFn)(u32);
+static FixedFn volatile g_fixed = fixed_8_24;
+static EntryFn volatile g_entry = table_entry;
+
 void rhtest_run(void) {
     double s = (double)seed();           /* 7.0 */
     float sf = (float)seed();
@@ -208,4 +220,9 @@ void rhtest_run(void) {
     checkd("scaled", scaled(s));
     checkf("after_call", after_call((u32)s, sf * 0.25f));
     checkd("pair_scale", pair_scale((u32)s));
+    {
+        i32 word = (i32)seed() * 0x123456;
+        checkf("fixed_8_24", g_fixed(&word));
+        checkd("table_entry", g_entry(seed()) + g_entry(seed() + 2));
+    }
 }

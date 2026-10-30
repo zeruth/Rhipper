@@ -10,6 +10,7 @@
 #include <windows.h>
 #include <intrin.h>
 #include <string.h>
+#include <math.h>
 #include "rhtest.h"
 
 // ---- a stream of text, its operators chained --------------------------------------------------
@@ -313,6 +314,29 @@ NOINLINE static u32 aligned_sum(u32 a, u32 b)
     return v[0] * 3 + v[1] * 5 + v[2] + v[3] * 7;
 }
 
+// ---- a 64-bit member returned by a virtual getter, no direct caller: `mov eax, [ecx + 8]; mov edx,
+// [ecx + 0xc]; ret` (typed by its callers alone, a JSON parser's IntToken lost its high word) ---------
+
+class Token {
+public:
+    NOINLINE virtual ~Token() {}
+    NOINLINE virtual long long value() { return 0; }
+};
+class IntToken : public Token {
+public:
+    explicit IntToken(long long n) : v(n) {}
+    NOINLINE virtual long long value() { return v; }
+    long long v;
+};
+static Token *volatile g_token;
+
+// ---- a float result in xmm0 under /GL /arch:SSE, its body SSE alone ---------------------------------
+
+NOINLINE static float inv_sqrt(float x)
+{
+    return 1.0f / sqrtf(x);
+}
+
 NOINLINE static void engine_shapes()
 {
     Mover m;
@@ -328,6 +352,12 @@ NOINLINE static void engine_shapes()
     b.o.base = seed() + 100;
     check("join args", join_args(&a, &b, (int)(seed() & 1), 9) + join_args(&a, &b, 0, 4) * 3);
     check("aligned", aligned_sum(seed(), seed() * 11));
+    IntToken t(((long long)seed() << 33) | 0x1234);
+    g_token = &t;
+    long long tv = g_token->value();
+    check("token lo", (u32)tv);
+    check("token hi", (u32)(tv >> 32));
+    check("inv sqrt", (u32)(int)(inv_sqrt((float)(seed() * seed() + 3)) * 1e6f));
 }
 
 extern "C" void rhtest_run(void)

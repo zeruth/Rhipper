@@ -38,11 +38,26 @@ def main() -> None:
     out: dict[str, list[str]] = {}
     tables: list[tuple[int, int]] = []
     one = two = dropped = 0
+    import bisect
+    starts = sorted(int(f["entry"], 16) for f in funcs)
+    covered = sorted((int(lo, 16), int(hi, 16)) for f in funcs for lo, hi in f.get("ranges", []))
+    cov_lo = [c[0] for c in covered]
+
+    def owned(t: int) -> bool:
+        k = bisect.bisect_right(cov_lo, t) - 1
+        return k >= 0 and covered[k][0] <= t < covered[k][1]
+
     for f in funcs:
         ranges = [(int(lo, 16), int(hi, 16)) for lo, hi in f.get("ranges", [])]
+        entry = int(f["entry"], 16)
+        k = bisect.bisect_right(starts, entry)
+        next_start = starts[k] if k < len(starts) else entry + 0x10000
 
+        # (or code no function covers between it and the next function: cases Ghidra never
+        # followed, the jump taken for a call, "too many branches", a client's 0xcfe7a0)
         def inside(t: int) -> bool:
-            return any(lo <= t < hi for lo, hi in ranges)
+            return any(lo <= t < hi for lo, hi in ranges) or \
+                (entry < t < next_start and b.is_code(t) and not owned(t))
 
         for lo, hi in ranges:
             if not b.is_code(lo):
@@ -76,6 +91,31 @@ def main() -> None:
                             and p > 0 and back[p - 1].mnemonic == "ja"):
                         bound = i.operands[1].imm
                         break
+                # (no bound check at all, the index trusted: `mov edx, [ecx + 0x10]; jmp [edx*4 +
+                # 0xcfeaf8]`, a decoder's state machine. Its table runs while its words land in the
+                # jump's function: Ghidra, "too many branches", called through it, its cases'
+                # register state lost, a client's 0xcfe7a0 2026-10-30)
+                # (or the index masked, `and ecx, 3; jmp [ecx*4 + TrailUpVec]`: memcpy's tails)
+                if bound is None and bytes_at is None:
+                    for i in back:
+                        if i.operands and i.operands[0].type == X.X86_OP_REG and i.operands[0].reg == idx_reg:
+                            if i.mnemonic == "and" and len(i.operands) == 2 and i.operands[1].type == X.X86_OP_IMM \
+                                    and 0 < i.operands[1].imm < 256 and i.operands[1].imm & (i.operands[1].imm + 1) == 0:
+                                bound = i.operands[1].imm
+                            break
+                if bound is None and bytes_at is None and not any(
+                        i.operands and i.operands[0].type == X.X86_OP_REG and i.operands[0].reg == idx_reg
+                        and i.mnemonic in ("cmp", "test", "and") for i in back):
+                    # (up to the next table another jump of the function reads)
+                    others = {x.operands[0].mem.disp & 0xFFFFFFFF for x in insns
+                              if x.mnemonic == "jmp" and x.operands and x.operands[0].type == X.X86_OP_MEM
+                              and x.operands[0].mem.index and x.operands[0].mem.scale == 4}
+                    c = 0
+                    while c < 256 and 0 <= b.off(table + 4 * c) <= len(b.image) - 4 and inside(b.u32(table + 4 * c)) \
+                            and not (c and table + 4 * c in others):
+                        c += 1
+                    if c >= 2:
+                        bound = c - 1
                 if bound is None or not (0 <= bound < 4096):
                     continue
                 n = bound + 1

@@ -1,3 +1,4 @@
+typedef literal = 769734870 (0x2de138d6)
 tls_static = 26249 (0x00006689)
 tls_api = 22 (0x00000016)
 rotates = -449750104 (0xe5315ba8)
@@ -17,6 +18,10 @@ code_page = 1070 (0x0000042e)
 window_class = 10070 (0x00002756)
 file_seek = -2086910835 (0x839c448d)
 shell_malloc = -2137717092 (0x8095069c)
+free_buckets = 1539396701 (0x5bc1545d)
+folded_index = 906954521 (0x360f0719)
+lex_switch = -1356447612 (0xaf264084)
+early_push = 7813470 (0x0077395e)
 bom_kind = 960 (0x000003c0)
-checksum = 0x981ae907
-exit = 7
+checksum = 0x18f710de
+exit = 94

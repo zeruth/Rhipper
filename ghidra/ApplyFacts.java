@@ -1942,6 +1942,33 @@ public class ApplyFacts extends GhidraScript {
     // The call targets and pointed-to code no function covered (protos.py, protos32.py "leaves",
     // "pointed"), made functions
     private void applyLeaves(JsonObject root) throws Exception {
+        // (functions an earlier run made mid-instruction, from a data word equal to an address
+        // inside one (protos32 "misplaced"): removed, their instructions cleared, and the code run's
+        // own start made the function. 0x730068 inside 0x730060's `mov edi, 1`, its decompilation
+        // garbage and a stub, 2026-10-30)
+        if (root.has("misplaced")) {
+            int moved = 0;
+            for (Map.Entry<String, JsonElement> e : root.getAsJsonObject("misplaced").entrySet()) {
+                Address bad = addr(e.getKey()), good = addr(e.getValue().getAsString());
+                Function f = getFunctionAt(bad);
+                if (f == null || f.getSymbol().getSource() != SourceType.DEFAULT) continue;
+                removeFunction(f);
+                Function around = getFunctionContaining(good);
+                if (around != null && !around.getEntryPoint().equals(good)) continue;
+                // (cleared only where the bad entry split an instruction: one on an instruction of
+                // its own, a run's middle opening with `je` (protos32's flags rule), is the code as
+                // it is, its run's function kept whole)
+                Instruction at = getInstructionContaining(bad);
+                if (at == null || !at.getAddress().equals(bad)) {
+                    clearListing(good, bad.add(15));
+                    disassemble(good);
+                }
+                if (getFunctionAt(good) == null) createFunction(good, null);
+                moved++;
+            }
+            println("ApplyFacts: functions made mid-instruction moved to their code's start " + moved
+                    + " of " + root.getAsJsonObject("misplaced").size());
+        }
         if (!root.has("leaves")) return;
         // (a leaf a pointer reaches is an entry point even inside a body Ghidra drew over it,
         // a callback it absorbed through a jump: made there too, and the body it was taken
