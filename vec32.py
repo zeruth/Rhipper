@@ -27,6 +27,7 @@ OPS = {
     "vpshufb_avx2": ("gen_vpshufb", 32, "vv"), "vpshufb_avx": ("gen_vpshufb", 16, "vv"),
     "pshufb": ("gen_vpshufb", 16, "vv"),
     "vpshufd_avx2": ("gen_vpshufd", 32, "vi"), "vpermq_avx2": ("gen_vpermq", 32, "vi"),
+    "vpermd_avx2": ("gen_vpermd", 32, "vv"),
     "vpmaskmovd_avx2": ("gen_vpmaskmovd", None, "vv"),
     "pshuflw": ("gen_pshuflw", 16, "vvi"), "roundsd": ("gen_roundsd", 16, "vvi"),
 }

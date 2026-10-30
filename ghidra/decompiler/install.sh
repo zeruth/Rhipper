@@ -42,7 +42,8 @@
 #   coreaction.cc  a LOAD is not printed past a write to an aliased stack or memory variable whose
 #               address the function takes (a COPY into it, which the release's check, STOREs
 #               only, missed): std::max through a reused temporary, `p = (b <= g) ? &g : &tmp;
-#               tmp = a; ... *p`, read tmp's new value
+#               tmp = a; ... *p`, read tmp's new value; nor past one folded into the next call's
+#               INDIRECT, printed before that call (`p = &x; x = x - *p; f(*p)`: an Od rotate)
 #   coreaction.cc (and) a floating-point result stored to the stack is kept, read or not: it sets
 #               the status flags a program reads (_statusfp), `r = big * 10` into a volatile local
 #   heritage.cc (and) a write to memory whose address the function takes is kept (address-forced):

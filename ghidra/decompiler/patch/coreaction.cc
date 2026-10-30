@@ -3438,7 +3438,14 @@ bool ActionMarkImplied::checkImpliedCover(Funcdata &data,Varnode *vn)
   if (op->code() == CPUI_LOAD) { // RHIPPER: loads crossing writes to aliased variables
     for(vector<PcodeOp *>::const_iterator witer=rhipperTiedWrites.begin();witer!=rhipperTiedWrites.end();++witer) {
       if ((*witer)->isDead()) continue;
-      if (vn->getCover()->contain(*witer,2)) return false;
+      // an INDIRECT carrying a new value sits at its call, and is printed before it: a load the
+      // call reads (its cover's tail) is past it too
+      int4 max = 2;
+      if ((*witer)->code() == CPUI_INDIRECT) {
+	Varnode *prior = (*witer)->getIn(0), *out = (*witer)->getOut();
+	if (prior->getSpace() != out->getSpace() || prior->getOffset() != out->getOffset()) max = 1;
+      }
+      if (vn->getCover()->contain(*witer,max)) return false;
     }
   }
   if (op->code() == CPUI_LOAD) { // Check for loads crossing stores
@@ -3503,7 +3510,16 @@ int4 ActionMarkImplied::apply(Funcdata &data)
   }
   for(viter=data.beginLoc();viter!=data.endLoc();++viter) {
     vn = *viter;
-    if (!vn->isWritten() || !vn->isAddrTied()) continue;
+    if (!vn->isWritten()) continue;
+    // a variable not tied to its address gets its new value at the next call, folded into the
+    // call's INDIRECT (`s0x14 = ECX [] call`), printed as an assignment before the call: a load
+    // used by the call is printed past it (`p = &x; x = x - *p; f(*p)`, an Od std::rotate)
+    if (!vn->isAddrTied()) {
+      PcodeOp *wop = vn->getDef();
+      if (wop->code() != CPUI_INDIRECT) continue;
+      Varnode *prior = wop->getIn(0);
+      if (prior->getSpace() == vn->getSpace() && prior->getOffset() == vn->getOffset()) continue;
+    }
     const set<uintb> *taken;
     if (vn->getSpace() == stackSpc) taken = &stackTaken;
     else if (vn->getSpace() == dataSpc) taken = &memTaken;

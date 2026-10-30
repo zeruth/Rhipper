@@ -3064,6 +3064,12 @@ def saved_before(insns, prv, a, limit=40) -> bool:
             # (or any register pushed after the body began, a forwarded argument: a dispatcher's
             # `mov edx, ecx; ...; push ecx; mov ecx, [ebp + 0x10]; push ecx; ...; sub esp, 8`,
             # 0x97d120, its member pointer called with none of its four words, 2026-10-28)
+            # (or the frame made already by `push ecx` first, MSVC's allocation of a 4-byte frame,
+            # no save of a scratch register: `push ecx; mov [ebp - 4], ecx; sub esp, 8; movsd [esp],
+            # xmm0; ...; call edx`, num_put's virtual do_put given none of its double, which
+            # printed as 8e-283, rhtest stl-Od)
+            if seq and seq[-1].mnemonic == "push" and seq[-1].op_str == "ecx":
+                return True
             body = False
             for q in reversed(seq):
                 if q.mnemonic == "push" and q.operands and q.operands[0].type == X.X86_OP_REG and body:

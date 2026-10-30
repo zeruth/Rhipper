@@ -276,6 +276,21 @@ def out_stack(body: str, alloca: bool = False, eh: bool = False) -> str:
     offs = sorted({int(m.group(1), 16) for m in re.finditer(r"\b" + OUT_STACK.pattern + r"\b", body)})
     if not offs:
         return body
+    # (and a local the decompiler named by a slot in that room, `uStack_14` beside a constructor's
+    # `&stack0xffffffec`: one word, the tuple Od's map insert builds in place and passes, read
+    # back as uStack_14. Apart, the constructor wrote gen_out and the call passed the garbage the
+    # local held, a map node's key copied from nowhere, rhtest stl-Od)
+    named = {}
+    for m in re.finditer(r"(?m)^\s*(?!return\b)([A-Za-z_][^;=()\n]*?[\s*]+)(\w+Stack_([0-9a-f]{1,7}))\s*;", body):
+        off = (1 << 32) - int(m.group(3), 16)
+        if offs[0] - 4 <= off <= offs[-1] + 4 and not has_frame(body) and not eh:
+            named[m.group(2)] = (m.group(1).strip(), off)
+    if named:
+        offs = sorted(set(offs) | {off for _, off in named.values()})
+        for n, (t, off) in named.items():
+            body = re.sub(r"(?m)^\s*[A-Za-z_][^;=()\n]*?[\s*]+" + n + r"\s*;\s*\n", "", body)
+            body = re.sub(r"\b" + n + r"\b", f"in_stack_{off:08x}", body)
+            body = body.replace("{", "{\n  " + t + " in_stack_%08x;" % off, 1)
     # (in a function whose frame frame_locals lays out, the same frame: each place GEN_SLOT(d),
     # d bytes below the entry esp, which frame_locals puts in its buffer. As a buffer of its own
     # it lay wherever the compiler put it: rhtest's put_u writes its digits from `&stack0xffffffef
@@ -300,14 +315,18 @@ def out_stack(body: str, alloca: bool = False, eh: bool = False) -> str:
     # (their declarations go: each is a place in the buffer now, of its declared type, a pointer
     # stored as the reference stores one)
     types = {}
-    for m in re.finditer(r"(?m)^\s*([A-Za-z_][\w ]*?[\s*]+)in_stack_(f[0-9a-f]{7})\s*;", body):
+    # (a template's type too, `allocator<char> *in_stack_fffffff4;`, rhtest stl-Od)
+    for m in re.finditer(r"(?m)^\s*([A-Za-z_][^;=()\n]*?[\s*]+)in_stack_(f[0-9a-f]{7})\s*;", body):
         t = m.group(1).strip()
         stars = t.count("*")
         base = t.replace("*", "").strip()
+        # (a C++ type, C has none of: its bytes)
+        if re.search(r"[<>:]", base):
+            base, t = "undefined", "undefined" + " *" * stars if stars else "undefined4"
         # (a function pointer stored: gen_code32, as code_slots makes every one)
         types[m.group(2)] = "gen_code32" if base == "code" and stars == 1 else \
             (base + " * PTR32" * stars) if stars else t
-    body = re.sub(r"(?m)^\s*[A-Za-z_][\w ]*?[\s*]+in_stack_f[0-9a-f]{7}\s*;\s*\n", "", body)
+    body = re.sub(r"(?m)^\s*[A-Za-z_][^;=()\n]*?[\s*]+in_stack_f[0-9a-f]{7}\s*;\s*\n", "", body)
     body = re.sub(r"&\s*stack0x(f[0-9a-f]{7})\b", lambda m: place(int(m.group(1), 16)), body)
     # (and the place itself, a word of the frame no local covers that the decompiler names bare:
     # strings()'s inlined strcpy at /O2 writes `stack0xffffffa0 = 0x78787878;` past its char[5],
@@ -336,9 +355,10 @@ def fastfail_dead(c: str) -> str:
         m = re.fullmatch(r"\s*\(\*(\w+)\)\(\);\s*", lines[i])
         if m and any(re.fullmatch(rf"\s*{m.group(1)} = \(code \*\)swi\(0x29\);\s*", l) for l in lines[max(0, i - 3):i]):
             j = i + 1
-            # (plain statements only: a label, a block's end or anything that opens one stops it)
-            while j < len(lines) and re.fullmatch(r"\s*[A-Za-z_]\w* = [^;{}]*;\s*", lines[j]) \
-                    and not re.match(r"\s*[A-Za-z_]\w*\s*:", lines[j]):
+            # (the copies of a register the decompiler lost only, `iVar4 = extraout_ECX;`: the
+            # `int3` the reference has after it, `pcVar3 = (code *)swi(3); (*pcVar3)();`, stays,
+            # its trap the reference's code too)
+            while j < len(lines) and re.fullmatch(r"\s*[A-Za-z_]\w* = (?:extraout|unaff|in)_\w+;\s*", lines[j]):
                 j += 1
             i = j
             continue
@@ -838,6 +858,14 @@ def eh_state_volatile(body: str) -> str:
     for m in re.finditer(r"gen_eh_landing\([^;]*?\(gen_frame \+ 0x([0-9a-f]+)\)", body):
         node = int(m.group(1), 16)
         offs |= {node + 8, node + 0xC}
+    # (and __SEH_prolog4's slot, the scope table's address first and the try level after, -2 at the
+    # end, in a function with no landing of its own (a __finally only): the scope table's store,
+    # overwritten before anything read it, was dropped, the static C runtime's guarded calls
+    # missing their tables, rhtest stl /MT)
+    for m in re.finditer(r"\(\*\([^()]*\*\s*\)\(gen_frame \+ 0x([0-9a-f]+)\)\) = (?:\(\([^()]*\)GEN_TOP\(0xfffffffe\)\)|0xfffffffe)\s*;", body):
+        off = int(m.group(1), 16)
+        if re.search(r"\(\*\([^()]*\*\s*\)\(gen_frame \+ 0x" + f"{off:x}" + r"\)\) = &REFG\(undefined, 0x[0-9a-f]+\);", body):
+            offs.add(off)
     for off in offs:
         body = re.sub(r"\(\*\(\s*((?:unsigned\s+)?[A-Za-z_]\w*(?:\s*\*\s*PTR32)?)\s*\*\s*\)\(gen_frame \+ 0x" + f"{off:x}" + r"\)\)",
                       lambda m: f"(*(volatile {m.group(1)} *)(gen_frame + 0x{off:x}))", body)
@@ -2455,6 +2483,14 @@ def split_params(p: str) -> list[str]:
     return out
 
 
+def printed_name(n: str) -> str:
+    """A function's name as the decompiler prints it in C: a Function ID conflict's `FID_conflict:`
+    as `FID_conflict_`, a backquoted scope's ` and ' as _"""
+    if n.startswith("FID_conflict:"):
+        n = "FID_conflict_" + n[len("FID_conflict:"):]
+    return n.replace("`", "_").replace("'", "_")
+
+
 class Signature:
     """A function's Ghidra signature: return type, printed name, parameters (type, name)."""
     # (the name is the last word before the parameters, whatever it is made of: C++ operators
@@ -2471,6 +2507,12 @@ class Signature:
         # pointer type, `__crt_fast_encode_pointer<void_(__stdcall*)(void*,unsigned_long,void*)>`,
         # no signature, rhtest stl-O2)
         hname = CC.sub("", name) if name else name
+        # (a Function ID conflict's, which the head prints `FID_conflict_` for `FID_conflict:`)
+        # (and a backquoted scope's ` and ' as _)
+        if name and hname not in head:
+            printed = printed_name(hname)
+            if printed in head:
+                hname = printed
         if name:
             head = head.replace(hname + " (", hname + "(")
         # (the corpus's own name, where the head has it: a template's name has spaces and commas
@@ -2613,6 +2655,10 @@ class Translator32:
                 continue
             self.sigs[a] = s
             self.by_printed.setdefault(s.name, a)
+            # (and a Function ID conflict's name as a call prints it, `FID_conflict_` for its
+            # `FID_conflict:`, rhtest stl-Od's _Vector_const_iterator constructors)
+            if printed_name(s.name) != s.name:
+                self.by_printed.setdefault(printed_name(s.name), a)
         self.thunks = self.local_thunks()
         for name, (_at, target) in self.thunks.items():
             if not name.startswith("<thunk "):
@@ -3097,13 +3143,13 @@ class Translator32:
         hands it whatever is on the stack, `FUN_00402096(this, &stack0xfffffffc, unaff_EDI)`
         (rhtest stl-O2's stream extractors). 0 in the port."""
         out = set()
-        for n in set(re.findall(r"\bunaff_E(?:BX|SI|DI)(?:_\d+)?\b", c)):
+        for n in set(re.findall(r"\bunaff_E(?:BX|SI|DI|BP)(?:_\d+)?\b", c)):
             uses = [m for m in re.finditer(r"\b" + re.escape(n) + r"\b", c)]
             ok = bool(uses)
             for m in uses:
                 line_start = c.rfind("\n", 0, m.start()) + 1
-                if re.match(r"[ \t]+[A-Za-z_][\w ]*?[\s*]+" + re.escape(n) + r"\s*;", c[line_start:]):
-                    continue                                   # (its declaration)
+                if re.match(r"[ \t]+[A-Za-z_][^;=()\n]*?[\s*]+" + re.escape(n) + r"\s*;", c[line_start:]):
+                    continue                                   # (its declaration, a template's too)
                 # (the call it is an argument of: the innermost open paren before it, its index)
                 depth, k, idx = 0, m.start() - 1, 0
                 while k >= 0:
@@ -3121,7 +3167,9 @@ class Translator32:
                         break
                     k -= 1
                 after = c[m.end():].lstrip()
-                fn = re.search(r"([A-Za-z_]\w*)\s*$", c[:k]) if k > 0 else None
+                # (the callee's name, a template's and a scope's too: `std::_Adl_verify_range<char*,
+                # char_const*>(param_2, unaff_EBP)`, rhtest stl-Od)
+                fn = re.search(r"((?:[\w~]+(?:<[^()]*>)?::)*[\w~]+(?:<[^()]*>)?)\s*$", c[:k]) if k > 0 else None
                 if not fn or not after[:1] in (",", ")") or not re.match(r"\s*[,)]", c[m.end():]):
                     ok = False
                     break
@@ -3129,9 +3177,15 @@ class Translator32:
                 if ca is None and re.fullmatch(r"FUN_[0-9a-f]{8}", fn.group(1)):
                     ca = int(fn.group(1)[4:], 16)
                 sig = self.sigs.get(ca) if ca is not None else None
-                if sig is None or idx >= len(sig.params):
+                if sig is None:
                     ok = False
                     break
+                # (one past the callee's parameters, not variadic: read by nothing)
+                if idx >= len(sig.params):
+                    if sig.variadic:
+                        ok = False
+                        break
+                    continue
                 pname = sig.params[idx][1]
                 cbody = strip_comments(self.corpus[ca]["c"]).partition("{")[2]
                 if re.search(r"\b" + re.escape(pname) + r"\b", cbody):
@@ -3530,6 +3584,10 @@ class Translator32:
             set(re.findall(r"(?m)^\s*(extraout_ST0(?:_\d+)?) = \(\*", c)) | \
             set(re.findall(r"(?m)^[ \t]+undefined1\s+(in_XMM\d+)\s*\[\s*16\s*\]\s*;", c)) | \
             set(re.findall(r"(?m)^\s*(extraout_E[CD]X(?:_\d+)?) = \(\(.*\)\(uintptr_t\)\(", c))
+        # (a variadic function's argument word its signature names no parameter for: its block's,
+        # rewrite)
+        if self.sigs[a].variadic:
+            ok |= set(re.findall(r"\bin_stack_0000[0-9a-f]{4}\b", c))
         m = next((m for m in LOST.finditer(c) if m.group(1) not in ok and not OUT_STACK.fullmatch(m.group(1))), None)
         if m:
             return f"a register the decompiler lost ({m.group(1)})"
@@ -4304,6 +4362,17 @@ class Translator32:
             body = re.sub(r"\(uint\)\s*&\s*stack0x(?!f[0-9a-f]{7}\b)([0-9a-f]{8})",
                           lambda m: f"(uint)(uintptr_t){slot(m)}", body)
             body = re.sub(r"&\s*stack0x(?!f[0-9a-f]{7}\b)([0-9a-f]{8})", slot, body)
+            # (and a word of the block the signature names no parameter for, `in_stack_0000000c`: a
+            # variadic function's Function ID signature one fixed parameter short, _swprintf's for
+            # sprintf_s(dest, size, format, ...), rhtest stl-Od. Its slot, of its declared type)
+            for m in list(re.finditer(r"(?m)^[ \t]+([A-Za-z_][\w ]*?[\s*]*)\bin_stack_(0000[0-9a-f]{4})\s*;[ \t]*\n", body)):
+                off = int(m.group(2), 16)
+                if off < 4 or off % 4 or (off - 4) // 4 >= words:
+                    continue
+                t = m.group(1).strip()
+                t = f"{t} PTR32" if t.endswith("*") else t
+                body = body.replace(m.group(0), "", 1)
+                body = re.sub(rf"\bin_stack_{m.group(2)}\b", f"(*({t} *)&gen_args[{(off - 4) // 4}])", body)
             # (and esp itself as it came in, where the decompiler could say the address no other
             # way, `register0x00000010` (BADSPACEBASE *): VS2010's va_start takes the last fixed
             # parameter's address, `lea edx, [esp + 8]`, and steps it, and past the parameter's
@@ -4487,8 +4556,11 @@ class Translator32:
             # it, where Ghidra's void dropped it and 0 came back, 0x439610 in a client 2026-10-27)
             # (not Ghidra32.h's UNLOCK(), a void macro: a locked increment last, C2069 in a lambda's
             # operator() of the CRT, rhtest stl-O2)
-            body = re.sub(r"(?m)^([ \t]*)((?:\(\(\w+ \*\)[^;\n]*|(?!(?:UN)?LOCK\(\))[A-Za-z_]\w*\([^;\n]*)\));\s*\n[ \t]*return\s*;",
-                          lambda m: f"{m.group(1)}return (uint)({m.group(2)});", body)
+            # (a statement of its own, the line above ended: not a wrapped call's arguments line,
+            # `F_00411df0\n ((undefined *)this);`, a destructor's base call in rhtest stl-Od)
+            body = re.sub(r"(?m)((?:^|[;{}])[ \t]*\n[ \t]*)((?:\(\(\w+ \*\)[^;\n]*|(?!(?:UN)?LOCK\(\))[A-Za-z_]\w*(?:[ \t]*\n[ \t]*)?\([^;\n]*)\));\s*\n[ \t]*return\s*;",
+                          lambda m: m.group(1) + "return (uint)(" + re.sub(r"[ \t]*\n[ \t]*", "", m.group(2)) + ");",
+                          body)
             body = re.sub(r"\breturn\s*;", "return 0;", body)
         if not balanced(body):
             raise ValueError("unbalanced braces")
@@ -5228,7 +5300,10 @@ class Translator32:
             return "(" + self.type_text(m.group(1)) + ")"
         # (not a convention in a template's name, `__crt_fast_encode_pointer<void_(__stdcall*)(...)>`:
         # a cast to it lost the name, undeclared, rhtest stl-O2)
-        body = re.sub(r"\(\s*(?!(?:__thiscall|__cdecl|__stdcall|__fastcall)\s*\*)((?:const\s+)?[A-Za-z_~`][\w:`']*(?:<[^()]*?>)?(?:\s+[A-Za-z_]\w*)?\s*\*[\s*]*)\)", cast, body)
+        # (and a template over a function type, `(function<void___cdecl(void)> *)p`: one level of
+        # parentheses in its arguments, rhtest stl-Od's std::function locals)
+        body = re.sub(r"\(\s*(?!(?:__thiscall|__cdecl|__stdcall|__fastcall)\s*\*)((?:const\s+)?[A-Za-z_~`][\w:`']*"
+                      r"(?:<(?:[^()<>]|\([^()]*\)|<[^<>()]*>)*?>)?(?:\s+[A-Za-z_]\w*)?\s*\*[\s*]*)\)", cast, body)
 
         def decl(m):
             t, rest = m.group(2), m.group(3)
@@ -5296,7 +5371,7 @@ class Translator32:
                           rf"\1*(undefined{size} *)\2 = {name};", rest)
             rest = re.sub(rf"(?m)^(\s*){name}\s*=\s*\*\s*([A-Za-z_]\w*)\s*;",
                           rf"\1{name} = *(undefined{size} *)\2;", rest)
-        decls = re.sub(r"(?m)^(\s+)((?:(?:unsigned|signed)\s+)?[A-Za-z_]\w*(?:::\w+)*(?:<[^;()]*?>)?(?:\s*\*[\s*]*|\s+))([A-Za-z_]\w*\s*(?:\[[^\]]*\])?\s*;)",
+        decls = re.sub(r"(?m)^(\s+)((?:(?:unsigned|signed)\s+)?[A-Za-z_]\w*(?:::\w+)*(?:<(?:[^;()<>]|\([^();]*\)|<[^<>();]*>)*?>)?(?:\s*\*[\s*]*|\s+))([A-Za-z_]\w*\s*(?:\[[^\]]*\])?\s*;)",
                        lambda m: decl(m) if "*" in m.group(2) or self.type_word_ok(m.group(2)) else m.group(0), decls)
         return decls + rest
 
@@ -5422,7 +5497,10 @@ class Translator32:
                     if ns + name in self.by_printed:
                         return f"((code *)REFP(0x{self.by_printed[ns + name]:x}))"
             return name
-        body = re.sub(r"(?<![\w$:.])(" + IDENT + r")(?![\w$(:])(?!\s*\()", value, body)
+        # (outside string literals: `"vec size"` names no function `size`, rhtest stl-Od's output)
+        parts = re.split(r'''("(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])+')''', body)
+        body = "".join(p if k % 2 else re.sub(r"(?<![\w$:.])(" + IDENT + r")(?![\w$(:])(?!\s*\()", value, p)
+                       for k, p in enumerate(parts))
         return self.pointer_globals(body)
 
     def odd_names(self, body: str) -> str:
@@ -5443,7 +5521,9 @@ class Translator32:
                 a = self.by_printed[name]
                 return f"F_{a:08x}" if rest.startswith("(") else f"((code *)REFP(0x{a:x}))"
             return self.global_lvalue(self.ref_names[name])
-        return odd_re.sub(rep, body)
+        # (outside string literals: `"vec size"` is no call of a `size`, rhtest stl-Od's output)
+        parts = re.split(r'''("(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])+')''', body)
+        return "".join(p if k % 2 else odd_re.sub(rep, p) for k, p in enumerate(parts))
 
     @staticmethod
     def pointer_globals(body: str) -> str:

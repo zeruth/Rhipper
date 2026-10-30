@@ -405,6 +405,13 @@ static GEN_INLINE void gen_vpermq(void *r, const void *a, int imm, int n) {
     for (int k = 0; k < 4; k++) t[k] = x[imm >> (2 * k) & 3];
     memcpy(r, t, 32);
 }
+/* (vpermd(indices, src): dword i the source's dword the index dword's low three bits name) */
+static GEN_INLINE void gen_vpermd(void *r, const void *idx, const void *a, int n) {
+    unsigned int x[8], ix[8], t[8];
+    (void)n; memcpy(ix, idx, 32); memcpy(x, a, 32);
+    for (int k = 0; k < 8; k++) t[k] = x[ix[k] & 7];
+    memcpy(r, t, 32);
+}
 /* (vpmaskmovd(mask, mem): each dword of mem where the mask dword's top bit is set, else 0; the
    others are not read, as the instruction does not fault on them) */
 static GEN_INLINE void gen_vpmaskmovd(void *r, const void *m, const void *p, int n) {

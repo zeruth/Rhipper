@@ -250,6 +250,7 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
     stackp: set = set()                     # registers holding an address in the frame
     pushed: list = []                       # the integer immediates pushed since the last call
     ecx_fields: list = []                   # the fields read into ecx since the last call
+    reg_fields: dict = {}                   # register -> the fields read into it since the last call
 
     def inside(t):
         return any(lo <= t < hi for lo, hi in ranges)
@@ -403,14 +404,21 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
                     # (and the fields read into ecx for it, its register argument: an EH handler's
                     # `mov ecx, [edx + 0x74]; xor ecx, eax; call __security_check_cookie`, the
                     # frame's cookie, rhtest engine-O2's 0x402c5d)
-                    for d in ecx_fields if mn == "call" else []:
-                        f.fields[d] -= 1
-                        if f.fields[d] <= 0:
-                            del f.fields[d]
+                    # (a tail jump to it too, and the fields that reached ecx through another
+                    # register: _ValidateLocalCookies' `mov eax, [esi + 8]; mov ecx, [esi + 0xc];
+                    # add ecx, edi; xor ecx, [eax + edi]; jmp __security_check_cookie`, which the
+                    # fixup's no-op check leaves the port without, rhtest stl-O2)
+                    for d in ecx_fields:
+                        if d in f.fields:
+                            f.fields[d] -= 1
+                            if f.fields[d] <= 0:
+                                del f.fields[d]
+                    ecx_fields = []
                 last_cl = None
                 if mn == "call":
-                    pushed = []
                     ecx_fields = []
+                    reg_fields = {}
+                    pushed = []
                 if ops and ops[0].type == x86.X86_OP_IMM:
                     t = ops[0].imm
                     if not inside(t):
@@ -423,6 +431,13 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
                     if slot in img.iat:
                         f.calls.append((insn.address, "imp:" + img.iat[slot]))
                     continue
+            # (ecx computed from another register: the fields that register holds reach ecx)
+            if ops and ops[0].type == x86.X86_OP_REG and insn.reg_name(ops[0].reg) == "ecx" and mn != "lea":
+                for op in ops[1:]:
+                    rs = [op.reg] if op.type == x86.X86_OP_REG else \
+                        [r for r in (op.mem.base, op.mem.index) if r] if op.type == x86.X86_OP_MEM else []
+                    for r in rs:
+                        ecx_fields.extend(reg_fields.get(insn.reg_name(r), ()))
             for op in ops:
                 if op.type == x86.X86_OP_MEM:
                     base = insn.reg_name(op.mem.base) if op.mem.base else ""
@@ -461,8 +476,10 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
                         for d in range(disp, disp + max(op.size, 4), 4):
                             if d > 0:
                                 f.fields[d] += 1
-                                if ops[0].type == x86.X86_OP_REG and insn.reg_name(ops[0].reg) == "ecx":
-                                    ecx_fields.append(d)
+                                if ops[0].type == x86.X86_OP_REG and op is not ops[0]:
+                                    reg_fields.setdefault(insn.reg_name(ops[0].reg), []).append(d)
+                                    if insn.reg_name(ops[0].reg) == "ecx":
+                                        ecx_fields.append(d)
                 elif op.type == x86.X86_OP_IMM:
                     v = op.imm & 0xFFFFFFFF
                     if v == own:
@@ -538,10 +555,19 @@ def presence(ref: Counter, port: Counter, source: set[int] = frozenset(),
             # (or a record's field the decompiler addressed from a global, `&DAT_004040f2 + i * 0xc`
             # for the record at 0x4040e8's +0xa: the port uses the global G + k)
             ref_globals, port_globals = bases
-            return any(g + k in port_globals for g in ref_globals)
+            if any(g + k in port_globals for g in ref_globals):
+                return True
+            # (or a field of a member the reference's compiler addressed first, `lea ecx, [edi +
+            # 0x3c]; mov esi, [ecx + 0x404]` for the translation's `this + 0x440` beside its
+            # `this + 0x3c`: the formatting buffer's members in the CRT's printf, rhtest stl-O2)
+            return any(s > k and s - k in source for s in source)
         if isinstance(k, str) and k.startswith("i:"):
             v = int(k[2:], 16)
             if v in source or (v + 1) & 0xFFFFFFFF in source or (v - 1) & 0xFFFFFFFF in source:
+                return True
+            # (or a subtraction at a word's or byte's width as its addition, `c - 0x27` of a
+            # ushort as `add ecx, 0xffd9`, the CRT's hex digits in rhtest stl-O2)
+            if any(v < (1 << w) and (-v) & ((1 << w) - 1) in source for w in (8, 16)):
                 return True
             # (a division by a constant as the reference's compiler made it: its divisor's
             # reciprocal, and the signed one's `>> 31` correction, where the translation divides)
@@ -791,6 +817,20 @@ def main() -> None:
             fn = scan(ref, ref, md32, sorted(pieces.get(a, [(a, a + e.get("size", 0))])), a, False)
             cookies |= {int(k[2:], 16) for k in fn.consts if k.startswith("g:")}
 
+    callee_cache: dict[int, list] = {}
+
+    def callees_of(c: int) -> list:
+        """the reference function's own calls, as ref_calls counts them"""
+        if c not in callee_cache:
+            ec = cor[c]
+            try:
+                fc = scan(ref, ref, md32, own_pieces(c, sorted(pieces.get(c, [(c, c + ec.get("size", 0))]))), c, False,
+                          set(), fixed_up)
+                callee_cache[c] = [x for x in ref_calls(fc) if x not in injections(ec["c"])]
+            except Exception:
+                callee_cache[c] = []
+        return callee_cache[c]
+
     def label(x) -> str:
         if isinstance(x, str):
             return x
@@ -829,6 +869,14 @@ def main() -> None:
         injected = injections(e["c"])
         rseq = [x for x in ref_calls(rf) if x not in injected]
         pseq = port_calls(pva, pf)
+        # (a callee the port does not call whose own calls it makes instead: inlined, the decompiler
+        # following a conditional tail jump into it, `je abort` in the C runtime's __vcrt_getptd,
+        # abort's body printed in its caller's. The same behavior; its calls stand for it)
+        have = set(pseq)
+        for c in [x for x in dict.fromkeys(rseq) if isinstance(x, int) and x not in have and x in cor]:
+            inner = callees_of(c)
+            if inner and set(inner) <= have | {c}:
+                rseq = [y for x in rseq for y in (inner if x == c else [x])]
         # (by which callees, not in what order: the order is each compiler's block layout, a cold
         # path's call last in one and first in the other, and two calls of one function in two
         # branches one call to a compiler that merges them)
