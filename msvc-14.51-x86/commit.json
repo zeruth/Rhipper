@@ -1,1 +1,1 @@
-{"sha": "5ed668397310b09b8b10fa7fc8e823270ecfa998", "date": "2026-10-29T23:12:30-04:00", "subject": "fix(fidelity32): an indexed float table's base folded into a scaled index"}
+{"sha": "eae0de82fb77b0d4d7eb64d972123b62aebc4a23", "date": "2026-10-30T00:06:08-04:00", "subject": "ci: rhtest stl and stlio on msvc-14.51-x86 (both variants PASS locally)"}

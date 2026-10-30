@@ -1714,5 +1714,17 @@
   "stubs": 0,
   "perfect": 3190,
   "translated": 3193
+ },
+ {
+  "sha": "eae0de82fb77b0d4d7eb64d972123b62aebc4a23",
+  "date": "2026-10-30T00:06:08-04:00",
+  "subject": "ci: rhtest stl and stlio on msvc-14.51-x86 (both variants PASS locally)",
+  "run": "2026-10-30 04:44 UTC",
+  "file": "eae0de82fb77b0d4d7eb64d972123b62aebc4a23.json",
+  "passing": 36,
+  "projects": 36,
+  "stubs": 8,
+  "perfect": 9421,
+  "translated": 9645
  }
 ]
