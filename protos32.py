@@ -82,7 +82,11 @@ REG_BITS = {X.X86_REG_EAX: EAX, X.X86_REG_AX: EAX, X.X86_REG_AL: EAX, X.X86_REG_
             X.X86_REG_ECX: ECX, X.X86_REG_CX: ECX, X.X86_REG_CL: ECX, X.X86_REG_CH: ECX,
             X.X86_REG_EDX: EDX, X.X86_REG_DX: EDX, X.X86_REG_DL: EDX, X.X86_REG_DH: EDX,
             X.X86_REG_EBX: EBX, X.X86_REG_BX: EBX, X.X86_REG_BL: EBX, X.X86_REG_BH: EBX,
-            X.X86_REG_ESI: ESI, X.X86_REG_SI: ESI, X.X86_REG_EDI: EDI, X.X86_REG_DI: EDI, **XMM_BITS}
+            X.X86_REG_ESI: ESI, X.X86_REG_SI: ESI, X.X86_REG_EDI: EDI, X.X86_REG_DI: EDI, **XMM_BITS,
+            # (a ymm register is its xmm register's: `vmovdqu ymm0, [eax]` sets xmm0. Unmapped, an
+            # AVX2 loop's writes were nothing and its reads of xmm0 inputs, the C++ library's
+            # vectorized max_element taking in_xmm0, rhtest stl)
+            **{getattr(X, f"X86_REG_YMM{i}"): 1 << (8 + i) for i in range(8)}}
 # the bytes a read of each general register's part takes (its high byte, ah, counted whole: no
 # parameter is passed there alone)
 REG_WIDTH = {**{r: 1 for r in (X.X86_REG_AL, X.X86_REG_CL, X.X86_REG_DL, X.X86_REG_BL)},
@@ -218,6 +222,19 @@ def ret_bytes(insns) -> int | None:
 def _target(ins) -> int | None:
     if ins.operands and ins.operands[0].type == X.X86_OP_IMM:
         return ins.operands[0].imm & 0xFFFFFFFF
+    # (and the Control Flow Guard check, `call [__guard_check_icall_fptr]` before each call through a
+    # pointer: the function the slot holds, a direct call that takes ecx and no stack words. As an
+    # indirect one, it took the words pushed for the call after it, and the static C runtime's
+    # undecorator called getString with none, rhtest stl /MT)
+    if ins.mnemonic == "call" and ins.operands and ins.operands[0].type == X.X86_OP_MEM and _b is not None:
+        m = ins.operands[0].mem
+        if not m.base and not m.index and m.disp:
+            try:
+                t = _b.u32(m.disp & 0xFFFFFFFF)
+            except Exception:
+                return None
+            if "guard_check_icall" in _names.get(t, ""):
+                return t
     return None
 
 
@@ -255,6 +272,25 @@ def analyse(root: int, ranges):
     tail_ijmps: list[tuple[int, bool]] = []   # indirect tail jumps, and whether ecx was set there
     unset_saved = [0]                         # the registers pushed so
     unset_slots: set[tuple[int, int]] = set()  # and the slots they were pushed to (register, esp)
+    # (a callee-saved register saved in another register and restored from it, `mov edx, edi; ...;
+    # mov edi, edx; ret`, the other read nowhere else: no input. The static CRT's memset keeps edi
+    # so, and its edi became an input of everything calling memset, rhtest stl /MT)
+    reg_saves: set[int] = set()
+    full = (X.X86_REG_EAX, X.X86_REG_ECX, X.X86_REG_EDX, X.X86_REG_EBX, X.X86_REG_ESI, X.X86_REG_EDI)
+    movs = {a: (i.operands[0].reg, i.operands[1].reg) for a, i in insns.items()
+            if i.mnemonic == "mov" and len(i.operands) == 2
+            and i.operands[0].type == i.operands[1].type == X.X86_OP_REG
+            and i.operands[0].reg in full and i.operands[1].reg in full}
+    for a, (dst, src) in movs.items():
+        if src not in (X.X86_REG_EBX, X.X86_REG_ESI, X.X86_REG_EDI) or dst == src:
+            continue
+        restores = {q for q, (d2, s2) in movs.items() if d2 == src and s2 == dst}
+        if not restores:
+            continue
+        others = [q for q, i in insns.items() if q not in restores and q != a
+                  and any(REG_BITS.get(r) == REG_BITS[dst] for r in regs_access(i)[0])]
+        if not others:
+            reg_saves.add(a)
     floor = [None, None, None]                # the locals a `sub esp, n` makes: bottom, top; the
                                               # frame's allocation (its first after `mov ebp, esp`)
 
@@ -283,6 +319,11 @@ def analyse(root: int, ranges):
         constant = len(ops) == 2 and ops[0].type == X.X86_OP_REG and ops[1].type == X.X86_OP_IMM \
             and ((mn == "or" and ops[1].imm & 0xFFFFFFFF in (0xFFFFFFFF, 0xFF, 0xFFFF)) or (mn == "and" and ops[1].imm == 0))
         zero_idiom = (mn in ("xor", "sub", "sbb", "xorps", "xorpd", "pxor", "subps", "pcmpeqd") and same) or constant
+        # (and their AVX forms, both sources the one register: `vpxor xmm5, xmm5, xmm5`)
+        if len(ops) == 3 and ops[1].type == ops[2].type == X.X86_OP_REG and ops[1].reg == ops[2].reg \
+                and mn in ("vxorps", "vxorpd", "vpxor", "vpsubd", "vpsubq", "vpsubb", "vpsubw", "vpcmpeqd",
+                           "vpcmpeqb", "vpcmpeqw", "vpcmpeqq", "vsubps", "vsubpd"):
+            zero_idiom = True
         # (and the ones that do nothing: the CRT's hot-patch `mov edi, edi`, alignment filler
         # `lea ebx, [ebx]`. Read as reads, sprintf_s took edi, and so did its 7,953 callers)
         # (and a multi-byte nop, `nop word ptr [eax + eax]`, whose operand addresses nothing: as
@@ -313,7 +354,7 @@ def analyse(root: int, ranges):
         # argument off on XAudio2's thread, the process's end, 2026-10-26)
         fence = mn == "xchg" and len(ops) == 2 and any(
             o.type == X.X86_OP_MEM and o.mem.base in (X.X86_REG_EBP, X.X86_REG_ESP) for o in ops)
-        if not zero_idiom and not reserve and not nop and not fence:
+        if not zero_idiom and not reserve and not nop and not fence and a not in reg_saves:
             for r in reads:
                 bit = REG_BITS.get(r)
                 if scalar_def and r == ops[0].reg:
@@ -410,6 +451,14 @@ def analyse(root: int, ranges):
                         if qi.mnemonic == "add" and len(qo) == 2 and qo[0].type == X.X86_OP_REG and qo[0].reg == r \
                                 and qo[1].type == X.X86_OP_IMM:
                             step += qo[1].imm
+                            q = nxt.get(q)
+                            continue
+                        # (or `lea edi, [edi + 4]`, /MT's __strcats at MSVC 14.51: its third string
+                        # past the five words, 0 to strcat_s, an invalid parameter's fail-fast in
+                        # setlocale, rhtest stl)
+                        if qi.mnemonic == "lea" and len(qo) == 2 and qo[0].type == X.X86_OP_REG and qo[0].reg == r \
+                                and qo[1].type == X.X86_OP_MEM and qo[1].mem.base == r and not qo[1].mem.index:
+                            step += qo[1].mem.disp
                             q = nxt.get(q)
                             continue
                         if r in regs_access(qi)[1] or qi.mnemonic in ("call", "ret") or qi.mnemonic.startswith("j"):
@@ -792,6 +841,10 @@ def analyse(root: int, ranges):
             writes_ret |= 64
         if X.X86_REG_XMM0 in w:
             writes_ret |= 128                     # (xmm0: an /LTCG SSE result)
+    # (and a ret reached with xmm0 as it came in on some way there, a call between excepted: an SSE
+    # result passed through from the caller, main()'s xmm0 input where the result is one)
+    xmm0_open = any(ins.mnemonic == "ret" and a2 in state and not state[a2][0] & XMM_BITS[X.X86_REG_XMM0]
+                    for a2, ins in insns.items())
     # (a callee-saved register pushed unset as one of the next call's arguments: the caller's
     # value, an input. /GL's CRT passes 0 in edi: _sopen_helper's `xor edi, edi` reaches
     # _tsopen_nolock, which pushes it for __lseeki64_nolock's offset and __invoke_watson's
@@ -1374,6 +1427,7 @@ def analyse(root: int, ranges):
             # into a 64-bit count, extraout_EDX, a stub, 2026-10-26)
             "icall_rets": {t[1]: k for t, k in results.items() if isinstance(t, tuple) and k in ("f4", "d8", "i8")},
             "passes": passes, "passes_via": passes_via, "st_over": st_over, "writes_ret": writes_ret, "vol_writes": vol_writes, "opaque": opaque,
+            "xmm0_open": xmm0_open,
             "sets_eax": sets_eax, "x87_ret_live": x87_ret_live, "x87_ret_dead": x87_ret_dead, "narrow_ret": sets_eax if sets_eax in (1, 2) and rets and rets_set == rets else 0,
             "eax_unset": root in state and eax_reaches_ret(insns, state, nxt, root, limit=256),
             # (direct callees with a call site here that leaves st0 untouched up to the next call:
@@ -3600,6 +3654,27 @@ def main() -> None:
     setjmps = {f for f in local if SETJMP_NAME.fullmatch(names.get(f, ""))}
     for f in setjmps:
         inputs[f] = 0
+    # (nor from one that captures the registers into a CONTEXT record, `mov [ebp - 0x234], edi;
+    # mov [ebp - 0x208], ss; ...; pushfd`: the static CRT's __acrt_call_reportfault, called by
+    # abort. Handed on, edi became an input of abort, of __vcrt_getptd that calls it, and of the
+    # frame handler and every EH funclet thunk of the program, unaff_EDI, rhtest stl-O2)
+    md_cap = disassembler()
+    for f, v in local.items():
+        if f not in ranges:
+            continue
+        segs = 0
+        for lo, hi in ranges[f]:
+            code = bytes(b.image[b.off(lo):b.off(lo) + (hi - lo)])
+            if b"\x8c" not in code:                    # (`mov r/m16, Sreg`'s opcode)
+                continue
+            for _a, _s, mn, ops in md_cap.disasm_lite(code, lo):
+                if mn == "mov" and re.search(r"\], (?:cs|ss|ds)$", ops):
+                    segs += 1
+        if segs >= 2:
+            inputs[f] = 0
+            # (and what it captures after a call is no result of the callee: memset's edx, read
+            # as an 8-byte result, made memset return its saved edi, CONCAT44(unaff_EDI, ...))
+            v["results"] = {}
     # (nor xmm registers from the C runtime's x87 math, which helpers32.py identified on a run before:
     # its SSE2 branches read xmm registers they never take, and handed on they made a rotation's
     # caller read in_XMM2_Da, a stub; each takes st0 (and pow st1), its call a fixup in ApplyFacts)
@@ -4063,6 +4138,14 @@ def main() -> None:
         if r and f not in noreturn and not why.get(f, "").startswith("read by"):
             ret_of[f] = REG_RETS[r]
             why[f] = f"hands {r} back, `mov {r}, [ebp - k]; ret`"
+
+    # (an SSE result some way to the ret leaves as the caller had it, where the function writes xmm0
+    # on another: xmm0 an input too. The C runtime's math error handler returns its caller's result
+    # unchanged for the error types it ignores, `return in_XMM0_Qa;`, a stub, rhtest stl /MT)
+    for f, v in local.items():
+        if ret_of.get(f) in ("q8", "s4") and v.get("xmm0_open") and v.get("writes_ret", 0) & 128:
+            inputs[f] = inputs.get(f, 0) | XMM_BITS[X.X86_REG_XMM0]
+            v.setdefault("in_width", {})[XMM_BITS[X.X86_REG_XMM0]] = 8 if ret_of[f] == "q8" else 4
 
     # 4. conventions and parameters
     # (the functions some direct call or jump reaches)

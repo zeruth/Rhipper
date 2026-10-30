@@ -631,6 +631,8 @@ void Dispatch(Thrown t) {
         }
     }
     fprintf(stderr, "rhipper: unhandled exception %08X; the chain:\n", t.code);
+    // (the shadow trace written up to here: the process ends in a moment, its last calls unflushed)
+    RefTraceFlush();
     // (and where a hardware fault was, its context's stack: the chain alone said nothing of which
     // translation faulted, rhtest stl /MT's startup access violation)
     if (g_hwContext) {
@@ -946,6 +948,7 @@ static void ExitReport(const char* how, uint32_t code) {
     fflush(stderr);
     RefTraceFlush();
 }
+extern "C" void gen_fastfail_report(void) { ExitReport("__fastfail", 0xc0000409u); }
 unsigned int gen_imp_TerminateProcess(uint32_t process, uint32_t code) {
     HANDLE h = reinterpret_cast<HANDLE>(static_cast<intptr_t>(static_cast<int32_t>(process)));
     if (h == GetCurrentProcess() || GetProcessId(h) == GetCurrentProcessId()) ExitReport("TerminateProcess", code);

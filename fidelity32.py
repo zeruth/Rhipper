@@ -828,7 +828,7 @@ def main() -> None:
         # path's call last in one and first in the other, and two calls of one function in two
         # branches one call to a compiler that merges them)
         calls, missing_calls = presence(Counter(rseq), Counter(pseq))
-        if "replaced with injection: security_check_cookie" in e["c"]:
+        if re.search(r"replaced with injection: (?:rh_)?security_check_cookie", e["c"]):
             # (and the cookie the injected check compares with, read in the prologue)
             for g in cookies:
                 rf.consts.pop(f"g:{g:x}", None)

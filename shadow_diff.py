@@ -46,7 +46,10 @@ HELPERS = ("SEH_prolog", "SEH_epilog", "EH_prolog", "EH_epilog", "alloca_probe",
            "EH4_LocalUnwind", "local_unwind", "global_unwind", "CallSettingFrame",
            # (and setjmp, which the port's runtime does natively: a protected call's every entry
            # parted the runs by one call)
-           "_setjmp3")
+           "_setjmp3",
+           # (and the /GS check, a call fixup the translation does inline, GEN_COOKIE: a static C
+           # runtime's undecorator parted the runs at its first return, rhtest stl /MT)
+           "security_check_cookie")
 
 
 def by_thread(recs, skip=frozenset(), helpers=frozenset(), inner=frozenset()):

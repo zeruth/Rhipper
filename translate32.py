@@ -43,6 +43,7 @@ from multiprocessing import Pool
 from pathlib import Path
 
 import project
+import vec32
 from project import FACTS, GEN, ROOT
 from signedness import signed_siblings, signed_tests
 
@@ -129,7 +130,7 @@ HEADER_NAMES = {"REFG", "REFP", "GP", "PTR32", "MXCSR", "ExceptionList", "GenUni
                 "floor", "ceil", "trunc", "nearbyint", "memcpy", "memset", "rdtsc", "GEN_PIECE", "GEN_ISNAN",
                 "gen_piece_set", "gen_fl2bits", "gen_d2bits", "gen_bits2f", "gen_bits2d", "GEN_TOF", "GEN_TOD", "GEN_SLOT", "GEN_LOW",
                 "gen_ac", "GEN_LO32", "GEN_HI32",
-                "GEN_TOP", "GEN_FLT_TO"}
+                "GEN_TOP", "GEN_FLT_TO", "gen_vzero"}
 _header_names: set[str] | None = None
 
 
@@ -152,6 +153,7 @@ def header_names() -> set[str]:
         names = set(re.findall(r"#define\s+([A-Za-z_]\w*)", text))
         names |= set(re.findall(r"\b([A-Za-z_]\w*)\s*\(", text))      # functions declared or defined
         names |= set(re.findall(r"\b([A-Za-z_]\w*)\s*;", text))        # typedef names, variables
+        names |= set(re.findall(r"\bGEN_VLANES\(\s*([A-Za-z_]\w*)", text))  # (the vector lane ops)
         _header_names = names | HEADER_NAMES
     return _header_names
 # where Ghidra maps the x86 fs segment (the TEB) of a 32-bit Windows program
@@ -324,6 +326,26 @@ def out_stack(body: str, alloca: bool = False, eh: bool = False) -> str:
 V_SIZES = "8|12|16|24|32|48|64"
 
 
+def fastfail_dead(c: str) -> str:
+    if "swi(0x29)" not in c:
+        return c
+    lines = c.split("\n")
+    out, i = [], 0
+    while i < len(lines):
+        out.append(lines[i])
+        m = re.fullmatch(r"\s*\(\*(\w+)\)\(\);\s*", lines[i])
+        if m and any(re.fullmatch(rf"\s*{m.group(1)} = \(code \*\)swi\(0x29\);\s*", l) for l in lines[max(0, i - 3):i]):
+            j = i + 1
+            # (plain statements only: a label, a block's end or anything that opens one stops it)
+            while j < len(lines) and re.fullmatch(r"\s*[A-Za-z_]\w* = [^;{}]*;\s*", lines[j]) \
+                    and not re.match(r"\s*[A-Za-z_]\w*\s*:", lines[j]):
+                j += 1
+            i = j
+            continue
+        i += 1
+    return "\n".join(out)
+
+
 def cpu_state(c: str) -> str:
     """Processor state Ghidra reads as a lost register that the host has as an intrinsic: XCR0
     (xgetbv, ecx = 0; the CRT's __isa_available_init, whose result picks /O2's vector paths),
@@ -332,6 +354,11 @@ def cpu_state(c: str) -> str:
     # set apart: no C type is 12 bytes, so their bytes. Havok's vector code in a client, 10
     # functions, 2026-10-27)
     c = re.sub(r"(?m)^([ \t]*)(\w+)\._0_12_\s*=\s*ZEXT812\(0\);", r"\1memset(&\2, 0, 12);", c)
+    # (and the statements after a __fastfail, `pcVar2 = (code *)swi(0x29); (*pcVar2)();`, up to the
+    # next label or block end: no code runs there, the process ends. The decompiler goes on as if
+    # the trap returned, `iVar4 = extraout_ECX;` into the code after it, a register it lost,
+    # std::vector's _Xlength path in rhtest stl /MT)
+    c = fastfail_dead(c)
     if "in_XCR0" not in c:
         return c
     c = re.sub(r"(?m)^[ \t]*\w+ in_XCR0;\n", "", c)
@@ -351,6 +378,8 @@ def v16_forms(c: str) -> str:
     c = re.sub(r"\(\s*undefined1\s*\(\s*\*\s*\*\s*\)\s*\[\s*(" + V_SIZES + r")\s*\]\s*\)", r"(gen_v\1 * PTR32 *)", c)
     c = re.sub(r"\bundefined1\s*\(\s*\*\s*([A-Za-z_]\w*)\s*\)\s*\[\s*(" + V_SIZES + r")\s*\]", r"gen_v\2 * \1", c)
     c = re.sub(r"\(\s*undefined1\s*\(\s*\*\s*\)\s*\[\s*(" + V_SIZES + r")\s*\]\s*\)", r"(gen_v\1 *)", c)
+    # (and a function's return type, `undefined1 (*) [32]` on the line before its name)
+    c = re.sub(r"(?m)^undefined1\s*\(\s*\*\s*\)\s*\[\s*(" + V_SIZES + r")\s*\]", r"gen_v\1 *", c)
     c = re.sub(r"(?m)^([ \t]*)([^=;\n{}]+?)\s*=\s*\(\s*undefined1\s*\[\s*16\s*\]\s*\)\s*([^;\n]+);[ \t]*$",
                r"\1GEN_V16_SET(\2, \3);", c)
     # (the first bytes of one, `*(undefined1 (*) [12])*(undefined1 (*) [16])(pfVar25 + 8)`: those
@@ -375,7 +404,8 @@ def v16_forms(c: str) -> str:
             return (f"{m.group(1)}memcpy(&({l}), &({r}), sizeof({r}) < sizeof({l}) ? sizeof({r}) : sizeof({l}));")
         return m.group(0)
     c = re.sub(r"(?m)^([ \t]*)([^=;\n{}()]+?|\*\s*\(\s*gen_v16\s*\*\s*\)[^=;\n]+?)\s*=(?!=)\s*([^;\n]+);[ \t]*$", copy, c)
-    return sse_ops(c, arrays, v16)
+    # (and the AVX2 and SSE4.2 pseudo-ops, pieces and operators on whole vectors, vec32.py)
+    return vec32.vec_forms(sse_ops(c, arrays, v16))
 
 
 SSE_OPS = {"minps", "maxps", "divps", "rsqrtps", "rcpps", "sqrtps", "packssdw", "psllw", "pmulld", "vpsllvd_avx2",
@@ -517,8 +547,11 @@ def sse_ops(c: str, arrays: set[str], v16) -> str:
 # the arguments', and stay out): 0x4b0a00's `aiStackY_94[type] = p`
 # fills, for the types it takes, the seven locals above it, `[ebp + edx*4 - 0x90]` over local_20..
 # local_8. As a C array of its own a lobby VFX's animation tracks were never bound, 2026-10-28)
-FRAME_LOCAL = r"(?:local|[A-Za-z]{0,5}StackY?|blk)_([0-9a-f]+)"
-FRAME_DECL = re.compile(r"(?m)^[ \t]+(?!(?:return|goto|case|else|do)\b)(?!(?:local|[A-Za-z]{0,5}StackY?|blk)_[0-9a-f]+\b)"
+# (and a prefix as long as the type's pointer levels make it, `ppppppuStack_30`: as a C local of its
+# own, a std::string's capacity the callee wrote through the object's address was never seen, and
+# its destructor took the stale one for a large buffer's, a fail-fast, rhtest stl /MT)
+FRAME_LOCAL =r"(?:local|[A-Za-z]{0,16}StackY?|blk)_([0-9a-f]+)"
+FRAME_DECL = re.compile(r"(?m)^[ \t]+(?!(?:return|goto|case|else|do)\b)(?!(?:local|[A-Za-z]{0,16}StackY?|blk)_[0-9a-f]+\b)"
                         r"(?![a-z]{1,4}Var\d+\b)(?!(?:param|in|unaff|extraout)_\w+\b)"
                         r"((?:struct\s+)?[A-Za-z_]\w*(?:[ \t]+[A-Za-z_]\w*)*?(?:[ \t]*\*(?:[ \t]*PTR32)?)*)"
                         r"[ \t]*\b(" + FRAME_LOCAL + r")[ \t]*(\[[ \t]*(?:0x)?[0-9a-f]+[ \t]*\])?[ \t]*;[ \t]*\n")
@@ -719,7 +752,9 @@ def shift_counts(body: str) -> str:
         # shifts by negated: masked, the compiler's `ror`, bare two shifts and an or)
         if count.startswith("-") or ("(-" + count + " & 0x1f)") in body or ("(-" + count + ") & 0x1f)") in body:
             continue
-        bare =re.sub(r"^\(byte\)\s*(?=[A-Za-z_]\w*$)", "", count)
+        # (the byte's variable as an integer: Ghidra types a register by its other uses, a pointer
+        # here and there, C2297 in bytes32's x86 build, the C runtime's printf in rhtest stl /MT)
+        bare = re.sub(r"^\(byte\)\s*([A-Za-z_]\w*)$", r"(unsigned int)(uintptr_t)\1", count)
         out.append(body[i:start])
         out.append(f"GEN_SHC({count}, {bare})")
         i = end
@@ -2432,13 +2467,17 @@ class Signature:
         # (a long name wrapped after a `::` and before its parameters, `std::\n_Cons_val<...>_005c3320
         # \n(...)`: one name again, so the corpus's finds it)
         head = re.sub(r"::\s+", "::", head)
+        # (the name as the head has it, its conventions gone too: a template over a function
+        # pointer type, `__crt_fast_encode_pointer<void_(__stdcall*)(void*,unsigned_long,void*)>`,
+        # no signature, rhtest stl-O2)
+        hname = CC.sub("", name) if name else name
         if name:
-            head = head.replace(name + " (", name + "(")
+            head = head.replace(hname + " (", hname + "(")
         # (the corpus's own name, where the head has it: a template's name has spaces and commas
         # in it, `void std::basic_string<char, ...>::assign(...)`, that no pattern takes whole)
-        at = head.find(name + "(") if name else -1
+        at = head.find(hname + "(") if name else -1
         if at > 0:
-            self.ret, self.name, p = head[:at].strip() or "void", name, head[at + len(name) + 1:].rstrip()
+            self.ret, self.name, p = head[:at].strip() or "void", name, head[at + len(hname) + 1:].rstrip()
             if not p.endswith(")"):
                 raise ValueError(f"no signature in {head[:80]!r}")
             p = p[:-1].strip()
@@ -2504,7 +2543,7 @@ class Translator32:
         t0 = time.time()
         self.corpus = load_corpus()
         # (the enums the decompiler names anywhere, `enum CV_methodprop_e`: an unexported one is an int)
-        self.enum_words = {w for r in self.corpus.values() if "enum " in r.get("c", "")
+        self.enum_words = {w for r in self.corpus.values() if "enum" in r.get("c", "")
                            # (a scoped one by its last part, as the decompiler declares it: `enum
                            # std::ios_base::event` in a comment, `event param_1` in the signature,
                            # std::ios_base::_Callfns a stub on a client's path, "type event")
@@ -2959,7 +2998,7 @@ class Translator32:
         the decompiler's offset below the entry esp) unwritten: in a plain `push ebp; mov ebp, esp`
         frame no instruction writes memory covering [ebp + off + 4], and no `lea` takes an address
         at or below it (a callee could fill it through that). Other frames: unknown, False."""
-        m = re.fullmatch(r"(?:local_|[a-zA-Z]{0,5}Stack[XY]?_)([0-9a-f]+)", name)
+        m = re.fullmatch(r"(?:local_|[a-zA-Z]{0,16}Stack[XY]?_)([0-9a-f]+)", name)
         if not m:
             return False
         off = -int(m.group(1), 16)
@@ -2992,6 +3031,57 @@ class Translator32:
                 if written and lo <= off < lo + max(op.size, 1):
                     return False
         return True
+
+    def unread_params(self, c: str) -> set[str]:
+        """The callee-saved registers the decompiler lost that are only whole arguments of direct
+        calls whose callee never reads that parameter: a catch's continuation cut from its body
+        takes the body's `ret 4` for a stack parameter of its own, and the body falling into it
+        hands it whatever is on the stack, `FUN_00402096(this, &stack0xfffffffc, unaff_EDI)`
+        (rhtest stl-O2's stream extractors). 0 in the port."""
+        out = set()
+        for n in set(re.findall(r"\bunaff_E(?:BX|SI|DI)(?:_\d+)?\b", c)):
+            uses = [m for m in re.finditer(r"\b" + re.escape(n) + r"\b", c)]
+            ok = bool(uses)
+            for m in uses:
+                line_start = c.rfind("\n", 0, m.start()) + 1
+                if re.match(r"[ \t]+[A-Za-z_][\w ]*?[\s*]+" + re.escape(n) + r"\s*;", c[line_start:]):
+                    continue                                   # (its declaration)
+                # (the call it is an argument of: the innermost open paren before it, its index)
+                depth, k, idx = 0, m.start() - 1, 0
+                while k >= 0:
+                    ch = c[k]
+                    if ch in ")]":
+                        depth += 1
+                    elif ch in "([":
+                        if depth == 0:
+                            break
+                        depth -= 1
+                    elif ch == "," and depth == 0:
+                        idx += 1
+                    elif ch in ";{}" and depth == 0:
+                        k = -1
+                        break
+                    k -= 1
+                after = c[m.end():].lstrip()
+                fn = re.search(r"([A-Za-z_]\w*)\s*$", c[:k]) if k > 0 else None
+                if not fn or not after[:1] in (",", ")") or not re.match(r"\s*[,)]", c[m.end():]):
+                    ok = False
+                    break
+                ca = self.by_printed.get(fn.group(1))
+                if ca is None and re.fullmatch(r"FUN_[0-9a-f]{8}", fn.group(1)):
+                    ca = int(fn.group(1)[4:], 16)
+                sig = self.sigs.get(ca) if ca is not None else None
+                if sig is None or idx >= len(sig.params):
+                    ok = False
+                    break
+                pname = sig.params[idx][1]
+                cbody = strip_comments(self.corpus[ca]["c"]).partition("{")[2]
+                if re.search(r"\b" + re.escape(pname) + r"\b", cbody):
+                    ok = False
+                    break
+            if ok:
+                out.add(n)
+        return out
 
     def noreturn_args_only(self, a: int, c: str) -> set[str]:
         """The registers the decompiler lost that are read only as the arguments of a call that does
@@ -3377,6 +3467,7 @@ class Translator32:
         # (and a full xmm register as an SSE pseudo-op's destination found it: zeroed, sse_ops)
         # (and a call's x87 result made its assignment, x87_icall_results)
         ok = returned_only(c) | self.unread_result(a, c) | self.noreturn_args_only(a, c) | filler_args(c) | upper_only(c) | declared_only(c) | \
+            self.unread_params(c) | \
             context_capture(c) | {"in_FPUControlWord", "in_FPUStatusWord"} | ({"in_ZF"} if libm_flag(c) else set()) | \
             set(re.findall(r"(?m)^\s*(extraout_ST0(?:_\d+)?) = \(\*", c)) | \
             set(re.findall(r"(?m)^[ \t]+undefined1\s+(in_XMM\d+)\s*\[\s*16\s*\]\s*;", c)) | \
@@ -4077,15 +4168,32 @@ class Translator32:
                 raise ValueError("variadic with no fixed parameter")
             # (each parameter at its slot as the reference pushed it: a double or an 8-byte integer
             # two words, a float one; a float10 is 12 bytes there, and its 8 here do not fill them)
+            # (a register parameter has no slot: a __thiscall's `this` in ecx, a __fastcall's first
+            # two. The CRT's __crt_seh_guarded_call<void>::operator(), __thiscall by its FID
+            # signature, gave `this` [ebp + 8], and its __finally funclet read the lock's pointer
+            # there, rhtest stl-O2's startup)
+            head = self.corpus[a]["c"].split("{", 1)[0]
+            ccm = CC.search(head)
+            in_regs = {"__thiscall": 1, "__fastcall": 2}.get(ccm.group(1) if ccm else "", 0)
             at_slot, fixed = [], 0
-            for t, _n in sig.params:
+            for k, (t, _n) in enumerate(sig.params):
+                # (and one ApplyFacts gave a register, `in_eax`, `in_st0`: the C runtime's
+                # _startOneArgErrorHandling takes st0 and three registers before its stack words)
+                if (k < in_regs and abi_type(self.type_text(t)) == "unsigned int") or \
+                        re.fullmatch(r"in_(?!stack)[A-Za-z]\w*", _n):
+                    at_slot.append(None)
+                    continue
                 if self.type_text(t).replace("*", "").strip() == "float10" and "*" not in self.type_text(t):
                     raise ValueError("an argument block with a float10 parameter")
                 at_slot.append(fixed)
                 fixed += 2 if abi_type(self.type_text(t)) in ("double", "unsigned long long") else 1
             words = fixed + (VA_WORDS if sig.variadic else 0)
             block = [f"  unsigned int gen_args[{max(words, 1)}];"]
+            # (the register parameters' own locals, as the parameters' prologue declared them)
+            in_reg = [prologue[k] for k in range(len(sig.params)) if at_slot[k] is None]
             for k, (t, _n) in enumerate(sig.params):
+                if at_slot[k] is None:
+                    continue
                 if abi_type(self.type_text(t)) == "unsigned int":
                     block.append(f"  gen_args[{at_slot[k]}] = gen_a{k};")
                 else:
@@ -4099,6 +4207,8 @@ class Translator32:
             if param_addressed or eh:
                 # (the slots are the parameters: a pointer one a 32-bit pointer in its slot)
                 for k, (t, n) in enumerate(sig.params):
+                    if at_slot[k] is None:
+                        continue
                     tt = self.type_text(t)
                     slot_t = f"{tt} PTR32" if "*" in tt else tt
                     if re.fullmatch(r"code\s*\*", tt.strip()):
@@ -4108,14 +4218,14 @@ class Translator32:
                         slot_t = "gen_code32"
                         body = re.sub(rf"\(\s*\*\s*{re.escape(n)}\s*\)(?=\s*\()", f"((code *){n})", body)
                     body = re.sub(rf"\b{re.escape(n)}\b", f"(*({slot_t} *)&gen_args[{at_slot[k]}])", body)
-                prologue = block
+                prologue = in_reg + block
             else:
                 prologue = block + prologue
             if eh:
                 # (the block is the frame's own, frame_locals: declared after it, filled there)
                 eh_args = [f"  unsigned int *gen_args = (unsigned int *)(gen_frame + GEN_ARGS_AT);"] + block[1:]
                 eh_args.append(f"  /* GEN_ARGS_WORDS {max(words, 1)} */")
-                prologue = []
+                prologue = in_reg
             var_types["gen_args"] = "unsigned int[]"
 
             def slot(m):
@@ -4145,7 +4255,7 @@ class Translator32:
             # (an array is its element type with [] on: what indexes and dereferences it is fine)
             var_types.setdefault(m.group(2), m.group(1) + ("[]" if m.group(3) else ""))
         # (and sse_ops' temporaries, declared where they are computed)
-        for n in set(re.findall(r"\bgen_vt\d+\b", body)):
+        for n in set(re.findall(r"\bgen_v[tx]\d+\b", body)):
             var_types[n] = "undefined1[]"
         body = self.typed_casts(body, var_types)
         body = self.call_args(body, var_types)
@@ -4213,12 +4323,26 @@ class Translator32:
         body = re.sub(r"(?m)^([ \t]*)(\*\s*\(.+?)\s*=(?!=)\s*(REFG\((?:float|double), 0x[0-9a-f]+\))\s*;[ \t]*$",
                       lambda m: f"{m.group(1)}{m.group(2)} = GEN_FLT_TO({m.group(2)}, {m.group(3)});", body)
         # (unary: `a * (*(undefined4 *)(...))` is a multiplication)
+        # (the piece a pointer, as Ghidra typed what it holds: a locale facet's pointer kept in a
+        # double's upper half, `*local_33c._4_4_ + 8`, std::num_get's do_get, rhtest stl-O2. An int *
+        # as the decompiler's arithmetic on it counts ints)
+        body = re.sub(r"(?m)((?:^|[^\w)\]\s])\s*\*\s*)\(\*\(undefined4 \*\)\(\(char \*\)&",
+                      r"\1(*(int * PTR32 *)((char *)&", body)
         if re.search(r"(?:^|[^\w)\]\s])\s*\*\s*\(\*\(undefined4 \*\)\(\(char \*\)&", body, re.M):
             raise ValueError("a 4-byte piece dereferenced as a pointer")
         for n, t in var_types.items():
             # (not on its address: _tsopen_nolock's byte-order mark buffer, a `code *` to Ghidra for
             # UTF-8's EF BB BF read as FUN_00bfbbef, written from `(int)&local_20 + iVar12`)
             if t.strip() == "code *" and re.search(r"(?<![&\w])" + re.escape(n) + r"\s*[-+]\s", body):
+                # (a local never called through: a byte pointer, as Ghidra counts it. The CRT's
+                # atexit table grown by __recalloc_base, `local_8 + uVar6 * 4`, a pointer to
+                # encoded function pointers, rhtest stl-O2)
+                e = re.escape(n)
+                decl = re.compile(r"(?m)^([ \t]*)code\s*\*\s*" + e + r";")
+                if decl.search(body) and not re.search(r"\(\s*\*\s*" + e + r"\s*\)\s*\(|(?<![\w$])" + e + r"\s*\(", body):
+                    body = decl.sub(lambda m: f"{m.group(1)}undefined *{n};", body)
+                    var_types[n] = "undefined *"
+                    continue
                 raise ValueError("arithmetic on a code pointer")
         body = self.code_pointer_calls(body, var_types)
         body = self.called_pointers(body)
@@ -4293,7 +4417,9 @@ class Translator32:
             # (a call statement just before the return is what the function returns: the
             # reference's tail call, `jmp eax`, leaves the callee's eax for the callers that read
             # it, where Ghidra's void dropped it and 0 came back, 0x439610 in a client 2026-10-27)
-            body = re.sub(r"(?m)^([ \t]*)((?:\(\(\w+ \*\)[^;\n]*|[A-Za-z_]\w*\([^;\n]*)\));\s*\n[ \t]*return\s*;",
+            # (not Ghidra32.h's UNLOCK(), a void macro: a locked increment last, C2069 in a lambda's
+            # operator() of the CRT, rhtest stl-O2)
+            body = re.sub(r"(?m)^([ \t]*)((?:\(\(\w+ \*\)[^;\n]*|(?!(?:UN)?LOCK\(\))[A-Za-z_]\w*\([^;\n]*)\));\s*\n[ \t]*return\s*;",
                           lambda m: f"{m.group(1)}return (uint)({m.group(2)});", body)
             body = re.sub(r"\breturn\s*;", "return 0;", body)
         if not balanced(body):
@@ -4301,7 +4427,8 @@ class Translator32:
         # (the lost result registers it only returns: 0 where nothing set them, why_not. Last, as
         # the passes above read the declarations as `type name;`)
         # (and those only a call that does not return is given, noreturn_args_only)
-        for n in returned_only(c) | self.unread_result(a, c) | self.noreturn_args_only(a, c) | filler_args(c) | upper_only(c) | context_capture(c):
+        for n in returned_only(c) | self.unread_result(a, c) | self.noreturn_args_only(a, c) | filler_args(c) | upper_only(c) | context_capture(c) \
+                | self.unread_params(c):
             # (a pointer's too, `undefined * extraout_EAX;`: as no match it stayed uninitialized)
             body = re.sub(r"(?m)^(\s*[A-Za-z_][\w ]*?[\s*]+" + n + r")\s*;", r"\1 = 0;", body, count=1)
         body = re.sub(r"(?m)^([ \t]*[A-Za-z_][\w ]*?[ \t*]+cap_(?:[A-Z]{2,3}|EBP|retaddr))\s*;", r"\1 = 0;", body)
@@ -4962,6 +5089,12 @@ class Translator32:
             for m in re.finditer(rf"\b{re.escape(v)}\s*(\+|-)(?![=+\->])\s*|\b{re.escape(v)}\s*(\+=|-=)\s*", text):
                 if m.start() < i:
                     continue
+                # (not the pointer cast to an integer, `(int)p_Var13 - (int)piVar14`: integer
+                # arithmetic, its bytes. Scaled, std::string's append of a type name took a length
+                # four times too short, negative, rhtest stl /MT's typeid)
+                if re.search(r"\(\s*(?:unsigned\s+)?(?:u?int|u?long|uint\d*|int\d*|undefined\d|u?longlong|dword|"
+                             r"uintptr_t|intptr_t|size_t)\s*\)\s*$", text[:m.start()]):
+                    continue
                 # (the rest of the additive expression: to a closing bracket, a separator or an
                 # operator binding looser than + at this depth)
                 j, depth = m.end(), 0
@@ -5022,7 +5155,9 @@ class Translator32:
 
         def cast(m):
             return "(" + self.type_text(m.group(1)) + ")"
-        body = re.sub(r"\(\s*((?:const\s+)?[A-Za-z_~`][\w:`']*(?:<[^()]*?>)?(?:\s+[A-Za-z_]\w*)?\s*\*[\s*]*)\)", cast, body)
+        # (not a convention in a template's name, `__crt_fast_encode_pointer<void_(__stdcall*)(...)>`:
+        # a cast to it lost the name, undeclared, rhtest stl-O2)
+        body = re.sub(r"\(\s*(?!(?:__thiscall|__cdecl|__stdcall|__fastcall)\s*\*)((?:const\s+)?[A-Za-z_~`][\w:`']*(?:<[^()]*?>)?(?:\s+[A-Za-z_]\w*)?\s*\*[\s*]*)\)", cast, body)
 
         def decl(m):
             t, rest = m.group(2), m.group(3)
@@ -5062,13 +5197,27 @@ class Translator32:
         # `__crt_seh_guarded_call<void> local_5;`, `<lambda_32aa...> local_9;`: its bytes, as the
         # export sizes it. The static CRT's guarded calls take its address only, rhtest stl /MT)
         def opaque_t(m):
-            word, name = m.group(2).strip(), m.group(3)
-            if word not in self.composite_sizes or re.search(rf"\b{name}\b\s*(?:\.|->)", rest):
+            word, name, count = m.group(2).strip(), m.group(3), m.group(4)
+            if word not in self.composite_sizes or re.search(rf"\b{name}\b\s*(?:\[[^\]]*\]\s*)?(?:\.|->)", rest):
                 return m.group(0)
             size = max(1, self.composite_sizes[word])
+            # (and an array of them, `istreambuf_iterator<char,...> local_28 [14];`, the bytes
+            # std::num_get's _Getffld collects its digits in, rhtest stl)
+            if count:
+                return f"{m.group(1)}undefined{size} {name}[{count}];" if size in (1, 2, 4, 8) else \
+                    f"{m.group(1)}undefined1 {name}[{size * int(count, 0)}];"
             return f"{m.group(1)}undefined{size} {name};" if size in (1, 2, 4, 8) else \
                 f"{m.group(1)}undefined1 {name}[{size}];"
-        decls = re.sub(r"(?m)^(\s+)((?:[A-Za-z_][\w:]*)?<[^;\n]*>)\s+([A-Za-z_]\w*)\s*;", opaque_t, decls)
+        decls = re.sub(r"(?m)^(\s+)((?:[A-Za-z_][\w:]*)?<[^;\n]*>)\s+([A-Za-z_]\w*)\s*(?:\[\s*((?:0x)?[0-9a-f]+)\s*\])?\s*;",
+                       opaque_t, decls)
+        # (a cast to one by value, `(istreambuf_iterator<char,std::char_traits<char>_>)0x1`: to its
+        # bytes, an integer of its size)
+        # (in either part: a function with no locals has its body in the first, split_decls)
+        for word in {w for w in re.findall(r"\(\s*((?:[A-Za-z_][\w:]*)?<[^;()\n]*>)\s*\)", decls + rest)}:
+            size = self.composite_sizes.get(word.strip())
+            if size in (1, 2, 4, 8):
+                rest = re.sub(r"\(\s*" + re.escape(word) + r"\s*\)", f"(undefined{size})", rest)
+                decls = re.sub(r"\(\s*" + re.escape(word) + r"\s*\)", f"(undefined{size})", decls)
         # (and copied whole through a pointer, `*param_1 = _Var1;`: all its bytes, not the one
         # byte the `undefined *` it became points at)
         for name, size in small.items():
@@ -5112,6 +5261,11 @@ class Translator32:
         body = self.odd_names(body)
         # (a cast to a lambda's type, its object's address: a pointer, `(<lambda_15ade...> *)&local_18`)
         body = re.sub(r"\(\s*<lambda_[0-9a-f]+>\s*\*\s*\)", "(void *)", body)
+        # (and a local pointing to one, which the decompiler names after the type's first letters,
+        # `<lambda_39ca...> *p<Var1;`: bytes, named p_lVar1. The static CRT's guarded calls, rhtest
+        # stl /MT)
+        body = re.sub(r"(?<![\w>])([a-z]+)<Var(\d+)\b", r"\1_lVar\2", body)
+        body = re.sub(r"(?m)^([ \t]+)<lambda_[0-9a-f]+>\s*\*(?=\s*\w+\s*;)", r"\1undefined *", body)
 
         # (an operator of the same class, called unqualified: std::exception's copy constructor's
         # `operator=(this,param_1)`, rhtest msvc-16.00-x86 cpp 2026-10-25)
@@ -5393,7 +5547,9 @@ class Translator32:
 
     def direct_thiscalls(self, body: str) -> str:
         out, last = [], 0
-        for m in re.finditer(r"\bF_([0-9a-f]{8})\(", body):
+        # (and one whose `(` Ghidra wrapped onto the next line after a long name: bytes32's x86
+        # build, too few arguments, rhtest stl /MT)
+        for m in re.finditer(r"\bF_([0-9a-f]{8})\s*\(", body):
             if self.conv.get(int(m.group(1), 16)) != "__thiscall":
                 continue
             # the end of the first argument, at the call's top level

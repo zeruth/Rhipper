@@ -309,6 +309,209 @@ static GEN_INLINE void gen_v16_and(void *r, const void *a, const void *b) { gen_
 static GEN_INLINE void gen_v16_xor(void *r, const void *a, const void *b) { gen_sti(r, _mm_xor_si128(gen_ldi(a), gen_ldi(b))); }
 /* movmskps(dst, src): the sign bits of src's four floats */
 static GEN_INLINE int gen_movmskps(const void *s) { return _mm_movemask_ps(gen_ldps(s)); }
+
+/* ---- vectors of any width, as vec32.py writes Ghidra's (the static C runtime's and C++ library's
+   AVX2 and SSE4.2 string and search routines, behind __isa_available, rhtest stl /MT). A value is
+   its bytes somewhere, little-endian; each helper writes its result to r (n bytes) after reading
+   all of its operands, so r may be one of them. In C, so the port needs none of the instructions */
+static const unsigned char gen_vzero[64] = {0};
+/* (a scalar's m bytes zero-extended to 64) */
+static GEN_INLINE void gen_vzext(void *r, unsigned long long v, int m) {
+    unsigned char t[64] = {0};
+    memcpy(t, &v, (size_t)m); memcpy(r, t, 64);
+}
+/* (n bytes of a w-byte vector's value shifted right by `bit` bits, 0 past its end: Ghidra's
+   SUBwn(v >> bit, 0)) */
+static GEN_INLINE unsigned long long gen_vbits(const void *p, int w, int bit, int n) {
+    const unsigned char *b = (const unsigned char *)p;
+    unsigned long long v = 0;
+    for (int k = 0; k < 8 * n; k++) {
+        int at = bit + k;
+        if (at >= 0 && at < 8 * w && (b[at >> 3] >> (at & 7) & 1)) v |= 1ull << k;
+    }
+    return v;
+}
+/* (a copy: the destination's w bytes from the value's m, zero beyond) */
+static GEN_INLINE void gen_vset(void *r, int w, const void *a, int m) {
+    unsigned char t[64] = {0};
+    memcpy(t, a, (size_t)(m < w ? m : w)); memcpy(r, t, (size_t)w);
+}
+static GEN_INLINE void gen_vcat(void *r, const void *hi, int mh, const void *lo, int ml) {
+    unsigned char t[64] = {0};
+    memcpy(t, lo, (size_t)ml); memcpy(t + ml, hi, (size_t)mh); memcpy(r, t, 64);
+}
+static GEN_INLINE void gen_vbin(void *r, const void *a, const void *b, int n, char op) {
+    unsigned char t[64];
+    const unsigned char *x = (const unsigned char *)a, *y = (const unsigned char *)b;
+    for (int k = 0; k < n; k++) t[k] = op == '&' ? x[k] & y[k] : op == '|' ? x[k] | y[k] : x[k] ^ y[k];
+    memcpy(r, t, (size_t)n);
+}
+static GEN_INLINE void gen_vnot(void *r, const void *a, int n) {
+    unsigned char t[64];
+    for (int k = 0; k < n; k++) t[k] = (unsigned char)~((const unsigned char *)a)[k];
+    memcpy(r, t, (size_t)n);
+}
+/* (an n-byte value shifted by k bits, right or left, zeros in) */
+static GEN_INLINE void gen_vshift(void *r, const void *a, int n, int k, int right) {
+    unsigned char t[64] = {0};
+    const unsigned char *b = (const unsigned char *)a;
+    for (int i = 0; i < 8 * n; i++) {
+        int from = right ? i + k : i - k;
+        if (from >= 0 && from < 8 * n && (b[from >> 3] >> (from & 7) & 1)) t[i >> 3] |= (unsigned char)(1 << (i & 7));
+    }
+    memcpy(r, t, (size_t)n);
+}
+static GEN_INLINE int gen_vcmp(const void *a, const void *b, int n) { return memcmp(a, b, (size_t)n) != 0; }
+/* (the lanes, each op as the instruction: a byte, word or dword lane of a and b) */
+#define GEN_VLANES(name, T, expr) \
+    static GEN_INLINE void name(void *r, const void *a, const void *b, int n) { \
+        T x[64 / sizeof(T)], y[64 / sizeof(T)]; memcpy(x, a, (size_t)n); memcpy(y, b, (size_t)n); \
+        for (int k = 0; k < n / (int)sizeof(T); k++) x[k] = (T)(expr); memcpy(r, x, (size_t)n); }
+GEN_VLANES(gen_vpcmpeqb, unsigned char, x[k] == y[k] ? 0xff : 0)
+GEN_VLANES(gen_vpcmpeqw, unsigned short, x[k] == y[k] ? 0xffff : 0)
+GEN_VLANES(gen_vpcmpeqd, unsigned int, x[k] == y[k] ? 0xffffffffu : 0)
+GEN_VLANES(gen_vpcmpgtd, unsigned int, (int)x[k] > (int)y[k] ? 0xffffffffu : 0)
+GEN_VLANES(gen_vpminsd, unsigned int, (int)x[k] < (int)y[k] ? x[k] : y[k])
+GEN_VLANES(gen_vpmaxsd, unsigned int, (int)x[k] > (int)y[k] ? x[k] : y[k])
+GEN_VLANES(gen_vpminud, unsigned int, x[k] < y[k] ? x[k] : y[k])
+GEN_VLANES(gen_vpsubd, unsigned int, x[k] - y[k])
+GEN_VLANES(gen_vpand, unsigned char, x[k] & y[k])
+/* (vpblendvb(a, b, mask), pblendvb's too: each byte b's where the mask byte's top bit is set) */
+static GEN_INLINE void gen_vpblendvb(void *r, const void *a, const void *b, const void *m, int n) {
+    unsigned char t[64];
+    for (int k = 0; k < n; k++)
+        t[k] = (((const unsigned char *)m)[k] & 0x80) ? ((const unsigned char *)b)[k] : ((const unsigned char *)a)[k];
+    memcpy(r, t, (size_t)n);
+}
+/* (pshufb(data, control): within each 16-byte lane, the data byte the control's low 4 bits name,
+   0 where its top bit is set) */
+static GEN_INLINE void gen_vpshufb(void *r, const void *a, const void *c, int n) {
+    unsigned char t[64];
+    const unsigned char *x = (const unsigned char *)a, *s = (const unsigned char *)c;
+    for (int k = 0; k < n; k++) t[k] = (s[k] & 0x80) ? 0 : x[(k & ~15) + (s[k] & 15)];
+    memcpy(r, t, (size_t)n);
+}
+/* (vpshufd(src, imm): within each 16-byte lane, dword i the one imm's bits 2i..2i+1 name) */
+static GEN_INLINE void gen_vpshufd(void *r, const void *a, int imm, int n) {
+    unsigned int x[16], t[16];
+    memcpy(x, a, (size_t)n);
+    for (int k = 0; k < n / 4; k++) t[k] = x[(k & ~3) + (imm >> (2 * (k & 3)) & 3)];
+    memcpy(r, t, (size_t)n);
+}
+/* (vpermq(src, imm): qword i the one imm's bits 2i..2i+1 name, across the 32 bytes) */
+static GEN_INLINE void gen_vpermq(void *r, const void *a, int imm, int n) {
+    unsigned long long x[4], t[4];
+    (void)n; memcpy(x, a, 32);
+    for (int k = 0; k < 4; k++) t[k] = x[imm >> (2 * k) & 3];
+    memcpy(r, t, 32);
+}
+/* (vpmaskmovd(mask, mem): each dword of mem where the mask dword's top bit is set, else 0; the
+   others are not read, as the instruction does not fault on them) */
+static GEN_INLINE void gen_vpmaskmovd(void *r, const void *m, const void *p, int n) {
+    unsigned int t[16], mk[16];
+    memcpy(mk, m, (size_t)n);
+    for (int k = 0; k < n / 4; k++) {
+        t[k] = 0;
+        if (mk[k] & 0x80000000u) memcpy(&t[k], (const unsigned char *)p + 4 * k, 4);
+    }
+    memcpy(r, t, (size_t)n);
+}
+/* (pshuflw(dst, src, imm): the low four words src's by imm, the high eight bytes src's) */
+static GEN_INLINE void gen_pshuflw(void *r, const void *d, const void *a, int imm, int n) {
+    unsigned short x[8], t[8];
+    (void)d; (void)n; memcpy(x, a, 16); memcpy(t, x, 16);
+    for (int k = 0; k < 4; k++) t[k] = x[imm >> (2 * k) & 3];
+    memcpy(r, t, 16);
+}
+/* (roundsd(dst, src, imm): src's low double rounded by imm's mode, or the current one where imm
+   has bit 2; the high eight bytes dst's) */
+#include <math.h>
+static GEN_INLINE void gen_roundsd(void *r, const void *d, const void *a, int imm, int n) {
+    double x, y; unsigned char t[16];
+    (void)n; memcpy(t, d, 16); memcpy(&x, a, 8);
+    switch ((imm & 4) ? 4 : (imm & 3)) {
+    case 0: y = floor(x + 0.5); if (y - x == 0.5 && fmod(y, 2.0) != 0.0) y -= 1.0;
+            if (x != x || fabs(x) >= 4503599627370496.0) y = x; break;
+    case 1: y = floor(x); break;
+    case 2: y = ceil(x); break;
+    case 3: y = trunc(x); break;
+    default: y = nearbyint(x); break;
+    }
+    memcpy(t, &y, 8); memcpy(r, t, 16);
+}
+/* (SSE4.2's string compares, PCMPESTRI and PCMPISTRI: the instruction's IntRes2 for imm, a and b
+   of la and lb elements (explicit), or up to each one's first 0 (implicit); the index in ecx and
+   the flags, CF 1, ZF 2, SF 4, OF 8, as the decompiler's pcmpestri_flags reads them) */
+static GEN_INLINE unsigned gen_pcmpstr(const void *a, int la, const void *b, int lb, int imm, int implicit,
+                                       unsigned *flags) {
+    int words = imm & 1, sgn = imm & 2, n = words ? 8 : 16, agg = imm >> 2 & 3, pol = imm >> 4 & 3;
+    int ea[16], eb[16];
+    for (int k = 0; k < n; k++) {
+        ea[k] = words ? (sgn ? (int)((const short *)a)[k] : (int)((const unsigned short *)a)[k])
+                      : (sgn ? (int)((const signed char *)a)[k] : (int)((const unsigned char *)a)[k]);
+        eb[k] = words ? (sgn ? (int)((const short *)b)[k] : (int)((const unsigned short *)b)[k])
+                      : (sgn ? (int)((const signed char *)b)[k] : (int)((const unsigned char *)b)[k]);
+    }
+    if (implicit) {
+        la = n; lb = n;
+        for (int k = 0; k < n; k++) if (ea[k] == 0) { la = k; break; }
+        for (int k = 0; k < n; k++) if (eb[k] == 0) { lb = k; break; }
+    } else {
+        la = la < 0 ? (la < -n ? n : -la) : (la > n ? n : la);
+        lb = lb < 0 ? (lb < -n ? n : -lb) : (lb > n ? n : lb);
+    }
+    unsigned res = 0;
+    for (int j = 0; j < n; j++) {
+        int bit = 0;
+        if (agg == 0) {                                   /* equal any */
+            for (int i = 0; i < la && j < lb; i++) if (ea[i] == eb[j]) bit = 1;
+        } else if (agg == 1) {                            /* ranges */
+            for (int i = 0; i + 1 < la && j < lb; i += 2) if (ea[i] <= eb[j] && eb[j] <= ea[i + 1]) bit = 1;
+        } else if (agg == 2) {                            /* equal each */
+            bit = (j >= la && j >= lb) ? 1 : (j >= la || j >= lb) ? 0 : ea[j] == eb[j];
+        } else {                                          /* equal ordered */
+            /* (an element of a past its length matches; one of b past its, against a valid one of
+               a, does not) */
+            bit = 1;
+            for (int i = 0; i < n - j; i++) {
+                int ok = i >= la ? 1 : (j + i >= lb ? 0 : ea[i] == eb[j + i]);
+                if (!ok) { bit = 0; break; }
+            }
+        }
+        res |= (unsigned)bit << j;
+    }
+    unsigned mask = (1u << n) - 1, r2 = res;
+    if (pol == 1) r2 = ~res & mask;
+    else if (pol == 3) for (int j = 0; j < lb && j < n; j++) r2 ^= 1u << j;
+    r2 &= mask;
+    unsigned idx = (unsigned)n;
+    if (r2) {
+        if (imm & 0x40) { idx = 0; for (int j = n - 1; j >= 0; j--) if (r2 >> j & 1) { idx = (unsigned)j; break; } }
+        else { for (int j = 0; j < n; j++) if (r2 >> j & 1) { idx = (unsigned)j; break; } }
+    }
+    *flags = (r2 != 0 ? 1u : 0u) | (lb < n ? 2u : 0u) | (la < n ? 4u : 0u) | ((r2 & 1) ? 8u : 0u);
+    return idx;
+}
+static GEN_INLINE unsigned gen_pcmpestri(const void *a, const void *b, int imm, int la, int lb) {
+    unsigned f; return gen_pcmpstr(a, la, b, lb, imm, 0, &f);
+}
+static GEN_INLINE unsigned gen_pcmpestri_flags(const void *a, const void *b, int imm, int la, int lb) {
+    unsigned f; gen_pcmpstr(a, la, b, lb, imm, 0, &f); return f;
+}
+static GEN_INLINE unsigned gen_pcmpistri(const void *a, const void *b, int imm) {
+    unsigned f; return gen_pcmpstr(a, 0, b, 0, imm, 1, &f);
+}
+static GEN_INLINE unsigned gen_pcmpistri_flags(const void *a, const void *b, int imm) {
+    unsigned f; gen_pcmpstr(a, 0, b, 0, imm, 1, &f); return f;
+}
+/* (Ghidra's LZCOUNT of a 4-byte value: lzcnt's, 32 for 0) */
+static GEN_INLINE unsigned gen_lzcount(unsigned int x) {
+    unsigned n = 0;
+    if (!x) return 32;
+    while (!(x & 0x80000000u)) { x <<= 1; n++; }
+    return n;
+}
+#define LZCOUNT(x) gen_lzcount((unsigned int)(x))
 typedef void *pointer;                  /* a value; translate32.py makes a stored one __ptr32 */
 
 /* ---- Windows' pointer-sized types, 4 bytes as the reference stores them --------------------- */
@@ -622,7 +825,10 @@ static GEN_INLINE double gen_x87math(double x, int k) {
    into a debugger; `int 0x29` (swi(0x29)) is __fastfail, which ends the process (Ghidra drops the
    code in ecx: a generic one, 7). MSVC's /GS range checks end in one (Ghidra64.h's, 2026-10-23) */
 static unsigned int gen_swi_break(void) { __debugbreak(); return 0; }
-static unsigned int gen_swi_fastfail(void) { __fastfail(7); return 0; }
+/* (said where first, by the runtime, Adapters.cpp: a fail-fast ends the process with no report of
+   its own, rhtest stl's vector section 2026-10-29) */
+void gen_fastfail_report(void);
+static unsigned int gen_swi_fastfail(void) { gen_fastfail_report(); __fastfail(7); return 0; }
 /* `hlt`, a privileged instruction in user mode: it faults as the reference's does (translate32.py
    hlt_loops) */
 static void gen_hlt(void) { __halt(); }

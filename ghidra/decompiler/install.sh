@@ -48,6 +48,8 @@
 #   heritage.cc (and) a write to memory whose address the function takes is kept (address-forced):
 #               a LOAD through a pointer that may be it reads it, and the release dropped the
 #               store to g the next one overwrote
+#   (and the x86 language, ghidra/sleigh/patch_sinc.py's fixes to ia.sinc, x86.sla and x86-64.sla
+#   rebuilt with the install's sleigh: PCMPESTRI and PCMPISTRI set the flags they set)
 #   varmap.cc   a call to setjmp aliases the frame above its stack pointer: longjmp comes back
 #               into it, and a local the function changes and reads again stays memory; and a
 #               function that links an x86 EH frame (fs:[0]) has all of its frame aliased, its
@@ -59,10 +61,21 @@ RH="$(cd "$HERE/../.." && pwd)"
 G="${RHIPPER_GHIDRA:-$(ls -d /c/Users/tyler/tools/ghidra_* | head -1)}"
 G="$(cygpath -u "$G")"
 OS="$G/Ghidra/Features/Decompiler/os/win_x86_64"
+LANG_DIR="$G/Ghidra/Processors/x86/data/languages"
+# (and the x86 language: ghidra/sleigh/patch_sinc.py's fixes to ia.sinc, its .sla files rebuilt)
+sleigh_x86() {
+  python "$RH/ghidra/sleigh/patch_sinc.py" "$(cygpath -m "$G")" "$@"
+  for spec in x86 x86-64; do
+    (cd "$LANG_DIR" && cmd //c "$(cygpath -w "$G/support/sleigh.bat")" $spec.slaspec $spec.sla > /dev/null)
+  done
+  echo "rebuilt x86.sla and x86-64.sla"
+}
 if [ "$1" = "--restore" ]; then
   [ -f "$OS/decompile.exe.orig" ] && mv -f "$OS/decompile.exe.orig" "$OS/decompile.exe"
+  sleigh_x86 --restore
   echo "restored the release's decompiler"; exit 0
 fi
+sleigh_x86
 cmake -S "$HERE" -B "$RH/build/decompiler" -DGHIDRA="$(cygpath -m "$G")" > /dev/null
 cmake --build "$RH/build/decompiler" --config Release --target decompile -- -m:1 -v:minimal
 [ -f "$OS/decompile.exe.orig" ] || cp "$OS/decompile.exe" "$OS/decompile.exe.orig"

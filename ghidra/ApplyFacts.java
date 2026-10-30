@@ -454,6 +454,12 @@ public class ApplyFacts extends GhidraScript {
         String value = "v:8 = (zext(EDX) << 32) | zext(EAX); c:8 = zext(CL);\n";
         String pop16 = " ESP = ESP + 20;", pop0 = " ESP = ESP + 4;";
         Map<String, String> bodies = new java.util.LinkedHashMap<>();
+        // (and the /GS check, which x86win.cspec's own fixup makes no code at all: its call's return
+        // address stays pushed, the stack 4 bytes off after it. A C++ frame's handler thunk checks
+        // the cookie and jumps on to __CxxFrameHandler3, and the decompiler passed that address for
+        // the handler's first argument, `FUN_00416690(&FuncInfo, unaff_retaddr, ...)`, every EH
+        // thunk of the static C runtime a stub, rhtest stl /MT)
+        bodies.put("security_check_cookie", "tmpzero:4 = 0;" + pop0);
         bodies.put("allmul", args + "r:8 = a * b; EAX = r:4; EDX = r(4);" + pop16);
         bodies.put("alldiv", args + "r:8 = a s/ b; EAX = r:4; EDX = r(4);" + pop16);
         bodies.put("aulldiv", args + "r:8 = a / b; EAX = r:4; EDX = r(4);" + pop16);
@@ -2583,6 +2589,16 @@ public class ApplyFacts extends GhidraScript {
             try {
                 writeOverride.invoke(null, f, at, sig);
                 written++;
+                // (and in every other function whose body holds the call: a catch continuation cut
+                // from a body that falls into it shares its code, and the body decompiled its
+                // virtual call with no `this`, `(**(code **)(*piVar4 + 8))()`, a fault in
+                // operator<<, rhtest stl /MT)
+                java.util.Iterator<Function> also = currentProgram.getFunctionManager()
+                        .getFunctionsOverlapping(new ghidra.program.model.address.AddressSet(at));
+                while (also.hasNext()) {
+                    Function g = also.next();
+                    if (!g.equals(f)) writeOverride.invoke(null, g, at, sig);
+                }
             } catch (Exception ex) {
                 if (firstError == null) {
                     Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
