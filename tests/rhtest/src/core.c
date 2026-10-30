@@ -193,6 +193,22 @@ NOINLINE u32 vowels(const char *s) {
     return n;
 }
 
+/* a switch on a value whose register then holds a pointer, so that the decompiler types the switch
+   a pointer and its cases `(int *)0x3` (a client's message switch, `switch(piVar1)`) */
+NOINLINE u32 kind_switch(u32 id, int *table) {
+    int *p = (int *)((id & 0xffff) - 6);
+    switch ((u32)p) {
+        case 0: return 3;
+        case 1: return 5;
+        case 3: return 9;
+        case 6: return 17;
+        case 7: return 19;
+        default: break;
+    }
+    p = table + ((u32)p & 3);
+    return (u32)*p + 100;
+}
+
 NOINLINE u32 sieve(u32 limit) {
     static u8 composite[2000];
     u32 i, j, count = 0;
@@ -440,6 +456,11 @@ static void level2(void) {
     check("fallthrough", h);
     check("sparse", sparse(1) | sparse(s * 1000 / 7) << 4 | sparse(65535) << 8 | sparse(1000000) << 12 | sparse(s) << 16);
     check("vowels", vowels("the quick brown fox jumps over every lazy dog"));
+    {
+        static int kinds[4] = { 40, 41, 42, 43 };
+        for (h = 0, k = 0; k < 16; k++) h = h * 7 + kind_switch((k + s) | (k << 16), kinds);
+        check("kind_switch", h);
+    }
     check("sieve", sieve(s * 250));
     check("sort", sort_check());
     check("matmul", matmul_check());

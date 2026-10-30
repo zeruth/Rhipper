@@ -4,9 +4,11 @@
  * GetExceptionInformation's record and continuing past a fault after fixing what faulted;
  * RaiseException's parameters as ULONG_PTRs; a vectored handler of the program's own counting what
  * passes it; nested __try with __finally run on every way out (fall-through, an exception, a
- * return, a leave); and AbnormalTermination. */
+ * return, a leave); and AbnormalTermination; the chain after SEH frames returned (their nodes
+ * unlinked), a SetThreadName raise after _beginthreadex. */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <process.h>
 #include "rhtest.h"
 
 static volatile int *g_null;
@@ -238,6 +240,80 @@ NOINLINE static void finally_paths(void)
     check("finally trail", g_trail);
 }
 
+/* ---- the chain after an SEH frame has returned --------------------------------------------- */
+
+/* A frame that registers in fs:[0] and returns must unlink itself: VS2010's __SEH_prolog4 and
+   __SEH_epilog4 (its own code and the /MT CRT's, _beginthreadex's __initptd among them). A node
+   left behind sat at the head of the chain in a dead frame, and the next raise walked into
+   whatever reused its stack (a client's SetThreadName, 0x406D1388, died unhandled). */
+
+static u32 g_unlinked;
+
+NOINLINE static u32 guarded_leaf(u32 x)
+{
+    __try {
+        g_unlinked = g_unlinked * 10 + (x & 7);
+    } __finally {
+        g_unlinked = g_unlinked * 10 + (AbnormalTermination() ? 9 : 1);
+    }
+    return x + 1;
+}
+
+/* the dead frames' stack reused: a guarded leaf's node, if left linked, is overwritten here */
+NOINLINE static u32 scribble(u32 x)
+{
+    volatile u32 junk[64];
+    u32 i, sum = 0;
+    for (i = 0; i < 64; i++) junk[i] = x + i * 4;
+    for (i = 0; i < 64; i++) sum += junk[i];
+    return sum;
+}
+
+static unsigned __stdcall quiet_thread(void *arg)
+{
+    return (unsigned)(UINT_PTR)arg + 1;
+}
+
+typedef struct { DWORD type; LPCSTR name; DWORD thread; DWORD flags; } ThreadNameInfo;
+
+NOINLINE static u32 name_thread(DWORD id)
+{
+    ThreadNameInfo info;
+    u32 caught = 0;
+    info.type = 0x1000;
+    info.name = "rhtest worker";
+    info.thread = id;
+    info.flags = 0;
+    __try {
+        RaiseException(0x406D1388u, 0, sizeof info / sizeof(ULONG_PTR), (ULONG_PTR *)&info);
+    } __except (GetExceptionCode() == 0x406D1388u ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) {
+        caught = 1;
+    }
+    return caught;
+}
+
+NOINLINE static void chain_after_return(void)
+{
+    unsigned id = 0;
+    DWORD code = 0;
+    HANDLE h;
+    g_unlinked = 0;
+    check("guarded leaf", guarded_leaf(seed()));
+    check("guarded leaf again", guarded_leaf(seed() + 2));
+    check("scribble", scribble(seed()));
+    check("raise after guarded leaves", name_thread(1));
+    h = (HANDLE)_beginthreadex(NULL, 0, quiet_thread, (void *)(UINT_PTR)seed(), CREATE_SUSPENDED, &id);
+    check("thread made", h != NULL);
+    check("scribble after the thread", scribble(seed() + 1));
+    check("raise after _beginthreadex", name_thread(id));
+    ResumeThread(h);
+    WaitForSingleObject(h, INFINITE);
+    GetExitCodeThread(h, &code);
+    CloseHandle(h);
+    check("thread exit", code);
+    check("guarded trail", g_unlinked);
+}
+
 void rhtest_run(void)
 {
     access_violations();
@@ -247,4 +323,5 @@ void rhtest_run(void)
     raised_params();
     vectored_handler();
     finally_paths();
+    chain_after_return();
 }

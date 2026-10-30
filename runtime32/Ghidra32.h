@@ -711,6 +711,14 @@ static GEN_INLINE uintptr_t gen_top_p(const volatile void *p) { return (uintptr_
 #define GEN_TOF(x) GEN_BYTYPE(x, gen_tof_f, gen_tof_d, gen_tof_i, gen_tof_u, gen_tof_p)
 #define GEN_TOD(x) GEN_BYTYPE(x, gen_tod_f, gen_tod_d, gen_tod_i, gen_tod_u, gen_tod_p)
 #define GEN_TOP(x) GEN_BYTYPE(x, gen_top_f, gen_top_d, gen_top_i, gen_top_u, gen_top_p)
+/* A float parameter's argument, by its type: a call converts nothing on x86, the callee takes the 4
+   bytes its caller pushed, so an integer or a pointer is its bits (a float or double is the value).
+   By GEN_TOF, an integer converted by value: a client's `this` Ghidra typed float, passed as
+   `*(undefined4 *)(p + 0x25f8)`, came in as the float 2.58e8 and its bits were written through,
+   0x4e8640, 2026-10-30 */
+static GEN_INLINE float gen_argf_i(long long x) { return gen_bits2f_((unsigned int)x); }
+static GEN_INLINE float gen_argf_u(unsigned long long x) { return gen_bits2f_((unsigned int)x); }
+#define GEN_ARGF(x) GEN_BYTYPE(x, gen_tof_f, gen_tof_d, gen_argf_i, gen_argf_u, gen_tof_p)
 /* a float copied whole into an lvalue Ghidra typed otherwise (a mov of its 4 bytes into a pointer
    slot): its value into a float or double, its bits into anything else */
 #define GEN_FLT_TO(lhs, v) _Generic((lhs), float: (v), double: (v), long double: (v), \

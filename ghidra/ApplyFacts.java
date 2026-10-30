@@ -489,6 +489,29 @@ public class ApplyFacts extends GhidraScript {
         return null;
     }
 
+    // __SEH_epilog4's p-code from its bytes (`mov ecx, [ebp-0x10]; mov fs:[0], ecx; pop ecx; pop edi;
+    // pop edi; pop esi; pop ebx; mov esp, ebp; pop ebp; push ecx; ret`), or null where the image has
+    // none or another
+    private String seh_epilog4_body() throws Exception {
+        String tmpl = "8b4df064890d00000000595f5f5e5b8be55d51c3";
+        for (Function f : currentProgram.getFunctionManager().getFunctions(true)) {
+            if (!f.getName().replaceFirst("^_+", "").equals("SEH_epilog4")) continue;
+            byte[] b = new byte[tmpl.length() / 2];
+            try {
+                currentProgram.getMemory().getBytes(f.getEntryPoint(), b);
+            } catch (Exception ex) {
+                return null;
+            }
+            if (!bytesMatch(b, tmpl)) return null;
+            // (run after the call pushed its return address: the GS word at ESP + 4, then the
+            // prolog's saves of edi, esi and ebx)
+            return "p:4 = EBP - 16; prev:4 = *:4 p; fsp:4 = FS_OFFSET; *:4 fsp = prev;\n"
+                    + "p = ESP + 8; EDI = *:4 p; p = ESP + 12; ESI = *:4 p; p = ESP + 16; EBX = *:4 p;\n"
+                    + "ESP = EBP; EBP = *:4 ESP; ESP = ESP + 4;";
+        }
+        return null;
+    }
+
     private void applyLongHelpers32() throws Exception {
         // (a fixup runs after the call pushed its return address, as x86win.cspec's alloca_probe
         // and SEH_prolog4 read theirs: the arguments from ESP + 4, and the helper's `ret 16` is
@@ -603,6 +626,14 @@ public class ApplyFacts extends GhidraScript {
         // exactly the VS2015+ routine's, rhtest stl /MT)
         String prolog4 = seh_prolog4_body();
         if (prolog4 != null) bodies.put("SEH_prolog4", prolog4);
+        // (and its __SEH_epilog4, which unlinks the node: the cspec's EH_epilog3 fixup it shares is
+        // `mov esp, ebp; pop ebp` alone, so with the node linked above, every function through the
+        // pair left its dead frame's node at the head of fs:[0]. The next raise walked into it: a
+        // client's SetThreadName under __try (0x4cf9e0, after _beginthreadex's __initptd) died
+        // unhandled on a node whose handler was 4, 2026-10-30)
+        // (only with the prolog's: the stock prolog leaves ebp - 0x10 unwritten)
+        String epilog4 = prolog4 == null ? null : seh_epilog4_body();
+        if (epilog4 != null) bodies.put("SEH_epilog4", epilog4);
         // (and the static CRT's x87 math helpers that answer in st0 and the flags, its log10's
         // and the like: __fload_withFB, the argument's double on the x87 stack (a NaN or infinity
         // built bit for bit, the routine's own `fld tbyte`), its exponent word in eax and ZF set

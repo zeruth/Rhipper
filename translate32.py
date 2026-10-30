@@ -128,7 +128,7 @@ HEADER_NAMES = {"REFG", "REFP", "GP", "PTR32", "MXCSR", "ExceptionList", "GenUni
                 "__debugbreak", "_rotl", "_rotr", "_rotl64", "_rotr64", "fabs", "sqrt", "pow", "atan2", "fsin", "fcos",
                 "builtin_strncpy", "builtin_memcpy", "builtin_memset",
                 "floor", "ceil", "trunc", "nearbyint", "memcpy", "memset", "rdtsc", "GEN_PIECE", "GEN_ISNAN",
-                "gen_piece_set", "gen_fl2bits", "gen_d2bits", "gen_bits2f", "gen_bits2d", "GEN_TOF", "GEN_TOD", "GEN_SLOT", "GEN_LOW",
+                "gen_piece_set", "gen_fl2bits", "gen_d2bits", "gen_bits2f", "gen_bits2d", "GEN_TOF", "GEN_TOD", "GEN_ARGF", "GEN_SLOT", "GEN_LOW",
                 "gen_ac", "GEN_LO32", "GEN_HI32",
                 "GEN_TOP", "GEN_FLT_TO", "gen_vzero"}
 _header_names: set[str] | None = None
@@ -4401,6 +4401,11 @@ class Translator32:
         for n in set(re.findall(r"\bgen_v[tx]\d+\b", body)):
             var_types[n] = "undefined1[]"
         body = self.typed_casts(body, var_types)
+        # (and a switch on a pointer variable, `switch(piVar1)` where the decompiler typed the index
+        # a pointer, on its 32 bits: C switches on an integer, and its cases are integers above)
+        body = re.sub(r"\bswitch\s*\(\s*([A-Za-z_]\w*)\s*\)",
+                      lambda m: f"switch((unsigned int)(uintptr_t)({m.group(1)}))"
+                      if "*" in var_types.get(m.group(1), "") else m.group(0), body)
         body = self.call_args(body, var_types)
         # (a code label's address indexed, `(&LAB_00436475)[param_2]`: its bytes, a jump table's
         # index bytes kept in code, FUN_004387b0 in a VS2010 client 2026-10-25)
@@ -4936,8 +4941,9 @@ class Translator32:
     def call_args(self, body: str, var_types: dict[str, str]) -> str:
         """Each argument of a call to a translated function as its parameter's type: a float
         parameter given a pointer or what the text cannot type (Ghidra's variable for a register
-        that held one), by GEN_TOF; an integer parameter given a float, its bits (the reference
-        pushed the float's 4 bytes and the callee read them as an integer)."""
+        that held one), by GEN_ARGF: an integer's or a pointer's bits; an integer parameter given a
+        float, its bits (the reference pushed the float's 4 bytes and the callee read them as an
+        integer)."""
         out, i = [], 0
         for m in re.finditer(r"\bF_([0-9a-f]{8})\s*\(", body):
             if m.start() < i:
@@ -4983,8 +4989,12 @@ class Translator32:
                         # (an 8-byte structure passed by value: its 64 bits)
                         x = f"(*(ULONGLONG *)&{x.strip()})"
                     if abi in ("float", "double"):
+                        # (an operand whose kind the text does not say, by its C type: for a float
+                        # parameter an integer's bits, GEN_ARGF, as the reference's call passes its
+                        # 4 bytes; GEN_TOF converted it by value, a client's `this` typed float,
+                        # 0x4e8640 from 0x425b80, 2026-10-30)
                         if k not in ("float", "int"):
-                            x = f"{'GEN_TOF' if abi == 'float' else 'GEN_TOD'}({x.strip()})"
+                            x = f"{'GEN_ARGF' if abi == 'float' else 'GEN_TOD'}({x.strip()})"
                         # (an integer for a float parameter is its 4 bytes: the decompiler converts
                         # in words of its own, `(float)x`. Converted by value, a pointer the callee
                         # typed float, the stack address 0x910f9a0, came back 0x4d110f9a and was
@@ -5053,9 +5063,21 @@ class Translator32:
                 continue
             to_float = t in FLOATS
             to_ptr = "*" in t
-            if not (to_float or to_ptr):
+            # (and a Windows pointer typedef, `local_c4 = (HGDIOBJ)(float)fVar12` where Ghidra
+            # reused a handle's slot for a float, for a float only: C converts no float to a
+            # pointer, C2440 demoted a client's sound layout's vf29 0xd15130, 2026-10-30. An
+            # integer's `(HANDLE)-1` stays C's, sign-extended as the system's INVALID_HANDLE_VALUE)
+            win_ptr = not to_ptr and t in WIN_POINTERS
+            if not (to_float or to_ptr or win_ptr):
                 continue
             j = m.end()
+            # (a case label's pointer, `case (char *)0x0:` in a switch on a pointer, is the integer
+            # alone: C's case wants a constant, and the cast's GEN_TOP is a call. 38 of a client's
+            # functions were demoted for it, C2051, 2026-10-30)
+            if to_ptr and re.fullmatch(r"\s*case\s*", body[body.rfind("\n", 0, m.start()) + 1:m.start()]):
+                out.append(body[i:m.start()])
+                i = j
+                continue
             # (`(code *)REFP(...)` and the like are addresses; a cast of a cast is the inner's)
             nxt = body[j:].lstrip()
             if not nxt or nxt[0] in ";,)]}" or nxt.startswith(("REFP(", "GP(", "REFG(code")):
@@ -5065,6 +5087,8 @@ class Translator32:
             if not operand:
                 continue
             k = self.kind_of(operand, var_types)
+            if win_ptr and k != "float":
+                continue
             # (the operand's own casts too, before it is wrapped whole)
             operand = self.typed_casts(operand, var_types)
             if to_float:
