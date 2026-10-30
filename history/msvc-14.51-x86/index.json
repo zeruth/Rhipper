@@ -1774,5 +1774,17 @@
   "stubs": 4,
   "perfect": 9661,
   "translated": 9665
+ },
+ {
+  "sha": "8facf7c875ffec7b48ee9b245d707e36fc120748",
+  "date": "2026-10-30T03:48:47-04:00",
+  "subject": "fix(translate32): lost registers that hold nothing: eax after a float or void call, a kept ecx through a conversion, upper bytes",
+  "run": "2026-10-30 08:53 UTC",
+  "file": "8facf7c875ffec7b48ee9b245d707e36fc120748.json",
+  "passing": 36,
+  "projects": 36,
+  "stubs": 4,
+  "perfect": 9661,
+  "translated": 9665
  }
 ]

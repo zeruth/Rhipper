@@ -1,1 +1,1 @@
-{"sha": "69779eba1d5cc11c0b92e0bf167ebafa0e0b111d", "date": "2026-10-30T03:19:34-04:00", "subject": "feat(fidelity32, triage32): problem functions in batches by cause, --only/--low in seconds; six measurement fixes"}
+{"sha": "8facf7c875ffec7b48ee9b245d707e36fc120748", "date": "2026-10-30T03:48:47-04:00", "subject": "fix(translate32): lost registers that hold nothing: eax after a float or void call, a kept ecx through a conversion, upper bytes"}
