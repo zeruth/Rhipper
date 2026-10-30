@@ -807,7 +807,7 @@ EH_LINK = re.compile(r"(?:\bExceptionList|gen_teb32\(\) \+ 0x0\)+)\s*=\s*&")
 NARROW_FULL = {"al": "eax", "ax": "eax", "cl": "ecx", "cx": "ecx", "dl": "edx", "dx": "edx",
                "bl": "ebx", "bx": "ebx", "si": "esi", "di": "edi"}
 # (the CRT's prologs that link the frame, injected: Ghidra's comment on the function)
-EH_PROLOG = re.compile(r"replaced with injection: (?:SEH_prolog|EH_prolog)")
+EH_PROLOG = re.compile(r"replaced with injection: (?:rh_)?(?:SEH_prolog|EH_prolog)")
 
 
 def eh_landing(body: str, ret: str) -> str:
@@ -868,7 +868,9 @@ def eh_state_volatile(body: str) -> str:
             offs.add(off)
     for off in offs:
         body = re.sub(r"\(\*\(\s*((?:unsigned\s+)?[A-Za-z_]\w*(?:\s*\*\s*PTR32)?)\s*\*\s*\)\(gen_frame \+ 0x" + f"{off:x}" + r"\)\)",
-                      lambda m: f"(*(volatile {m.group(1)} *)(gen_frame + 0x{off:x}))", body)
+                      # (the slot volatile, not what a pointer in it points at: `volatile undefined
+                      # * PTR32 *` left the scope table's store a plain one, dropped all the same)
+                      lambda m: f"(*({m.group(1)} volatile *)(gen_frame + 0x{off:x}))", body)
     return body
 
 

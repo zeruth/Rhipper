@@ -372,7 +372,12 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
             if mn == "int3" or (mn == "int" and ops):
                 # (not the port's `int3` after a call that does not return, x64 MSVC's padding
                 # there: dive's longjmp, rhtest misc 2026-10-24)
-                if not (port and mn == "int3" and at and insns[at - 1].mnemonic == "call"):
+                # (nor the reference's there, where it ends the function or pads on to the next:
+                # `push msg; call _Xout_of_range; int3`, unreachable after a call that throws,
+                # rhtest stl-O2's 0x40be30)
+                after_call = at and insns[at - 1].mnemonic == "call"
+                pad = at + 1 >= len(insns) or insns[at + 1].mnemonic == "int3"
+                if not (mn == "int3" and after_call and (port or pad)):
                     f.calls.append((insn.address, f"trap:{ops[0].imm & 0xff:x}" if ops else "trap:3"))
                 continue
             if mn == "ret":
@@ -530,7 +535,9 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
                             and op.mem.base and not op.mem.index:
                         # (a wide access is the 4-byte ones x86 makes of it: a 64-bit value at
                         # [rcx] is the reference's [esi] and [esi + 4])
-                        for d in range(disp, disp + max(op.size, 4), 4):
+                        # (a vector's lanes are no fields: `vmovdqu ymm0, [esi]` is one access, the
+                        # port's helper a copy of its bytes, rhtest stl-Od's AVX2 reverse)
+                        for d in range(disp, disp + (max(op.size, 4) if op.size <= 8 else 4), 4):
                             if d > 0:
                                 f.fields[d] += 1
                                 if ops[0].type == x86.X86_OP_REG and op is not ops[0]:
@@ -690,7 +697,17 @@ def literals(c: str) -> set[int]:
             vals.append(ESCAPES.get(ch[1], ord(ch[1])))
         else:
             vals.append(ord(ch))
+    # (a narrowing cast is its mask to the other compiler: `(byte)a < (byte)b` as `and eax, 0xff`
+    # at /Od, movzx in the port, rhtest stl-Od)
+    if re.search(r"\((?:byte|uchar|char|undefined1|bool)\)", c):
+        vals.append(0xFF)
+    if re.search(r"\((?:ushort|short|word|undefined2|wchar_t)\)", c):
+        vals.append(0xFFFF)
     out = set()
+    # (and an 8-byte value's high word: `*(ulonglong *)(this + 0x18)` is the reference's [ecx +
+    # 0x18] and [ecx + 0x1c], the port's one read through the address, rhtest stl-Od)
+    if re.search(r"\b(?:u?longlong|double|undefined8|float10|__int64)\b", c):
+        vals += [v + 4 for v in vals if 0 < v < 0x10000]
     for v in vals:
         out |= {v & 0xFFFFFFFF, (-v) & 0xFFFFFFFF, ~v & 0xFFFFFFFF}
         if v > 0xFFFFFFFF:
@@ -801,6 +818,18 @@ def main() -> None:
 
     entries = set(refbin.func_starts)
 
+    def slot_thunk(t: int, code: bytes) -> int | None:
+        """the function a `jmp [slot]` thunk reaches through a data word of the image's own, not an
+        import's, holding a function's entry: the CFG check's `jmp [__guard_check_icall_fptr]`,
+        whose slot is the no-op check the decompiler (and the port) calls, rhtest stl"""
+        if code[:2] != b"\xff\x25":
+            return None
+        slot = int.from_bytes(code[2:6], "little")
+        if slot in ref.iat or not ref.contains(slot):
+            return None
+        target = int.from_bytes(ref.read(slot, 4), "little")
+        return target if target in entries and target != t else None
+
     def ref_calls(fn: Fn) -> list:
         out = []
         for _site, t in fn.calls:
@@ -822,7 +851,11 @@ def main() -> None:
             if isinstance(t, int):
                 # (through local `jmp rel32` thunks: translate32.py calls their targets)
                 for _ in range(4):
-                    code = ref.read(t, 5)
+                    code = ref.read(t, 6)
+                    nt = slot_thunk(t, code)
+                    if nt is not None:
+                        t = nt
+                        continue
                     if t in ref_thunk or len(code) < 5 or code[0] != 0xE9:
                         break
                     t = (t + 5 + int.from_bytes(code[1:5], "little", signed=True)) & 0xFFFFFFFF
@@ -838,7 +871,11 @@ def main() -> None:
         0x409770` to `jmp 0x409320`, the translation calling F_00409770: as the reference's
         ref_calls counts it, rhtest stl-O2)"""
         for _ in range(4):
-            code = ref.read(t, 5)
+            code = ref.read(t, 6)
+            nt = slot_thunk(t, code)
+            if nt is not None:
+                t = nt
+                continue
             if t in ref_thunk or len(code) < 5 or code[0] != 0xE9 or t not in entries:
                 break
             t = (t + 5 + int.from_bytes(code[1:5], "little", signed=True)) & 0xFFFFFFFF
