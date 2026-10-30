@@ -13,11 +13,11 @@ on:
         type: string
       # (the programs it runs, each with its variants; empty is every one. One at a time while
       # they fail: a full run took hours, most of it failing, 2026-10-28. Widened to those that
-      # pass locally on msvc-14.51-x86, 2026-10-29: all but fpenv and stl)
+      # pass locally on msvc-14.51-x86, 2026-10-29: all but stl)
       programs:
         required: false
         type: string
-        default: core int64 float calls crt cpp misc eh win engine sys com seh
+        default: core int64 float calls crt cpp misc eh win engine sys com fpenv seh
 
 env:
   TOOLSET: ${{ inputs.toolset }}

@@ -524,6 +524,38 @@ FRAME_DECL = re.compile(r"(?m)^[ \t]+(?!(?:return|goto|case|else|do)\b)(?!(?:loc
                         r"[ \t]*\b(" + FRAME_LOCAL + r")[ \t]*(\[[ \t]*(?:0x)?[0-9a-f]+[ \t]*\])?[ \t]*;[ \t]*\n")
 
 
+FP_STATUS = re.compile(r"\bgen_imp__*(?:statusfp2?|clearfp|status87|clear87|fetestexcept|feclearexcept|"
+                       r"fegetexceptflag|feholdexcept|feupdateenv)\s*\(")
+
+
+def fp_status_volatile(body: str) -> str:
+    """A function that reads or clears the floating-point status flags (_statusfp, fetestexcept):
+    its floating-point locals and frame slots volatile. What it computes is for the flags as much
+    as the value, `_clearfp(); r = big * 10; _statusfp() & _SW_OVERFLOW`: a store nothing reads,
+    and the host compiler dropped it and its multiply, the overflow never raised (rhtest fpenv;
+    the decompiler keeps it now, coreaction.cc)"""
+    # (and in any function, a local only ever assigned, its value floating-point work: kept by the
+    # decompiler for its flags, coreaction.cc, `iVar4 = (int)-NAN;`, __ftol3's raise of the
+    # invalid flag, which the host compiler drops as a dead store)
+    write_only = set()
+    for m in re.finditer(r"(?m)^([ \t]+)((?:unsigned\s+)?[A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*;[ \t]*$", body):
+        name = m.group(3)
+        uses = [u for u in re.finditer(rf"(?<![\w$.>]){re.escape(name)}(?![\w$])", body) if u.start() != m.start(3)]
+        assigns = list(re.finditer(rf"(?m)^[ \t]*{re.escape(name)}\s*=(?!=)\s*([^;]+);", body))
+        if not uses or len(uses) != len(assigns):
+            continue
+        if any(re.search(r"\bNAN\b|REFG\((?:float|double),|\((?:float|double|float10)\s*\*?\s*\)|gen_bits2[df]|\d\.\d", a.group(1))
+               for a in assigns):
+            write_only.add(name)
+    if write_only:
+        body = re.sub(r"(?m)^([ \t]+)((?:unsigned\s+)?[A-Za-z_]\w*\s+(" + "|".join(map(re.escape, write_only)) + r")\s*;)",
+                      r"\1volatile \2", body)
+    if not FP_STATUS.search(body):
+        return body
+    body = re.sub(r"(?m)^([ \t]+)((?:double|float|float10)\s+[A-Za-z_]\w*\s*;)", r"\1volatile \2", body)
+    return re.sub(r"\(\s*(double|float|float10)\s*\*\s*\)\s*\(gen_frame\b", r"(volatile \1 *)(gen_frame", body)
+
+
 X87_ARITH = {"fadd", "faddp", "fiadd", "fsub", "fsubp", "fsubr", "fsubrp", "fisub", "fisubr", "fmul", "fmulp",
              "fimul", "fdiv", "fdivp", "fdivr", "fdivrp", "fidiv", "fidivr", "fsqrt"}
 
@@ -4312,6 +4344,8 @@ class Translator32:
         # x87 result's calls gen_fcode by now)
         body = self.pointer_call_args(body, var_types)
         body = math_import_args(body)
+        # (and a function that reads the unit's status flags: its floating-point locals volatile)
+        body = fp_status_volatile(body)
         # (and an x87 function's results under the control word's precision, GEN_X87)
         # (or only its sqrt, the C runtime's, which the decompiler injects, rh_sqrt: x87's fsqrt
         # whatever the caller computes in, rhtest fpenv-Od's sqrt under _PC_24)

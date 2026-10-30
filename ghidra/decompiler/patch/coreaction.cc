@@ -4103,6 +4103,32 @@ int4 ActionDeadCode::apply(Funcdata &data)
     vn = op->getOut();
     if (vn->isAutoLive())
       pushConsumed(~((uintb)0),vn,worklist);
+    // RHIPPER: a floating-point result stored to the stack stays, read or not (the float op
+    // itself, or a copy of one's output): computing it sets the unit's status flags, which
+    // the program may read (_statusfp, fetestexcept). The release removed `r = big * 10;` into
+    // a volatile local nothing reads, and its overflow flag with it (rhtest fpenv). A compiler
+    // that optimizes emits no float op it does not need, so what is left is the source's
+    else if (vn->getSpace()->getType() == IPTR_SPACEBASE) {
+      PcodeOp *src = op;
+      if (op->code() == CPUI_COPY && op->getIn(0)->isWritten() && op->getIn(0)->loneDescend() == op)
+	src = op->getIn(0)->getDef();
+      switch (src->code()) {
+      case CPUI_FLOAT_ADD: case CPUI_FLOAT_SUB: case CPUI_FLOAT_MULT: case CPUI_FLOAT_DIV:
+      case CPUI_FLOAT_SQRT: case CPUI_FLOAT_INT2FLOAT: case CPUI_FLOAT_FLOAT2FLOAT:
+      case CPUI_FLOAT_TRUNC:
+	pushConsumed(~((uintb)0),vn,worklist);
+	break;
+      default:
+	break;
+      }
+    }
+    // (and a float's conversion to an integer register nothing reads, __ftol3's `cvttss2si ecx,
+    // [_NaN]` raising the invalid flag; not a vector register's lane)
+    else if (op->code() == CPUI_FLOAT_TRUNC && vn->getSpace()->getType() == IPTR_PROCESSOR) {
+      string reg = data.getArch()->translate->getRegisterName(vn->getSpace(), vn->getOffset(), vn->getSize());
+      if (!reg.empty() && reg.find("MM") == string::npos)
+	pushConsumed(~((uintb)0),vn,worklist);
+    }
   }
 
 				// Mark consumption of call parameters

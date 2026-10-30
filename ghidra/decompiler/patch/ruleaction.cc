@@ -44,6 +44,32 @@ int4 RuleEarlyRemoval::applyOp(PcodeOp *op,Funcdata &data)
   if (spc->doesDeadcode())
     if (!data.deadRemovalAllowedSeen(spc))
       return 0;
+  // RHIPPER: a floating-point result stored to the stack stays, read or not (the float op, or a
+  // copy of its output): computing it sets the status flags a program reads (_statusfp). The
+  // release removed `r = big * 10;` into a volatile local here, its copy then its multiply, and
+  // the overflow flag with them (rhtest fpenv; ActionDeadCode's own pass keeps it too)
+  // (a copy only where it is the result's one use: one read elsewhere keeps the op itself)
+  if (spc->getType() == IPTR_SPACEBASE) {
+    PcodeOp *src = op;
+    if (op->code() == CPUI_COPY && op->getIn(0)->isWritten() && op->getIn(0)->loneDescend() == op)
+      src = op->getIn(0)->getDef();
+    switch (src->code()) {
+    case CPUI_FLOAT_ADD: case CPUI_FLOAT_SUB: case CPUI_FLOAT_MULT: case CPUI_FLOAT_DIV:
+    case CPUI_FLOAT_SQRT: case CPUI_FLOAT_INT2FLOAT: case CPUI_FLOAT_FLOAT2FLOAT:
+    case CPUI_FLOAT_TRUNC:
+      return 0;
+    default:
+      break;
+    }
+  }
+  // (and a float's conversion to an integer register nothing reads, the C runtime's way to raise
+  // the invalid-operation flag: __ftol3's `cvttss2si ecx, [_NaN]` for a value out of range. Not a
+  // vector register's lane, which a packed operation leaves unused as a matter of course)
+  if (op->code() == CPUI_FLOAT_TRUNC && spc->getType() == IPTR_PROCESSOR) {
+    string reg = data.getArch()->translate->getRegisterName(spc, vn->getOffset(), vn->getSize());
+    if (!reg.empty() && reg.find("MM") == string::npos)
+      return 0;
+  }
 
   data.opDestroy(op);		// Get rid of unused op
   return 1;
@@ -3882,6 +3908,23 @@ int4 RuleCollapseConstants::applyOp(PcodeOp *op,Funcdata &data)
   Varnode *vn;
 
   if (!op->isCollapsible()) return 0; // Expression must be collapsible
+
+  // RHIPPER: a float's conversion to an integer that the integer cannot hold (a NaN, an
+  // infinity, out of range) is no constant: the instruction gives the integer indefinite and
+  // raises the invalid-operation flag, which the C runtime does it for, __ftol3's `cvttss2si ecx,
+  // [_NaN]`. Folded to 0, the conversion and the flag were gone (rhtest fpenv's i32 from float)
+  if (op->code() == CPUI_FLOAT_TRUNC && op->getIn(0)->isConstant()) {
+    const FloatFormat *format = data.getArch()->translate->getFloatFormat(op->getIn(0)->getSize());
+    if (format != (const FloatFormat *)0) {
+      FloatFormat::floatclass cls;
+      double d = format->getHostFloat(op->getIn(0)->getOffset(), &cls);
+      double lim = ldexp(1.0, 8 * op->getOut()->getSize() - 1);
+      if (cls == FloatFormat::nan || cls == FloatFormat::infinity || d >= lim || d < -lim) {
+	data.opMarkNoCollapse(op);
+	return 0;
+      }
+    }
+  }
 
   Address newval;
   bool markedInput = false;

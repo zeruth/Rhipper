@@ -43,6 +43,8 @@
 #               address the function takes (a COPY into it, which the release's check, STOREs
 #               only, missed): std::max through a reused temporary, `p = (b <= g) ? &g : &tmp;
 #               tmp = a; ... *p`, read tmp's new value
+#   coreaction.cc (and) a floating-point result stored to the stack is kept, read or not: it sets
+#               the status flags a program reads (_statusfp), `r = big * 10` into a volatile local
 #   heritage.cc (and) a write to memory whose address the function takes is kept (address-forced):
 #               a LOAD through a pointer that may be it reads it, and the release dropped the
 #               store to g the next one overwrote

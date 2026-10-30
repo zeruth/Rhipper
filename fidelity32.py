@@ -444,6 +444,11 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
                         continue
                     k = global_or_const(disp & 0xFFFFFFFF, mn, op.size)
                     if k is not None and disp > 0x10000:
+                        # (a float read through a register, `movsd xmm0, [edx + 0x405090]`: an array's
+                        # element, not the value at its base, which its constant would be. The port
+                        # reads the element at its folded address, g_vals[5], rhtest fpenv-Od)
+                        if k.startswith("f:") and (op.mem.base or op.mem.index):
+                            k = f"a:{disp & 0xFFFFFFFF:x}"
                         if k != "code" and not (img is ref and disp & 0xFFFFFFFF in img.iat):
                             f.consts[k] += 1
                         continue
@@ -494,6 +499,11 @@ def near(k, have: set) -> bool:
         # `movups [g], xmm0` for four of them, or one address made from another's register)
         v = int(k[2:], 16)
         return any(f"g:{v + d:x}" in have for d in range(-15, 16) if d)
+    if isinstance(k, str) and k.startswith("a:"):
+        # (an array's base, a float array read through a register: the other side's array, or an
+        # element of it the decompiler folded the index into, within 256 bytes on)
+        v = int(k[2:], 16)
+        return any(f"{p}:{v + d:x}" in have for p in ("a", "g") for d in range(0, 256))
     return False
 
 
