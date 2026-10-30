@@ -288,6 +288,7 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
     reg_fields: dict = {}                   # register -> the fields read into it since the last call
     reg_imms: dict = {}                     # register -> the constants computed into it since then
     args: list = []                         # each push since the last call: the constants it carries
+    arg_fields: list = []                   # and the fields read into the register it pushes
 
     def inside(t):
         return any(lo <= t < hi for lo, hi in ranges)
@@ -487,11 +488,21 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
                                     f.consts[k] -= 1
                                     if f.consts[k] <= 0:
                                         del f.consts[k]
+                        # (and the fields read into a register pushed past them: `movzx ecx, word
+                        # [esi + 0x12]; push ecx` for a callee taking three of the four pushed, a
+                        # layout instance's vf4 and 21 like it, 2026-10-30)
+                        for ds in arg_fields[:max(0, len(arg_fields) - n)]:
+                            for d in ds:
+                                if f.fields.get(d):
+                                    f.fields[d] -= 1
+                                    if f.fields[d] <= 0:
+                                        del f.fields[d]
                 if mn == "call":
                     ecx_fields = []
                     reg_fields = {}
                     pushed = []
                     args = []
+                    arg_fields = []
                     reg_imms = {}
                 if ops and ops[0].type == x86.X86_OP_IMM:
                     t = ops[0].imm
@@ -509,8 +520,10 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
             if mn == "push" and ops:
                 if ops[0].type == x86.X86_OP_REG:
                     args.append(list(reg_imms.get(canon_reg(insn.reg_name(ops[0].reg)), ())))
+                    arg_fields.append(list(reg_fields.get(insn.reg_name(ops[0].reg), ())))
                 else:
                     args.append([])
+                    arg_fields.append([])
             elif ops and ops[0].type == x86.X86_OP_REG and not any(o.type == x86.X86_OP_IMM for o in ops[1:]) \
                     and mn in ("mov", "lea", "movzx", "movsx", "pop", "xor"):
                 reg_imms[canon_reg(insn.reg_name(ops[0].reg))] = []
