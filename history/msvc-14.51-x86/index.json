@@ -1762,5 +1762,17 @@
   "stubs": 4,
   "perfect": 9658,
   "translated": 9665
+ },
+ {
+  "sha": "69779eba1d5cc11c0b92e0bf167ebafa0e0b111d",
+  "date": "2026-10-30T03:19:34-04:00",
+  "subject": "feat(fidelity32, triage32): problem functions in batches by cause, --only/--low in seconds; six measurement fixes",
+  "run": "2026-10-30 08:21 UTC",
+  "file": "69779eba1d5cc11c0b92e0bf167ebafa0e0b111d.json",
+  "passing": 36,
+  "projects": 36,
+  "stubs": 4,
+  "perfect": 9661,
+  "translated": 9665
  }
 ]

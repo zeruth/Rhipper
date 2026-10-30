@@ -1,1 +1,1 @@
-{"sha": "c15079ae9a08883065adfc12c7798b73e7274cee", "date": "2026-10-30T02:49:54-04:00", "subject": "fix(ApplyFacts, translate32, Ghidra32.h): __SEH_epilog4 unlinks its node, pointer switches, float arguments"}
+{"sha": "69779eba1d5cc11c0b92e0bf167ebafa0e0b111d", "date": "2026-10-30T03:19:34-04:00", "subject": "feat(fidelity32, triage32): problem functions in batches by cause, --only/--low in seconds; six measurement fixes"}
