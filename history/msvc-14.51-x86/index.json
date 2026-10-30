@@ -1846,5 +1846,17 @@
   "stubs": 6,
   "perfect": 9747,
   "translated": 9752
+ },
+ {
+  "sha": "8e8a4a45c024ab7291afc104d7059b39a850fa04",
+  "date": "2026-10-30T10:05:31-04:00",
+  "subject": "fix: x87 results beside a call's, constant call slots, outer-call words, misplaced bodies",
+  "run": "2026-10-30 15:12 UTC",
+  "file": "8e8a4a45c024ab7291afc104d7059b39a850fa04.json",
+  "passing": 24,
+  "projects": 36,
+  "stubs": 55,
+  "perfect": 9667,
+  "translated": 9669
  }
 ]

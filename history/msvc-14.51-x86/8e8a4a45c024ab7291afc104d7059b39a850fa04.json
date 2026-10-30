@@ -1,0 +1,1076 @@
+{
+ "sha": "8e8a4a45c024ab7291afc104d7059b39a850fa04",
+ "date": "2026-10-30T10:05:31-04:00",
+ "subject": "fix: x87 results beside a call's, constant call slots, outer-call words, misplaced bodies",
+ "run": "2026-10-30 15:12 UTC",
+ "summary": {
+  "calls-GL": {
+   "accuracy": {
+    "accurate": 102,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 36,
+    "equivalent bytes": 2,
+    "functions": 102,
+    "identical": 34,
+    "same behavior": 66,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.5182,
+    "bytes_identical": 34,
+    "equivalent": 2,
+    "identical": 36,
+    "mean": 0.6754
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 102,
+    "mean": 1.0,
+    "perfect": 102,
+    "stubs": 0,
+    "translated": 102
+   },
+   "status": "PASS",
+   "when": "2026-10-30 15:11"
+  },
+  "calls-O2": {
+   "accuracy": {
+    "accurate": 104,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 44,
+    "equivalent bytes": 2,
+    "functions": 104,
+    "identical": 42,
+    "same behavior": 60,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.5496,
+    "bytes_identical": 42,
+    "equivalent": 2,
+    "identical": 44,
+    "mean": 0.7217
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 104,
+    "mean": 1.0,
+    "perfect": 104,
+    "stubs": 0,
+    "translated": 104
+   },
+   "status": "PASS",
+   "when": "2026-10-30 15:11"
+  },
+  "calls-Od": {
+   "accuracy": {
+    "accurate": 110,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 35,
+    "equivalent bytes": 1,
+    "functions": 110,
+    "identical": 34,
+    "same behavior": 75,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.5389,
+    "bytes_identical": 34,
+    "equivalent": 1,
+    "identical": 35,
+    "mean": 0.6663
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 110,
+    "mean": 1.0,
+    "perfect": 110,
+    "stubs": 0,
+    "translated": 110
+   },
+   "status": "PASS",
+   "when": "2026-10-30 15:11"
+  },
+  "com-O2": {
+   "accuracy": {
+    "accurate": 81,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 26,
+    "equivalent bytes": 1,
+    "functions": 81,
+    "identical": 25,
+    "same behavior": 55,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.543,
+    "bytes_identical": 25,
+    "equivalent": 1,
+    "identical": 26,
+    "mean": 0.7057
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 81,
+    "mean": 1.0,
+    "perfect": 81,
+    "stubs": 0,
+    "translated": 81
+   },
+   "status": "PASS",
+   "when": "2026-10-30 15:11"
+  },
+  "com-Od": {
+   "accuracy": {
+    "accurate": 96,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 24,
+    "equivalent bytes": 1,
+    "functions": 96,
+    "identical": 23,
+    "same behavior": 72,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.5107,
+    "bytes_identical": 23,
+    "equivalent": 1,
+    "identical": 24,
+    "mean": 0.6528
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 96,
+    "mean": 1.0,
+    "perfect": 96,
+    "stubs": 0,
+    "translated": 96
+   },
+   "status": "PASS",
+   "when": "2026-10-30 15:11"
+  },
+  "core-O2": {
+   "accuracy": {
+    "accurate": 124,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 46,
+    "equivalent bytes": 4,
+    "functions": 124,
+    "identical": 42,
+    "same behavior": 78,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.5929,
+    "bytes_identical": 42,
+    "equivalent": 4,
+    "identical": 46,
+    "mean": 0.6888
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 124,
+    "mean": 1.0,
+    "perfect": 124,
+    "stubs": 0,
+    "translated": 124
+   },
+   "status": "PASS",
+   "when": "2026-10-30 15:11"
+  },
+  "core-Od": {
+   "accuracy": {
+    "accurate": 129,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 43,
+    "equivalent bytes": 1,
+    "functions": 129,
+    "identical": 42,
+    "same behavior": 86,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.5512,
+    "bytes_identical": 42,
+    "equivalent": 1,
+    "identical": 43,
+    "mean": 0.6898
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 129,
+    "mean": 1.0,
+    "perfect": 129,
+    "stubs": 0,
+    "translated": 129
+   },
+   "status": "PASS",
+   "when": "2026-10-30 15:11"
+  },
+  "cpp-O2": {
+   "accuracy": {
+    "accurate": 162,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 70,
+    "equivalent bytes": 1,
+    "functions": 162,
+    "identical": 69,
+    "same behavior": 92,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.5833,
+    "bytes_identical": 69,
+    "equivalent": 1,
+    "identical": 70,
+    "mean": 0.7285
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 162,
+    "mean": 1.0,
+    "perfect": 162,
+    "stubs": 0,
+    "translated": 162
+   },
+   "status": "PASS",
+   "when": "2026-10-30 15:11"
+  },
+  "cpp-Od": {
+   "accuracy": {
+    "accurate": 258,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 29,
+    "equivalent bytes": 0,
+    "functions": 258,
+    "identical": 29,
+    "same behavior": 229,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.4632,
+    "bytes_identical": 29,
+    "equivalent": 0,
+    "identical": 29,
+    "mean": 0.5617
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 258,
+    "mean": 1.0,
+    "perfect": 258,
+    "stubs": 0,
+    "translated": 258
+   },
+   "status": "PASS",
+   "when": "2026-10-30 15:11"
+  },
+  "crt-O2": {
+   "accuracy": {
+    "accurate": 76,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 21,
+    "equivalent bytes": 1,
+    "functions": 76,
+    "identical": 20,
+    "same behavior": 55,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.5038,
+    "bytes_identical": 20,
+    "equivalent": 1,
+    "identical": 21,
+    "mean": 0.6235
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 76,
+    "mean": 1.0,
+    "perfect": 76,
+    "stubs": 0,
+    "translated": 76
+   },
+   "status": "PASS",
+   "when": "2026-10-30 15:11"
+  },
+  "crt-Od": {
+   "accuracy": {
+    "accurate": 91,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 21,
+    "equivalent bytes": 1,
+    "functions": 91,
+    "identical": 20,
+    "same behavior": 70,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.5065,
+    "bytes_identical": 20,
+    "equivalent": 1,
+    "identical": 21,
+    "mean": 0.6084
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 91,
+    "mean": 1.0,
+    "perfect": 91,
+    "stubs": 0,
+    "translated": 91
+   },
+   "status": "PASS",
+   "when": "2026-10-30 15:11"
+  },
+  "eh-O2": {
+   "accuracy": {
+    "accurate": 109,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 31,
+    "equivalent bytes": 1,
+    "functions": 112,
+    "identical": 30,
+    "same behavior": 78,
+    "stub": 3
+   },
+   "bytes": {
+    "by_size": 0.4857,
+    "bytes_identical": 30,
+    "equivalent": 1,
+    "identical": 31,
+    "mean": 0.5704
+   },
+   "detail": "--- expected\n+++ actual\n@@ -12,9 +12,9 @@\n events = 964592513 (0x397e8381)\n-nested = 7014 (0x00001b66)\n-events = -282517251 (0xef2920fd)\n-ctor = 67 (0x00000043)\n-events = 63148701 (0x03c3929d)\n-seh = -536865279 (0xe0001601)\n+nested = 0 (0x00000000)\n+events = 964592513 (0x397e8381)\n+ctor = 0 (0x00000000)\n+events = 964592513 (0x397e8381)\n+seh = 0 (0x00000000)\n finally_param = 2107 (0x0000083b)\n-checksum = 0x5774e739\n-exit = 57\n+checksum = 0x575c90be\n+exit = 62\n\nstderr:\n   5  00007ff862fff2bc  RtlUserThreadStart+0x2c\nrhtest: not translated: 004012e0\n   0  00000000600091f3  GenUnimplemented+0xd3\n   1  0000000060023b91  F_004012e0+0x31\n   2  0000000060025625  F_00401ad0+0x175\n   3  00000000600263f3  F_00401e70+0x353\n   4  00000000005add37  BaseThreadInitThunk+0x17\n   5  00007ff862fff2bc  RtlUserThreadStart+0x2c\nrhtest: not translated: 00401930\n   0  00000000600091f3  GenUnimplemented+0xd3\n   1  0000000060023c11  F_00401930+0x31\n   2  0000000060025649  F_00401ad0+0x199\n   3  00000000600263f3  F_00401e70+0x353\n   4  00000000005add37  BaseThreadInitThunk+0x17\n   5  00007ff862fff2bc  RtlUserThreadStart+0x2c",
+   "fidelity": {
+    "by_size": 0.942,
+    "functions": 112,
+    "mean": 0.973,
+    "perfect": 109,
+    "stubs": 3,
+    "translated": 109
+   },
+   "status": "FAIL",
+   "stopped": "run",
+   "when": "2026-10-30 15:11"
+  },
+  "eh-Od": {
+   "accuracy": {
+    "accurate": 121,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 22,
+    "equivalent bytes": 1,
+    "functions": 130,
+    "identical": 21,
+    "same behavior": 99,
+    "stub": 9
+   },
+   "bytes": {
+    "by_size": 0.4634,
+    "bytes_identical": 21,
+    "equivalent": 1,
+    "identical": 22,
+    "mean": 0.5014
+   },
+   "detail": "--- expected\n+++ actual\n@@ -1,20 +1,20 @@\n-by_int = 1010 (0x000003f2)\n-events = 3332 (0x00000d04)\n-by_base = 2142 (0x0000085e)\n-events = 3205416 (0x0030e928)\n-by_std = 3112 (0x00000c28)\n-events = -1214559124 (0xb79b4c6c)\n-by_any = 4000 (0x00000fa0)\n-events = 1039789776 (0x3df9eed0)\n-by_none = 1 (0x00000001)\n-events = 1073179329 (0x3ff76ac1)\n-rethrows = 4243 (0x00001093)\n-events = 964592513 (0x397e8381)\n-nested = 7014 (0x00001b66)\n-events = -282517251 (0xef2920fd)\n-ctor = 67 (0x00000043)\n-events = 63148701 (0x03c3929d)\n+by_int = 0 (0x00000000)\n+events = 0 (0x00000000)\n+by_base = 0 (0x00000000)\n+events = 0 (0x00000000)\n+by_std = 0 (0x00000000)\n+events = 0 (0x00000000)\n+by_any = 0 (0x00000000)\n+events = 0 (0x00000000)\n+by_none = 0 (0x00000000)\n+events = 0 (0x00000000)\n+rethrows = 0 (0x00000000)\n+events = 0 (0x00000000)\n+nested = 0 (0x00000000)\n+events = 0 (0x00000000)\n+ctor = 0 (0x00000000)\n+events = 0 (0x00000000)\n seh = -536865279 (0xe0001601)\n-finally_param = 2107 (0x0000083b)\n-checksum = 0x5774e739\n-exit = 57\n+finally_param = 0 (0x00000000)\n\nstderr:\nrhtest: not translated: 00401690\n   0  00000000600091f3  GenUnimplemented+0xd3\n   1  0000000060023cf1  F_00401690+0x31\n   2  0000000060025e90  F_004020e0+0x180\n   3  0000000060026a63  F_004022c0+0x353\n   4  000000000046dd37  BaseThreadInitThunk+0x17\n   5  00007ff862fff2bc  RtlUserThreadStart+0x2c\nrhtest: not translated: 004018be\n   0  00000000600091f3  GenUnimplemented+0xd3\n   1  0000000060023d71  F_004018be+0x31\n   2  0000000060024b48  F_00401830+0x118\n   3  0000000060025ece  F_004020e0+0x1be\n   4  0000000060026a63  F_004022c0+0x353\n   5  000000000046dd37  BaseThreadInitThunk+0x17\n   6  00007ff862fff2bc  RtlUserThreadStart+0x2c",
+   "fidelity": {
+    "by_size": 0.935,
+    "functions": 130,
+    "mean": 0.931,
+    "perfect": 121,
+    "stubs": 9,
+    "translated": 121
+   },
+   "status": "FAIL",
+   "stopped": "run",
+   "when": "2026-10-30 15:11"
+  },
+  "engine-GL": {
+   "accuracy": {
+    "accurate": 109,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 44,
+    "equivalent bytes": 1,
+    "functions": 109,
+    "identical": 43,
+    "same behavior": 65,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.4828,
+    "bytes_identical": 43,
+    "equivalent": 1,
+    "identical": 44,
+    "mean": 0.6666
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 109,
+    "mean": 1.0,
+    "perfect": 109,
+    "stubs": 0,
+    "translated": 109
+   },
+   "status": "PASS",
+   "when": "2026-10-30 15:11"
+  },
+  "engine-O2": {
+   "accuracy": {
+    "accurate": 110,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 44,
+    "equivalent bytes": 1,
+    "functions": 110,
+    "identical": 43,
+    "same behavior": 66,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.5275,
+    "bytes_identical": 43,
+    "equivalent": 1,
+    "identical": 44,
+    "mean": 0.6861
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 110,
+    "mean": 1.0,
+    "perfect": 110,
+    "stubs": 0,
+    "translated": 110
+   },
+   "status": "PASS",
+   "when": "2026-10-30 15:11"
+  },
+  "engine-Od": {
+   "accuracy": {
+    "accurate": 137,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 21,
+    "equivalent bytes": 1,
+    "functions": 137,
+    "identical": 20,
+    "same behavior": 116,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.4735,
+    "bytes_identical": 20,
+    "equivalent": 1,
+    "identical": 21,
+    "mean": 0.6001
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 137,
+    "mean": 1.0,
+    "perfect": 137,
+    "stubs": 0,
+    "translated": 137
+   },
+   "status": "PASS",
+   "when": "2026-10-30 15:11"
+  },
+  "float-IA32": {
+   "accuracy": {
+    "accurate": 93,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 36,
+    "equivalent bytes": 1,
+    "functions": 93,
+    "identical": 35,
+    "same behavior": 57,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.4507,
+    "bytes_identical": 35,
+    "equivalent": 1,
+    "identical": 36,
+    "mean": 0.6522
+   },
+   "detail": "--- expected\n+++ actual\n@@ -43,5 +43,5 @@\n pair_scale = 0x40118000:0x00000000\n-fixed_8_24 = 998169600 (0x3b7edc00)\n-table_entry = 0xc075b000:0x00000000\n-checksum = 0xb383b3d8\n-exit = 88\n+fixed_8_24 = 1145044992 (0x44400000)\n+table_entry = 0x4160040c:0x00000000\n+checksum = 0x07615d9d\n+exit = 29\n\nstderr:\nrhtest: 9 bytes of the code section's data kept\nrhtest: import api-ms-win-crt-math-l1-1-0.dll!_CIsqrt has no x64 export (needs an adapter of its own)\nrhtest: reference mapped at 0x400000 (0x6000 bytes): 95 entry jumps (0 too close to the next), 37 imports resolved, 1 missing\nrhtest: running the reference's entry 0x402ca0",
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 93,
+    "mean": 1.0,
+    "perfect": 93,
+    "stubs": 0,
+    "translated": 93
+   },
+   "status": "FAIL",
+   "stopped": "run",
+   "when": "2026-10-30 15:11"
+  },
+  "float-O2": {
+   "accuracy": {
+    "accurate": 95,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 32,
+    "equivalent bytes": 1,
+    "functions": 95,
+    "identical": 31,
+    "same behavior": 63,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.4635,
+    "bytes_identical": 31,
+    "equivalent": 1,
+    "identical": 32,
+    "mean": 0.6251
+   },
+   "detail": "--- expected\n+++ actual\n@@ -43,5 +43,5 @@\n pair_scale = 0x40118000:0x00000000\n-fixed_8_24 = 998169600 (0x3b7edc00)\n-table_entry = 0xc075b000:0x00000000\n-checksum = 0x74bb836d\n-exit = 109\n+fixed_8_24 = 1249910784 (0x4a802000)\n+table_entry = 0x4160040c:0x00000000\n+checksum = 0x52379556\n+exit = 86\n\nstderr:\nrhtest: 9 bytes of the code section's data kept\nrhtest: reference mapped at 0x400000 (0x6000 bytes): 96 entry jumps (0 too close to the next), 38 imports resolved, 0 missing\nrhtest: running the reference's entry 0x402e70",
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 95,
+    "mean": 1.0,
+    "perfect": 95,
+    "stubs": 0,
+    "translated": 95
+   },
+   "status": "FAIL",
+   "stopped": "run",
+   "when": "2026-10-30 15:11"
+  },
+  "float-Od": {
+   "accuracy": {
+    "accurate": 106,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 34,
+    "equivalent bytes": 2,
+    "functions": 106,
+    "identical": 32,
+    "same behavior": 72,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.4811,
+    "bytes_identical": 32,
+    "equivalent": 2,
+    "identical": 34,
+    "mean": 0.648
+   },
+   "detail": "--- expected\n+++ actual\n@@ -43,5 +43,2 @@\n pair_scale = 0x40118000:0x00000000\n-fixed_8_24 = 998169600 (0x3b7edc00)\n-table_entry = 0xc075b000:0x00000000\n-checksum = 0x74bb836d\n-exit = 109\n+exit = 3221225477\n\nstderr:\nrhtest: 9 bytes of the code section's data kept\nrhtest: reference mapped at 0x400000 (0x6000 bytes): 107 entry jumps (0 too close to the next), 39 imports resolved, 0 missing\nrhtest: running the reference's entry 0x402e90\nrhipper: unhandled exception C0000005; the chain:\n  the fault, at:\n   0  0000000060026c3b  F_004024d0+0x2b\n   1  00000000600238c9  W_004024d0+0x9\n   2  000000006002515b  F_00401000+0x155b\n   3  0000000060027e3a  F_00402ca0+0x36a\n   4  00000000005bdd37  BaseThreadInitThunk+0x17\n   5  00007ff862fff2bc  RtlUserThreadStart+0x2c\n  node 0541FF0C handler 004037C0 FuncInfo 00000000 scope table 00404608 state -1366904163",
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 106,
+    "mean": 1.0,
+    "perfect": 106,
+    "stubs": 0,
+    "translated": 106
+   },
+   "status": "FAIL",
+   "stopped": "run",
+   "when": "2026-10-30 15:11"
+  },
+  "fpenv-IA32": {
+   "accuracy": {
+    "accurate": 63,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 18,
+    "equivalent bytes": 1,
+    "functions": 63,
+    "identical": 17,
+    "same behavior": 45,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.5175,
+    "bytes_identical": 17,
+    "equivalent": 1,
+    "identical": 18,
+    "mean": 0.6434
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 63,
+    "mean": 1.0,
+    "perfect": 63,
+    "stubs": 0,
+    "translated": 63
+   },
+   "status": "PASS",
+   "when": "2026-10-30 15:11"
+  },
+  "fpenv-O2": {
+   "accuracy": {
+    "accurate": 65,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 20,
+    "equivalent bytes": 1,
+    "functions": 65,
+    "identical": 19,
+    "same behavior": 45,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.506,
+    "bytes_identical": 19,
+    "equivalent": 1,
+    "identical": 20,
+    "mean": 0.6421
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 65,
+    "mean": 1.0,
+    "perfect": 65,
+    "stubs": 0,
+    "translated": 65
+   },
+   "status": "PASS",
+   "when": "2026-10-30 15:11"
+  },
+  "fpenv-Od": {
+   "accuracy": {
+    "accurate": 71,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 21,
+    "equivalent bytes": 1,
+    "functions": 71,
+    "identical": 20,
+    "same behavior": 50,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.5104,
+    "bytes_identical": 20,
+    "equivalent": 1,
+    "identical": 21,
+    "mean": 0.6259
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 71,
+    "mean": 1.0,
+    "perfect": 71,
+    "stubs": 0,
+    "translated": 71
+   },
+   "status": "PASS",
+   "when": "2026-10-30 15:11"
+  },
+  "int64-O2": {
+   "accuracy": {
+    "accurate": 92,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 27,
+    "equivalent bytes": 1,
+    "functions": 92,
+    "identical": 26,
+    "same behavior": 65,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.4632,
+    "bytes_identical": 26,
+    "equivalent": 1,
+    "identical": 27,
+    "mean": 0.5604
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 92,
+    "mean": 1.0,
+    "perfect": 92,
+    "stubs": 0,
+    "translated": 92
+   },
+   "status": "PASS",
+   "when": "2026-10-30 15:11"
+  },
+  "int64-Od": {
+   "accuracy": {
+    "accurate": 95,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 26,
+    "equivalent bytes": 1,
+    "functions": 95,
+    "identical": 25,
+    "same behavior": 69,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.4518,
+    "bytes_identical": 25,
+    "equivalent": 1,
+    "identical": 26,
+    "mean": 0.5662
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 95,
+    "mean": 1.0,
+    "perfect": 95,
+    "stubs": 0,
+    "translated": 95
+   },
+   "status": "PASS",
+   "when": "2026-10-30 15:11"
+  },
+  "misc-O2": {
+   "accuracy": {
+    "accurate": 93,
+    "behavior differs": 1,
+    "byte_identical_or_equivalent": 25,
+    "equivalent bytes": 1,
+    "functions": 96,
+    "identical": 24,
+    "same behavior": 68,
+    "stub": 2
+   },
+   "bytes": {
+    "by_size": 0.4734,
+    "bytes_identical": 24,
+    "equivalent": 1,
+    "identical": 25,
+    "mean": 0.6064
+   },
+   "detail": "--- expected\n+++ actual\n@@ -22,6 +22,6 @@\n folded_index = 906954521 (0x360f0719)\n-lex_switch = -1356447612 (0xaf264084)\n-early_push = 7813470 (0x0077395e)\n+lex_switch = 7 (0x00000007)\n+early_push = 0 (0x00000000)\n bom_kind = 960 (0x000003c0)\n-checksum = 0x18f710de\n-exit = 94\n+checksum = 0xe6ffcf98\n+exit = 24\n\nstderr:\nrhtest: not translated: 00401c40\n   0  0000000060009443  GenUnimplemented+0xd3\n   1  0000000060025111  F_00401c40+0x31\n   2  00000000600262cf  F_00401bc0+0x7f\n   3  0000000060026eeb  F_00401f80+0xa1b\n   4  000000006002919f  F_00403070+0x37f\n   5  000000000046dd37  BaseThreadInitThunk+0x17\n   6  00007ff862fff2bc  RtlUserThreadStart+0x2c\nrhtest: not translated: 004013a0\n   0  0000000060009443  GenUnimplemented+0xd3\n   1  00000000600250d1  F_004013a0+0x31\n   2  0000000060026efe  F_00401f80+0xa2e\n   3  000000006002919f  F_00403070+0x37f\n   4  000000000046dd37  BaseThreadInitThunk+0x17\n   5  00007ff862fff2bc  RtlUserThreadStart+0x2c",
+   "fidelity": {
+    "by_size": 0.902,
+    "functions": 96,
+    "mean": 0.978,
+    "perfect": 93,
+    "stubs": 2,
+    "translated": 94
+   },
+   "status": "FAIL",
+   "stopped": "run",
+   "when": "2026-10-30 15:11"
+  },
+  "misc-Od": {
+   "accuracy": {
+    "accurate": 103,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 23,
+    "equivalent bytes": 1,
+    "functions": 103,
+    "identical": 22,
+    "same behavior": 80,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.474,
+    "bytes_identical": 22,
+    "equivalent": 1,
+    "identical": 23,
+    "mean": 0.5979
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 103,
+    "mean": 1.0,
+    "perfect": 103,
+    "stubs": 0,
+    "translated": 103
+   },
+   "status": "PASS",
+   "when": "2026-10-30 15:11"
+  },
+  "seh-O2": {
+   "accuracy": {
+    "accurate": 101,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 25,
+    "equivalent bytes": 1,
+    "functions": 102,
+    "identical": 24,
+    "same behavior": 76,
+    "stub": 1
+   },
+   "bytes": {
+    "by_size": 0.4651,
+    "bytes_identical": 24,
+    "equivalent": 1,
+    "identical": 25,
+    "mean": 0.5783
+   },
+   "detail": "--- expected\n+++ actual\n@@ -26,3 +26,3 @@\n finally return small = 1 (0x00000001)\n-finally trail = 534411079 (0x1fda7747)\n+finally trail = 912434 (0x000dec32)\n guarded leaf = 8 (0x00000008)\n@@ -36,3 +36,3 @@\n guarded trail = 7111 (0x00001bc7)\n-checksum = 0x4c0806ba\n-exit = 58\n+checksum = 0x85838ec4\n+exit = 68\n\nstderr:\nrhtest: 9 bytes of the code section's data kept\nrhtest: reference mapped at 0x400000 (0x5000 bytes): 101 entry jumps (2 too close to the next), 49 imports resolved, 0 missing\nrhtest: running the reference's entry 0x402340\nrhtest: not translated: 00401540\n   0  00000000600091f3  GenUnimplemented+0xd3\n   1  0000000060024181  F_00401540+0x31\n   2  0000000060027bc4  F_00402150+0x444\n   3  000000000057dd37  BaseThreadInitThunk+0x17\n   4  00007ff862fff2bc  RtlUserThreadStart+0x2c",
+   "fidelity": {
+    "by_size": 0.979,
+    "functions": 102,
+    "mean": 0.99,
+    "perfect": 101,
+    "stubs": 1,
+    "translated": 101
+   },
+   "status": "FAIL",
+   "stopped": "run",
+   "when": "2026-10-30 15:11"
+  },
+  "seh-Od": {
+   "accuracy": {
+    "accurate": 104,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 24,
+    "equivalent bytes": 1,
+    "functions": 108,
+    "identical": 23,
+    "same behavior": 80,
+    "stub": 4
+   },
+   "bytes": {
+    "by_size": 0.4038,
+    "bytes_identical": 23,
+    "equivalent": 1,
+    "identical": 24,
+    "mean": 0.4767
+   },
+   "detail": "--- expected\n+++ actual\n@@ -25,6 +25,6 @@\n finally return big = 10 (0x0000000a)\n-finally return small = 1 (0x00000001)\n-finally trail = 534411079 (0x1fda7747)\n-guarded leaf = 8 (0x00000008)\n-guarded leaf again = 10 (0x0000000a)\n+finally return small = 0 (0x00000000)\n+finally trail = 912434 (0x000dec32)\n+guarded leaf = 0 (0x00000000)\n+guarded leaf again = 0 (0x00000000)\n scribble = 8512 (0x00002140)\n@@ -36,3 +36,3 @@\n guarded trail = 7111 (0x00001bc7)\n-checksum = 0x4c0806ba\n-exit = 58\n+checksum = 0x009d94db\n+exit = 91\n\nstderr:\n   5  00007ff862fff2bc  RtlUserThreadStart+0x2c\nrhtest: not translated: 00401ae0\n   0  00000000600091f3  GenUnimplemented+0xd3\n   1  0000000060024201  F_00401ae0+0x31\n   2  000000006002851f  F_00402510+0x42f\n   3  000000000046dd37  BaseThreadInitThunk+0x17\n   4  00007ff862fff2bc  RtlUserThreadStart+0x2c\nrhtest: not translated: 00401cee\n   0  00000000600091f3  GenUnimplemented+0xd3\n   1  0000000060024241  F_00401cee+0x31\n   2  0000000060026c69  F_00401c60+0x139\n   3  0000000060027010  F_00401ea0+0x60\n   4  0000000060028535  F_00402510+0x445\n   5  000000000046dd37  BaseThreadInitThunk+0x17\n   6  00007ff862fff2bc  RtlUserThreadStart+0x2c",
+   "fidelity": {
+    "by_size": 0.976,
+    "functions": 108,
+    "mean": 0.963,
+    "perfect": 104,
+    "stubs": 4,
+    "translated": 104
+   },
+   "status": "FAIL",
+   "stopped": "run",
+   "when": "2026-10-30 15:11"
+  },
+  "stl-O2": {
+   "accuracy": {
+    "accurate": 1483,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 149,
+    "equivalent bytes": 6,
+    "functions": 1488,
+    "identical": 143,
+    "same behavior": 1334,
+    "stub": 5
+   },
+   "bytes": {
+    "by_size": 0.3221,
+    "bytes_identical": 143,
+    "equivalent": 6,
+    "identical": 149,
+    "mean": 0.4518
+   },
+   "detail": "--- expected\n+++ actual\n@@ -35,5 +35,2 @@\n list splice = 369830286 (0x160b298e)\n-ostream = 631541188 (0x25a48dc4)\n-istream = 440921586 (0x1a47edf2)\n-checksum = 0x111a1f1a\n-exit = 26\n+exit = 3221225477\n\nstderr:\n   3  000000006005752a  F_004149a0+0x2fa\n   4  00000000004bdd37  BaseThreadInitThunk+0x17\n   5  00007ff862fff2bc  RtlUserThreadStart+0x2c\nrhipper: unhandled exception C0000005; the chain:\n  the fault, at:\n   0  00000000600335aa  F_004091a0+0xca\n   1  0000000060034f22  F_00409c40+0xc2\n   2  0000000060041d7a  F_00410650+0x22a\n   3  000000006005752a  F_004149a0+0x2fa\n   4  00000000004bdd37  BaseThreadInitThunk+0x17\n   5  00007ff862fff2bc  RtlUserThreadStart+0x2c\n  node 0544FB20 handler 0044166D FuncInfo 0044FEE4 scope table 00000000 state -1\n  node 0544FC00 handler 00441725 FuncInfo 0044FB6C scope table 00000000 state -1\n  node 0544FE40 handler 00441EA7 FuncInfo 0044FA40 scope table 00000000 state 4\n  node 0544FAEC handler 0544FB34 FuncInfo 00000000 scope table 00000000 state 0",
+   "fidelity": {
+    "by_size": 0.997,
+    "functions": 1488,
+    "mean": 0.997,
+    "perfect": 1483,
+    "stubs": 5,
+    "translated": 1483
+   },
+   "status": "FAIL",
+   "stopped": "run",
+   "when": "2026-10-30 15:11"
+  },
+  "stl-Od": {
+   "accuracy": {
+    "accurate": 2348,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 125,
+    "equivalent bytes": 6,
+    "functions": 2361,
+    "identical": 119,
+    "same behavior": 2223,
+    "stub": 13
+   },
+   "bytes": {
+    "by_size": 0.3132,
+    "bytes_identical": 119,
+    "equivalent": 6,
+    "identical": 125,
+    "mean": 0.4475
+   },
+   "detail": "--- expected\n+++ actual\n@@ -35,5 +35,2 @@\n list splice = 369830286 (0x160b298e)\n-ostream = 631541188 (0x25a48dc4)\n-istream = 440921586 (0x1a47edf2)\n-checksum = 0x111a1f1a\n-exit = 26\n+exit = 3221225477\n\nstderr:\n   5  00000000004cdd37  BaseThreadInitThunk+0x17\n   6  00007ff862fff2bc  RtlUserThreadStart+0x2c\nrhipper: unhandled exception C0000005; the chain:\n  the fault, at:\n   0  000000006004a2ea  F_00411560+0xca\n   1  000000006004cfe1  F_00412800+0xc1\n   2  0000000060029ab8  F_00402a60+0x128\n   3  00000000600762a2  F_00420460+0x2b2\n   4  00000000004cdd37  BaseThreadInitThunk+0x17\n   5  00007ff862fff2bc  RtlUserThreadStart+0x2c\n  node 0556FAE0 handler 0044DC8D FuncInfo 0045C250 scope table 00000000 state -1\n  node 0556FBE0 handler 0044DD45 FuncInfo 0045BEB4 scope table 00000000 state -1\n  node 0556FBD0 handler 00000000 FuncInfo 00000000 scope table 00000000 state 0\n  node 0556FE70 handler 0044CF7B FuncInfo 0045BA14 scope table 00000000 state 1\n  node 0556FAFC handler 0556FD58 FuncInfo 00000000 scope table 00000000 state 0",
+   "fidelity": {
+    "by_size": 0.999,
+    "functions": 2361,
+    "mean": 0.994,
+    "perfect": 2348,
+    "stubs": 13,
+    "translated": 2348
+   },
+   "status": "FAIL",
+   "stopped": "run",
+   "when": "2026-10-30 15:11"
+  },
+  "stlio-O2": {
+   "accuracy": {
+    "accurate": 1148,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 113,
+    "equivalent bytes": 5,
+    "functions": 1153,
+    "identical": 108,
+    "same behavior": 1035,
+    "stub": 5
+   },
+   "bytes": {
+    "by_size": 0.301,
+    "bytes_identical": 108,
+    "equivalent": 5,
+    "identical": 113,
+    "mean": 0.4344
+   },
+   "detail": "--- expected\n+++ actual\n@@ -1,4 +1 @@\n-ostream = 631541188 (0x25a48dc4)\n-istream = 440921586 (0x1a47edf2)\n-checksum = 0xdf2e0f4d\n-exit = 77\n+exit = 3221225477\n\nstderr:\n   3  000000006003fa71  F_0040c9d0+0x361\n   4  000000000061dd37  BaseThreadInitThunk+0x17\n   5  00007ff862fff2bc  RtlUserThreadStart+0x2c\nrhipper: unhandled exception C0000005; the chain:\n  the fault, at:\n   0  000000006002e8ba  F_00405de0+0xca\n   1  000000006002f552  F_00406390+0xc2\n   2  0000000060037536  F_00409f60+0x1d6\n   3  000000006003fa71  F_0040c9d0+0x361\n   4  000000000061dd37  BaseThreadInitThunk+0x17\n   5  00007ff862fff2bc  RtlUserThreadStart+0x2c\n  node 0565FBF0 handler 0042AEBD FuncInfo 004379A0 scope table 00000000 state -1\n  node 0565FCD0 handler 0042AF75 FuncInfo 004375DC scope table 00000000 state -1\n  node 0565FE50 handler 0042B46C FuncInfo 004374D8 scope table 00000000 state 4\n  node 0565FA8C handler 0000027F FuncInfo 00000000 scope table 00000000 state 0",
+   "fidelity": {
+    "by_size": 0.996,
+    "functions": 1153,
+    "mean": 0.996,
+    "perfect": 1148,
+    "stubs": 5,
+    "translated": 1148
+   },
+   "status": "FAIL",
+   "stopped": "run",
+   "when": "2026-10-30 15:11"
+  },
+  "stlio-Od": {
+   "accuracy": {
+    "accurate": 1418,
+    "behavior differs": 1,
+    "byte_identical_or_equivalent": 87,
+    "equivalent bytes": 5,
+    "functions": 1432,
+    "identical": 82,
+    "same behavior": 1331,
+    "stub": 13
+   },
+   "bytes": {
+    "by_size": 0.2791,
+    "bytes_identical": 82,
+    "equivalent": 5,
+    "identical": 87,
+    "mean": 0.4248
+   },
+   "detail": "--- expected\n+++ actual\n@@ -1,4 +1 @@\n-ostream = 631541188 (0x25a48dc4)\n-istream = 440921586 (0x1a47edf2)\n-checksum = 0xdf2e0f4d\n-exit = 77\n+exit = 3221225477\n\nstderr:\n   5  0000000060025e79  W_00421395+0x9\n   6  00000000600655e3  F_0041beb3+0x63\n   7  00000000600490f1  F_0040f860+0x131\n   8  0000000060048904  F_0040f5d0+0xb4\n   9  00000000005add37  BaseThreadInitThunk+0x17\n  10  00007ff862fff2bc  RtlUserThreadStart+0x2c\nrhtest: not translated: 00401a03\n   0  0000000060009323  GenUnimplemented+0xd3\n   1  0000000060026421  F_00401a03+0x31\n   2  0000000060027f11  F_00401780+0x4f1\n   3  0000000060026d2e  F_00401120+0x14e\n   4  0000000060026b3c  F_004010c0+0x2c\n   5  0000000060048b88  F_0040f5d0+0x338\n   6  00000000005add37  BaseThreadInitThunk+0x17\n   7  00007ff862fff2bc  RtlUserThreadStart+0x2c",
+   "fidelity": {
+    "by_size": 0.999,
+    "functions": 1432,
+    "mean": 0.991,
+    "perfect": 1418,
+    "stubs": 13,
+    "translated": 1419
+   },
+   "status": "FAIL",
+   "stopped": "run",
+   "when": "2026-10-30 15:11"
+  },
+  "sys-O2": {
+   "accuracy": {
+    "accurate": 68,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 22,
+    "equivalent bytes": 1,
+    "functions": 68,
+    "identical": 21,
+    "same behavior": 46,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.6702,
+    "bytes_identical": 21,
+    "equivalent": 1,
+    "identical": 22,
+    "mean": 0.7306
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 68,
+    "mean": 1.0,
+    "perfect": 68,
+    "stubs": 0,
+    "translated": 68
+   },
+   "status": "PASS",
+   "when": "2026-10-30 15:11"
+  },
+  "sys-Od": {
+   "accuracy": {
+    "accurate": 73,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 22,
+    "equivalent bytes": 1,
+    "functions": 73,
+    "identical": 21,
+    "same behavior": 51,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.5684,
+    "bytes_identical": 21,
+    "equivalent": 1,
+    "identical": 22,
+    "mean": 0.6868
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 73,
+    "mean": 1.0,
+    "perfect": 73,
+    "stubs": 0,
+    "translated": 73
+   },
+   "status": "PASS",
+   "when": "2026-10-30 15:11"
+  },
+  "win-O2": {
+   "accuracy": {
+    "accurate": 62,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 20,
+    "equivalent bytes": 1,
+    "functions": 62,
+    "identical": 19,
+    "same behavior": 42,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.5904,
+    "bytes_identical": 19,
+    "equivalent": 1,
+    "identical": 20,
+    "mean": 0.7208
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 62,
+    "mean": 1.0,
+    "perfect": 62,
+    "stubs": 0,
+    "translated": 62
+   },
+   "status": "PASS",
+   "when": "2026-10-30 15:11"
+  },
+  "win-Od": {
+   "accuracy": {
+    "accurate": 67,
+    "behavior differs": 0,
+    "byte_identical_or_equivalent": 21,
+    "equivalent bytes": 1,
+    "functions": 67,
+    "identical": 20,
+    "same behavior": 46,
+    "stub": 0
+   },
+   "bytes": {
+    "by_size": 0.5356,
+    "bytes_identical": 20,
+    "equivalent": 1,
+    "identical": 21,
+    "mean": 0.6818
+   },
+   "fidelity": {
+    "by_size": 1.0,
+    "functions": 67,
+    "mean": 1.0,
+    "perfect": 67,
+    "stubs": 0,
+    "translated": 67
+   },
+   "status": "PASS",
+   "when": "2026-10-30 15:11"
+  }
+ }
+}

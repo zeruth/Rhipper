@@ -1,1 +1,1 @@
-{"sha": "bab6e29dbbe080d1399c9f49956cf3e2e5ce0ae0", "date": "2026-10-30T07:48:03-04:00", "subject": "fix: a client's fidelity batches -- x87/SSE/int64 own results, argument room, misplaced entries, translator stubs"}
+{"sha": "8e8a4a45c024ab7291afc104d7059b39a850fa04", "date": "2026-10-30T10:05:31-04:00", "subject": "fix: x87 results beside a call's, constant call slots, outer-call words, misplaced bodies"}
