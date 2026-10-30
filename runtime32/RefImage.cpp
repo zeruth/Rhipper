@@ -531,6 +531,11 @@ namespace {
 
 struct GuardHeap {
     uintptr_t lo = 0, hi = 0, next = 0;
+    // (every n-th allocation guarded, <ENV>_GUARDHEAP=n; 1 all of them: too slow for a UI 20 s in,
+    // a client's title never drew. Sampled, a run gets there and a fraction of its blocks are
+    // watched, the culprit's caught in the run whose sample holds it)
+    unsigned every = 1;
+    volatile long count = 0;
     std::mutex lock;
     std::unordered_map<uintptr_t, size_t> sizes;
     gen_real_fn alloc = nullptr, free = nullptr, realloc = nullptr, size = nullptr;
@@ -573,7 +578,8 @@ GuardHeap g_guard;
 
 intptr_t GuardHeapAlloc(intptr_t heap, intptr_t flags, intptr_t n, intptr_t a3, intptr_t a4, intptr_t a5, intptr_t a6,
                         intptr_t a7, intptr_t a8, intptr_t a9, intptr_t a10, intptr_t a11, intptr_t a12, intptr_t a13) {
-    if (void* p = g_guard.Alloc(static_cast<uint32_t>(n))) return reinterpret_cast<intptr_t>(p);   // (zeroed: fresh pages)
+    if (g_guard.every <= 1 || InterlockedIncrement(&g_guard.count) % static_cast<long>(g_guard.every) == 0)
+        if (void* p = g_guard.Alloc(static_cast<uint32_t>(n))) return reinterpret_cast<intptr_t>(p);   // (zeroed: fresh pages)
     return g_guard.alloc(heap, flags, n, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13);
 }
 intptr_t GuardHeapFree(intptr_t heap, intptr_t flags, intptr_t p, intptr_t a3, intptr_t a4, intptr_t a5, intptr_t a6,
@@ -616,6 +622,7 @@ intptr_t GuardHeapReAlloc(intptr_t heap, intptr_t flags, intptr_t p, intptr_t n,
 void GuardHeapStart() {
     wchar_t on[8] = {};
     if (RefEnv("GUARDHEAP", on, 8) == 0 || on[0] == L'0') return;
+    g_guard.every = static_cast<unsigned>(wcstoul(on, nullptr, 10));
     // (the most of the low 2 GB it can have, every block's address a 32-bit one)
     for (size_t want = 0x50000000; want >= 0x8000000 && !g_guard.lo; want /= 2) {
         if (void* r = VirtualAlloc(nullptr, want, MEM_RESERVE, PAGE_NOACCESS)) {
@@ -641,7 +648,8 @@ void GuardHeapStart() {
         g_guard.lo = g_guard.hi = 0;
         return;
     }
-    fprintf(stderr, "%s: guarded heap at %llx-%llx\n", RHIPPER_NAME, static_cast<unsigned long long>(g_guard.lo),
+    fprintf(stderr, "%s: guarded heap (every %u allocations) at %llx-%llx\n", RHIPPER_NAME, g_guard.every,
+            static_cast<unsigned long long>(g_guard.lo),
             static_cast<unsigned long long>(g_guard.hi));
 }
 
