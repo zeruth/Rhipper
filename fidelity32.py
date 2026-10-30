@@ -478,6 +478,10 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
                     code = img.read(ops[0].imm & 0xFFFFFFFF, 6)
                     to_import = len(code) == 6 and code[:2] == b"\xff\x25" \
                         and int.from_bytes(code[2:6], "little") in img.iat
+                    # (or an empty method, `ret 4` and nothing else, no function of its own: a
+                    # tail jump to it after `mov ecx, [ecx + 0x14]` reads nothing, and the
+                    # decompiler's `return;` is the call. 11 of a client's functions, 2026-10-30)
+                    to_import = to_import or (len(code) >= 1 and (code[0] == 0xC3 or code[0] == 0xC2))
                 if mn in ("call", "jmp") and (arity or to_import) and ops \
                         and (ops[0].type == x86.X86_OP_IMM or to_import):
                     t = ops[0].imm & 0xFFFFFFFF if ops[0].type == x86.X86_OP_IMM else None
@@ -546,7 +550,14 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
                     arg_fields.append([])
             elif ops and ops[0].type == x86.X86_OP_REG and not any(o.type == x86.X86_OP_IMM for o in ops[1:]) \
                     and mn in ("mov", "lea", "movzx", "movsx", "pop", "xor"):
-                reg_imms[canon_reg(insn.reg_name(ops[0].reg))] = []
+                # (loaded through itself, `mov ecx, [0x1379860]; mov ecx, [ecx + 0xc]`: what it held
+                # made the new value, a dead `this` chain's global with it, 7 of a client's functions)
+                # (or through another, `mov edx, [g]; mov ecx, [edx + 0xc]`: what the base carried)
+                r0 = canon_reg(insn.reg_name(ops[0].reg))
+                if len(ops) == 2 and ops[1].type == x86.X86_OP_MEM and ops[1].mem.base and mn == "mov":
+                    reg_imms[r0] = list(reg_imms.get(canon_reg(insn.reg_name(ops[1].mem.base)), ()))
+                else:
+                    reg_imms[r0] = []
             # (ecx computed from another register: the fields that register holds reach ecx)
             if ops and ops[0].type == x86.X86_OP_REG and insn.reg_name(ops[0].reg) == "ecx" and mn != "lea":
                 for op in ops[1:]:
@@ -728,7 +739,13 @@ def presence(ref: Counter, port: Counter, source: set[int] = frozenset(),
             # (or a field of a member the reference's compiler addressed first, `lea ecx, [edi +
             # 0x3c]; mov esi, [ecx + 0x404]` for the translation's `this + 0x440` beside its
             # `this + 0x3c`: the formatting buffer's members in the CRT's printf, rhtest stl-O2)
-            return any(s > k and s - k in source for s in source)
+            if any(s > k and s - k in source for s in source):
+                return True
+            # (the same with the C's indices as the offsets they are, an int array's [0x17] at 0x5c:
+            # `lea esi, [ecx + 8]; ... mov eax, [esi + 0x54]` for `param_3[0x17]` beside its
+            # `param_3 + 2`, a copy of a record's tail, 10 of a client's functions, 2026-10-30)
+            scaled = {v * m for v in source if 0 < v < 0x10000 for m in (1, 2, 4, 8)}
+            return any(0 < b < 0x1000 and b + k in scaled for b in scaled)
         if isinstance(k, str) and k.startswith("i:"):
             v = int(k[2:], 16)
             if v in source or (v + 1) & 0xFFFFFFFF in source or (v - 1) & 0xFFFFFFFF in source:
@@ -1212,6 +1229,13 @@ def main() -> None:
             if v > 0xFFFF and fk in pf.consts:
                 rf.consts[fk] += rf.consts.pop(k)
         source = literals(translations.get(a, ""))
+        # (an empty string the reference passes by its address, `push 0x109cfce` of a byte 0 in
+        # .rdata, which the translation passes as its own `""`: a string by its value, as others.
+        # 15 of a client's string initializations, 2026-10-30)
+        if '""' in translations.get(a, ""):
+            for k in [k for k in rf.consts if k.startswith("g:")]:
+                if ref.read(int(k[2:], 16), 1) == b"\x00" and k not in pf.consts:
+                    del rf.consts[k]
         globals_of = (lambda fn: {int(k[2:], 16) for k in fn.consts if k.startswith("g:")})
         fields, missing_fields = presence(rf.fields, pf.fields, source, (globals_of(rf), globals_of(pf)))
         port_addrs = globals_of(pf) | {x for xs in pf.str_at.values() for x in xs}
