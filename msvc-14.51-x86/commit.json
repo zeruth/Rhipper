@@ -1,1 +1,1 @@
-{"sha": "c988ea4517b56f1a8d6deadfeb9353da194b6117", "date": "2026-10-30T04:36:55-04:00", "subject": "fix(fidelity32): dead `this` through imports, empty methods and register chains; scaled indices; empty strings"}
+{"sha": "5c53dfb43aa474d8667f05af4b0f23a54852c5c3", "date": "2026-10-30T04:43:29-04:00", "subject": "fix(fidelity32): imports by ordinal named, thunk tables, 2^32 and dead float loads"}

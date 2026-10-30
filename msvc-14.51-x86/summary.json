@@ -26,7 +26,7 @@
    "translated": 102
   },
   "status": "PASS",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  },
  "calls-O2": {
   "accuracy": {
@@ -55,7 +55,7 @@
    "translated": 104
   },
   "status": "PASS",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  },
  "calls-Od": {
   "accuracy": {
@@ -84,7 +84,7 @@
    "translated": 110
   },
   "status": "PASS",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  },
  "com-O2": {
   "bytes": {
@@ -94,10 +94,10 @@
    "identical": 26,
    "mean": 0.7057
   },
-  "detail": "fidelity.log:\nTraceback (most recent call last):\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1318, in <module>\n    main()\n    ~~~~^^\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1161, in main\n    pf = scan(port, ref, md64, [(pva, pva + psize)], a, True)\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 490, in scan\n    tail_in = mn == \"jmp\" and t not in arity and at + 1 == len(insns) and own not in takes_ecx\n                              ^^^^^^^^^^^^^^\nTypeError: argument of type 'NoneType' is not a container or iterable",
+  "detail": "fidelity.log:\nTraceback (most recent call last):\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1355, in <module>\n    main()\n    ~~~~^^\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1192, in main\n    pf = scan(port, ref, md64, [(pva, pva + psize)], a, True)\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 493, in scan\n    tail_in = mn == \"jmp\" and t not in arity and at + 1 == len(insns) and own not in takes_ecx\n                              ^^^^^^^^^^^^^^\nTypeError: argument of type 'NoneType' is not a container or iterable",
   "status": "FAIL",
   "stopped": "fidelity",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  },
  "com-Od": {
   "bytes": {
@@ -107,10 +107,10 @@
    "identical": 24,
    "mean": 0.6528
   },
-  "detail": "fidelity.log:\nTraceback (most recent call last):\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1318, in <module>\n    main()\n    ~~~~^^\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1161, in main\n    pf = scan(port, ref, md64, [(pva, pva + psize)], a, True)\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 490, in scan\n    tail_in = mn == \"jmp\" and t not in arity and at + 1 == len(insns) and own not in takes_ecx\n                              ^^^^^^^^^^^^^^\nTypeError: argument of type 'NoneType' is not a container or iterable",
+  "detail": "fidelity.log:\nTraceback (most recent call last):\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1355, in <module>\n    main()\n    ~~~~^^\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1192, in main\n    pf = scan(port, ref, md64, [(pva, pva + psize)], a, True)\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 493, in scan\n    tail_in = mn == \"jmp\" and t not in arity and at + 1 == len(insns) and own not in takes_ecx\n                              ^^^^^^^^^^^^^^\nTypeError: argument of type 'NoneType' is not a container or iterable",
   "status": "FAIL",
   "stopped": "fidelity",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  },
  "core-O2": {
   "bytes": {
@@ -120,10 +120,10 @@
    "identical": 46,
    "mean": 0.6888
   },
-  "detail": "fidelity.log:\nTraceback (most recent call last):\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1318, in <module>\n    main()\n    ~~~~^^\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1161, in main\n    pf = scan(port, ref, md64, [(pva, pva + psize)], a, True)\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 491, in scan\n    if (t in arity and t not in takes_ecx) or tail_in or to_import:\n        ^^^^^^^^^^\nTypeError: argument of type 'NoneType' is not a container or iterable",
+  "detail": "fidelity.log:\nTraceback (most recent call last):\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1355, in <module>\n    main()\n    ~~~~^^\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1192, in main\n    pf = scan(port, ref, md64, [(pva, pva + psize)], a, True)\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 494, in scan\n    if (t in arity and t not in takes_ecx) or tail_in or to_import:\n        ^^^^^^^^^^\nTypeError: argument of type 'NoneType' is not a container or iterable",
   "status": "FAIL",
   "stopped": "fidelity",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  },
  "core-Od": {
   "accuracy": {
@@ -152,7 +152,7 @@
    "translated": 129
   },
   "status": "PASS",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  },
  "cpp-O2": {
   "bytes": {
@@ -162,10 +162,10 @@
    "identical": 70,
    "mean": 0.7285
   },
-  "detail": "fidelity.log:\nTraceback (most recent call last):\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1318, in <module>\n    main()\n    ~~~~^^\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1161, in main\n    pf = scan(port, ref, md64, [(pva, pva + psize)], a, True)\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 491, in scan\n    if (t in arity and t not in takes_ecx) or tail_in or to_import:\n        ^^^^^^^^^^\nTypeError: argument of type 'NoneType' is not a container or iterable",
+  "detail": "fidelity.log:\nTraceback (most recent call last):\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1355, in <module>\n    main()\n    ~~~~^^\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1192, in main\n    pf = scan(port, ref, md64, [(pva, pva + psize)], a, True)\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 494, in scan\n    if (t in arity and t not in takes_ecx) or tail_in or to_import:\n        ^^^^^^^^^^\nTypeError: argument of type 'NoneType' is not a container or iterable",
   "status": "FAIL",
   "stopped": "fidelity",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  },
  "cpp-Od": {
   "bytes": {
@@ -175,10 +175,10 @@
    "identical": 29,
    "mean": 0.5613
   },
-  "detail": "fidelity.log:\nTraceback (most recent call last):\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1318, in <module>\n    main()\n    ~~~~^^\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1161, in main\n    pf = scan(port, ref, md64, [(pva, pva + psize)], a, True)\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 491, in scan\n    if (t in arity and t not in takes_ecx) or tail_in or to_import:\n        ^^^^^^^^^^\nTypeError: argument of type 'NoneType' is not a container or iterable",
+  "detail": "fidelity.log:\nTraceback (most recent call last):\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1355, in <module>\n    main()\n    ~~~~^^\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1192, in main\n    pf = scan(port, ref, md64, [(pva, pva + psize)], a, True)\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 494, in scan\n    if (t in arity and t not in takes_ecx) or tail_in or to_import:\n        ^^^^^^^^^^\nTypeError: argument of type 'NoneType' is not a container or iterable",
   "status": "FAIL",
   "stopped": "fidelity",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  },
  "crt-O2": {
   "accuracy": {
@@ -207,7 +207,7 @@
    "translated": 76
   },
   "status": "PASS",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  },
  "crt-Od": {
   "accuracy": {
@@ -236,7 +236,7 @@
    "translated": 91
   },
   "status": "PASS",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  },
  "eh-O2": {
   "accuracy": {
@@ -265,7 +265,7 @@
    "translated": 115
   },
   "status": "PASS",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  },
  "eh-Od": {
   "accuracy": {
@@ -294,7 +294,7 @@
    "translated": 136
   },
   "status": "PASS",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  },
  "engine-GL": {
   "bytes": {
@@ -307,7 +307,7 @@
   "detail": "--- expected\n+++ actual\n@@ -11,3 +11,3 @@\n shared refs = 0 (0x00000000)\n-mover = -25 (0xffffffe7)\n+mover = 1 (0x00000001)\n registry = 37 (0x00000025)\n@@ -15,3 +15,3 @@\n aligned = 1068 (0x0000042c)\n-checksum = 0xf33bbadc\n-exit = 92\n+checksum = 0x817fa87d\n+exit = 125\n\nstderr:\nrhtest: 9 bytes of the code section's data kept\nrhtest: reference mapped at 0x400000 (0x5000 bytes): 101 entry jumps (0 too close to the next), 44 imports resolved, 0 missing\nrhtest: running the reference's entry 0x402420",
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  },
  "engine-O2": {
   "accuracy": {
@@ -338,7 +338,7 @@
   },
   "status": "FAIL",
   "stopped": "run",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  },
  "engine-Od": {
   "accuracy": {
@@ -367,7 +367,7 @@
    "translated": 123
   },
   "status": "PASS",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  },
  "float-IA32": {
   "bytes": {
@@ -377,10 +377,10 @@
    "identical": 36,
    "mean": 0.6531
   },
-  "detail": "fidelity.log:\nTraceback (most recent call last):\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1318, in <module>\n    main()\n    ~~~~^^\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1161, in main\n    pf = scan(port, ref, md64, [(pva, pva + psize)], a, True)\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 491, in scan\n    if (t in arity and t not in takes_ecx) or tail_in or to_import:\n        ^^^^^^^^^^\nTypeError: argument of type 'NoneType' is not a container or iterable",
+  "detail": "fidelity.log:\nTraceback (most recent call last):\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1355, in <module>\n    main()\n    ~~~~^^\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1192, in main\n    pf = scan(port, ref, md64, [(pva, pva + psize)], a, True)\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 494, in scan\n    if (t in arity and t not in takes_ecx) or tail_in or to_import:\n        ^^^^^^^^^^\nTypeError: argument of type 'NoneType' is not a container or iterable",
   "status": "FAIL",
   "stopped": "fidelity",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  },
  "float-O2": {
   "bytes": {
@@ -390,10 +390,10 @@
    "identical": 31,
    "mean": 0.6181
   },
-  "detail": "fidelity.log:\nTraceback (most recent call last):\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1318, in <module>\n    main()\n    ~~~~^^\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1161, in main\n    pf = scan(port, ref, md64, [(pva, pva + psize)], a, True)\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 491, in scan\n    if (t in arity and t not in takes_ecx) or tail_in or to_import:\n        ^^^^^^^^^^\nTypeError: argument of type 'NoneType' is not a container or iterable",
+  "detail": "fidelity.log:\nTraceback (most recent call last):\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1355, in <module>\n    main()\n    ~~~~^^\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1192, in main\n    pf = scan(port, ref, md64, [(pva, pva + psize)], a, True)\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 494, in scan\n    if (t in arity and t not in takes_ecx) or tail_in or to_import:\n        ^^^^^^^^^^\nTypeError: argument of type 'NoneType' is not a container or iterable",
   "status": "FAIL",
   "stopped": "fidelity",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  },
  "float-Od": {
   "bytes": {
@@ -403,10 +403,10 @@
    "identical": 33,
    "mean": 0.6419
   },
-  "detail": "fidelity.log:\nTraceback (most recent call last):\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1318, in <module>\n    main()\n    ~~~~^^\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1161, in main\n    pf = scan(port, ref, md64, [(pva, pva + psize)], a, True)\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 491, in scan\n    if (t in arity and t not in takes_ecx) or tail_in or to_import:\n        ^^^^^^^^^^\nTypeError: argument of type 'NoneType' is not a container or iterable",
+  "detail": "fidelity.log:\nTraceback (most recent call last):\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1355, in <module>\n    main()\n    ~~~~^^\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1192, in main\n    pf = scan(port, ref, md64, [(pva, pva + psize)], a, True)\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 494, in scan\n    if (t in arity and t not in takes_ecx) or tail_in or to_import:\n        ^^^^^^^^^^\nTypeError: argument of type 'NoneType' is not a container or iterable",
   "status": "FAIL",
   "stopped": "fidelity",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  },
  "fpenv-IA32": {
   "bytes": {
@@ -416,10 +416,10 @@
    "identical": 18,
    "mean": 0.6434
   },
-  "detail": "fidelity.log:\nTraceback (most recent call last):\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1318, in <module>\n    main()\n    ~~~~^^\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1161, in main\n    pf = scan(port, ref, md64, [(pva, pva + psize)], a, True)\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 491, in scan\n    if (t in arity and t not in takes_ecx) or tail_in or to_import:\n        ^^^^^^^^^^\nTypeError: argument of type 'NoneType' is not a container or iterable",
+  "detail": "fidelity.log:\nTraceback (most recent call last):\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1355, in <module>\n    main()\n    ~~~~^^\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1192, in main\n    pf = scan(port, ref, md64, [(pva, pva + psize)], a, True)\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 494, in scan\n    if (t in arity and t not in takes_ecx) or tail_in or to_import:\n        ^^^^^^^^^^\nTypeError: argument of type 'NoneType' is not a container or iterable",
   "status": "FAIL",
   "stopped": "fidelity",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  },
  "fpenv-O2": {
   "bytes": {
@@ -429,10 +429,10 @@
    "identical": 20,
    "mean": 0.6421
   },
-  "detail": "fidelity.log:\nTraceback (most recent call last):\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1318, in <module>\n    main()\n    ~~~~^^\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1161, in main\n    pf = scan(port, ref, md64, [(pva, pva + psize)], a, True)\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 491, in scan\n    if (t in arity and t not in takes_ecx) or tail_in or to_import:\n        ^^^^^^^^^^\nTypeError: argument of type 'NoneType' is not a container or iterable",
+  "detail": "fidelity.log:\nTraceback (most recent call last):\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1355, in <module>\n    main()\n    ~~~~^^\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1192, in main\n    pf = scan(port, ref, md64, [(pva, pva + psize)], a, True)\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 494, in scan\n    if (t in arity and t not in takes_ecx) or tail_in or to_import:\n        ^^^^^^^^^^\nTypeError: argument of type 'NoneType' is not a container or iterable",
   "status": "FAIL",
   "stopped": "fidelity",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  },
  "fpenv-Od": {
   "bytes": {
@@ -442,10 +442,10 @@
    "identical": 21,
    "mean": 0.6259
   },
-  "detail": "fidelity.log:\nTraceback (most recent call last):\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1318, in <module>\n    main()\n    ~~~~^^\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1161, in main\n    pf = scan(port, ref, md64, [(pva, pva + psize)], a, True)\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 491, in scan\n    if (t in arity and t not in takes_ecx) or tail_in or to_import:\n        ^^^^^^^^^^\nTypeError: argument of type 'NoneType' is not a container or iterable",
+  "detail": "fidelity.log:\nTraceback (most recent call last):\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1355, in <module>\n    main()\n    ~~~~^^\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1192, in main\n    pf = scan(port, ref, md64, [(pva, pva + psize)], a, True)\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 494, in scan\n    if (t in arity and t not in takes_ecx) or tail_in or to_import:\n        ^^^^^^^^^^\nTypeError: argument of type 'NoneType' is not a container or iterable",
   "status": "FAIL",
   "stopped": "fidelity",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  },
  "int64-O2": {
   "accuracy": {
@@ -474,7 +474,7 @@
    "translated": 92
   },
   "status": "PASS",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  },
  "int64-Od": {
   "accuracy": {
@@ -503,7 +503,7 @@
    "translated": 95
   },
   "status": "PASS",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  },
  "misc-O2": {
   "accuracy": {
@@ -532,7 +532,7 @@
    "translated": 83
   },
   "status": "PASS",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  },
  "misc-Od": {
   "accuracy": {
@@ -561,7 +561,7 @@
    "translated": 89
   },
   "status": "PASS",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  },
  "seh-O2": {
   "accuracy": {
@@ -590,7 +590,7 @@
    "translated": 103
   },
   "status": "PASS",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  },
  "seh-Od": {
   "accuracy": {
@@ -619,7 +619,7 @@
    "translated": 110
   },
   "status": "PASS",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  },
  "stl-O2": {
   "bytes": {
@@ -629,10 +629,10 @@
    "identical": 149,
    "mean": 0.4499
   },
-  "detail": "fidelity.log:\nTraceback (most recent call last):\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1318, in <module>\n    main()\n    ~~~~^^\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1161, in main\n    pf = scan(port, ref, md64, [(pva, pva + psize)], a, True)\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 491, in scan\n    if (t in arity and t not in takes_ecx) or tail_in or to_import:\n        ^^^^^^^^^^\nTypeError: argument of type 'NoneType' is not a container or iterable",
+  "detail": "fidelity.log:\nTraceback (most recent call last):\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1355, in <module>\n    main()\n    ~~~~^^\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1192, in main\n    pf = scan(port, ref, md64, [(pva, pva + psize)], a, True)\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 494, in scan\n    if (t in arity and t not in takes_ecx) or tail_in or to_import:\n        ^^^^^^^^^^\nTypeError: argument of type 'NoneType' is not a container or iterable",
   "status": "FAIL",
   "stopped": "fidelity",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  },
  "stl-Od": {
   "bytes": {
@@ -642,10 +642,10 @@
    "identical": 125,
    "mean": 0.4471
   },
-  "detail": "fidelity.log:\nTraceback (most recent call last):\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1318, in <module>\n    main()\n    ~~~~^^\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1161, in main\n    pf = scan(port, ref, md64, [(pva, pva + psize)], a, True)\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 491, in scan\n    if (t in arity and t not in takes_ecx) or tail_in or to_import:\n        ^^^^^^^^^^\nTypeError: argument of type 'NoneType' is not a container or iterable",
+  "detail": "fidelity.log:\nTraceback (most recent call last):\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1355, in <module>\n    main()\n    ~~~~^^\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1192, in main\n    pf = scan(port, ref, md64, [(pva, pva + psize)], a, True)\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 494, in scan\n    if (t in arity and t not in takes_ecx) or tail_in or to_import:\n        ^^^^^^^^^^\nTypeError: argument of type 'NoneType' is not a container or iterable",
   "status": "FAIL",
   "stopped": "fidelity",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  },
  "stlio-O2": {
   "bytes": {
@@ -655,10 +655,10 @@
    "identical": 113,
    "mean": 0.4321
   },
-  "detail": "fidelity.log:\nTraceback (most recent call last):\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1318, in <module>\n    main()\n    ~~~~^^\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1161, in main\n    pf = scan(port, ref, md64, [(pva, pva + psize)], a, True)\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 491, in scan\n    if (t in arity and t not in takes_ecx) or tail_in or to_import:\n        ^^^^^^^^^^\nTypeError: argument of type 'NoneType' is not a container or iterable",
+  "detail": "fidelity.log:\nTraceback (most recent call last):\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1355, in <module>\n    main()\n    ~~~~^^\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1192, in main\n    pf = scan(port, ref, md64, [(pva, pva + psize)], a, True)\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 494, in scan\n    if (t in arity and t not in takes_ecx) or tail_in or to_import:\n        ^^^^^^^^^^\nTypeError: argument of type 'NoneType' is not a container or iterable",
   "status": "FAIL",
   "stopped": "fidelity",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  },
  "stlio-Od": {
   "bytes": {
@@ -668,10 +668,10 @@
    "identical": 87,
    "mean": 0.4242
   },
-  "detail": "fidelity.log:\nTraceback (most recent call last):\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1318, in <module>\n    main()\n    ~~~~^^\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1161, in main\n    pf = scan(port, ref, md64, [(pva, pva + psize)], a, True)\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 490, in scan\n    tail_in = mn == \"jmp\" and t not in arity and at + 1 == len(insns) and own not in takes_ecx\n                              ^^^^^^^^^^^^^^\nTypeError: argument of type 'NoneType' is not a container or iterable",
+  "detail": "fidelity.log:\nTraceback (most recent call last):\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1355, in <module>\n    main()\n    ~~~~^^\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 1192, in main\n    pf = scan(port, ref, md64, [(pva, pva + psize)], a, True)\n  File \"D:\\a\\Rhipper\\Rhipper\\fidelity32.py\", line 493, in scan\n    tail_in = mn == \"jmp\" and t not in arity and at + 1 == len(insns) and own not in takes_ecx\n                              ^^^^^^^^^^^^^^\nTypeError: argument of type 'NoneType' is not a container or iterable",
   "status": "FAIL",
   "stopped": "fidelity",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  },
  "sys-O2": {
   "accuracy": {
@@ -700,7 +700,7 @@
    "translated": 68
   },
   "status": "PASS",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  },
  "sys-Od": {
   "accuracy": {
@@ -729,7 +729,7 @@
    "translated": 73
   },
   "status": "PASS",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  },
  "win-O2": {
   "accuracy": {
@@ -758,7 +758,7 @@
    "translated": 62
   },
   "status": "PASS",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  },
  "win-Od": {
   "accuracy": {
@@ -787,6 +787,6 @@
    "translated": 67
   },
   "status": "PASS",
-  "when": "2026-10-30 09:43"
+  "when": "2026-10-30 09:49"
  }
 }

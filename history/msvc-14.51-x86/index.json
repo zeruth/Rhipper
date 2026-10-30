@@ -1822,5 +1822,17 @@
   "stubs": 0,
   "perfect": 1928,
   "translated": 1930
+ },
+ {
+  "sha": "5c53dfb43aa474d8667f05af4b0f23a54852c5c3",
+  "date": "2026-10-30T04:43:29-04:00",
+  "subject": "fix(fidelity32): imports by ordinal named, thunk tables, 2^32 and dead float loads",
+  "run": "2026-10-30 09:49 UTC",
+  "file": "5c53dfb43aa474d8667f05af4b0f23a54852c5c3.json",
+  "passing": 19,
+  "projects": 36,
+  "stubs": 0,
+  "perfect": 1928,
+  "translated": 1930
  }
 ]
