@@ -1738,5 +1738,17 @@
   "stubs": 8,
   "perfect": 9621,
   "translated": 9645
+ },
+ {
+  "sha": "4b07a91dc033e58575117d8911905c988e43cb0a",
+  "date": "2026-10-30T00:54:04-04:00",
+  "subject": "fix(ApplyFacts, sleigh, translate32): the static CRT's x87 math exits",
+  "run": "2026-10-30 05:59 UTC",
+  "file": "4b07a91dc033e58575117d8911905c988e43cb0a.json",
+  "passing": 36,
+  "projects": 36,
+  "stubs": 4,
+  "perfect": 9638,
+  "translated": 9645
  }
 ]
