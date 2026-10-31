@@ -1870,5 +1870,17 @@
   "stubs": 55,
   "perfect": 9667,
   "translated": 9669
+ },
+ {
+  "sha": "e45d5fde90d8664206caaa9a51a5e1906eb37165",
+  "date": "2026-10-30T23:25:01-04:00",
+  "subject": "protos32, translate32, vec32, fidelity32, ApplyFacts: CrystalCore to 87,287 at 1.0, 0 stubs",
+  "run": "2026-10-31 04:30 UTC",
+  "file": "e45d5fde90d8664206caaa9a51a5e1906eb37165.json",
+  "passing": 24,
+  "projects": 36,
+  "stubs": 51,
+  "perfect": 9676,
+  "translated": 9677
  }
 ]
