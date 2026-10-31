@@ -2038,8 +2038,13 @@ def main() -> None:
         # own, GEN_SETJMP / GEN_LONGJMP (translate32's jump_calls, by the same names), and its body,
         # x86 that saves and restores the callee-saved registers and esp, never runs. VS2010's /MT
         # __setjmp3, a stub of its unaff_EBX, 2026-10-30)
-        if re.fullmatch(r"(?:FID_conflict:)?_*(?:setjmp3|setjmp|longjmp|longjmp_internal)", e["name"]):
-            row.update(kind="folded", score=1.0, why="the port's own at every call (GEN_SETJMP / GEN_LONGJMP)")
+        # (and its frame helpers, `call __SEH_prolog4` and kin: x86 that builds or tears down the
+        # caller's own frame and moves its return address, which the port's frames do of themselves,
+        # every call to one the translator's frame code; the port calls none, 2026-10-30)
+        if re.fullmatch(r"(?:FID_conflict:)?_*(?:setjmp3|setjmp|longjmp|longjmp_internal|"
+                        r"(?:EH_prolog3|EH_epilog3|SEH_prolog4|SEH_epilog4)(?:_GS|_catch|_catch_GS)?|"
+                        r"alloca_probe(?:_8|_16)?|chkstk)", e["name"]):
+            row.update(kind="folded", score=1.0, why="the port's own at every call (its frames, GEN_SETJMP / GEN_LONGJMP)")
             rows.append(row)
             continue
         if a in stubbed or a not in f_of_ref:

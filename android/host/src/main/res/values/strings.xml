@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="rhipper_logs_title">Logs</string>
+    <string name="rhipper_logs_empty">No logs yet in %1$s</string>
+    <string name="rhipper_logs_binary">%1$s is binary (%2$s). Share it to read it elsewhere.</string>
+    <string name="rhipper_share">Share</string>
+    <string name="rhipper_close">Close</string>
+
+    <string name="rhipper_back_again">Press back again to close the game</string>
+    <string name="rhipper_closing">Closing the game…</string>
+    <string name="rhipper_force_close_title">The game has not closed</string>
+    <string name="rhipper_force_close_message">It was asked to close but is still running. Force it to close? Anything unsaved is lost.</string>
+    <string name="rhipper_force_close">Force close</string>
+    <string name="rhipper_wait">Wait</string>
+
+    <string name="rhipper_exit_title">The game has exited</string>
+    <string name="rhipper_exit_message">Exit code %1$d (0x%2$08X). A small negative code means the runtime could not map the reference.\n\nThe runtime\'s logs are in:\n%3$s\n\nlogcat: adb logcat -s rhipper</string>
+    <string name="rhipper_start_failed_title">The game could not start</string>
+    <string name="rhipper_ok">OK</string>
+</resources>

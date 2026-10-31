@@ -1435,6 +1435,14 @@ def analyse(root: int, ranges):
     # extraout_ST0 was a stub, rhtest msvc-14.51-x86 float-IA32)
     if x87_ret_dead:
         x87_ret_dead = x87_depth_at_rets(insns, nxt, state, root) == {0}
+    # (and the depth along every way, calls and all: nothing of its own on the stack at any ret,
+    # whatever a way returns straight from a call (main's give, against an x87 type only handed
+    # down). __87except's `fld [esi + 0x10]; fstp [ebp - 0x50]` and calls after: by the back-walk,
+    # stopped at the calls, not dead, and a double by the caller whose shared tail returns its own
+    # load, 0xc5ef30; its callers' fVar = extraout_ST0 a stub, 2026-10-30)
+    # (a call at depth 0: what a callee returns is give's passes check, not this one's; marked, the
+    # ways from a call and the others met at a join as unknown)
+    x87_none_own = used and x87_depth_at_rets(insns, nxt, state, root) == {0}
     # (and an x87 result of its own: every ret reached with one value on the stack, the last x87
     # instruction before each a load from memory of one width, `call f; fstp [m]; fld [m]; ret`,
     # a float rounded and returned. Typed only through the callee it seemed to pass on, the
@@ -1933,6 +1941,7 @@ def analyse(root: int, ranges):
     # Every call counts: the CRT's folded `return true` takes `push 0` from one caller and nothing
     # from two, and given the one, the others' stacks went one slot off)
     passed: dict[int, int] = {}
+    passed_fwd: dict[int, int] = {}
     for a in state:
         ins = insns[a]
         t = _target(ins)
@@ -1944,14 +1953,16 @@ def analyse(root: int, ranges):
                 and after.operands[0].type == X.X86_OP_REG and after.operands[0].reg == X.X86_REG_ESP \
                 and after.operands[1].type == X.X86_OP_IMM:
             k = min(after.operands[1].imm, k)
-        # (and, with no cleanup of its own after it, less the words the calls after it take of
-        # them, next_call_deficit: `push 0; push 1; push 0; call 0xae0fa0; push eax; push 2; call
-        # 0x431250` (ret 0x14), the three 0x431250's. Taken for 0xae0fa0's, a forwarder through
-        # `jmp [vt + 0x24]` with no ret of its own, it took three words, and 0x770580 read
-        # unaff_BL, 2026-10-30)
-        else:
-            k = max(0, k - next_call_deficit(insns, prv, nxt, a))
         passed[t] = min(passed.get(t, k), k)
+        # (and, for a forwarder's stack, with no cleanup of its own after the call, less the words
+        # the calls after it take of them, next_call_deficit: `push 0; push 1; push 0; call 0xae0fa0;
+        # push eax; push 2; call 0x431250` (ret 0x14), the three 0x431250's. Taken for 0xae0fa0's, a
+        # forwarder through `jmp [vt + 0x24]` with no ret of its own, it took three words, and
+        # 0x770580 read unaff_BL, 2026-10-30. Not every callee's: a __cdecl one's arguments its
+        # cleanup folded into a later call's, the allocator's free 0x429760 sized one word of three,
+        # its callers' size and tag lost, 93 functions, 2026-10-30)
+        kf = k if after is not None and after.mnemonic == "add" else max(0, k - next_call_deficit(insns, prv, nxt, a))
+        passed_fwd[t] = min(passed_fwd.get(t, kf), kf)
     for a in state:
         ins = insns[a]
         if ins.mnemonic != "jmp" or _target(ins) is not None or not ins.operands:
@@ -2037,7 +2048,7 @@ def analyse(root: int, ranges):
         if off >= 4 and off not in slots and off not in lea_offs and acc \
                 and all(w == 1 and not wr and b == 0 for w, wr, b in acc):
             slots[off] = "b"
-    return {"reg_handoff": reg_handoff(insns, prv, state), "fpu_clear": fpu_clear, "x87_data": x87_data, "x87_own_ret": x87_own_ret, "own_i8": own_i8, "own_sse": own_sse, "local_block": block, "passed": passed, "tail_jumps": tail_jumps, "eh_imms": eh_imms,
+    return {"reg_handoff": reg_handoff(insns, prv, state), "fpu_clear": fpu_clear, "x87_data": x87_data, "x87_own_ret": x87_own_ret, "own_i8": own_i8, "own_sse": own_sse, "local_block": block, "passed": passed, "passed_fwd": passed_fwd, "tail_jumps": tail_jumps, "eh_imms": eh_imms,
             "frame": -floor[0] if floor[0] is not None and floor[0] < 0 else None,"inputs": inputs, "in_width": in_width, "stack_hi": stack_hi, "slots": slots,
             "addr_taken": addr_taken, "calls": calls, "variadic": variadic, "call_pushes": call_pushes, "pushes_past": pushes_past,
             "untyped_pushed": untyped_pushed,
@@ -2053,7 +2064,7 @@ def analyse(root: int, ranges):
             "icall_rets": {t[1]: k for t, k in results.items() if isinstance(t, tuple) and k in ("f4", "d8", "i8")},
             "passes": passes, "passes_via": passes_via, "st_over": st_over, "writes_ret": writes_ret, "vol_writes": vol_writes, "opaque": opaque,
             "xmm0_open": xmm0_open,
-            "sets_eax": sets_eax, "x87_ret_live": x87_ret_live, "x87_ret_dead": x87_ret_dead, "narrow_ret": sets_eax if sets_eax in (1, 2) and rets and rets_set == rets else 0,
+            "sets_eax": sets_eax, "x87_ret_live": x87_ret_live, "x87_ret_dead": x87_ret_dead, "x87_none_own": x87_none_own, "narrow_ret": sets_eax if sets_eax in (1, 2) and rets and rets_set == rets else 0,
             "eax_unset": root in state and eax_reaches_ret(insns, state, nxt, root, limit=256),
             # (direct callees with a call site here that leaves st0 untouched up to the next call:
             # theirs is no x87 result, st0_dropped)
@@ -4556,7 +4567,9 @@ def main() -> None:
     if hp.exists():
         for k, n in json.loads(hp.read_text()).get("helpers", {}).items():
             if n in ("CIsqrt", "CIsin", "CIcos", "CIpow", "sqrt") and int(k, 16) in inputs:
-                inputs[int(k, 16)] &= ST0
+                # (pow its st1 too, the base under the exponent: masked to st0 alone, _CIpow and
+                # _CIpow_pentium4 read in_ST1, stubs, 2026-10-30)
+                inputs[int(k, 16)] &= ST0 | (ST1 if n == "CIpow" else 0)
                 math_helpers.add(int(k, 16))
     # (and the rest of that library, the same dispatch: each opens with the test of the flag the
     # identified ones test, `cmp dword ptr [__use_sse2_mathfcns], 0`, x87 path or SSE2. Exp, log,
@@ -4592,7 +4605,8 @@ def main() -> None:
                 # (st0 its argument, whether it reads it itself or hands it to the routine it
                 # dispatches to, `_CIexp`'s: masked to what it read, 0xc4d24c lost its st0 and read
                 # in_ST0, a stub; not the library's own `_cos(double)`, its argument on the stack)
-                inputs[f] = 0 if reads_stack(f) else ST0
+                # (and st1 where it reads one, the two-operand ones, fpatan's and fprem's, 2026-10-30)
+                inputs[f] = 0 if reads_stack(f) else ST0 | (inputs.get(f, 0) & ST1)
                 math_helpers.add(f)
     changed = True
     while changed:
@@ -4728,6 +4742,11 @@ def main() -> None:
             return False
         # (nor one a caller calls on to the next call with st0 untouched: no x87 result, st0_dropped)
         if k in ("f4", "d8") and t in x87_void:
+            return False
+        # (nor, handed down by a caller that returns it, one with nothing of its own on the stack at
+        # any ret and no x87 callee's result to pass on: __87except, 2026-10-30)
+        if k in ("f4", "d8") and src.startswith("returned by") and v.get("x87_none_own") \
+                and not any(family.get(ret_of.get(p)) == "x87" for p in v.get("passes", ()) if not isinstance(p, tuple)):
             return False
         # (no integer result inferred, none a caller reads, for one with a path to its ret that
         # never writes eax, which it does not take: what it leaves there is its caller's own. _free's
@@ -5047,6 +5066,13 @@ def main() -> None:
     for v in local.values():
         for t, k in v.get("passed", {}).items():
             passed_min[t] = min(passed_min.get(t, k), k)
+    # (a forwarder's, less what the calls after its calls take: analyse's passed_fwd)
+    passed_fwd_min: dict[int, int] = {}
+    for v in local.values():
+        for t, k in v.get("passed_fwd", v.get("passed", {})).items():
+            passed_fwd_min[t] = min(passed_fwd_min.get(t, k), k)
+    for t, k in passed_min.items():
+        passed_fwd_min.setdefault(t, k)
     # (the functions that leave the x87 stack as they found it, their callees too: st0 is the
     # caller's across a call to one, translate32's kept st0. The CRT's __load_CW, `fldcw [esp+4]`,
     # between a math tail's argument and its use: as a call that may load st0, `in_st0 =
@@ -5121,8 +5147,8 @@ def main() -> None:
         # (and one a direct call reaches, with no ret of its own: what every caller pushes, handed
         # on. A client's Exd module getter, `mov ecx, [ecx + 0x10]; jmp [vt + 8]`, took no words,
         # and the sheet name its caller pushed reached the sheet lookup as garbage, 2026-10-26)
-        elif local[f].get("tail_ijmps") and not ret_n and passed_min.get(f, 0) > stack:
-            stack = min(passed_min[f], 4 * FORWARD_WORDS)
+        elif local[f].get("tail_ijmps") and not ret_n and passed_fwd_min.get(f, 0) > stack:
+            stack = min(passed_fwd_min[f], 4 * FORWARD_WORDS)
         regs = [n for bit, n in REG_NAMES if reg & bit]
         # (the stack ones by what reads them: a double two slots, ApplyFacts' double)
         slot_kinds = local[f].get("slots", {})

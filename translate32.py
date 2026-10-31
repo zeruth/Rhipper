@@ -26,6 +26,7 @@ high); the reference's image is mapped at its own addresses; so every address fi
     python translate32.py --only 0x4045e0    one function (and stubs for the rest)
 
 Writes <gen>/translated_NNN.c, translated.h, stubs.c, jumps.c, imports.c, manifest.json.
+--port-longs DIR rewrites an existing gen directory's `long`s for an LP64 host (port_longs).
 """
 from __future__ import annotations
 
@@ -59,7 +60,8 @@ PER_FILE = 400
 
 # the type words Ghidra32.h defines (or C has)
 KNOWN_TYPES = {
-    "gen_v16", "gen_r16", "gen_v8","gen_v12", "gen_v24", "gen_v32", "gen_v48", "gen_v64", "gen_code32", "void", "char", "short", "int", "long", "float", "double", "bool", "wchar_t", "signed", "unsigned",
+    "gen_v16", "gen_r16", "gen_v8","gen_v12", "gen_v24", "gen_v32", "gen_v48", "gen_v64", "gen_code32", "gen_long",
+    "gen_ulong", "void", "char", "short", "int", "long", "float", "double", "bool", "wchar_t", "signed", "unsigned",
     "undefined", "undefined1", "undefined2", "undefined3", "undefined4", "undefined5", "undefined6",
     "undefined7", "undefined8", "byte", "uchar", "uint1", "sbyte", "int1", "ushort", "word", "wchar16", "uint2",
     "int2", "uint", "uint3", "uint4", "dword", "int3", "int4", "ulong", "longlong", "ulonglong", "qword",
@@ -130,6 +132,7 @@ HEADER_NAMES = {"REFG", "REFP", "GP", "PTR32", "MXCSR", "ExceptionList", "GenUni
                 "int8_t", "__ptr32", "__uptr", "_InterlockedExchange", "_InterlockedExchangeAdd",
                 "_InterlockedCompareExchange", "NAN", "INFINITY",
                 "__debugbreak", "_rotl", "_rotr", "_rotl64", "_rotr64", "fabs", "sqrt", "pow", "atan2", "fsin", "fcos",
+                "log2",
                 "builtin_strncpy", "builtin_memcpy", "builtin_memset",
                 "floor", "ceil", "trunc", "nearbyint", "memcpy", "memset", "rdtsc", "GEN_PIECE", "GEN_ISNAN",
                 "gen_piece_set", "gen_fl2bits", "gen_d2bits", "gen_bits2f", "gen_bits2d", "GEN_TOF", "GEN_TOD", "GEN_ARGF", "GEN_SLOT", "GEN_LOW",
@@ -172,6 +175,16 @@ OVERRIDE_RET = {
     for t, n in re.findall(r"(?m)^\s*(?:extern \"C\"\s+)?(unsigned int|unsigned long long|double|float) gen_imp_(\w+)\s*\(",
                            f.read_text(encoding="utf-8"))}
 OVERRIDES = set(project.CONFIG.get("import_overrides", [])) | set(OVERRIDE_RET)
+# (and functions the project writes itself, rhipper.json "own_functions" {address: why}: declared in
+# translated.h as the translation would, defined by the project's sources, no stub of their own.
+# The C runtime's x87 internals with several results in registers at once, which no prototype the
+# decompiler takes holds, 2026-10-30)
+# (each a reason, or {"why": .., "decl": "<its prototype>"} where the project's definition returns
+# what the facts give no type for: an x87 fragment ending in its dispatcher's exit, its st0 a result)
+OWN_DECL = {int(k, 16): v["decl"] for k, v in project.CONFIG.get("own_functions", {}).items()
+            if isinstance(v, dict) and v.get("decl")}
+OWN = {int(k, 16): (v.get("why", "") if isinstance(v, dict) else v)
+       for k, v in project.CONFIG.get("own_functions", {}).items()}
 IDENT = r"[A-Za-z_~][\w$@]*(?:::[A-Za-z_~][\w$@]*)*"
 # the C runtime's math imports, typed: their floats pass and return as floats (the integer adapter
 # returned fabs's double as the int in eax, rhtest float-Od dabs, 2026-10-24). Pointers are the
@@ -1176,14 +1189,66 @@ def next_is_return(v: str, lines: list[str], at: int) -> bool:
             if d < below:
                 return j
         return j
+    def block_end(j: int) -> int | None:
+        """the line of the `}` closing the block line j opens"""
+        d = 0
+        for k in range(j, len(lines)):
+            s2 = re.sub(r"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'", "", lines[k])
+            d += s2.count("{") - s2.count("}")
+            if d <= 0 and k > j:
+                return k
+        return None
+
     def walk(j: int) -> bool:
         while j < len(lines):
             if j in seen:
                 return True                              # (walked from here already)
             seen.add(j)
             s = lines[j].strip()
-            if re.match(r"(?:do|while|for)\b", s) or s.startswith("} while"):
+            # (a statement the decompiler wrapped, its lines read as one: `uVar6 = (**(code **)(..))\n
+            # (.., 0x68, 0x10);` a write, a client's 0x6a6e70, 2026-10-30)
+            k2 = j
+            while s and not re.search(r"[;{}:]$", s) and k2 + 1 < len(lines) and not s.startswith(("/*", "#")):
+                k2 += 1
+                s = s + " " + lines[k2].strip()
+            # (a loop by its ways: a do's body walked on into; at its `} while (c)`, a condition that
+            # reads nothing of v, both the exit and the way back to the body's top; a while's header
+            # so, into the body and past it. The way past an if reached a do's end, 0xea85d0's
+            # tree walk, and refused there the copy before it stayed a lost register, 2026-10-30)
+            vre_ = r"\b" + re.escape(v) + r"\b"
+            if re.fullmatch(r"do\s*\{", s):
+                j += 1
+                continue
+            if s.startswith("} while"):
+                if re.search(vre_, s):
+                    return False
+                d, o = 0, j
+                while o >= 0:
+                    s2 = re.sub(r"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'", "", lines[o])
+                    d += s2.count("}") - s2.count("{")
+                    if d <= 0 and o < j:
+                        break
+                    o -= 1
+                if o < 0 or not re.match(r"\s*do\s*\{", lines[o]):
+                    return False
+                return walk(o + 1) and walk(k2 + 1)
+            if re.match(r"while\s*\(", s) and s.endswith("{") and not re.search(vre_, s):
+                e = block_end(j)
+                if e is None or not walk(e + 1):
+                    return False
+                j += 1
+                continue
+            if re.match(r"(?:do|while|for)\b", s):
                 return False
+            # (an if's block with no else: the way past it too, the condition false. Walked into
+            # alone, a write inside it was taken for every way's, 2026-10-30)
+            if re.match(r"if\s*\(", s) and s.endswith("{"):
+                e = block_end(j)
+                if e is None:
+                    return False
+                if lines[e].strip() == "}" and not (e + 1 < len(lines) and lines[e + 1].strip().startswith("else")):
+                    if not walk(e + 1):
+                        return False
             g = re.search(r"\bgoto\s+([A-Za-z_]\w*)\s*;", s)
             if re.search(r"\b" + re.escape(v) + r"\b", s):
                 if re.fullmatch(r"return\s+(?:\(\w+\)\s*)?" + re.escape(v) + r"\s*;", s):
@@ -1203,7 +1268,7 @@ def next_is_return(v: str, lines: list[str], at: int) -> bool:
             if s == "}" and j + 1 < len(lines) and re.fullmatch(r"else\s*\{", lines[j + 1].strip()):
                 j = skip_out(j + 2, 0)
                 continue
-            j += 1
+            j = k2 + 1                                   # (past a wrapped statement's lines)
         return False
     return walk(at + 1)
 
@@ -1879,21 +1944,28 @@ def upper_only(c: str) -> set[str]:
     # what ecx was, its upper bytes a bool argument's, hkaSplineCompressedAnimation::vf4)
     upper = lambda v: (rf"(?:\(u?int3\)\(\s*(?:\(u?int\)\s*)?(?:gen_fl2bits\(\s*{re.escape(v)}\s*\)|{re.escape(v)})\s*>>\s*8\s*\)"
                        rf"|\b{re.escape(v)}\s*&\s*0xffffff00\b"
-                       # (or above any low word, `CONCAT22((short)((uint)V >> 0x10), in_FPUControlWord)`:
-                       # an x87 tail's `push edx; fnstcw [esp]`, the saved control word in edx's slot,
-                       # 0xc4ca78 and its kin, 2026-10-30)
-                       rf"|CONCAT22\(\(short\)\((?:\(uint\))?{re.escape(v)}\s*>>\s*0x10\),"
                        rf"|CONCAT22\(\(short\)\((?:\(uint\))?{re.escape(v)}\s*>>\s*0x10\),\s*\(ushort\)\(byte\){re.escape(v)}\)"
                        # (and with the flags set in, `CONCAT22((short)((uint)V >> 0x10), CONCAT11(f,
                        # (char)V))`, the status word's bits computed over the rest)
                        rf"|CONCAT22\(\(short\)\((?:\(uint\))?{re.escape(v)}\s*>>\s*0x10\),\s*CONCAT11\([^;]*?,\s*"
-                       rf"\(char\){re.escape(v)}\)\))")
+                       rf"\(char\){re.escape(v)}\)\)"
+                       # (or above any low word, `CONCAT22((short)((uint)V >> 0x10), in_FPUControlWord)`:
+                       # an x87 tail's `push edx; fnstcw [esp]`, the saved control word in edx's slot,
+                       # 0xc4ca78 and its kin, 2026-10-30. Last: before the two above it took their
+                       # head alone, their `(char)V` left a read, 0x545bb0 a stub again)
+                       rf"|CONCAT22\(\(short\)\((?:\(uint\))?{re.escape(v)}\s*>>\s*0x10\),)")
 
     def reads_upper_only(v):
         """every read of v in the function its upper bytes, one at least (its assignments aside)"""
         seen = False
         for l in lines:
             if not re.search(rf"\b{re.escape(v)}\b", l) or re.match(rf"^\s*[\w ]+?[\s*]+{re.escape(v)}\s*;\s*$", l):
+                continue
+            # (or returned whole, on a path that sets no result: what the callee left in eax, nothing
+            # a caller relies on there, returned_only's. `if (d < k) return extraout_EAX_00;` beside
+            # the status word's `CONCAT22((short)(extraout_EAX_00 >> 0x10), ..)`: a client's
+            # 0x545bb0, its early exit returning what _CIsqrt left, 2026-10-30)
+            if re.fullmatch(rf"\s*return\s+(?:\([\w ]+\**\))?{re.escape(v)}\s*;\s*", l):
                 continue
             # (its assignments anywhere on the line, a condition's comma expression's too, `(iVar2 =
             # 0, x != y)`: writes, no reads. A client's dynamically loaded calls, 0xb23680 and 15
@@ -1910,6 +1982,14 @@ def upper_only(c: str) -> set[str]:
         seen = False
         for l2 in lines[i + 1:]:
             if re.match(rf"^\s*{re.escape(v)}\s*=(?!=)", l2):
+                # (its own value read in the assignment that ends it, the status word built over it,
+                # `pfVar5 = (float *)CONCAT22((short)((uint)pfVar5 >> 0x10), CONCAT11(.., (char)pfVar5))`:
+                # those reads count, a client's 0x9b8500 after an inlined RandomRange, 2026-10-30)
+                rhs = re.sub(rf"^\s*{re.escape(v)}\s*=(?!=)", "", l2)
+                if re.search(rf"\b{re.escape(v)}\b", rhs):
+                    if re.search(rf"\b{re.escape(v)}\b", re.sub(upper(v), "", rhs)):
+                        return False
+                    seen = True
                 break
             if re.search(rf"\b{re.escape(v)}\b", l2):
                 reads = re.sub(upper(v), "", re.sub(rf"\b{re.escape(v)}\s*=(?!=)", "", l2))
@@ -2386,6 +2466,15 @@ def load_corpus() -> dict[int, dict]:
             # from the __CIsin fixup: a double's value here, no C type of its own)
             if "(unkbyte10)" in r["c"]:
                 r["c"] = r["c"].replace("(unkbyte10)", "")
+            # (a name the decompiler scoped from the global namespace, `::BTreeNode::Find(..)` in a
+            # caller whose own namespace has another BTreeNode: the name itself, by_printed's. As
+            # written no name C takes, 0xb54510 a stub, 2026-10-30)
+            # (only a call's, after a cast, a parenthesis or an assignment: in a template's arguments
+            # or a backquoted name the scope is the name's own, and stripped there 380 names no
+            # longer matched the data's, 2026-10-30)
+            if "::" in r["c"]:
+                r["c"] = re.sub(r"(?<=[()=])(\s*)::(?=[A-Za-z_~][\w$~]*(?:::[A-Za-z_~][\w$~]*)*\s*\()", r"\1",
+                                r["c"])
             # (FPREM's quotient, truncated through the 10-byte integer and back, `(float10)(unkint10)
             # (in_ST1 / in_st0)`: C's trunc, a double's value here. As a cast to bytes it was
             # vec_forms' vector, the C runtime's fmod loop 0xc4d3e4, 2026-10-30)
@@ -3466,6 +3555,7 @@ class Translator32:
         statement goes, V keeping its value (rhtest msvc-16.00-x86 float)."""
         if "extraout_ST0" not in c or not self.keeps_st0:
             return c
+        self.set_kept_ns(c)
         lines = c.split("\n")
         for i in range(1, len(lines)):
             m = re.fullmatch(r"\s*([A-Za-z_]\w*)\s*=\s*(extraout_ST0(?:_\d+)?)\s*;\s*", lines[i])
@@ -3478,7 +3568,7 @@ class Translator32:
             call = re.fullmatch(r"\s*(?:[\w.\->\[\]]+\s*=\s*)?(?:\([^()]*\))?\s*(" + IDENT + r")\s*\(.*\);\s*", prev)
             if not call:
                 continue
-            a2 = self.by_printed.get(call.group(1))
+            a2 = self.printed_addr(call.group(1))
             # (or one known by name to leave st0's value as it was: the CRT's __convertTOStoQNaN
             # makes a signalling NaN in st0 a quiet one, `fadd` of a NaN, which the port's SSE does
             # of itself; its name from Function ID or crtsigs.py)
@@ -3512,6 +3602,14 @@ class Translator32:
             return True
         return re.search(rf"(?<![\w.>])\b{re.escape(v)}\s*(?:[-+*/]?=)(?!=)", body) is not None
 
+    def set_kept_ns(self, c: str) -> None:
+        """The caller's namespaces, from its signature's name, innermost first: printed_addr's for
+        a call the decompiler printed relative to them (kept_st0, kept_inputs)."""
+        head = " ".join(c.split("{", 1)[0].split())
+        own = re.search(r"(" + IDENT + r")\s*\(", head)
+        parts = own.group(1).split("::")[:-1] if own else []
+        self.kept_ns = ["::".join(parts[:k]) + "::" for k in range(len(parts), 0, -1)]
+
     def kept_inputs(self, c: str) -> str:
         """`extraout_ECX` (or EDX) read in the statement right after a call to a function that
         leaves that register input as it found it (protos32's keeps_in): what the call was passed
@@ -3523,6 +3621,7 @@ class Translator32:
         # call before, a matrix row's accessor 0xd8fa10)
         # (never assigned in the function: one it assigns, `in_ecx_00 = in_ecx + 0x16;`, is a local
         # of its own, and taken for a kept register 9 functions were assignments to an address)
+        self.set_kept_ns(c)
         lower = set(re.findall(r"\bin_e[cd]x_\d+\b", c))
         if re.search(r"(?m)^\s+\w+\s+in_ecx;\s*$", c) and not re.search(r"\bin_ecx\b", c.split("{", 1)[0]):
             lower.add("in_ecx")
@@ -3563,6 +3662,13 @@ class Translator32:
         c = "\n".join(joined)
         lines = c.split("\n")
         orig = list(lines)                        # (as written: the scan back reads them so)
+        # (the body's alone: a signature the decompiler wrapped, `uint __thiscall\n
+        # hkClassMemberAccessor::hkClassMemberAccessor(void *this,undefined4 param_1,...)`, joined
+        # above, read as the call before the use, its `void *this` the value: `(uint)(void *this)`,
+        # 20 demotions once a client's functions were named, 2026-10-30)
+        body_at = next((i for i, l in enumerate(orig) if l.strip().startswith("{")), 0)
+        for i in range(body_at):
+            orig[i] = ""
         done = set()
         resolved: dict[str, str] = {}
         for n, reg in names:
@@ -3754,6 +3860,17 @@ class Translator32:
         when that suffix names one function alone (kept_call runs before names() knows the
         caller's namespaces)."""
         a = self.by_printed.get(name)
+        # (or a bare one in the global namespace, which the decompiler leaves off where the caller
+        # is in it too: `MatrixDeterminant3x3(param_2)` for Global::MatrixDeterminant3x3, named
+        # in the data, its kept ecx then lost, 0x4ef780 a stub on a client's startup, 2026-10-30)
+        if a is None and "::" not in name:
+            a = self.by_printed.get("Global::" + name)
+        # (or one in the caller's own namespace, by the scopes of the name its signature has,
+        # innermost first: `GetNumMembers(this)` in hkClass::GetMember, 0xd92800, 2026-10-30)
+        for ns in getattr(self, "kept_ns", ()) if a is None else ():
+            a = self.by_printed.get(ns + name)
+            if a is not None:
+                break
         if a is not None or "::" not in name:
             return a
         if not hasattr(self, "_by_suffix"):
@@ -5833,6 +5950,10 @@ class Translator32:
         # (a label's address is an address; the label itself, `LAB_x:` and `goto LAB_x`, stays)
         body = re.sub(r"&\s*(LAB_([0-9a-f]{8}))\b", lambda m: f"REFP(0x{m.group(2)})", body)
         body = re.sub(r"&\s*(_*(?:s|u|ws)_\w*?_([0-9a-f]{8}))\b", lambda m: f"REFP(0x{m.group(2)})", body)
+        # (and an EH table's, the decompiler's label for the data, `&FuncInfo_012f6f5c` a C++ frame
+        # handler thunk hands ___InternalCxxFrameHandler: its address. 0x1070093, 2026-10-30)
+        body = re.sub(r"&\s*((?:FuncInfo|UnwindMap|TryBlockMap|HandlerType|IPToStateMap|ThrowInfo|"
+                      r"CatchableType(?:Array)?|ScopeTable)_([0-9a-f]{8}))\b", lambda m: f"REFP(0x{m.group(2)})", body)
 
         # (a DAT_ with no data defined that the body only takes the address of is 1 byte to the
         # decompiler, so its `&DAT_x + k` counts bytes: __GET_RTERRMSG's `*(wchar_t **)(&DAT_01119cfc
@@ -6019,6 +6140,8 @@ class Translator32:
     # ---- the whole program ---------------------------------------------------------------------
     def translate_one(self, a: int) -> tuple[int, bool, str]:
         """(address, translated?, its C or why not)."""
+        if a in OWN:
+            return a, False, f"the project's own: {OWN[a]}"
         why = self.why_not(a)
         if why:
             return a, False, why
@@ -6272,7 +6395,7 @@ class Translator32:
         """layout: each function's file as the last run wrote it (--update), a new one in its
         predecessor's: only the files of the functions that changed are written again."""
         GEN.mkdir(parents=True, exist_ok=True)
-        decls = {a: self.stub_decl(a) for a in self.corpus}
+        decls = {a: OWN_DECL.get(a) or self.stub_decl(a) for a in self.corpus}
         # every function's prototype, translated or not
         h = ["/* generated by translate32.py: every reference function's prototype */",
              "#pragma once", '#include "Ghidra32.h"']
@@ -6352,6 +6475,8 @@ class Translator32:
         # stubs
         s = ['#include "translated.h"']
         for a in sorted(stubbed):
+            if a in OWN:
+                continue                                 # (the project's own definition)
             d = decls[a]
             ret = d.split(f"F_{a:08x}")[0].strip()
             # (a stub records its call in the shadow trace too: what the port could not do is a
@@ -6367,9 +6492,10 @@ class Translator32:
             r = "" if ret == "void" else (" return 0;" if "*" not in ret else " return 0;")
             if ret not in ("void",) and not any(x in ret for x in ("*",)) and ret.split()[-1] in FLOATS:
                 r = " return 0.0;"
-            # (a 16-byte vector one's, gen_r16: its lanes 0, as C converts no 0 to an __m128, 2026-10-30)
+            # (a 16-byte vector one's, gen_r16: its lanes 0, as C converts no 0 to an __m128, 2026-10-30;
+            # Ghidra32.h's GEN_R16_ZERO, the host's own vector off x86)
             if ret == "gen_r16":
-                r = " return _mm_setzero_ps();"
+                r = " return GEN_R16_ZERO;"
             s.append(f"{d} {{ {body}{r} }}")
         write(GEN / "stubs.c", "\n".join(s) + "\n")
         # the jumps the runtime writes at each reference entry
@@ -6429,6 +6555,7 @@ class Translator32:
               '   The runtime overrides the ones whose structures differ between x86 and x64. */',
               "#include <stdint.h>",
               "#include <stdarg.h>",
+              IMPORTS_LONGS,
               "#define GEN_REST(last) intptr_t r[10]; va_list ap; va_start(ap, last); \\",
               "    for (int k = 0; k < 10; k++) r[k] = va_arg(ap, int); va_end(ap)",
               "typedef intptr_t (*gen_real_fn)(intptr_t, intptr_t, intptr_t, intptr_t, intptr_t, intptr_t, intptr_t,",
@@ -6461,7 +6588,8 @@ class Translator32:
         write(MANIFEST, json.dumps({"translated": len(translated), "stubbed": len(stubbed),
                                     "suspect": {f"{a:08x}": n for a, n in sorted(suspect.items())},
                                     "reasons": dict(reasons.most_common()),
-                                    "stubs": {f"{a:08x}": v for a, v in sorted(stubbed.items())}}, indent=1))
+                                    "stubs": {f"{a:08x}": v for a, v in sorted(stubbed.items()) if a not in OWN},
+                                    "own": {f"{a:08x}": v for a, v in sorted(stubbed.items()) if a in OWN}}, indent=1))
         return files
 
 
@@ -6513,12 +6641,88 @@ def uninit_locals(text: str) -> list[str]:
     return out
 
 
+# ---- the reference's `long` ---------------------------------------------------------------------
+# 4 bytes on x86 (and on Win64, LLP64), 8 on an LP64 host (aarch64 Linux/Android): the generated
+# sources never spell C's `long` for it, but Ghidra32.h's gen_long and gen_ulong, long on Windows
+# and int on LP64. Ghidra's own types (strtol's `long`, `long lVar1;`), this translator's
+# (`(volatile long *)` for _InterlockedExchange) and MATH's import types alike, at the one place
+# every generated source passes, write(). `long long` and `long double` are left as they are, and
+# a string, character or comment (`"vector<T> too long"`) is no type, nor the definition of the two
+# names themselves (imports.c's, IMPORTS_LONGS)
+LONG_SCAN = re.compile(
+    r"(?P<skip>\"(?:\\.|[^\"\\\n])*\"|'(?:\\.|[^'\\\n])*'|/\*.*?\*/|//[^\n]*"
+    r"|\b(?:(?:un)?signed\s+)?long\s+(?:long|double)\b"
+    r"|\btypedef\s+(?:unsigned\s+)?long\s+gen_u?long\s*;)"
+    r"|(?P<u>\bunsigned\s+long(?:\s+int)?\b|\blong\s+unsigned(?:\s+int)?\b)"
+    r"|(?P<s>\b(?:signed\s+)?long(?:\s+signed)?(?:\s+int)?\b)", re.S)
+
+
+def port_longs(text: str) -> str:
+    """text, a generated C source, with each C `long` of the reference's 4 bytes spelled gen_long
+    (`long`, `long int`, `signed long`) or gen_ulong (`unsigned long`, `unsigned long int`, `long
+    unsigned`). Idempotent: callers may apply it to a gen directory written before it existed
+    (port_longs_dir) as well as to new text."""
+    def rep(m):
+        if m.group("skip") is not None:
+            return m.group(0)
+        return "gen_ulong" if m.group("u") is not None else "gen_long"
+    return LONG_SCAN.sub(rep, text)
+
+
+# (the sources port_longs applies to: Ghidra32.h defines gen_long by C's long, and is copied whole)
+def ported_source(path: Path) -> bool:
+    return path.suffix in (".c", ".h") and path.name != "Ghidra32.h"
+
+
+def port_longs_dir(gen: Path, check: bool = False) -> list[Path]:
+    """port_longs over a gen directory's sources in place (a copy of one written before it, for an
+    LP64 build without translating again), or with check only read: the files with a `long` left."""
+    changed = []
+    for p in sorted(gen.iterdir()):
+        if not p.is_file() or not ported_source(p):
+            continue
+        text = p.read_bytes().decode("utf-8")
+        new = port_longs(text)
+        if new != text:
+            changed.append(p)
+            if not check:
+                # (imports.c includes no Ghidra32.h: its own definitions, as emit writes them)
+                if p.name == "imports.c" and "gen_long;" not in new:
+                    new = new.replace("#include <stdarg.h>\n", "#include <stdarg.h>\n" + IMPORTS_LONGS + "\n", 1)
+                p.write_bytes(new.encode("utf-8"))
+    return changed
+
+
+# (imports.c's gen_long and gen_ulong, Ghidra32.h's: it includes none of the generated headers)
+IMPORTS_LONGS = ("#if defined(__LP64__) || defined(_LP64)\n"
+                 "typedef int gen_long; typedef unsigned int gen_ulong;\n"
+                 "#else\n"
+                 "typedef long gen_long; typedef unsigned long gen_ulong;\n"
+                 "#endif")
+
+
 def write(path: Path, text: str) -> None:
     text = text.replace("\r\n", "\n").replace("\r", "\n")
+    if ported_source(path):
+        text = port_longs(text)
     if path.exists() and path.read_bytes().decode("utf-8", errors="replace") == text:
         return
     # (as written: Windows newlines would double the corpus's own \r)
-    path.write_bytes(text.encode("utf-8"))
+    # (into a file beside it, then put in its place: another process with the file mapped while it
+    # reads it, the IDE's clangd indexing the generated sources, makes Windows refuse its truncation,
+    # EINVAL, and the whole translation was lost at its last step, 2026-10-30. A replace it allows,
+    # the reader's open sharing deletion; the reader keeps the old bytes it mapped)
+    data = text.encode("utf-8")
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_bytes(data)
+    for k in range(30):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if k == 29:
+                raise
+            time.sleep(1)
 
 
 # ---- the compile loop ---------------------------------------------------------------------------
@@ -6652,7 +6856,16 @@ def main() -> None:
                          "a fix in the translator shows as a round with none)")
     ap.add_argument("--update", nargs="*", help="these functions (hex, or @file of them) translated again into "
                     "the last run's files, only the changed files compiled")
+    ap.add_argument("--port-longs", metavar="DIR", help="port_longs over a gen directory's sources in place "
+                    "(one written before it, for an LP64 host), nothing translated")
+    ap.add_argument("--check-longs", metavar="DIR", help="the sources of a gen directory that spell C's long "
+                    "for the reference's (exit 1 if any)")
     args = ap.parse_args()
+    if args.port_longs or args.check_longs:
+        left = port_longs_dir(Path(args.port_longs or args.check_longs), check=bool(args.check_longs))
+        print(f"{'long left in' if args.check_longs else 'port_longs:'} {len(left)} files"
+              + "".join(f"\n  {p.name}" for p in left))
+        sys.exit(1 if args.check_longs and left else 0)
     t = Translator32()
     if args.update:
         addrs = set()

@@ -94,8 +94,8 @@ def stub_line(t, a: int) -> str:
     if ret != "void" and "*" not in ret and ret.split()[-1] in translate32.FLOATS:
         r = " return 0.0;"
     if ret == "gen_r16":
-        r = " return _mm_setzero_ps();"
-    return f"{d} {{ {body}{r} }}"
+        r = " return GEN_R16_ZERO;"
+    return translate32.port_longs(f"{d} {{ {body}{r} }}")
 
 
 def block_span(text: str, a: int) -> tuple[int, int] | None:
@@ -116,6 +116,8 @@ def splice(t, addrs: list[int]) -> list[Path]:
     touched: set[Path] = set()
     for a in addrs:
         _a, ok, text = t.translate_one(a)
+        # (its `long`s as emit's write spells them, so an unchanged function compares unchanged)
+        text = translate32.port_longs(text)
         name = f"F_{a:08x}("
         where = next((p for p in files if name in texts[p] and block_span(texts[p], a)), None)
         si = next((k for k, l in enumerate(stubs) if f" {name}" in l or l.startswith(name)), None)
@@ -159,7 +161,7 @@ def splice(t, addrs: list[int]) -> list[Path]:
             print(f"  {a:08x} STUB: {why[:100]}")
         # (its prototype, which a changed signature changes)
         hi = next((k for k, l in enumerate(header) if name in l and l.rstrip().endswith(";")), None)
-        decl = ((ok and translate32.definition_decl(text)) or t.stub_decl(a)) + ";"
+        decl = translate32.port_longs(((ok and translate32.definition_decl(text)) or t.stub_decl(a)) + ";")
         if hi is not None and header[hi] != decl:
             header[hi] = decl
     # (and jumps.c's wrapper of each, which calls it with its parameters: a prototype changed, the
@@ -185,12 +187,12 @@ def splice(t, addrs: list[int]) -> list[Path]:
         if ti is not None:
             target = f"W_{a:08x}" if w is not None else f"F_{a:08x}"
             jumps[ti] = f"  {{0x{a:x}u, (void *){target}}},"
-    jpath.write_text("\n".join(jumps), encoding="utf-8")
+    jpath.write_text(translate32.port_longs("\n".join(jumps)), encoding="utf-8")
     manifest["stubbed"] = len(manifest["stubs"])
     for p in touched:
-        p.write_text(texts[p], encoding="utf-8")
-    (GEN / "stubs.c").write_text("\n".join(stubs), encoding="utf-8")
-    (GEN / "translated.h").write_text("\n".join(header), encoding="utf-8")
+        p.write_text(translate32.port_longs(texts[p]), encoding="utf-8")
+    (GEN / "stubs.c").write_text(translate32.port_longs("\n".join(stubs)), encoding="utf-8")
+    (GEN / "translated.h").write_text(translate32.port_longs("\n".join(header)), encoding="utf-8")
     (GEN / "manifest.json").write_text(json.dumps(manifest, indent=1), encoding="utf-8")
     print(f"quickfix: {len(touched)} gen files changed, {manifest['stubbed']} stubs")
     return sorted(touched)
@@ -232,7 +234,7 @@ def all_jumps(t) -> None:
     out += ["const unsigned int g_genThiscall[] = {"]
     out += ["  " + ", ".join(f"0x{a:x}u" for a in this_at[i:i + 8]) + "," for i in range(0, len(this_at), 8)]
     out += ["  0u", "};", f"const unsigned int g_genThiscallCount = {len(this_at)};", ""]
-    jpath.write_text("\n".join(out), encoding="utf-8")
+    jpath.write_text(translate32.port_longs("\n".join(out)), encoding="utf-8")
     print(f"quickfix: jumps.c, {len(wrappers)} wrappers, {n} entries")
 
 

@@ -21,6 +21,25 @@
 #include <string.h>
 #include <stdbool.h>
 #include <stdarg.h>             /* (a variadic function's argument block, translate32.py) */
+/* The host. An x86 one under MSVC's dialect (the x64 port, clang's x86_64-pc-windows-msvc too, and
+   bytes32.py's x86 fidelity build): this header calls its intrinsics, each the reference's own
+   instruction. Any other (aarch64 Linux/Android under clang): each helper is C computing the x86
+   instruction's result, and Windows' spellings are C11's. Its clang flags: -std=gnu17 (C23's `()` is `(void)`, and `code` is unprototyped) -fms-extensions
+   (__ptr32) -fshort-wchar -fsigned-char -fno-strict-aliasing -fwrapv -ffp-contract=off
+   -fno-delete-null-pointer-checks -U_FORTIFY_SOURCE */
+#if defined(_M_IX86) || defined(_M_X64)
+#define GEN_HOST_X86 1
+#endif
+#ifdef _WIN32
+#define GEN_THREAD __declspec(thread)
+#define GEN_ALIGN16 __declspec(align(16))
+#elif defined(__cplusplus)
+#define GEN_THREAD thread_local
+#define GEN_ALIGN16 alignas(16)
+#else
+#define GEN_THREAD _Thread_local
+#define GEN_ALIGN16 _Alignas(16)
+#endif
 /* this header's helpers: inlined always in the x86 fidelity build, where each is the reference's
    own instruction or none (a 64-bit argument pushed for an address's truncation, GEN_TOP, was a
    call the reference never made); a hint in the port */
@@ -58,7 +77,17 @@ typedef unsigned int uint4;
 typedef unsigned int dword;
 typedef int int3;
 typedef int int4;
-typedef unsigned long ulong;            /* 4 bytes on Windows, as in the reference */
+/* the reference's `long`, 4 bytes on x86 as on Win64: C's own on Windows, int where the host's long
+   is 8 (LP64, aarch64 Linux/Android). translate32.py spells every long of the translation so
+   (port_longs), and Windows' LONG and DWORD are these */
+#if defined(__LP64__) || defined(_LP64)
+typedef int gen_long;
+typedef unsigned int gen_ulong;
+#else
+typedef long gen_long;
+typedef unsigned long gen_ulong;
+#endif
+typedef gen_ulong ulong;                /* 4 bytes, as in the reference */
 typedef long long longlong;
 typedef unsigned long long ulonglong;
 typedef unsigned long long qword;
@@ -186,7 +215,7 @@ typedef unsigned int __fastcall gen_tcode();
 #define GEN_FRAME_DECL_GS(n, pad, top) undefined1 gen_frame[(n) - (top) - 4]
 #define GEN_COOKIE(...) ((void)0)
 #else
-#define GEN_FRAME_DECL(n, pad) __declspec(align(16)) undefined1 gen_frame_[(pad) + (n)]; \
+#define GEN_FRAME_DECL(n, pad) GEN_ALIGN16 undefined1 gen_frame_[(pad) + (n)]; \
     undefined1 *const gen_frame = gen_frame_ + (pad)
 #define GEN_FRAME_DECL_TOP(n, pad, top) GEN_FRAME_DECL(n, pad)
 #define GEN_FRAME_DECL_GS(n, pad, top) GEN_FRAME_DECL(n, pad)
@@ -225,7 +254,7 @@ static GEN_INLINE unsigned long long gen_trace_d(double d) { union { double d; u
    writes in the translation (MSVC's default 0x27f; Direct3D's CreateDevice sets 24-bit
    precision, Com32.cpp). The port computes in SSE whatever it says: the code that reads it, the
    CRT's math choosing its paths by the precision, takes the reference's way */
-extern __declspec(thread) unsigned short gen_x87_cw;
+extern GEN_THREAD unsigned short gen_x87_cw;
 /* (`fldcw`'s write: the word, and its rounding control applied to the host's SSE rounding) */
 void gen_set_x87_cw(unsigned short cw);
 /* an x87 result under the control word's precision control, translate32's x87_precision: at 24
@@ -249,8 +278,22 @@ unsigned short gen_fpusw(int clear);
 /* `cdq; idiv r32`: a 32-bit signed division, as the reference's, faulting where it faults (a zero
    divisor, EXCEPTION_INT_DIVIDE_BY_ZERO; INT_MIN / -1, EXCEPTION_INT_OVERFLOW), the divisor read
    through a volatile so the host compiler neither folds nor reorders the instruction away */
+#ifdef GEN_HOST_X86
 static GEN_INLINE int gen_idiv32(int a, int b) { volatile int d = b; return a / d; }
 static GEN_INLINE int gen_irem32(int a, int b) { volatile int d = b; return a % d; }
+#else
+/* (aarch64's sdiv faults on neither, 0 for a zero divisor and INT_MIN for the overflow: the fault
+   raised as the reference's exception by the runtime, gen_int_fault, which returns only if a
+   handler continues; then 0, x86 having no result to give) */
+void gen_int_fault(unsigned int code);
+static GEN_INLINE int gen_idiv_ok(int a, int b) {
+    if (b == 0) { gen_int_fault(0xc0000094u); return 0; }                     /* INT_DIVIDE_BY_ZERO */
+    if (b == -1 && a == (int)0x80000000) { gen_int_fault(0xc0000095u); return 0; }   /* INT_OVERFLOW */
+    return 1;
+}
+static GEN_INLINE int gen_idiv32(int a, int b) { return gen_idiv_ok(a, b) ? a / b : 0; }
+static GEN_INLINE int gen_irem32(int a, int b) { return gen_idiv_ok(a, b) ? a % b : 0; }
+#endif
 /* an SSE register's 16 bytes, as Ghidra writes one (`undefined1 [16]`): an array, so a pointer
    to one steps 16 and indexes its bytes as the reference does. An array is not assignable: a
    value stored into one (`*p = (undefined1 [16])0x0`) is GEN_V16_SET's, zero-extended */
@@ -269,6 +312,8 @@ typedef unsigned char gen_v64[64];
    register first, then its source), each through the same instruction's intrinsic, so a result
    is the reference's to the bit (rsqrtps and rcpps are the hardware's approximations). Operands
    and results are 16 bytes anywhere: translate32.py passes their addresses, the result first */
+#include <math.h>
+#ifdef GEN_HOST_X86
 #include <emmintrin.h>
 static GEN_INLINE __m128 gen_ldps(const void *p) { return _mm_loadu_ps((const float *)p); }
 static GEN_INLINE __m128i gen_ldi(const void *p) { return _mm_loadu_si128((const __m128i *)p); }
@@ -281,6 +326,8 @@ static GEN_INLINE void gen_sti(void *p, __m128i v) { _mm_storeu_si128((__m128i *
 typedef __m128 gen_r16;
 #define GEN_R16(a) gen_ldps(a)
 #define GEN_R16_SET(lhs, v) gen_stps(&(lhs), (v))
+/* (a stub's: its lanes 0, as C converts no 0 to an __m128, 2026-10-30) */
+#define GEN_R16_ZERO _mm_setzero_ps()
 static GEN_INLINE void gen_minps(void *r, const void *a, const void *b) { gen_stps(r, _mm_min_ps(gen_ldps(a), gen_ldps(b))); }
 static GEN_INLINE void gen_maxps(void *r, const void *a, const void *b) { gen_stps(r, _mm_max_ps(gen_ldps(a), gen_ldps(b))); }
 static GEN_INLINE void gen_divps(void *r, const void *a, const void *b) { gen_stps(r, _mm_div_ps(gen_ldps(a), gen_ldps(b))); }
@@ -292,6 +339,107 @@ static GEN_INLINE void gen_psllw(void *r, const void *a, const void *n) { gen_st
 /* (SSE4.1: MSVC's /O2 vectorizes an integer multiply loop with it, behind __isa_available) */
 #include <smmintrin.h>
 static GEN_INLINE void gen_pmulld(void *r, const void *a, const void *b) { gen_sti(r, _mm_mullo_epi32(gen_ldi(a), gen_ldi(b))); }
+static GEN_INLINE void gen_v16_or(void *r, const void *a, const void *b) { gen_sti(r, _mm_or_si128(gen_ldi(a), gen_ldi(b))); }
+static GEN_INLINE void gen_v16_and(void *r, const void *a, const void *b) { gen_sti(r, _mm_and_si128(gen_ldi(a), gen_ldi(b))); }
+static GEN_INLINE void gen_v16_xor(void *r, const void *a, const void *b) { gen_sti(r, _mm_xor_si128(gen_ldi(a), gen_ldi(b))); }
+/* movmskps(dst, src): the sign bits of src's four floats */
+static GEN_INLINE int gen_movmskps(const void *s) { return _mm_movemask_ps(gen_ldps(s)); }
+#else
+/* (another host: each op in C over the 16 bytes, lane by lane as the instruction. A NaN is x86's:
+   an operand's that is one, the first, quieted; else the one an invalid operation makes, x86's
+   negative "indefinite" 0xffc00000, where aarch64 makes 0x7fc00000. MINPS and MAXPS by their
+   compare, the second operand for a NaN or two zeros, where aarch64's fmin and fmax differ) */
+typedef float gen_r16 __attribute__((vector_size(16)));        /* in v0, as __m128 in xmm0 */
+static GEN_INLINE gen_r16 gen_ldps(const void *p) { gen_r16 v; memcpy(&v, p, 16); return v; }
+static GEN_INLINE void gen_stps(void *p, gen_r16 v) { memcpy(p, &v, 16); }
+#define GEN_R16(a) gen_ldps(a)
+#define GEN_R16_SET(lhs, v) gen_stps(&(lhs), (v))
+#define GEN_R16_ZERO ((gen_r16){0.0f, 0.0f, 0.0f, 0.0f})
+static GEN_INLINE unsigned int gen_fbits_(float f) { unsigned int u; memcpy(&u, &f, 4); return u; }
+static GEN_INLINE float gen_bitsf_(unsigned int u) { float f; memcpy(&f, &u, 4); return f; }
+static GEN_INLINE int gen_fnan_(unsigned int u) { return (u & 0x7fffffffu) > 0x7f800000u; }
+#define GEN_SSE_INDEFINITE 0xffc00000u
+static GEN_INLINE float gen_divss_(float a, float b) {
+    unsigned int ua = gen_fbits_(a), ub = gen_fbits_(b);
+    float q;
+    if (gen_fnan_(ua)) return gen_bitsf_(ua | 0x400000u);
+    if (gen_fnan_(ub)) return gen_bitsf_(ub | 0x400000u);
+    q = a / b;
+    return q != q ? gen_bitsf_(GEN_SSE_INDEFINITE) : q;
+}
+static GEN_INLINE float gen_sqrtss_(float s) {
+    unsigned int u = gen_fbits_(s);
+    if (gen_fnan_(u)) return gen_bitsf_(u | 0x400000u);
+    return s < 0.0f ? gen_bitsf_(GEN_SSE_INDEFINITE) : sqrtf(s);
+}
+/* (rcpps and rsqrtps are the hardware's approximations, |relative error| <= 1.5 * 2^-12, Intel's
+   and AMD's tables apart: here the value itself rounded to a float, which matches neither in the
+   low 11 or so bits of the mantissa. Their edges are the SDM's: a denormal source is 0, so an
+   infinity of its sign; a result below a float's normal range is 0; a negative square root the
+   indefinite NaN) */
+static GEN_INLINE float gen_rcpss_(float s) {
+    unsigned int u = gen_fbits_(s), sign = u & 0x80000000u;
+    float q;
+    if (gen_fnan_(u)) return gen_bitsf_(u | 0x400000u);
+    if (!(u & 0x7f800000u)) return gen_bitsf_(sign | 0x7f800000u);
+    q = 1.0f / s;
+    return (gen_fbits_(q) & 0x7f800000u) ? q : gen_bitsf_(sign);
+}
+static GEN_INLINE float gen_rsqrtss_(float s) {
+    unsigned int u = gen_fbits_(s), sign = u & 0x80000000u;
+    if (gen_fnan_(u)) return gen_bitsf_(u | 0x400000u);
+    if (!(u & 0x7f800000u)) return gen_bitsf_(sign | 0x7f800000u);
+    if (sign) return gen_bitsf_(GEN_SSE_INDEFINITE);
+    return (float)(1.0 / sqrt((double)s));
+}
+#define GEN_PS2(name, expr) \
+    static GEN_INLINE void name(void *r, const void *a_, const void *b_) { \
+        float a[4], b[4]; memcpy(a, a_, 16); memcpy(b, b_, 16); \
+        for (int k = 0; k < 4; k++) a[k] = (expr); memcpy(r, a, 16); }
+#define GEN_PS1(name, expr) \
+    static GEN_INLINE void name(void *r, const void *d_, const void *s_) { \
+        float s[4]; (void)d_; memcpy(s, s_, 16); \
+        for (int k = 0; k < 4; k++) s[k] = (expr); memcpy(r, s, 16); }
+GEN_PS2(gen_minps, a[k] < b[k] ? a[k] : b[k])
+GEN_PS2(gen_maxps, a[k] > b[k] ? a[k] : b[k])
+GEN_PS2(gen_divps, gen_divss_(a[k], b[k]))
+GEN_PS1(gen_rsqrtps, gen_rsqrtss_(s[k]))
+GEN_PS1(gen_rcpps, gen_rcpss_(s[k]))
+GEN_PS1(gen_sqrtps, gen_sqrtss_(s[k]))
+/* (a's four dwords then b's, each saturated to a signed word) */
+static GEN_INLINE void gen_packssdw(void *r, const void *a, const void *b) {
+    int x[8]; short t[8];
+    memcpy(x, a, 16); memcpy(x + 4, b, 16);
+    for (int k = 0; k < 8; k++) t[k] = (short)(x[k] > 32767 ? 32767 : x[k] < -32768 ? -32768 : x[k]);
+    memcpy(r, t, 16);
+}
+/* (each word by the count's whole low qword, 0 past 15) */
+static GEN_INLINE void gen_psllw(void *r, const void *a, const void *n) {
+    unsigned short x[8]; unsigned long long c;
+    memcpy(x, a, 16); memcpy(&c, n, 8);
+    for (int k = 0; k < 8; k++) x[k] = c > 15 ? 0 : (unsigned short)(x[k] << c);
+    memcpy(r, x, 16);
+}
+static GEN_INLINE void gen_pmulld(void *r, const void *a, const void *b) {
+    unsigned int x[4], y[4];
+    memcpy(x, a, 16); memcpy(y, b, 16);
+    for (int k = 0; k < 4; k++) x[k] *= y[k];
+    memcpy(r, x, 16);
+}
+#define GEN_V16_BIN(name, op) \
+    static GEN_INLINE void name(void *r, const void *a, const void *b) { \
+        unsigned long long x[2], y[2]; memcpy(x, a, 16); memcpy(y, b, 16); \
+        x[0] = x[0] op y[0]; x[1] = x[1] op y[1]; memcpy(r, x, 16); }
+GEN_V16_BIN(gen_v16_or, |)
+GEN_V16_BIN(gen_v16_and, &)
+GEN_V16_BIN(gen_v16_xor, ^)
+/* movmskps(dst, src): the sign bits of src's four floats */
+static GEN_INLINE int gen_movmskps(const void *s) {
+    unsigned int x[4];
+    memcpy(x, s, 16);
+    return (int)(x[0] >> 31 | (x[1] >> 31) << 1 | (x[2] >> 31) << 2 | (x[3] >> 31) << 3);
+}
+#endif
 /* (AVX2's per-lane shift, the 128-bit form, behind __isa_available as /O2 vectorizes `w << (k & 7)`:
    in C, each lane by its own count, 0 past 31, so the port needs no AVX2 of its own) */
 static GEN_INLINE void gen_vpsllvd_avx2(void *r, const void *a, const void *n) {
@@ -311,11 +459,6 @@ static GEN_INLINE void gen_vcvttps2qq_avx512vl(void *r, const void *a) {
             ? (long long)0x8000000000000000ull : (long long)f[k];
     memcpy(r, q, 16);
 }
-static GEN_INLINE void gen_v16_or(void *r, const void *a, const void *b) { gen_sti(r, _mm_or_si128(gen_ldi(a), gen_ldi(b))); }
-static GEN_INLINE void gen_v16_and(void *r, const void *a, const void *b) { gen_sti(r, _mm_and_si128(gen_ldi(a), gen_ldi(b))); }
-static GEN_INLINE void gen_v16_xor(void *r, const void *a, const void *b) { gen_sti(r, _mm_xor_si128(gen_ldi(a), gen_ldi(b))); }
-/* movmskps(dst, src): the sign bits of src's four floats */
-static GEN_INLINE int gen_movmskps(const void *s) { return _mm_movemask_ps(gen_ldps(s)); }
 
 /* ---- vectors of any width, as vec32.py writes Ghidra's (the static C runtime's and C++ library's
    AVX2 and SSE4.2 string and search routines, behind __isa_available, rhtest stl /MT). A value is
@@ -560,8 +703,8 @@ typedef struct { unsigned char gen_cs[24]; } GEN_CRITICAL_SECTION32;
 typedef GEN_CRITICAL_SECTION32 * PTR32 LPCRITICAL_SECTION;
 typedef GEN_CRITICAL_SECTION32 * PTR32 PRTL_CRITICAL_SECTION;
 typedef unsigned short * PTR32 BSTR;
-typedef unsigned long * PTR32 LPDWORD;
-typedef long * PTR32 LPLONG;
+typedef gen_ulong * PTR32 LPDWORD;
+typedef gen_long * PTR32 LPLONG;
 typedef unsigned char * PTR32 LPBYTE;
 typedef int * PTR32 LPBOOL;
 typedef unsigned short * PTR32 LPWORD;
@@ -570,22 +713,22 @@ typedef int BOOL;
 typedef unsigned char BOOLEAN;
 typedef unsigned char BYTE;
 typedef unsigned short WORD;
-typedef unsigned long DWORD;
+typedef gen_ulong DWORD;               /* (gen_long and gen_ulong: 4 bytes on an LP64 host too) */
 typedef unsigned long long DWORD64;
 typedef unsigned long long DWORDLONG;
 typedef unsigned int UINT;
 typedef int INT;
-typedef long LONG;
-typedef unsigned long ULONG;
+typedef gen_long LONG;
+typedef gen_ulong ULONG;
 typedef short SHORT;
 typedef unsigned short USHORT;
 typedef char CHAR;
 typedef unsigned short WCHAR;
 typedef long long LONGLONG;
 typedef unsigned long long ULONGLONG;
-typedef long HRESULT;
-typedef long LSTATUS;
-typedef unsigned long LCID;
+typedef gen_long HRESULT;
+typedef gen_long LSTATUS;
+typedef gen_ulong LCID;
 typedef unsigned short ATOM;
 typedef unsigned int SIZE_T;            /* 32-bit, as stored */
 typedef unsigned int ULONG_PTR;
@@ -807,11 +950,29 @@ static GEN_INLINE unsigned long long gen_piece_set(void *p, int off, int n, unsi
     memcpy((char *)p + off, &v, n);
     return v;
 }
+#ifdef GEN_HOST_X86
 #include <intrin.h>
 #define rdtsc() __rdtsc()
+#define GEN_POPCNT64(x) __popcnt64(x)
+#else
+/* (another host's counter for the time stamp: aarch64's virtual count, at its own rate
+   (CNTFRQ_EL0, tens of MHz, where a TSC counts GHz), as rdtsc's increasing; the reference only
+   differences it, or calibrates it against QueryPerformanceCounter) */
+static GEN_INLINE unsigned long long gen_rdtsc(void) {
+#if defined(__aarch64__)
+    unsigned long long v;
+    __asm__ __volatile__("mrs %0, cntvct_el0" : "=r"(v));
+    return v;
+#else
+    return __builtin_readcyclecounter();
+#endif
+}
+#define rdtsc() gen_rdtsc()
+#define GEN_POPCNT64(x) __builtin_popcountll(x)
+#endif
 /* (of the value at its own size: `POPCOUNT((short)x)` counts 16 bits, not the sign extension's 64,
    rhtest misc-O2's __popcnt16 2026-10-24) */
-#define POPCOUNT(x) ((int)__popcnt64((uint64_t)(x) & (sizeof(x) >= 8 ? ~0ull : (1ull << (8 * sizeof(x))) - 1)))
+#define POPCOUNT(x) ((int)GEN_POPCNT64((uint64_t)(x) & (sizeof(x) >= 8 ? ~0ull : (1ull << (8 * sizeof(x))) - 1)))
 #define GEN_ISNAN(x) ((x) != (x))
 #define ABS(x) ((x) < 0 ? -(x) : (x))
 #include <math.h>
@@ -843,6 +1004,9 @@ static GEN_INLINE double gen_x87math(double x, int k) {
    (`fscale(st0, st1)`: st0 * 2^trunc(st1); `f2xm1(x)`: 2^x - 1) */
 #define fscale(a, b) ldexp((double)(a), (int)(double)(b))
 #define f2xm1(x) (exp2((double)(x)) - 1.0)
+/* (and its partial tangent, `fptan(st0)`: the tangent it leaves under the 1.0 it pushes, the C
+   runtime's tan 0xc4d5e8) */
+#define fptan(x) tan((double)(x))
 #define builtin_strncpy(d, s, n) ((void)strncpy((char *)(d), (const char *)(s), (n)))
 #define builtin_memcpy(d, s, n) ((void)memcpy((void *)(d), (const void *)(s), (n)))
 #define builtin_memset(d, c, n) ((void)memset((void *)(d), (c), (n)))
@@ -850,17 +1014,43 @@ static GEN_INLINE double gen_x87math(double x, int k) {
 /* Ghidra's `(code *)swi(n)`, called: the trap the instruction raises. `int3` (swi(3)) breaks
    into a debugger; `int 0x29` (swi(0x29)) is __fastfail, which ends the process (Ghidra drops the
    code in ecx: a generic one, 7). MSVC's /GS range checks end in one (Ghidra64.h's, 2026-10-23) */
-static unsigned int gen_swi_break(void) { __debugbreak(); return 0; }
 /* (said where first, by the runtime, Adapters.cpp: a fail-fast ends the process with no report of
    its own, rhtest stl's vector section 2026-10-29) */
 void gen_fastfail_report(void);
+#ifdef GEN_HOST_X86
+static unsigned int gen_swi_break(void) { __debugbreak(); return 0; }
 static unsigned int gen_swi_fastfail(void) { gen_fastfail_report(); __fastfail(7); return 0; }
 /* `hlt`, a privileged instruction in user mode: it faults as the reference's does (translate32.py
    hlt_loops) */
 static void gen_hlt(void) { __halt(); }
-#define swi(n) ((n) == 0x29 ? gen_swi_fastfail : gen_swi_break)
 /* `ud2`, which Ghidra spells `(code *)invalidInstructionException()` and calls */
 static unsigned int gen_ud2(void) { __ud2(); return 0; }
+#else
+/* (another host: a trap of its own, which the runtime's signal handler raises as the reference's
+   exception. int3 a breakpoint, SIGTRAP (`brk #0xf000`); ud2 and hlt SIGILL at an `udf` whose
+   immediate, the instruction word's low 16 bits, tells them apart: 0 ud2
+   (ILLEGAL_INSTRUCTION), 1 hlt (PRIV_INSTRUCTION). A fail-fast ends the process, as __fastfail,
+   after the runtime's report) */
+#if defined(__aarch64__)
+#define GEN_UDF(k) __asm__ __volatile__("udf #" #k)
+#else
+#define GEN_UDF(k) __builtin_trap()
+#endif
+static GEN_INLINE unsigned int gen_swi_break(void) { __builtin_debugtrap(); return 0; }
+static GEN_INLINE unsigned int gen_swi_fastfail(void) { gen_fastfail_report(); __builtin_trap(); return 0; }
+static GEN_INLINE void gen_hlt(void) { GEN_UDF(1); }
+static GEN_INLINE unsigned int gen_ud2(void) { GEN_UDF(0); return 0; }
+/* (and MSVC's intrinsics of these that the translation may call by name, translate32's
+   HEADER_NAMES) */
+#define __debugbreak() __builtin_debugtrap()
+static GEN_INLINE unsigned int gen_rotl32_(unsigned int x, int n) { n &= 31; return n ? x << n | x >> (32 - n) : x; }
+static GEN_INLINE unsigned long long gen_rotl64_(unsigned long long x, int n) { n &= 63; return n ? x << n | x >> (64 - n) : x; }
+#define _rotl(x, n) gen_rotl32_((unsigned int)(x), (int)(n))
+#define _rotr(x, n) gen_rotl32_((unsigned int)(x), -(int)(n))
+#define _rotl64(x, n) gen_rotl64_((unsigned long long)(x), (int)(n))
+#define _rotr64(x, n) gen_rotl64_((unsigned long long)(x), -(int)(n))
+#endif
+#define swi(n) ((n) == 0x29 ? gen_swi_fastfail : gen_swi_break)
 #define invalidInstructionException() gen_ud2
 
 /* Ghidra's `cpuid` pseudo-functions: the leaf's registers as Ghidra's x86 spec reads them back,
@@ -869,12 +1059,61 @@ static unsigned int gen_ud2(void) { __ud2(); return 0; }
    reported (leaf 7's bits and XCR0's opmask/ZMM state, GEN_XCR0): the CRT's AVX-512 paths are
    ones Ghidra decompiles lossily (__ultod3's `vmovd; vpinsrd; vcvtuqq2pd` as the low word alone,
    a stub), and on a machine that has it the port would run them where the others are exact */
+#ifdef GEN_HOST_X86
+#define GEN_CPUIDEX(r, leaf) __cpuidex((r), (leaf), 0)
+/* `xinuse(0)`: xgetbv with ecx = 1, the state components in use (in_XCR0, ecx = 0, is
+   translate32.py's _xgetbv(0)) */
+#define xinuse(x) (_xgetbv(1) & ~0xE0ull)
+/* XCR0 without AVX-512's state components (opmask, ZMM_Hi256, Hi16_ZMM), as gen_cpuid */
+#define GEN_XCR0() ((unsigned int)(_xgetbv(0) & ~0xE0ull))
+#else
+/* (another host has no x86 to ask: an Intel family 6 of the instructions the translation computes
+   exactly, SSE to SSE4.2 and POPCNT, so the CRT's __isa_available_init and the program's own
+   checks take paths the port has. -DGEN_CPU_AVX2 adds AVX, AVX2, BMI1/2 and LZCNT with XCR0's
+   AVX state, as a modern x64 host reports them to the x64 port: vec32.py's helpers compute those
+   paths too, so a run compares with the x64 port's path for path) */
+#ifdef GEN_CPU_AVX2
+#define GEN_CPU_XCR0 7u
+#define GEN_CPU_ECX1 0x1c982201u        /* SSE3 SSSE3 CX16 SSE4.1 SSE4.2 POPCNT XSAVE OSXSAVE AVX */
+#define GEN_CPU_EBX7 0x128u             /* BMI1 AVX2 BMI2 */
+#define GEN_CPU_LZCNT 0x20u
+#define GEN_CPU_MAXLEAF 0xd
+#else
+#define GEN_CPU_XCR0 3u
+#define GEN_CPU_ECX1 0x00982201u        /* SSE3 SSSE3 CX16 SSE4.1 SSE4.2 POPCNT */
+#define GEN_CPU_EBX7 0u
+#define GEN_CPU_LZCNT 0u
+#define GEN_CPU_MAXLEAF 7
+#endif
+/* (r as __cpuidex's: EAX, EBX, ECX, EDX) */
+static GEN_INLINE void gen_cpuid_x86_(int leaf, int r[4]) {
+    static const char brand[48] = "Rhipper x86 (portable host)";
+    r[0] = r[1] = r[2] = r[3] = 0;
+    switch ((unsigned int)leaf) {
+    case 0:                                          /* "GenuineIntel" */
+        r[0] = GEN_CPU_MAXLEAF; r[1] = 0x756e6547; r[3] = 0x49656e69; r[2] = 0x6c65746e; break;
+    case 1:                                          /* family 6 model 0x3c; CLFLUSH 64 bytes */
+        r[0] = 0x000306c3; r[1] = 0x00100800; r[2] = (int)GEN_CPU_ECX1;
+        r[3] = 0x078bfbff; break;                    /* FPU TSC CX8 CMOV CLFSH MMX FXSR SSE SSE2 */
+    case 7: r[1] = (int)GEN_CPU_EBX7; break;
+    case 0xd: if (GEN_CPU_XCR0 & 4) { r[0] = 7; r[1] = r[2] = 0x340; } break;
+    case 0x80000000u: r[0] = (int)0x80000004u; break;
+    case 0x80000001u: r[2] = (int)(1u | GEN_CPU_LZCNT); r[3] = 0x20100800; break;   /* LAHF; SYSCALL NX LM */
+    case 0x80000002u: case 0x80000003u: case 0x80000004u:
+        memcpy(r, brand + 16 * ((unsigned int)leaf - 0x80000002u), 16); break;
+    default: break;
+    }
+}
+#define GEN_CPUIDEX(r, leaf) gen_cpuid_x86_((leaf), (r))
+#define xinuse(x) ((unsigned long long)GEN_CPU_XCR0)
+#define GEN_XCR0() GEN_CPU_XCR0
+#endif
 static GEN_INLINE unsigned int *gen_cpuid(int leaf) {
-    static __declspec(thread) int regs[8][4];
-    static __declspec(thread) unsigned int next;
+    static GEN_THREAD int regs[8][4];
+    static GEN_THREAD unsigned int next;
     int *slot = regs[next++ & 7];
     int r[4];
-    __cpuidex(r, leaf, 0);
+    GEN_CPUIDEX(r, leaf);
     if (leaf == 7) {
         r[1] &= ~(int)0xDC230000u;     /* EBX: AVX512F, DQ, IFMA, PF, ER, CD, BW, VL */
         r[2] &= ~(int)0x00005842u;     /* ECX: VBMI, VBMI2, VNNI, BITALG, VPOPCNTDQ */
@@ -886,11 +1125,6 @@ static GEN_INLINE unsigned int *gen_cpuid(int leaf) {
     slot[3] = r[2];
     return (unsigned int *)slot;
 }
-/* `xinuse(0)`: xgetbv with ecx = 1, the state components in use (in_XCR0, ecx = 0, is
-   translate32.py's _xgetbv(0)) */
-#define xinuse(x) (_xgetbv(1) & ~0xE0ull)
-/* XCR0 without AVX-512's state components (opmask, ZMM_Hi256, Hi16_ZMM), as gen_cpuid */
-#define GEN_XCR0() ((unsigned int)(_xgetbv(0) & ~0xE0ull))
 #define cpuid(x) gen_cpuid((int)(x))
 #define cpuid_basic_info(x) gen_cpuid(0)
 #define cpuid_Version_info(x) gen_cpuid(1)
@@ -931,8 +1165,16 @@ unsigned int gen_teb32(void);
    frame the one a longjmp comes back to (translate32.py: GEN_SETJMP(buf) for gen_imp__setjmp3) */
 #include <setjmp.h>
 jmp_buf *gen_jmpbuf(unsigned int ref);
+#ifdef _WIN32
 #define GEN_SETJMP(b) setjmp(*gen_jmpbuf((unsigned int)(uintptr_t)(b)))
 #define GEN_LONGJMP(b, v) longjmp(*gen_jmpbuf((unsigned int)(uintptr_t)(b)), (int)(v))
+#else
+/* (POSIX's _setjmp: the reference's _setjmp3 keeps no signal mask, and setjmp's is a system call
+   each time. bionic's longjmp and _longjmp are one function, which reads from the buffer whether
+   it holds a mask; eh_landing's setjmp below keeps one) */
+#define GEN_SETJMP(b) _setjmp(*gen_jmpbuf((unsigned int)(uintptr_t)(b)))
+#define GEN_LONGJMP(b, v) _longjmp(*gen_jmpbuf((unsigned int)(uintptr_t)(b)), (int)(v))
+#endif
 
 /* The reference's exceptions (Adapters.cpp: _CxxThrowException, RaiseException): the runtime walks
    the fs:[0] chain the translated code links, as x86 Windows and vcruntime would, over the
@@ -955,10 +1197,38 @@ void gen_lock_enter(void);
 void gen_lock_leave(void);
 #define LOCK() gen_lock_enter()
 #define UNLOCK() gen_lock_leave()
+/* the interlocked intrinsics translate32.py writes for `xchg`, `lock xadd` and `lock cmpxchg`
+   (`_InterlockedExchange((volatile gen_long *)p, v)`): MSVC's on Windows; on another host the
+   compiler's atomics on the reference's 4 bytes, sequentially consistent as a locked x86
+   instruction is (where aarch64 faults on a misaligned one, which x86 does not) */
+#ifndef _WIN32
+static GEN_INLINE gen_long gen_ilk_xchg_(volatile void *p, gen_long v) {
+    return __atomic_exchange_n((volatile int *)p, (int)v, __ATOMIC_SEQ_CST);
+}
+static GEN_INLINE gen_long gen_ilk_add_(volatile void *p, gen_long v) {
+    return __atomic_fetch_add((volatile int *)p, (int)v, __ATOMIC_SEQ_CST);
+}
+static GEN_INLINE gen_long gen_ilk_cas_(volatile void *p, gen_long x, gen_long c) {
+    int e = (int)c;
+    __atomic_compare_exchange_n((volatile int *)p, &e, (int)x, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+    return e;
+}
+static GEN_INLINE gen_long gen_ilk_or_(volatile void *p, gen_long v) { return __atomic_fetch_or((volatile int *)p, (int)v, __ATOMIC_SEQ_CST); }
+static GEN_INLINE gen_long gen_ilk_and_(volatile void *p, gen_long v) { return __atomic_fetch_and((volatile int *)p, (int)v, __ATOMIC_SEQ_CST); }
+static GEN_INLINE gen_long gen_ilk_xor_(volatile void *p, gen_long v) { return __atomic_fetch_xor((volatile int *)p, (int)v, __ATOMIC_SEQ_CST); }
+#define _InterlockedExchange(p, v) gen_ilk_xchg_((p), (gen_long)(v))
+#define _InterlockedExchangeAdd(p, v) gen_ilk_add_((p), (gen_long)(v))
+#define _InterlockedCompareExchange(p, x, c) gen_ilk_cas_((p), (gen_long)(x), (gen_long)(c))
+#define _InterlockedIncrement(p) ((gen_long)((unsigned int)gen_ilk_add_((p), 1) + 1u))
+#define _InterlockedDecrement(p) ((gen_long)((unsigned int)gen_ilk_add_((p), -1) - 1u))
+#define _InterlockedOr(p, v) gen_ilk_or_((p), (gen_long)(v))
+#define _InterlockedAnd(p, v) gen_ilk_and_((p), (gen_long)(v))
+#define _InterlockedXor(p, v) gen_ilk_xor_((p), (gen_long)(v))
+#endif
 
 /* SSE's control register, which Ghidra writes as a variable (ldmxcsr / stmxcsr) */
 #define MXCSR gen_MXCSR
-extern __declspec(thread) unsigned int gen_MXCSR;
+extern GEN_THREAD unsigned int gen_MXCSR;
 /* enumerators Ghidra spells by name from its Windows type library */
 #define HeapCompatibilityInformation 0
 #define HeapEnableTerminationOnCorruption 1

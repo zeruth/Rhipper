@@ -1162,6 +1162,7 @@ public class ApplyFacts extends GhidraScript {
         return wideCdecl = "__cdecl_wide";
     }
 
+
     // A return its callers read (protos32.py "ret": al/ax/eax "i1"/"i2"/"i4", edx:eax "i8", st0 "f4"/"d8"):
     // Ghidra's type where it is one of that width and kind, else one that is. Ghidra had left
     // the allocator FUN_004067a0 void, and its callers' use of eax was lost
@@ -2882,13 +2883,11 @@ public class ApplyFacts extends GhidraScript {
             // override failed its decompilation, "Cannot assign parameter address", 2026-10-30)
             int argBytes = 0;
             for (JsonElement w : args) argBytes += Math.max(4, (w.getAsJsonArray().get(1).getAsInt() + 3) & ~3);
-            if (currentProgram.getDefaultPointerSize() == 4 && argBytes > 500 && (cc == null || "__cdecl".equals(cc))) {
-                try {
-                    cc = wideCdecl32();
-                    key.append("_wide");
-                } catch (Exception ex) {
-                    printerr("ApplyFacts: no wide __cdecl for " + at + ": " + ex);
-                }
+            boolean wide = currentProgram.getDefaultPointerSize() == 4 && argBytes > 500
+                    && (cc == null || "__cdecl".equals(cc));
+            if (wide) {
+                cc = wideCdecl32();
+                key.append("_wide");
             }
             // a direct call (to a variadic function, tools/protos.py) returns what its callee
             // does; an indirect one a register's worth
@@ -2927,7 +2926,13 @@ public class ApplyFacts extends GhidraScript {
             }
             FunctionDefinitionDataType sig = shapes.get(key.toString());
             if (sig == null) {
-                sig = new FunctionDefinitionDataType("icall_" + (key.length() == 0 ? "void" : key.toString()));
+                // (the wide one in the program's data types: a definition of none knows only the
+                // generic conventions, and `__cdecl_wide`, the program's spec extension, was an
+                // unknown name that ended the session, every call site after it the decompiler's
+                // own, `this` lost at a client's startup vtable calls, 2026-10-30)
+                String sigName = "icall_" + (key.length() == 0 ? "void" : key.toString());
+                sig = wide ? new FunctionDefinitionDataType(sigName, currentProgram.getDataTypeManager())
+                        : new FunctionDefinitionDataType(sigName);
                 List<ghidra.program.model.data.ParameterDefinition> defs = new ArrayList<>();
                 int i = 0;
                 for (JsonElement a : args) {
@@ -2937,7 +2942,14 @@ public class ApplyFacts extends GhidraScript {
                 }
                 sig.setArguments(defs.toArray(new ghidra.program.model.data.ParameterDefinition[0]));
                 sig.setReturnType(ret);
-                if (cc != null) sig.setCallingConvention(cc);
+                // (an error here one call site's, not the session's: every override after it was lost)
+                try {
+                    if (cc != null) sig.setCallingConvention(cc);
+                } catch (ghidra.util.exception.InvalidInputException ex) {
+                    printerr("ApplyFacts: calling convention " + cc + " at " + at + ": " + ex.getMessage());
+                    failed++;
+                    continue;
+                }
                 shapes.put(key.toString(), sig);
             }
             try {

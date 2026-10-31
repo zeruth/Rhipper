@@ -378,6 +378,13 @@ class Project:
             if "demoted" in line or ": ok" not in line and ".c:" in line:
                 print(f"    {line.strip()}")
         self.report_stubs()
+        # (and no source of the translation spells C's `long` for the reference's 4 bytes: an LP64
+        # host's is 8, translate32's port_longs; crt's `longs` check the one the program shows)
+        log = self.build / "check-longs.log"
+        if ok and run([sys.executable, str(RHIPPER / "translate32.py"), "--check-longs", str(self.root / "gen")],
+                      self.root, self.env, log) != 0:
+            print("    " + log.read_text(encoding="utf-8", errors="replace").strip().replace("\n", "\n    "))
+            ok = False
         return ok
 
     def report_stubs(self) -> None:

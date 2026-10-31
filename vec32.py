@@ -346,7 +346,9 @@ class Writer:
         k = n.k
         if k == "id" and w:
             return n.v
-        if k in ("unary", "index") and w:
+        # (not a complement, `~auVar44`: gen_vnot's, below. As written C complements no array,
+        # FUN_00d85b30 demoted, 2026-10-30)
+        if (k == "index" or k == "unary" and n.op != "~") and w:
             return f"({self.src(n)})"
         if k == "member" and w:
             a = int(re.fullmatch(r"_(\d+)_(\d+)_", n.name).group(1))

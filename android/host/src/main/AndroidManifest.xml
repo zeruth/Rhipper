@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Merged into the port's app. The game activity itself is declared by the app (a subclass of
+     RhipperActivity), so the app chooses its process, orientation and theme. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- rumble through the controller's own vibrators -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <uses-feature
+        android:name="android.hardware.gamepad"
+        android:required="false" />
+
+    <application>
+        <activity
+            android:name="dev.rhipper.host.RhipperLogsActivity"
+            android:exported="false"
+            android:label="@string/rhipper_logs_title" />
+
+        <!-- shares files from the runtime's log dir (in the app's own storage) with other apps -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.rhipper.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/rhipper_file_paths" />
+        </provider>
+    </application>
+</manifest>

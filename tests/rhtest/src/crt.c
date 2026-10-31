@@ -93,6 +93,18 @@ NOINLINE u32 convert(const char *s) {
     return (u32)v * 7 + (u32)u + (u32)(int)(d * 1000) + (u32)atoi("  -42z") + (u32)(end - s);
 }
 
+/* the CRT's `long`, the decompiler's type for strtoul's and strtol's results: 4 bytes on x86, and
+ * the translation's spelling of it (translate32 port_longs, gen_long) must keep them where the
+ * host's long is 8 (an LP64 port, aarch64): a sum that wraps at 2^32, halved after, and the
+ * sign extension of a negative one. An 8-byte long halves 0x100000002 to 0x80000001 */
+NOINLINE u64 longs(const char *s) {
+    char *end;
+    unsigned long u = strtoul(s, &end, 16);
+    long v = strtol(end, &end, 10);
+    unsigned long w = u + (unsigned long)(end - s);
+    return ((u64)(w / 2) << 32) + (u64)(i64)v;
+}
+
 /* qsort and bsearch, the comparator translated code the CRT calls */
 typedef struct {
     int key;
@@ -215,6 +227,8 @@ void rhtest_run(void) {
     check("scan", scan(text));
     sprintf(text, "0x%x %x %d.%d", s * 100, s * 7, i, i * 3);
     check("convert", convert(text));
+    sprintf(text, "%x %d", 0xfffffff0u + s, -i);   /* "fffffff7 -7": 11 characters */
+    check64("longs", longs(text));
     check("sort_items", sort_items(s));
     check("search", search(s));
     check("heap", heap(s));
