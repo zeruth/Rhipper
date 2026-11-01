@@ -239,6 +239,14 @@ bool Merge::mergeTestSpeculative(HighVariable *high_out,HighVariable *high_in)
   // Don't merge anything speculatively with addrtied
   if (high_out->isAddrTied()) return false;
   if (high_in->isAddrTied()) return false;
+  // RHIPPER: no speculative merge of floating-point values. MSVC's x87 code keeps a matrix's
+  // elements in stack slots and on the register stack at once (fld [m]; fstp [slot]), and their
+  // covers were taken as apart: MatrixMultiplyAffine2 0x4ef5a0 printed ten live floats as one
+  // fVar1, every bone matrix of a character flattened, a "puddle" at character select
+  // (2026-10-31). A speculative merge only shares a name, so refusing it never changes what the C
+  // computes
+  if (high_out->getType()->getMetatype() == TYPE_FLOAT) return false;
+  if (high_in->getType()->getMetatype() == TYPE_FLOAT) return false;
   return true;
 }
 

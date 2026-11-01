@@ -11,15 +11,20 @@
 // host's surface (rhipper_host_set_window). The game sizes its own window; the renderer scales to
 // the surface. Lifecycle events arrive as the messages Windows would send: WM_ACTIVATEAPP,
 // WM_ACTIVATE and focus on pause and resume, WM_CLOSE on quit.
+//
+// The host's keyboard, mouse and touch are input.cpp's: it posts their messages here (PostInput)
+// and answers the key state, the cursor and the layout tables these functions report.
 #include <strings.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <deque>
 #include <map>
 #include <unordered_map>
 #include <vector>
 
 #include "Runtime.h"
+#include "input.h"
 
 namespace rh {
 
@@ -30,7 +35,9 @@ namespace {
 constexpr uint32_t WM_CREATE = 1, WM_DESTROY = 2, WM_MOVE = 3, WM_SIZE = 5, WM_ACTIVATE = 6, WM_SETFOCUS = 7,
                    WM_KILLFOCUS = 8, WM_CLOSE = 0x10, WM_QUIT = 0x12, WM_ERASEBKGND = 0x14, WM_SHOWWINDOW = 0x18,
                    WM_ACTIVATEAPP = 0x1C, WM_COMPACTING = 0x41, WM_NCCREATE = 0x81, WM_NCDESTROY = 0x82,
-                   WM_NCACTIVATE = 0x86, WM_SYSCOMMAND = 0x112, WM_TIMER = 0x113;
+                   WM_NCACTIVATE = 0x86, WM_SYSCOMMAND = 0x112, WM_TIMER = 0x113, WM_KEYDOWN = 0x100,
+                   WM_CHAR = 0x102, WM_SYSKEYDOWN = 0x104, WM_SYSCHAR = 0x106, WM_MOUSEMOVE = 0x200,
+                   WM_LBUTTONDOWN = 0x201, WM_RBUTTONDOWN = 0x204, WM_MBUTTONDOWN = 0x207, WM_XBUTTONDOWN = 0x20B;
 
 #pragma pack(push, 4)
 struct Msg32 {
@@ -204,7 +211,10 @@ bool Next(uint32_t hwnd, uint32_t lo, uint32_t hi, bool remove, bool wait, Msg32
         for (auto it = q.posted.begin(); it != q.posted.end(); ++it) {
             if (!Matches(*it, hwnd, lo, hi)) continue;
             *out = *it;
-            if (remove) q.posted.erase(it);
+            if (remove) {
+                InputSyncMessage(it->message, it->wParam, it->lParam);   // (GetKeyState follows what is taken)
+                q.posted.erase(it);
+            }
             return true;
         }
         uint64_t now = NowMs(), soonest = UINT64_MAX;
@@ -341,6 +351,49 @@ uint32_t MainWindow() {
     return g_main;
 }
 
+// ---- the host's input (input.cpp) --------------------------------------------------------------------
+bool InputWindowOf(InputWindow* out) {
+    std::lock_guard<std::mutex> hold(WaitLock());
+    Window* w = WindowOf(g_focus);
+    if (!w || w->parent) w = WindowOf(g_main);
+    if (!w) return false;
+    *out = {w->hwnd, w->x, w->y, w->w, w->h, g_screenW, g_screenH};
+    return true;
+}
+
+bool PostInput(uint32_t msg, uint32_t wp, uint32_t lp, int32_t ptx, int32_t pty) {
+    std::lock_guard<std::mutex> hold(WaitLock());
+    Window* w = WindowOf(g_focus);
+    if (!w || w->parent) w = WindowOf(g_main);
+    if (!w) return false;
+    Msg32 m = Make(w->hwnd, msg, wp, lp);
+    m.x = ptx, m.y = pty;
+    Queue& q = g_queues[w->tid];
+    if (msg == WM_MOUSEMOVE && !q.posted.empty() && q.posted.back().message == WM_MOUSEMOVE &&
+        q.posted.back().hwnd == m.hwnd) {
+        q.posted.back() = m;
+        WaitNotify();
+        return true;
+    }
+    // a second press of the same button soon and near enough (GetDoubleClickTime 500 ms,
+    // SM_CXDOUBLECLK 4) is a double click for a class that asks for them (CS_DBLCLKS)
+    static uint32_t lastMsg = 0, lastHigh = 0, lastTime = 0;
+    static int32_t lastX = 0, lastY = 0;
+    if (msg == WM_LBUTTONDOWN || msg == WM_RBUTTONDOWN || msg == WM_MBUTTONDOWN || msg == WM_XBUTTONDOWN) {
+        const bool dbl = (g_classes[w->atom].style & 0x8) && msg == lastMsg && (wp >> 16) == lastHigh &&
+                         m.time - lastTime <= 500 && std::abs(ptx - lastX) <= 2 && std::abs(pty - lastY) <= 2;
+        if (dbl) {
+            m.message = msg + 2;   // WM_LBUTTONDBLCLK ... WM_XBUTTONDBLCLK
+            lastMsg = 0;           // (a third press starts over)
+        } else {
+            lastMsg = msg, lastHigh = wp >> 16, lastTime = m.time, lastX = ptx, lastY = pty;
+        }
+    }
+    q.posted.push_back(m);
+    WaitNotify();
+    return true;
+}
+
 // a message posted from any thread (ws2_32's WSAAsyncSelect, winmm)
 bool PostMessage32(uint32_t hwnd, uint32_t msg, uint32_t wp, uint32_t lp) {
     std::lock_guard<std::mutex> hold(WaitLock());
@@ -420,7 +473,22 @@ unsigned int gen_imp_PeekMessageA(uint32_t msg, uint32_t hwnd, uint32_t lo, uint
 unsigned int gen_imp_PeekMessageW(uint32_t msg, uint32_t hwnd, uint32_t lo, uint32_t hi, uint32_t flags) {
     return gen_imp_PeekMessageA(msg, hwnd, lo, hi, flags);
 }
-unsigned int gen_imp_TranslateMessage(uint32_t) { return 0; }   // (no keyboard from the host yet)
+// a key down's character, posted ahead of what waits (Windows posts it, and posted messages come
+// before the input still queued): the host's own for the key, else the US layout's (input.cpp)
+unsigned int gen_imp_TranslateMessage(uint32_t p) {
+    if (!p) return 0;
+    const Msg32 m = *At<Msg32>(p);
+    if (m.message != WM_KEYDOWN && m.message != WM_SYSKEYDOWN) return 0;
+    uint32_t c = InputCharFor(m.wParam & 0xFF, m.lParam);
+    if (!c) return 0;
+    std::lock_guard<std::mutex> hold(WaitLock());
+    Window* w = WindowOf(m.hwnd);
+    Msg32 ch = Make(m.hwnd, m.message == WM_KEYDOWN ? WM_CHAR : WM_SYSCHAR, c, m.lParam);
+    ch.x = m.x, ch.y = m.y;
+    g_queues[w ? w->tid : CurrentThreadId()].posted.push_front(ch);
+    WaitNotify();
+    return 1;
+}
 unsigned int gen_imp_TranslateAcceleratorA(uint32_t, uint32_t, uint32_t) { return 0; }
 unsigned int gen_imp_DispatchMessageA(uint32_t msg) {
     const Msg32 m = *At<Msg32>(msg);
@@ -450,10 +518,12 @@ unsigned int gen_imp_MessageBoxA(uint32_t, uintptr_t text, uintptr_t caption, ui
     return Answer(type);
 }
 
-// (the screen's centre: no mouse from the host yet)
+// the host's pointer on the screen (input.cpp: the window's centre until there is one)
 unsigned int gen_imp_GetCursorPos(uint32_t out) {
-    std::lock_guard<std::mutex> hold(WaitLock());
-    if (out) *At<int32_t>(out) = g_screenW / 2, *At<int32_t>(out + 4) = g_screenH / 2;
+    if (!out) return 0;
+    int32_t x, y;
+    CursorScreenPos(&x, &y);
+    *At<int32_t>(out) = x, *At<int32_t>(out + 4) = y;
     return 1;
 }
 
@@ -804,69 +874,68 @@ static uint32_t GetSystemMetrics_(uint32_t i) {
 }
 RH_REG(USER32, GetSystemMetrics, GetSystemMetrics_)
 
-// ---- the keyboard: none from the host yet; the tables the reference reads -------------------------
+// ---- the keyboard: the host's (input.cpp), as the reference has retrieved its messages; a US layout -
 static uint32_t GetKeyboardState_(uint32_t out) {
-    memset(At(out), 0, 256);
+    SyncKeyboardState(At<uint8_t>(out));
     return 1;
 }
 RH_REG(USER32, GetKeyboardState, GetKeyboardState_)
-namespace {
-// US layout scan codes for VK 0x30-0x5A, and the few named keys
-uint32_t ScanOf(uint32_t vk) {
-    static const uint8_t digits[10] = {0x0B, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A};
-    static const uint8_t letters[26] = {0x1E, 0x30, 0x2E, 0x20, 0x12, 0x21, 0x22, 0x23, 0x17, 0x24, 0x25, 0x26, 0x32,
-                                        0x31, 0x18, 0x19, 0x10, 0x13, 0x1F, 0x14, 0x16, 0x2F, 0x11, 0x2D, 0x15, 0x2C};
-    if (vk >= '0' && vk <= '9') return digits[vk - '0'];
-    if (vk >= 'A' && vk <= 'Z') return letters[vk - 'A'];
-    switch (vk) {
-        case 0x08: return 0x0E; case 0x09: return 0x0F; case 0x0D: return 0x1C; case 0x10: return 0x2A;
-        case 0x11: return 0x1D; case 0x12: return 0x38; case 0x1B: return 0x01; case 0x20: return 0x39;
-        default: return (vk >= 0x70 && vk <= 0x79) ? 0x3B + (vk - 0x70) : 0;
-    }
+// (a SHORT: the high bit down, the low bit toggled; sign-extended as the reference's movsx reads it)
+static uint32_t GetKeyState_(uint32_t vk) {
+    uint8_t s = SyncKeyState(vk & 0xFF);
+    int16_t r = static_cast<int16_t>(((s & 0x80) ? 0xFF80 : 0) | (s & 1));
+    return static_cast<uint32_t>(static_cast<int32_t>(r));
 }
-uint32_t VkOf(uint32_t scan) {
-    for (uint32_t vk = 1; vk < 0xFF; vk++)
-        if (ScanOf(vk) == scan) return vk;
-    return 0;
+RH_REG(USER32, GetKeyState, GetKeyState_)
+static uint32_t GetAsyncKeyState_(uint32_t vk) {
+    return static_cast<uint32_t>(static_cast<int32_t>(static_cast<int16_t>(AsyncKeyState(vk & 0xFF))));
 }
-}  // namespace
-// MapVirtualKeyA(code, MAPVK_VK_TO_VSC 0 / VSC_TO_VK 1 / VK_TO_CHAR 2 / VSC_TO_VK_EX 3)
+RH_REG(USER32, GetAsyncKeyState, GetAsyncKeyState_)
+// MapVirtualKeyA(code, MAPVK_VK_TO_VSC 0 / VSC_TO_VK 1 / VK_TO_CHAR 2 / VSC_TO_VK_EX 3 / VK_TO_VSC_EX 4)
 static uint32_t MapVirtualKeyA_(uint32_t code, uint32_t type) {
     switch (type) {
-        case 0: return ScanOf(code);
-        case 1: case 3: return VkOf(code);
-        case 2: return (code >= '0' && code <= '9') || (code >= 'A' && code <= 'Z') || code == ' ' ? code : 0;
+        case 0: return ScanOfVk(code & 0xFF);
+        case 1: return VkOfScan(code & 0xFF, false, false);
+        case 2: {
+            uint32_t c = UsCharOf(code & 0xFF, nullptr);
+            return c >= 'a' && c <= 'z' ? c - 32 : c;   // (letters in capitals, as Windows')
+        }
+        case 3: return VkOfScan(code & 0xFF, (code & 0xFF00) == 0xE000, true);
+        case 4: {
+            uint32_t vk = code & 0xFF, scan = ScanOfVk(vk);
+            bool ext = (vk >= 0x21 && vk <= 0x2E) || vk == 0x6F || vk == 0x90 || vk == 0xA3 || vk == 0xA5 ||
+                       (vk >= 0x5B && vk <= 0x5D);
+            return scan && ext ? 0xE000 | scan : scan;
+        }
         default: return 0;
     }
 }
 RH_REG(USER32, MapVirtualKeyA, MapVirtualKeyA_)
 static uint32_t GetKeyNameTextA_(uint32_t lp, uint32_t buf, uint32_t cap) {
-    uint32_t vk = VkOf((lp >> 16) & 0xFF);
-    char name[32];
-    if ((vk >= '0' && vk <= '9') || (vk >= 'A' && vk <= 'Z')) snprintf(name, sizeof name, "%c", static_cast<char>(vk));
-    else snprintf(name, sizeof name, "Key %u", (lp >> 16) & 0xFF);
     if (!cap) return 0;
+    char name[32];
+    KeyNameOf(lp, name, sizeof name);
     size_t n = std::min<size_t>(strlen(name), cap - 1);
     memcpy(At(buf), name, n);
     At<char>(buf)[n] = 0;
     return static_cast<uint32_t>(n);
 }
 RH_REG(USER32, GetKeyNameTextA, GetKeyNameTextA_)
-static uint32_t ToAscii_(uint32_t vk, uint32_t, uint32_t state, uint32_t out, uint32_t) {
-    bool shift = state && (At<uint8_t>(state)[0x10] & 0x80);
-    uint32_t c = 0;
-    if (vk >= 'A' && vk <= 'Z') c = shift ? vk : vk + 32;
-    else if ((vk >= '0' && vk <= '9') || vk == ' ' || vk == 0x0D || vk == 0x08) c = vk;
-    if (!c) return 0;
+// ToAscii(vk, scan, state, out WORD, flags): a key up (scan's 0x8000) types nothing
+static uint32_t ToAscii_(uint32_t vk, uint32_t scan, uint32_t state, uint32_t out, uint32_t) {
+    if (scan & 0x8000) return 0;
+    uint32_t c = UsCharOf(vk & 0xFF, state ? At<uint8_t>(state) : nullptr);
+    if (!c || c > 0x7F) return 0;
     *At<uint16_t>(out) = static_cast<uint16_t>(c);
     return 1;
 }
 RH_REG(USER32, ToAscii, ToAscii_)
 static uint32_t ToUnicode_(uint32_t vk, uint32_t scan, uint32_t state, uint32_t out, uint32_t cap, uint32_t) {
-    if (!cap) return 0;
-    uint16_t c = 0;
-    if (!ToAscii_(vk, scan, state, Low(&c), 0)) return 0;
-    *At<char16_t>(out) = c;
+    if (!cap || (scan & 0x8000)) return 0;
+    uint32_t c = UsCharOf(vk & 0xFF, state ? At<uint8_t>(state) : nullptr);
+    if (!c) return 0;
+    *At<char16_t>(out) = static_cast<char16_t>(c);
+    if (cap > 1) At<char16_t>(out)[1] = 0;
     return 1;
 }
 RH_REG(USER32, ToUnicode, ToUnicode_)
@@ -877,9 +946,14 @@ RH_REG(USER32, RegisterHotKey, RegisterHotKey_)
 static uint32_t UnregisterHotKey_(uint32_t, uint32_t) { return 1; }
 RH_REG(USER32, UnregisterHotKey, UnregisterHotKey_)
 
-// ---- the cursor: no mouse pointer on a phone; handles of their own, kept --------------------------
-static uint32_t SetCursorPos_(uint32_t, uint32_t) { return 1; }
+// ---- the cursor: the host's pointer (input.cpp); its images handles of their own, kept, not drawn --
+static uint32_t SetCursorPos_(uint32_t x, uint32_t y) {
+    SetCursorScreenPos(static_cast<int32_t>(x), static_cast<int32_t>(y));
+    return 1;
+}
 RH_REG(USER32, SetCursorPos, SetCursorPos_)
+static uint32_t ShowCursor_(uint32_t show) { return static_cast<uint32_t>(ShowCursorCount(show != 0)); }
+RH_REG(USER32, ShowCursor, ShowCursor_)
 static uint32_t g_cursor = 0;
 static uint32_t SetCursor_(uint32_t c) {
     uint32_t old = g_cursor;
@@ -887,7 +961,17 @@ static uint32_t SetCursor_(uint32_t c) {
     return old;
 }
 RH_REG(USER32, SetCursor, SetCursor_)
-static uint32_t ClipCursor_(uint32_t) { return 1; }
+// ClipCursor(rect on the screen, NULL: none): the cursor kept inside
+static uint32_t ClipCursor_(uint32_t rect) {
+    if (!rect) {
+        ClipCursorScreen(nullptr);
+        return 1;
+    }
+    int32_t r[4];
+    memcpy(r, At(rect), sizeof r);
+    ClipCursorScreen(r);
+    return 1;
+}
 RH_REG(USER32, ClipCursor, ClipCursor_)
 static uint32_t g_capture = 0;
 static uint32_t SetCapture_(uint32_t hwnd) {

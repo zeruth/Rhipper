@@ -8,6 +8,8 @@
 //
 // The vtable layouts are d3d9.h's (slot numbers in the tables below). A method's float argument
 // arrives as a double (Com32Posix.h); none here reads one.
+#include <time.h>
+
 #include <algorithm>
 #include <atomic>
 #include <map>
@@ -140,13 +142,27 @@ struct Resource : Refcounted {
         memcpy(At(out), d, kind == kIndexBuffer ? 20 : 24);
         return D3D_OK;
     }
-    // a query: its data ready at once, zeros (an occlusion query's 0 pixels, an event's done)
+    // a query: its data ready at once, what a GPU that did nothing would answer: an event done, an
+    // occlusion query's 0 pixels, timestamps of the monotonic clock in ns at a frequency of 1 GHz, never
+    // disjoint. (A frequency of 0 hangs callers: FFXIV's 0x4da7c0 spins on GetData until it is not 0.)
     uint32_t QueryGetType() { return type; }
-    uint32_t QueryGetDataSize() { return type == 9 /* OCCLUSION */ ? 4 : type == 8 /* EVENT */ ? 4 : 8; }
+    uint32_t QueryGetDataSize() {
+        return type == 8 /* EVENT */ || type == 9 /* OCCLUSION */ || type == 11 /* TIMESTAMPDISJOINT */ ? 4 : 8;
+    }
     uint32_t QueryGetData(uint32_t data, uint32_t n, uint32_t) {
         if (data && n) {
             memset(At(data), 0, n);
-            if (type == 8 && n >= 4) *At<uint32_t>(data) = 1;   // (an event: done)
+            uint64_t v = 0;
+            if (type == 8) {
+                v = 1;   // (an event: done)
+            } else if (type == 10 /* TIMESTAMP */) {
+                timespec t;
+                clock_gettime(CLOCK_MONOTONIC, &t);
+                v = static_cast<uint64_t>(t.tv_sec) * 1000000000ull + static_cast<uint64_t>(t.tv_nsec);
+            } else if (type == 12 /* TIMESTAMPFREQ */) {
+                v = 1000000000ull;
+            }
+            memcpy(At(data), &v, n < 8 ? n : 8);
         }
         return D3D_OK;
     }

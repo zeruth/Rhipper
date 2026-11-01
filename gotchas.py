@@ -82,6 +82,16 @@ RISKY = {
     "RegisterWaitForSingleObject": "a callback",
     "GetModuleInformation": "MODULEINFO holds pointers",
     "EnumProcessModules": "HMODULEs, 8 bytes each",
+    # (an out pointer or a structure holding one, 8 bytes on x64 over the reference's 4: IcmpSendEcho
+    # overran a 32-byte reply block into the next heap header, the c0000374 on entering, 2026-10-31)
+    "IcmpSendEcho": "ICMP_ECHO_REPLY holds a pointer and IP_OPTION_INFORMATION another: 28 bytes on x86, 40 on x64",
+    "IcmpSendEcho2": "ICMP_ECHO_REPLY", "IcmpParseReplies": "ICMP_ECHO_REPLY",
+    "RegCreateKeyExA": "PHKEY out: 8 bytes on x64", "RegCreateKeyExW": "PHKEY out",
+    "RegOpenKeyExA": "PHKEY out", "RegOpenKeyExW": "PHKEY out", "RegOpenKeyA": "PHKEY out",
+    "RegCreateKeyA": "PHKEY out",
+    "VerQueryValueA": "LPVOID* out: 8 bytes on x64", "VerQueryValueW": "LPVOID* out",
+    "FormatMessageA": "FORMAT_MESSAGE_ALLOCATE_BUFFER writes a pointer, 8 bytes", "FormatMessageW": "the same",
+    "SHGetSpecialFolderLocation": "PIDL* out: 8 bytes",
     "CoTaskMemAlloc": "returns memory that may sit above 4 GB",
     "SysAllocString": "returns memory that may sit above 4 GB",
 }

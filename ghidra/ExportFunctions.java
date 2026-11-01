@@ -43,6 +43,24 @@ public class ExportFunctions extends GhidraScript {
         // (an image without relocations cannot tell a pointer from bytes that look like one: there
         // every reference keeps the function)
         boolean relocated = relocs.getSize() > 0;
+        // (and wanted where a relocated word outside the code holds its address, a reference Ghidra
+        // draws nowhere from a table it never typed: an EH4 scope table's filter, `__except
+        // (_XcptFilter(..))` of __callthreadstartex at 0xc4d709, past its `call _endthreadex`.
+        // ApplyFacts made it from protos32's "pointed" and it was removed here every session, its
+        // host regrown over it: protos32 never typed it and it read its parent's ebp as unaff_EBP,
+        // a stub, 2026-10-31)
+        java.util.Set<Long> pointed = new java.util.HashSet<>();
+        ghidra.program.model.mem.Memory mem = currentProgram.getMemory();
+        for (java.util.Iterator<ghidra.program.model.reloc.Relocation> ri = relocs.getRelocations(); ri.hasNext(); ) {
+            ghidra.program.model.address.Address at = ri.next().getAddress();
+            ghidra.program.model.mem.MemoryBlock blk = mem.getBlock(at);
+            if (blk == null || blk.isExecute()) continue;
+            try {
+                pointed.add(mem.getInt(at) & 0xFFFFFFFFL);
+            } catch (ghidra.program.model.mem.MemoryAccessException e) {
+                // (a relocation in a block with no bytes)
+            }
+        }
         ghidra.program.model.symbol.SymbolTable symbols = currentProgram.getSymbolTable();
         FunctionIterator it = currentProgram.getFunctionManager().getFunctions(true);
         while (it.hasNext() && !monitor.isCancelled()) {
@@ -54,7 +72,7 @@ public class ExportFunctions extends GhidraScript {
             if (before == null || before.getFallThrough() == null || !before.getFallThrough().equals(entry)) continue;
             Function host = getFunctionContaining(before.getAddress());
             if (host == null || host.equals(f)) continue;
-            boolean wanted = false;
+            boolean wanted = pointed.contains(entry.getOffset());
             for (ghidra.program.model.symbol.Reference r : getReferencesTo(entry)) {
                 ghidra.program.model.address.Address from = r.getFromAddress();
                 if (f.getBody().contains(from)) continue;              // (its own loop's)

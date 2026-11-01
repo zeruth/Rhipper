@@ -5,6 +5,8 @@
 #include <tlhelp32.h>
 
 #include <algorithm>
+#include <deque>
+#include <map>
 #include <csetjmp>
 #include <cstdio>
 #include <cstring>
@@ -623,8 +625,14 @@ void GuardHeapStart() {
     wchar_t on[8] = {};
     if (RefEnv("GUARDHEAP", on, 8) == 0 || on[0] == L'0') return;
     g_guard.every = static_cast<unsigned>(wcstoul(on, nullptr, 10));
-    // (the most of the low 2 GB it can have, every block's address a 32-bit one)
-    for (size_t want = 0x50000000; want >= 0x8000000 && !g_guard.lo; want /= 2) {
+    // (the most of the low 2 GB it can have, every block's address a 32-bit one; or at most
+    // <ENV>_GUARDHEAP_MB: 1.25 GB of it reserved, XAudio2's mastering voice failed for memory,
+    // 80070008, and the run went another way, 2026-10-31)
+    size_t most = 0x50000000;
+    wchar_t mb[16] = {};
+    if (RefEnv("GUARDHEAP_MB", mb, 16) && wcstoul(mb, nullptr, 10) >= 128)
+        most = static_cast<size_t>(wcstoul(mb, nullptr, 10)) << 20;
+    for (size_t want = most; want >= 0x8000000 && !g_guard.lo; want /= 2) {
         if (void* r = VirtualAlloc(nullptr, want, MEM_RESERVE, PAGE_NOACCESS)) {
             g_guard.lo = g_guard.next = reinterpret_cast<uintptr_t>(r);
             g_guard.hi = g_guard.lo + want;
@@ -730,10 +738,81 @@ struct FreeCheck {
         DWORD tid;
     };
     std::unordered_map<intptr_t, Freed> freed;
+    // (and each live block the reference has from the heap imports, its size and its allocator's
+    // stack: a free of an address no allocation returned, interior to a block or nobody's, named.
+    // A UI teardown's c0000374 with no second free and an intact heap, 2026-10-31)
+    struct Live {
+        void* frames[10];
+        USHORT n;
+        size_t size;
+    };
+    std::map<intptr_t, Live> live;
+    // (and the freed blocks held back, filled with 0xdd, the last 64 MB: one written after its free
+    // found at its release, the write's offset and value with its allocation and free stacks. A
+    // free that failed on a block HeapValidate passed, its neighbour's free-list entry the damage)
+    struct Held {
+        intptr_t p, heap, flags;
+        size_t size;
+        Live alloc;
+        Freed free;
+        bool dirty = false;     // (reported by a scan already)
+    };
+    std::deque<Held> held;
+    size_t held_bytes = 0;
     gen_real_fn alloc = nullptr, free = nullptr, realloc = nullptr;
     long reported = 0;
 };
 FreeCheck g_fc;
+void FreeCheckPrint(void* const* frames, USHORT n);
+
+// (a held block's first byte off its 0xdd fill: k, or -1)
+long long FreeCheckDirty(const FreeCheck::Held& h) {
+    const unsigned char* b = reinterpret_cast<const unsigned char*>(h.p);
+    for (size_t k = 0; k < h.size; k++)
+        if (b[k] != 0xdd) return static_cast<long long>(k);
+    return -1;
+}
+void FreeCheckReportDirty(const FreeCheck::Held& h, size_t k, const char* when) {
+    if (g_fc.reported++ >= 8) return;
+    const unsigned char* b = reinterpret_cast<const unsigned char*>(h.p);
+    size_t w = k & ~static_cast<size_t>(3);
+    fprintf(stderr, "%s: FREECHECK: %llx (size %zx) written after its free at +%zx (%s):", RHIPPER_NAME,
+            static_cast<unsigned long long>(h.p), h.size, k, when);
+    for (size_t j = w; j < w + 16 && j + 4 <= h.size; j += 4) fprintf(stderr, " %08x", *reinterpret_cast<const uint32_t*>(b + j));
+    fprintf(stderr, "\n  freed on thread %lu at:\n", h.free.tid);
+    FreeCheckPrint(h.free.frames, h.free.n);
+    fprintf(stderr, "  allocated at:\n");
+    FreeCheckPrint(h.alloc.frames, h.alloc.n);
+    fflush(stderr);
+}
+// (every 4096 frees, every held block checked: a write after a free found soon after it, not when
+// the block leaves, a run's crash first)
+void FreeCheckScan() {
+    static unsigned long frees = 0;
+    if (++frees % 4096) return;
+    for (auto& h : g_fc.held) {
+        if (h.size == 0 || h.dirty) continue;
+        long long k = FreeCheckDirty(h);
+        if (k >= 0) {
+            FreeCheckReportDirty(h, static_cast<size_t>(k), "scan");
+            h.dirty = true;
+        }
+    }
+}
+// (the oldest held blocks released while more than 64 MB is held, each checked for its 0xdd fill)
+void FreeCheckRelease(intptr_t a3, intptr_t a4, intptr_t a5, intptr_t a6, intptr_t a7, intptr_t a8, intptr_t a9,
+                      intptr_t a10, intptr_t a11, intptr_t a12, intptr_t a13) {
+    while (g_fc.held_bytes > (64u << 20) && !g_fc.held.empty()) {
+        FreeCheck::Held h = g_fc.held.front();
+        g_fc.held.pop_front();
+        g_fc.held_bytes -= h.size;
+        if (!h.dirty) {
+            long long k = FreeCheckDirty(h);
+            if (k >= 0) FreeCheckReportDirty(h, static_cast<size_t>(k), "release");
+        }
+        g_fc.free(h.heap, h.flags, h.p, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13);
+    }
+}
 
 void FreeCheckPrint(void* const* frames, USHORT n) {
     HANDLE self = GetCurrentProcess();
@@ -755,6 +834,10 @@ intptr_t FreeCheckAlloc(intptr_t heap, intptr_t flags, intptr_t n, intptr_t a3, 
     if (p) {
         std::lock_guard<std::mutex> hold(g_fc.lock);
         g_fc.freed.erase(p);
+        FreeCheck::Live l = {};
+        l.n = RtlCaptureStackBackTrace(1, 10, l.frames, nullptr);
+        l.size = static_cast<uint32_t>(n);
+        g_fc.live[p] = l;
     }
     return p;
 }
@@ -777,7 +860,68 @@ intptr_t FreeCheckFree(intptr_t heap, intptr_t flags, intptr_t p, intptr_t a3, i
             }
             return 1;   // (the second free left out: the run goes on to the next)
         }
+        auto lv = g_fc.live.find(p);
+        if (lv == g_fc.live.end()) {
+            if (g_fc.reported++ < 8) {
+                fprintf(stderr, "%s: FREECHECK: %llx freed, no allocation returned it; on thread %lu:\n",
+                        RHIPPER_NAME, static_cast<unsigned long long>(p), f.tid);
+                FreeCheckPrint(f.frames, f.n);
+                auto in = g_fc.live.upper_bound(p);
+                if (in != g_fc.live.begin()) {
+                    --in;
+                    fprintf(stderr, "  nearest block below: %llx, size %zx (%s, +%llx), allocated at:\n",
+                            static_cast<unsigned long long>(in->first), in->second.size,
+                            p < in->first + static_cast<intptr_t>(in->second.size) ? "inside it" : "past it",
+                            static_cast<unsigned long long>(p - in->first));
+                    FreeCheckPrint(in->second.frames, in->second.n);
+                }
+                const unsigned char* b = reinterpret_cast<const unsigned char*>(p);
+                MEMORY_BASIC_INFORMATION mbi;
+                if (VirtualQuery(b - 16, &mbi, sizeof mbi) && mbi.State == MEM_COMMIT) {
+                    fprintf(stderr, "  bytes at -16:");
+                    for (int k = -16; k < 16; k += 4) fprintf(stderr, " %08x", *reinterpret_cast<const uint32_t*>(b + k));
+                    fprintf(stderr, "\n");
+                }
+                fflush(stderr);
+            }
+            return 1;   // (left out: the run goes on to the next)
+        }
+        // (a live block whose own header is damaged: the heap's fail-fast at its free, with no
+        // history. Validated alone first, it and the block below it, the likely overrun, named with
+        // both allocation stacks; the free left out so the run goes on)
+        if (!HeapValidate(reinterpret_cast<HANDLE>(heap), 0, reinterpret_cast<void*>(p))) {
+            if (g_fc.reported++ < 8) {
+                fprintf(stderr, "%s: FREECHECK: %llx (size %zx) damaged before its free, on thread %lu; freed at:\n",
+                        RHIPPER_NAME, static_cast<unsigned long long>(p), lv->second.size, f.tid);
+                FreeCheckPrint(f.frames, f.n);
+                fprintf(stderr, "  allocated at:\n");
+                FreeCheckPrint(lv->second.frames, lv->second.n);
+                if (lv != g_fc.live.begin()) {
+                    auto below = std::prev(lv);
+                    fprintf(stderr, "  block below: %llx, size %zx, ends %llx (%lld bytes before this one), allocated at:\n",
+                            static_cast<unsigned long long>(below->first), below->second.size,
+                            static_cast<unsigned long long>(below->first + below->second.size),
+                            static_cast<long long>(p - (below->first + static_cast<intptr_t>(below->second.size))));
+                    FreeCheckPrint(below->second.frames, below->second.n);
+                }
+                const unsigned char* b = reinterpret_cast<const unsigned char*>(p);
+                fprintf(stderr, "  bytes at -32:");
+                for (int k = -32; k < 16; k += 4) fprintf(stderr, " %08x", *reinterpret_cast<const uint32_t*>(b + k));
+                fprintf(stderr, "\n");
+                fflush(stderr);
+            }
+            g_fc.live.erase(lv);
+            return 1;
+        }
+        FreeCheck::Held h = {p, heap, flags, lv->second.size, lv->second, f};
+        g_fc.live.erase(lv);
         g_fc.freed[p] = f;
+        memset(reinterpret_cast<void*>(p), 0xdd, h.size);
+        g_fc.held.push_back(h);
+        g_fc.held_bytes += h.size;
+        FreeCheckScan();
+        FreeCheckRelease(a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13);
+        return 1;
     }
     return g_fc.free(heap, flags, p, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13);
 }
@@ -797,6 +941,11 @@ intptr_t FreeCheckReAlloc(intptr_t heap, intptr_t flags, intptr_t p, intptr_t n,
     if (q) {
         std::lock_guard<std::mutex> hold(g_fc.lock);
         g_fc.freed.erase(q);
+        FreeCheck::Live l = {};
+        l.n = RtlCaptureStackBackTrace(1, 10, l.frames, nullptr);
+        l.size = static_cast<uint32_t>(n);
+        g_fc.live.erase(p);
+        g_fc.live[q] = l;
     }
     return q;
 }
@@ -871,6 +1020,18 @@ void DumpAfterStart() {
 void RefPrintStack(HANDLE thread, CONTEXT c) {
     PrintStack(thread, c);
 }
+
+// (and return addresses kept, symbolized: the checked build's block stacks, Checked.cpp)
+void RefPrintFrames(void* const* frames, unsigned short n) {
+    FreeCheckPrint(frames, n);
+}
+
+#ifdef GEN_CHECKED
+// the checked build's (Checked.cpp): a read-only range of the reference's write-protected, and its
+// checks started
+void CheckedProtect(uint32_t lo, uint32_t hi);
+void CheckedStart();
+#endif
 
 unsigned RefEnv(const char* suffix, wchar_t* buf, unsigned size) {
     wchar_t name[96];
@@ -1007,6 +1168,15 @@ bool RefMapImage(const wchar_t* path) {
     DWORD old;
     VirtualProtect(image + (g_textLo - base), g_textHi - g_textLo, PAGE_EXECUTE_READ, &old);
     AddVectoredExceptionHandler(1, OnException);
+#ifdef GEN_CHECKED
+    // (the checked build: the reference's read-only sections write-protected, its headers with
+    // them, a store there reported; then the checks, their fault handler ahead of OnException)
+    for (const auto& s : h.sections)
+        if (!(s.Characteristics & (IMAGE_SCN_MEM_WRITE | IMAGE_SCN_MEM_EXECUTE)))
+            CheckedProtect(base + s.VirtualAddress, base + s.VirtualAddress + s.Misc.VirtualSize);
+    CheckedProtect(base, base + h.nt.OptionalHeader.SizeOfHeaders);
+    CheckedStart();
+#endif
     wchar_t watch[40] = {};
     if (RefEnv("WATCH", watch, 40)) {
         wchar_t* end = nullptr;
@@ -1044,15 +1214,20 @@ namespace {
 DWORD WINAPI HangDump(void* thread) {
     wchar_t v[16] = {};
     RefEnv("HANGDUMP", v, 16);
-    Sleep(static_cast<DWORD>(_wtoi(v)) * 1000);
+    // (again every that many seconds, until the thread ends: a freeze's stack whenever it comes,
+    // the lobby's character select stuck with no fault, 2026-10-31)
     HANDLE t = static_cast<HANDLE>(thread);
-    SuspendThread(t);
-    CONTEXT c = {};
-    c.ContextFlags = CONTEXT_FULL;
-    GetThreadContext(t, &c);
-    fprintf(stderr, "%s: the reference thread after %ls s:\n", RHIPPER_NAME, v);
-    PrintStack(t, c);
-    ResumeThread(t);
+    DWORD every = static_cast<DWORD>(_wtoi(v)) * 1000;
+    for (unsigned n = 1; WaitForSingleObject(t, every) == WAIT_TIMEOUT; n++) {
+        SuspendThread(t);
+        CONTEXT c = {};
+        c.ContextFlags = CONTEXT_FULL;
+        GetThreadContext(t, &c);
+        fprintf(stderr, "%s: the reference thread after %u x %ls s:\n", RHIPPER_NAME, n, v);
+        PrintStack(t, c);
+        fflush(stderr);
+        ResumeThread(t);
+    }
     return 0;
 }
 

@@ -75,14 +75,17 @@ const void* rhipper_com_factory(const char* import) {
 // ---- the runtime's built-in objects (d3d9_null.cpp, dinput8.cpp) and the imports that make them ----
 namespace rh {
 uint32_t NullDirect3DCreate9(uint32_t sdk);
+uint32_t VkDirect3DCreate9(uint32_t sdk);   // d3d9vk/Device.cpp: 0 without a usable Vulkan, or <ENV>_D3D9=null
 uint32_t DinputCreate(uint32_t version, uint32_t riid, uint32_t out);
 bool IsDirectInput8Class(uint32_t clsid);
+bool XAudio2Class(uint32_t clsid, uint32_t riid, uint32_t out, bool factory, uint32_t* hr);   // xaudio2.cpp
 }  // namespace rh
 
 extern "C" {
 
 unsigned int gen_imp_Direct3DCreate9(uint32_t sdk) {
     if (auto f = reinterpret_cast<uint32_t (*)(uint32_t)>(const_cast<void*>(rhipper_com_factory("Direct3DCreate9")))) return f(sdk);
+    if (uint32_t d3d = VkDirect3DCreate9(sdk)) return d3d;
     return NullDirect3DCreate9(sdk);
 }
 
@@ -102,11 +105,16 @@ unsigned int gen_imp_CoCreateInstance(uint32_t clsid, uint32_t outer, uint32_t c
         if (hr != win::REGDB_E_CLASSNOTREG) return hr;
     }
     if (IsDirectInput8Class(clsid)) return DinputCreate(0x800, riid, out);
+    uint32_t hr;
+    if (XAudio2Class(clsid, riid, out, false, &hr)) return hr;
     Log("COM: CoCreateInstance of %s refused (no such class here)", HexGuid(clsid).c_str());
     if (out) *At<uint32_t>(out) = 0;
     return win::REGDB_E_CLASSNOTREG;
 }
-unsigned int gen_imp_CoGetClassObject(uint32_t clsid, uint32_t, uint32_t, uint32_t, uint32_t out) {
+// (XAudio2's classes have a factory: the reference locks its server through it before creating)
+unsigned int gen_imp_CoGetClassObject(uint32_t clsid, uint32_t, uint32_t, uint32_t riid, uint32_t out) {
+    uint32_t hr;
+    if (XAudio2Class(clsid, riid, out, true, &hr)) return hr;
     Log("COM: CoGetClassObject of %s refused", HexGuid(clsid).c_str());
     if (out) *At<uint32_t>(out) = 0;
     return win::REGDB_E_CLASSNOTREG;

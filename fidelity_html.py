@@ -128,6 +128,19 @@ def page(name: str, rows: list, bytes_path: Path | None = None) -> str:
     sections.append(grouping("Fidelity", "each function's calls, fields and constants against the reference's",
                              [tuple(g) for g in fg], total_n, total_size))
 
+    # the bug-class probes (probes32.py): the functions each strong class flags
+    pc: dict = {}
+    for r in rows:
+        for k in dict.fromkeys(f.split(" ")[0] for f in (r.get("probe_flags") or [])):
+            g = pc.setdefault(k, [k, "b1", 0, 0])
+            g[2] += 1
+            g[3] += r.get("size") or 0
+    if pc:
+        sections.append(grouping("Bug-class probes", "functions a probe flags (probes32.py): a locked op on the "
+                                 "global lock, an address x86 wraps, a global written wider, a virtual call's "
+                                 "this or arguments, a hoisted table load, a zeroed register input",
+                                 [tuple(pc[k]) for k in sorted(pc)], total_n, total_size))
+
     # the table's data, compact: [addr, name, size, kind, score, calls, fields, consts, bytes sim, notes,
     # accuracy]
     data = []
@@ -136,7 +149,8 @@ def page(name: str, rows: list, bytes_path: Path | None = None) -> str:
         b = byt.get(r["addr"].lower())
         notes = r.get("why") or "; ".join(
             f"{k.replace('_', ' ')}: {', '.join(map(str, r.get(k, [])[:4]))}"
-            for k in ("missing_calls", "extra_calls", "missing_fields", "missing_consts") if r.get(k))
+            for k in ("probe_flags", "ops_flags", "missing_calls", "extra_calls", "missing_fields", "missing_consts")
+            if r.get(k))
         data.append([r["addr"], r["name"], r.get("size") or 0, r["kind"], round(r["score"], 3),
                      p.get("calls"), p.get("fields"), p.get("consts"),
                      None if b is None or b.get("kind") in ("stub", "absent") else round(b.get("sim", 0.0), 3),

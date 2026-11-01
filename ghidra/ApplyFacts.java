@@ -1064,10 +1064,17 @@ public class ApplyFacts extends GhidraScript {
         // one began runs on now)
         for (Function f : currentProgram.getFunctionManager().getFunctions(true)) {
             if (f.isExternal() || f.isThunk()) continue;
-            Instruction last = getInstructionContaining(f.getBody().getMaxAddress());
-            if (last != null && last.getFallThrough() != null && !last.getFlowType().isCall()
-                    && getFunctionContaining(last.getFallThrough()) == null && getInstructionAt(last.getFallThrough()) != null) {
-                shortened.add(f);
+            // (each piece's end, not the body's last alone: a junk function removed from the middle
+            // of a body left it two pieces, VectorDeletingDestructor 0x520030 round the "SR" at
+            // 0x520053, and the call-site shapes in between had no function to go on, 2026-11-01)
+            for (ghidra.program.model.address.AddressRange r : f.getBody()) {
+                Instruction last = getInstructionContaining(r.getMaxAddress());
+                if (last != null && last.getFallThrough() != null && !last.getFlowType().isCall()
+                        && !f.getBody().contains(last.getFallThrough())
+                        && getFunctionContaining(last.getFallThrough()) == null && getInstructionAt(last.getFallThrough()) != null) {
+                    shortened.add(f);
+                    break;
+                }
             }
         }
         for (Function f : shortened) {

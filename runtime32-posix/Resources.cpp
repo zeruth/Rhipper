@@ -143,3 +143,7 @@ static uint32_t VerQueryValueA_(uint32_t block, uint32_t sub, uint32_t out, uint
     return valueLen ? 1 : 0;
 }
 RH_REG(VERSION, VerQueryValueA, VerQueryValueA_)
+// (and as the translation calls it directly: runtime32's Adapters.cpp makes it an adapter for x64)
+extern "C" unsigned int gen_imp_VerQueryValueA(uint32_t block, uint32_t sub, uint32_t out, uint32_t plen) {
+    return VerQueryValueA_(block, sub, out, plen);
+}

@@ -131,6 +131,11 @@ static uint32_t CreateThread_(uint32_t, uint32_t stack, uint32_t start, uint32_t
     return h;
 }
 RH_REG(KERNEL32, CreateThread, CreateThread_)
+// (and as the translation calls it directly: runtime32's Adapters.cpp makes it an adapter for x64)
+extern "C" unsigned int gen_imp_CreateThread(uint32_t sa, uint32_t stack, uint32_t start, uint32_t param,
+                                             uint32_t flags, uint32_t tidOut) {
+    return CreateThread_(sa, stack, start, param, flags, tidOut);
+}
 
 static uint32_t ResumeThread_(uint32_t h) {
     auto t = GetAs<Thread>(h);

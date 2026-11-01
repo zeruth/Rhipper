@@ -1,6 +1,6 @@
 // rhipper_host.h's runtime side: what the platform host tells the runtime (the run, the log
-// directory, the surface, the pads, the lifecycle) and the runtime's accessors for its own users
-// (xinput1_3, the renderer seam in Com32Posix.h).
+// directory, the surface, the pads, the keyboard/mouse/touch, the lifecycle) and the runtime's
+// accessors for its own users (xinput1_3, the renderer seam in Com32Posix.h).
 #include <android/native_window.h>
 #include <unistd.h>
 
@@ -10,6 +10,7 @@
 
 #include "Com32Posix.h"
 #include "Runtime.h"
+#include "input.h"
 #include "rhipper_host.h"
 
 namespace rh {
@@ -31,7 +32,28 @@ RhipperPad g_pads[4] = {};
 uint32_t g_padPackets[4] = {};
 RhipperRumbleFn g_rumble = nullptr;
 bool g_ran = false;
+
+// The subsystems told of the lifecycle after user32 (which turns it into the window's messages),
+// in this order: input's first, then whoever adds themselves (OnHostLifecycle). Called on the
+// host's thread, the host lock not held.
+constexpr int kMaxLifecycle = 8;
+void (*g_lifecycle[kMaxLifecycle])(int event) = {InputLifecycle};
+int g_lifecycleCount = 1;
 }  // namespace
+
+// A subsystem's lifecycle callback (RhipperLifecycle's events): audio pausing its voices, say.
+// Declare it where needed, `namespace rh { void OnHostLifecycle(void (*fn)(int)); }`, and call it
+// once (at its first use, or a static constructor: the list is constant-initialized)
+void OnHostLifecycle(void (*fn)(int event)) {
+    std::lock_guard<std::mutex> hold(g_hostLock);
+    for (int k = 0; k < g_lifecycleCount; k++)
+        if (g_lifecycle[k] == fn) return;
+    if (g_lifecycleCount == kMaxLifecycle) {
+        Log("OnHostLifecycle: more than %d listeners, one dropped", kMaxLifecycle);
+        return;
+    }
+    g_lifecycle[g_lifecycleCount++] = fn;
+}
 
 // the low reservation as early as the library's load: before ART, a JIT or another library takes
 // more of the low 2 GB
@@ -119,7 +141,27 @@ void rhipper_host_lifecycle(int event) {
     Log("lifecycle %d", event);
     if (event == RHIPPER_LOW_MEMORY) Log("low memory warning from the system");
     HostLifecycle(event);
+    void (*fns[kMaxLifecycle])(int);
+    int n;
+    {
+        std::lock_guard<std::mutex> hold(g_hostLock);
+        n = g_lifecycleCount;
+        memcpy(fns, g_lifecycle, sizeof fns);
+    }
+    for (int k = 0; k < n; k++) fns[k](event);
 }
+
+// ---- keyboard, mouse, touch (input.cpp) ---------------------------------------------------------------
+void rhipper_host_key(int android_keycode, int scancode, int down, int meta_state, int unicode_char) {
+    InputKey(android_keycode, scancode, down != 0, meta_state, unicode_char);
+}
+
+void rhipper_host_pointer(int action, int pointer_id, float x, float y, int buttons, float scroll_v, float scroll_h,
+                          int source) {
+    InputPointer(action, pointer_id, x, y, buttons, scroll_v, scroll_h, source);
+}
+
+void rhipper_host_text(const char* utf8) { InputText(utf8); }
 
 // ---- the renderer's access to the surface (Com32Posix.h) -------------------------------------------
 void* rhipper_window_use(int* width, int* height) {

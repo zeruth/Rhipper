@@ -789,3 +789,8 @@ static uint32_t IcmpSendEcho_(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, 
     return 0;
 }
 RH_REG(IPHLPAPI, IcmpSendEcho, IcmpSendEcho_)
+// (and as the translation calls it directly: runtime32's Adapters.cpp makes it an adapter for x64)
+extern "C" unsigned int gen_imp_IcmpSendEcho(uint32_t handle, uint32_t dest, uint32_t data, uint32_t size,
+                                             uint32_t options, uint32_t reply, uint32_t replySize, uint32_t timeout) {
+    return IcmpSendEcho_(handle, dest, data, size, options, reply, replySize, timeout);
+}

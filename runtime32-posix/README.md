@@ -46,7 +46,20 @@ also be below 2 GB — not only the reference's heap.
 - `lib<name>.so` is the translation plus this runtime, mapped below 2 GB. It exports `rhipper_host_*`.
 
 The host must load `lib<name>_boot.so` (i.e. its configured library name is `<name>_boot`). JNI method
-names and signatures are `RhipperNative.kt`'s, unchanged.
+names and signatures are `RhipperNative.kt`'s, unchanged. The app must extract its native libraries
+(`packaging { jniLibs.useLegacyPackaging = true }`): the boot library reads `lib<name>.so`'s program
+headers by file path to size the reservation, which a library left inside the APK doesn't have.
+
+The gen object library builds with `RUNTIME32_POSIX_GEN_FLAGS` (`rhipper_gen_posix(gen)`), which has
+no loop vectorizer: on AArch64 it makes vector addrspacecasts to `__ptr32` that the backend can't
+legalize; and no `wcslen` builtin: with `-fshort-wchar` the loop idiom pass turns a UTF-16 length
+loop into a call to bionic's `wcslen`, which counts 4-byte units, so every such length came out half.
+The runtime's own C++ builds with the platform's 4-byte `wchar_t` (its UTF-16 is `char16_t`).
+A narrowed store through a `__ptr32` pointer comes out of AArch64's backend 8 bytes wide, so
+`Ghidra32.h`'s `GEN_NE` (which translate32 puts around every such store) goes through a host
+pointer on hosts that are not x86. Configuring builds `tests/ptr32_vector.c`, links
+`tests/wcslen_idiom.c` without libc, and compiles `tests/ptr32_truncstore.c` to assembly (no 64-bit
+store allowed) using the gen flags, so a regression of any of the three shows up there.
 
 ## Calls, islands and the SIGBUS fallback
 

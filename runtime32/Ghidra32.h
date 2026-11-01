@@ -51,6 +51,14 @@
 
 #define PTR32 __ptr32 __uptr
 
+/* a compiler barrier, first in a loop the reference spins in reading memory another thread writes
+   (translate32.py spin_polls): /O2 kept the first read of a plain load, `jmp $` */
+#if defined(_MSC_VER)
+#define GEN_POLL() _ReadWriteBarrier()
+#else
+#define GEN_POLL() __asm__ __volatile__("" ::: "memory")
+#endif
+
 /* ---- Ghidra's integer types, at the reference's widths ------------------------------------- */
 typedef unsigned char undefined;
 typedef unsigned char undefined1;
@@ -214,6 +222,20 @@ typedef unsigned int __fastcall gen_tcode();
 #define GEN_FRAME_DECL_TOP(n, pad, top) undefined1 gen_frame[(n) - (top)]
 #define GEN_FRAME_DECL_GS(n, pad, top) undefined1 gen_frame[(n) - (top) - 4]
 #define GEN_COOKIE(...) ((void)0)
+#elif defined(GEN_CHECKED)
+/* (the checked build, CMake GEN_CHECKED, runtime32/Checked.cpp: the frame's address handed to the
+   runtime, so clang's instrumentation keeps redzones around every frame and clears them at the
+   return; and with <ENV>_CHECKED_FRAMES=1 the pad in front and the _TOP bytes, the reference's
+   saved ebp, poisoned as well, a load or store there reported as a frame overrun) */
+extern int gen_checked_frames;
+void gen_checked_frame(void *frame, unsigned int pad, unsigned int n, unsigned int top);
+#define GEN_FRAME_DECL_C_(n, pad, top) GEN_ALIGN16 undefined1 gen_frame_[(pad) + (n)]; \
+    undefined1 *const gen_frame = gen_frame_ + (pad); \
+    if (gen_checked_frames) gen_checked_frame(gen_frame_, (pad), (n), (top))
+#define GEN_FRAME_DECL(n, pad) GEN_FRAME_DECL_C_(n, pad, 0)
+#define GEN_FRAME_DECL_TOP(n, pad, top) GEN_FRAME_DECL_C_(n, pad, top)
+#define GEN_FRAME_DECL_GS(n, pad, top) GEN_FRAME_DECL_C_(n, pad, top)
+#define GEN_COOKIE(...) __VA_ARGS__
 #else
 #define GEN_FRAME_DECL(n, pad) GEN_ALIGN16 undefined1 gen_frame_[(pad) + (n)]; \
     undefined1 *const gen_frame = gen_frame_ + (pad)
@@ -823,6 +845,21 @@ static GEN_INLINE float gen_bits2f_(unsigned int u) { float f; memcpy(&f, &u, 4)
 #endif
 static GEN_INLINE double gen_d_same(double d) { return d; }
 static GEN_INLINE float gen_f_same(float f) { return f; }
+/* (an x87 extended in memory, `fld tbyte [m]`, as the double float10 is here: its 64-bit mantissa
+   rounded to 53 bits, its 15-bit exponent rebiased, an exponent of 0x7fff inf or NaN. `*(float10 *)`
+   of one took its mantissa's 8 bytes: the C runtime's +inf at 0x111ad00 read -0.0, the exp core
+   0xc5eb1e's bound 32767.5 at 0x111ad1e NaN, 2026-10-30) */
+static GEN_INLINE double gen_ld80(const void *p)
+{
+    unsigned long long m; unsigned short se; double v; int e;
+    memcpy(&m, p, 8); memcpy(&se, (const char *)p + 8, 2);
+    e = se & 0x7fff;
+    if (e == 0x7fff)
+        v = (m << 1) ? NAN : INFINITY;
+    else
+        v = ldexp((double)m, (e ? e : 1) - 16446);
+    return (se & 0x8000) ? -v : v;
+}
 /* (and the other way: a floating-point operand is the value already. Ghidra viewed u2d's table of
    2^32 adjustments as bits, floatdata.py types it double from its `addsd`, and gen_bits2d of the
    double converted it to an integer first, rhtest float-O2 u2d) */
@@ -851,9 +888,28 @@ static GEN_INLINE uintptr_t gen_top_d(double x) { return (unsigned int)gen_d2bit
 /* (an address the reference computes is 32 bits, and wraps so: `p + (i - 4)` of an unsigned i
    below 4 is p - 16 there, 16 GB on here, and a negative int sign-extended is no address at all.
    Truncated, as every address in the port's low 2 GB is) */
+#ifdef GEN_CHECKED
+/* (the checked build: a value outside 32 bits, an address computed 64 bits wide that the
+   truncation wraps, said once per site with <ENV>_CHECKED_WRAP=1, runtime32/Checked.cpp) */
+extern int gen_checked_wrap_on;
+void gen_checked_wrap(unsigned long long x);
+static GEN_INLINE uintptr_t gen_top_i(long long x) {
+    if (gen_checked_wrap_on && (unsigned long long)x + 0x80000000ull >= 0x180000000ull) gen_checked_wrap((unsigned long long)x);
+    return (uintptr_t)(unsigned int)x;
+}
+static GEN_INLINE uintptr_t gen_top_u(unsigned long long x) {
+    if (gen_checked_wrap_on && (x >> 32) != 0) gen_checked_wrap(x);
+    return (uintptr_t)(unsigned int)x;
+}
+static GEN_INLINE uintptr_t gen_top_p(const volatile void *p) {
+    if (gen_checked_wrap_on && ((uintptr_t)p >> 32) != 0) gen_checked_wrap((unsigned long long)(uintptr_t)p);
+    return (uintptr_t)(unsigned int)(uintptr_t)p;
+}
+#else
 static GEN_INLINE uintptr_t gen_top_i(long long x) { return (uintptr_t)(unsigned int)x; }
 static GEN_INLINE uintptr_t gen_top_u(unsigned long long x) { return (uintptr_t)(unsigned int)x; }
 static GEN_INLINE uintptr_t gen_top_p(const volatile void *p) { return (uintptr_t)(unsigned int)(uintptr_t)p; }
+#endif
 #define GEN_BYTYPE(x, f, d, i, u, p) _Generic((x), float: f, double: d, long double: d, \
     char: i, signed char: i, short: i, int: i, long: i, long long: i, \
     unsigned char: u, unsigned short: u, unsigned int: u, unsigned long: u, unsigned long long: u, _Bool: u, \
@@ -949,6 +1005,11 @@ static GEN_INLINE unsigned long long GEN_PIECE(const void *p, int off, int n) {
 static GEN_INLINE unsigned long long gen_piece_set(void *p, int off, int n, unsigned long long v) {
     memcpy((char *)p + off, &v, n);
     return v;
+}
+/* a signed n-byte value (int3, int5..int7) GEN_PIECE read, its sign extended from its top byte
+   (translate32.py odd_width_access) */
+static GEN_INLINE long long gen_sext_n(unsigned long long x, int n) {
+    return (long long)(x << (64 - 8 * n)) >> (64 - 8 * n);
 }
 #ifdef GEN_HOST_X86
 #include <intrin.h>
@@ -1149,6 +1210,22 @@ static GEN_INLINE unsigned int *gen_cpuid(int leaf) {
 #define REFP(addr) ((void *)(uintptr_t)(addr))
 /* a 32-bit address (an int Ghidra computed) as a host pointer */
 #define GP(x) ((void *)(uintptr_t)(uint32_t)(x))
+/* a dereference of a pointer just loaded from its 4-byte slot, `**(T * PTR32 *)x` (translate32's
+   ptr32_derefs): in the checked build the lvalue through a host pointer to its address, which
+   clang's instrumentation checks (it checks no access through a __ptr32 one, LLVM's address space
+   271); elsewhere the lvalue as it is. (__typeof_unqual__: clang's __ptr32 is an address space on
+   the pointee, a qualifier, which __typeof__ keeps and the cast with it; translate32 wraps no
+   volatile access, whose qualifier this drops). And on every host that is no x86: LLVM's AArch64
+   backend stores a value truncated through a __ptr32 pointer at the source's full 8 bytes (`store
+   i32 %v, ptr addrspace(271) %p` emitted `str x1, [x8]`, every -O; 1 and 2-byte targets as well),
+   where a host pointer's store is `str w` / `strh` / `strb`. AllocatorHeap::InsertFreeBlock 0x4f5620
+   zeroed the last free block's prev past its next, and every Android run died in RemoveFreeBlock
+   under InitLuaState (the Android session's finding, 2026-11-01) */
+#if defined(GEN_CHECKED) || !defined(GEN_HOST_X86)
+#define GEN_NE(lv) (*(__typeof_unqual__(lv) *)&(lv))
+#else
+#define GEN_NE(lv) (lv)
+#endif
 
 /* The reference's fs segment, its x86 TEB: Ghidra maps it at 0xffdff000 (its "tdb" block:
    ExceptionList, Self, ThreadLocalStoragePointer, ProcessEnvironmentBlock, ...), and

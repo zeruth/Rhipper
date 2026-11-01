@@ -61,6 +61,7 @@ namespace rh {
 
 void RefTraceStart();   // Trace.cpp
 void RefTraceFlush();
+int RefWatchFault(uintptr_t addr);
 void PrintBacktrace(uintptr_t fp, uintptr_t pc, uintptr_t lr);
 int SehHardwareFault(int sig, siginfo_t* info, ucontext_t* uc);   // Eh.cpp
 
@@ -222,6 +223,16 @@ void Report(int sig, siginfo_t* info, ucontext_t* uc) {
 void OnFault(int sig, siginfo_t* info, void* ctx) {
     auto uc = static_cast<ucontext_t*>(ctx);
     uint64_t pc = uc->uc_mcontext.pc;
+    // (a write to <ENV>_WATCH's page, Trace.cpp: reported when it is in the range, then let through)
+    if (sig == SIGSEGV) {
+        if (int w = RefWatchFault(reinterpret_cast<uintptr_t>(info->si_addr))) {
+            if (w == 2) {
+                LogRaw(RHIPPER_NAME ": watch: a write");
+                Report(sig, info, uc);
+            }
+            return;
+        }
+    }
     // a call to a reference function the branch at its entry could not reach (an unaligned entry,
     // or one whose word is data): its translation, entered with the caller's registers as they are
     if (pc >= g_textLo && pc < g_textHi && (sig == SIGBUS || sig == SIGTRAP || sig == SIGILL || sig == SIGSEGV)) {
@@ -245,8 +256,19 @@ void OnFault(int sig, siginfo_t* info, void* ctx) {
             return;
         }
     }
-    // (a fault in translated code inside a reference __try: its filter's, Eh.cpp)
-    if (SehHardwareFault(sig, info, uc)) return;
+    // (a fault in translated code inside a reference __try: its filter's, Eh.cpp. The first few are
+    // reported first: where it happened is gone once the reference's handler has it)
+    static std::atomic<int> s_sehReported{0};
+    ucontext_t before = *uc;
+    if (SehHardwareFault(sig, info, uc)) {
+        if (s_sehReported++ < 8 && !t_inReport) {
+            t_inReport = true;
+            LogRaw(RHIPPER_NAME ": a fault the reference's __try handlers get:");
+            Report(sig, info, &before);
+            t_inReport = false;
+        }
+        return;
+    }
     if (!t_inReport) {
         t_inReport = true;
         Report(sig, info, uc);

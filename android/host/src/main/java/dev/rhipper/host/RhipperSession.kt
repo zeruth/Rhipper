@@ -50,9 +50,12 @@ internal object RhipperSession {
         } catch (e: UnsatisfiedLinkError) {
             return "lib$library.so has no Rhipper host interface (android_jni.c not linked in?): ${e.message}"
         }
-        if (version != RhipperNative.HOST_VERSION) {
+        // (an older library is fine: what it lacks, keyboard and mouse for 1, stays the system's)
+        if (version !in 1..RhipperNative.HOST_VERSION) {
             return "lib$library.so speaks host interface $version, this app ${RhipperNative.HOST_VERSION}"
         }
+        if (version < RhipperNative.HOST_VERSION) Log.w(TAG, "lib$library.so speaks host interface $version: no keyboard or mouse")
+        RhipperNative.libraryVersion = version
         loaded = library
         return null
     }

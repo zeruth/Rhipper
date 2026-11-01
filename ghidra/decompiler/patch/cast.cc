@@ -246,6 +246,31 @@ int4 CastStrategyC::intPromotionType(const Varnode *vn) const
   return UNKNOWN_PROMOTION;
 }
 
+/// RHIPPER: whether a sum C computes as an int (its operands promoted) reaches an operation that
+/// needs it unsigned: INT_LESS/LESSEQUAL, INT_DIV/REM, INT_RIGHT's shifted operand, through
+/// implied ADD/SUB/MULT/LEFT up to \b depth more
+static bool sumReachesUnsignedOp(const Varnode *vn,int4 depth)
+{
+  if (vn == (const Varnode *)0 || vn->isExplicit()) return false;	// assigned: converted back
+  list<PcodeOp *>::const_iterator iter;
+  for(iter=vn->beginDescend();iter!=vn->endDescend();++iter) {
+    const PcodeOp *rd = *iter;
+    switch(rd->code()) {
+    case CPUI_INT_LESS: case CPUI_INT_LESSEQUAL: case CPUI_INT_DIV: case CPUI_INT_REM:
+      return true;
+    case CPUI_INT_RIGHT:
+      if (rd->getIn(0) == vn) return true;
+      break;
+    case CPUI_INT_ADD: case CPUI_INT_SUB: case CPUI_INT_MULT: case CPUI_INT_LEFT:
+      if (depth > 0 && sumReachesUnsignedOp(rd->getOut(),depth - 1)) return true;
+      break;
+    default:
+      break;
+    }
+  }
+  return false;
+}
+
 bool CastStrategyC::isExtensionCastImplied(const PcodeOp *op,const PcodeOp *readOp) const
 
 {
@@ -287,6 +312,15 @@ bool CastStrategyC::isExtensionCastImplied(const PcodeOp *op,const PcodeOp *read
 	else if (!otherVn->isExplicit())
 	  return false;
 	if (otherVn->getHighTypeReadFacing(readOp)->getMetatype() != metatype)
+	  return false;
+	// RHIPPER: a hidden zero extension is C's promotion to int, not the unsigned type Ghidra gives
+	// the sum: `param_1[4] - 1 >> 1` shifted arithmetically and `(byte)this[0x94] - 1 < 3` compared
+	// signed where the reference's are shr and ja (0xb88ce0, 0x697980; ZoneProtoChannel 0x106ca00
+	// indexed below its byte table for opcodes under 0x65, 2026-10-31). Cast where the sum reaches
+	// an unsigned compare, shift, divide or remainder.
+	if (op->code() == CPUI_INT_ZEXT && otherVn->isConstant() &&
+	    (readOp->code() == CPUI_INT_ADD || readOp->code() == CPUI_INT_SUB || readOp->code() == CPUI_INT_MULT) &&
+	    sumReachesUnsignedOp(readOp->getOut(),3))
 	  return false;
 	break;
       default:

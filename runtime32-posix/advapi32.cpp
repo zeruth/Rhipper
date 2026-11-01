@@ -97,6 +97,12 @@ static uint32_t RegCreateKeyExA_(uint32_t hkey, uint32_t sub, uint32_t, uint32_t
     return win::ERROR_SUCCESS;
 }
 RH_REG(ADVAPI32, RegCreateKeyExA, RegCreateKeyExA_)
+// (and as the translation calls it directly: runtime32's Adapters.cpp makes it an adapter for x64)
+extern "C" unsigned int gen_imp_RegCreateKeyExA(uint32_t key, uint32_t sub, uint32_t reserved, uint32_t cls,
+                                                uint32_t opts, uint32_t sam, uint32_t sa, uint32_t out,
+                                                uint32_t disposition) {
+    return RegCreateKeyExA_(key, sub, reserved, cls, opts, sam, sa, out, disposition);
+}
 
 static uint32_t RegCloseKey_(uint32_t h) {
     std::lock_guard<std::mutex> hold(g_regLock);

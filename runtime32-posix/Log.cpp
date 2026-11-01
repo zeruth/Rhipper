@@ -3,6 +3,7 @@
 // the directory; lines before go to logcat alone.
 #include <android/log.h>
 #include <fcntl.h>
+#include <sys/system_properties.h>
 #include <unistd.h>
 
 #include <cstdarg>
@@ -89,8 +90,13 @@ void LogRaw(const char* s) {
 
 std::string Env(const char* suffix) {
     std::string name = std::string(RHIPPER_ENV) + "_" + suffix;
-    const char* v = getenv(name.c_str());
-    return v ? v : "";
+    if (const char* v = getenv(name.c_str())) return v;
+    // (an app has no environment of its own to set: else the system property debug.<env>.<suffix>,
+    // lower case, which `adb shell setprop debug.crystalcore.trace <file>` sets for the next run)
+    std::string prop = std::string("debug.") + RHIPPER_ENV + "." + suffix;
+    for (char& c : prop) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+    char value[PROP_VALUE_MAX] = {};
+    return __system_property_get(prop.c_str(), value) > 0 ? value : "";
 }
 
 }  // namespace rh

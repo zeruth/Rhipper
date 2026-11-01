@@ -72,8 +72,16 @@ def facts(jobs: int) -> bool:
         return False
     # (the function extents, names and import prototypes as Ghidra has them now, first: the last
     # session's renames and the functions made since, which every step below reads)
-    stamp("ghidra.sh functions")
-    if step("functions", [bash(), str(RH / "ghidra" / "ghidra.sh"), "functions"], tail=1)[0]:
+    # (a new project has no Ghidra project yet: the binary is imported, with full auto-analysis,
+    # which exports the extents too)
+    g = project.CONFIG["ghidra"]
+    gpr = Path(g["projects"] or "") / f"{g['project'] or project.NAME}.gpr"
+    sub = "functions" if gpr.is_file() else "import"
+    stamp(f"ghidra.sh {sub}")
+    if step(sub, [bash(), str(RH / "ghidra" / "ghidra.sh"), sub], tail=1)[0]:
+        return False
+    if not (project.FACTS / "functions.json").is_file():
+        print(f"    no {project.FACTS / 'functions.json'}: see build/ghidra-{'import' if sub == 'import' else 'last'}.log", flush=True)
         return False
     # (switches32: the jump tables Ghidra misreads, which ghidra.sh all overrides)
     for tool in ("toolchain", "noreturn", "vtables", "srcrefs", "switches32"):
@@ -131,7 +139,14 @@ def build(jobs: int) -> bool:
     # (configured again first: the generated file list changes with the translation, and a build
     # linked the last one's object of a file the new translation no longer has beside the new
     # files', LNK2005)
-    step("configure", ["cmake", d], tail=1)
+    # (a new project's build directory is made from the project's CMakeLists.txt, as an x64 build:
+    # `cmake <dir>` alone only configures one that exists)
+    # (-A is a Visual Studio generator's option only)
+    gen = os.environ.get("CMAKE_GENERATOR", "")
+    platform = ["-A", "x64"] if not gen or gen.startswith("Visual Studio") else []
+    configure = ["cmake", d] if (Path(d) / "CMakeCache.txt").is_file() else ["cmake", "-S", str(ROOT), "-B", d, *platform]
+    if step("configure", configure, tail=1)[0]:
+        return False
     code, text = step("build", ["cmake", "--build", d, "--config", cfg["config"], "--target", cfg["target"],
                                 "--", f"/m:{jobs}", "/v:minimal"], tail=3)
     groups: dict[str, int] = {}

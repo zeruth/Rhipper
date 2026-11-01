@@ -39,7 +39,18 @@ set(RUNTIME32_POSIX_SOURCES
   ${RUNTIME32_POSIX}/xinput.cpp
   ${RUNTIME32_POSIX}/Com32Posix.cpp
   ${RUNTIME32_POSIX}/d3d9_null.cpp
-  ${RUNTIME32_POSIX}/dinput8.cpp)
+  ${RUNTIME32_POSIX}/dinput8.cpp
+  ${RUNTIME32_POSIX}/input.cpp
+  ${RUNTIME32_POSIX}/xaudio2.cpp
+  ${RUNTIME32_POSIX}/d3d9vk/Shader.cpp
+  ${RUNTIME32_POSIX}/d3d9vk/SpirvBuilder.cpp
+  ${RUNTIME32_POSIX}/d3d9vk/Device.cpp
+  ${RUNTIME32_POSIX}/d3d9vk/Draw.cpp
+  ${RUNTIME32_POSIX}/d3d9vk/Pipeline.cpp
+  ${RUNTIME32_POSIX}/d3d9vk/Image.cpp
+  ${RUNTIME32_POSIX}/d3d9vk/VkResources.cpp
+  ${RUNTIME32_POSIX}/d3d9vk/Formats.cpp
+  ${RUNTIME32_POSIX}/d3d9vk/FixedFunction.cpp)
 
 # The flags the translation (a project's gen object library) builds with. Ghidra32.h's aarch64 branch
 # says why each: C17 for the unprototyped `code()`, x86's signed char, no fused multiply-add, MSVC's
@@ -47,11 +58,52 @@ set(RUNTIME32_POSIX_SOURCES
 # runtime32's MSVC build disables as /wd for the same reasons (the memory model's int/pointer
 # conversions C4047/C4133/C4022/C4024, the decompiler's missing returns C4715/C4716): clang >= 16
 # makes them errors by default. A call without a declaration stays an error (C4013 /we on Windows).
+# No loop vectorizer: it makes vector addrspacecasts to __ptr32 that AArch64's backend can't legalize
+# (tests/ptr32_vector.c, checked below so a toolchain that still crashes fails here, not mid-gen).
+# No wcslen builtin: with -fshort-wchar the loop idiom pass turns a UTF-16 length loop into a call to
+# bionic's wcslen, which counts 4-byte units, and every such length came out half
+# (tests/wcslen_idiom.c, linked below with no libc so a wcslen the compiler adds fails it).
 set(RUNTIME32_POSIX_GEN_FLAGS
   -std=gnu17 -fms-extensions -fshort-wchar -fsigned-char -fno-strict-aliasing -fwrapv -ffp-contract=off
-  -fno-delete-null-pointer-checks -U_FORTIFY_SOURCE -fPIC -fno-omit-frame-pointer
+  -fno-delete-null-pointer-checks -U_FORTIFY_SOURCE -fPIC -fno-omit-frame-pointer -fno-vectorize
+  -fno-builtin-wcslen
   -Wno-int-conversion -Wno-incompatible-pointer-types -Wno-incompatible-function-pointer-types
   -Wno-return-mismatch -Wno-return-type -Werror=implicit-function-declaration)
+set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
+try_compile(_rhipper_ptr32_vector ${CMAKE_BINARY_DIR}/rhipper_ptr32_vector
+  SOURCES ${RUNTIME32_POSIX}/tests/ptr32_vector.c
+  COMPILE_DEFINITIONS ${RUNTIME32_POSIX_GEN_FLAGS} -O2
+  OUTPUT_VARIABLE _rhipper_ptr32_vector_out)
+unset(CMAKE_TRY_COMPILE_TARGET_TYPE)
+if(NOT _rhipper_ptr32_vector)
+  message(FATAL_ERROR "runtime32-posix: tests/ptr32_vector.c does not build with the gen flags:\n${_rhipper_ptr32_vector_out}")
+endif()
+try_compile(_rhipper_wcslen_idiom ${CMAKE_BINARY_DIR}/rhipper_wcslen_idiom
+  SOURCES ${RUNTIME32_POSIX}/tests/wcslen_idiom.c
+  COMPILE_DEFINITIONS ${RUNTIME32_POSIX_GEN_FLAGS} -O2
+  LINK_OPTIONS -nostdlib -Wl,-e,start
+  OUTPUT_VARIABLE _rhipper_wcslen_idiom_out)
+if(NOT _rhipper_wcslen_idiom)
+  message(FATAL_ERROR "runtime32-posix: tests/wcslen_idiom.c calls a library wcslen with the gen flags:\n${_rhipper_wcslen_idiom_out}")
+endif()
+# A narrowed store through a __ptr32 pointer comes out 8 bytes wide from AArch64's backend; Ghidra32.h's
+# GEN_NE routes every such store through a host pointer instead (tests/ptr32_truncstore.c). Compiled
+# to assembly with the gen flags and runtime32's Ghidra32.h: no 64-bit store may be left in it.
+get_filename_component(_rhipper_runtime32 ${RUNTIME32_POSIX}/../runtime32 ABSOLUTE)
+execute_process(
+  COMMAND ${CMAKE_C_COMPILER} --target=${CMAKE_C_COMPILER_TARGET} --sysroot=${CMAKE_SYSROOT}
+          -I${_rhipper_runtime32} ${RUNTIME32_POSIX_GEN_FLAGS} -O2 -fomit-frame-pointer -S -o -
+          ${RUNTIME32_POSIX}/tests/ptr32_truncstore.c
+  OUTPUT_VARIABLE _rhipper_truncstore_asm ERROR_VARIABLE _rhipper_truncstore_err
+  RESULT_VARIABLE _rhipper_truncstore_rc)
+if(NOT _rhipper_truncstore_rc EQUAL 0)
+  message(FATAL_ERROR "runtime32-posix: tests/ptr32_truncstore.c does not compile with the gen flags:\n${_rhipper_truncstore_err}")
+endif()
+string(REGEX MATCH "(str|stur)[ \t]+x[0-9]+, \\[x[0-9]+" _rhipper_truncstore_wide "${_rhipper_truncstore_asm}")
+if(_rhipper_truncstore_wide)
+  message(FATAL_ERROR "runtime32-posix: a narrowed store through a __ptr32 pointer is 8 bytes wide (`${_rhipper_truncstore_wide}`): "
+                      "Ghidra32.h's GEN_NE must take the host-pointer form on this host (tests/ptr32_truncstore.c)\n${_rhipper_truncstore_asm}")
+endif()
 function(rhipper_gen_posix gen)
   target_compile_options(${gen} PRIVATE ${RUNTIME32_POSIX_GEN_FLAGS})
 endfunction()
@@ -79,9 +131,10 @@ function(rhipper_runtime32_posix target)
   if(R_REF)
     target_compile_definitions(${target} PRIVATE RHIPPER_REF="${R_REF}")
   endif()
-  # -fms-extensions -fshort-wchar for the gen sources (Ghidra32.h __ptr32, 2-byte wchar_t); the
-  # runtime's own C++ does not need them but is harmless with them, and shares the flags with gen.
-  target_compile_options(${target} PRIVATE -fms-extensions -fshort-wchar -Wall -g
+  # The runtime's own C++, with the platform's 4-byte wchar_t: its UTF-16 is char16_t, and under
+  # -fshort-wchar clang made Len16's loop a call to bionic's 4-byte wcslen (and libc++'s inline
+  # wide-string code would disagree with the libc++ it links). The gen flags stay on the gen library.
+  target_compile_options(${target} PRIVATE -fms-extensions -Wall -g
     -fno-omit-frame-pointer -funwind-tables)
   # The runtime's registry of Win32 functions is built from static constructors (RH_REG): keep them
   # even though nothing references them from the object files.
@@ -89,7 +142,7 @@ function(rhipper_runtime32_posix target)
     -Wl,--no-undefined
     -Wl,-z,max-page-size=16384   # correct on 16 KB-page devices
     -Wl,--build-id=sha1)
-  target_link_libraries(${target} PRIVATE log android dl)
+  target_link_libraries(${target} PRIVATE log android dl aaudio vulkan)
   # (frame pointers kept across the whole library so the crash handler's backtrace can walk it)
 
   # ---- the boot / JNI library --------------------------------------------------------------------

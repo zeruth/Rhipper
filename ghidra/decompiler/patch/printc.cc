@@ -507,8 +507,13 @@ void PrintC::opTypeCast(const PcodeOp *op)
     bool outF = dt->getMetatype() == TYPE_FLOAT;
     int4 sz = dt->getSize(), isz = in->getSize();
     bool sizes = op->code() == CPUI_CAST ? isz == sz : isz > sz;
+    // (a pointer too, a 4-byte one's bits: a stack slot the code keeps a float* and a float in
+    // by turns, `local._4_4_ = (float *)fVar6` and `(float)local._4_4_`, movss in and out. As
+    // casts, C converted the float to an integer address and back, 0x629360's vertex bounds, the
+    // operation census 2026-10-31)
+    bool inP = in->getMetatype() == TYPE_PTR, outP = dt->getMetatype() == TYPE_PTR;
     if (inF != outF && sizes && (sz == 4 || sz == 8) && (!inF || isz == 4 || isz == 8)
-        && in->getMetatype() != TYPE_PTR && dt->getMetatype() != TYPE_PTR) {
+        && (!inP || isz == 4) && (!outP || sz == 4)) {
       if (!outF) {		// (the integer the bits are, as its type: `(int)gen_fl2bits(f)`)
         pushOp(&typecast,op);
         pushType(dt);
@@ -516,7 +521,7 @@ void PrintC::opTypeCast(const PcodeOp *op)
       pushOp(&function_call,op);
       string nm = inF ? (isz == 4 ? "gen_fl2bits" : "gen_d2bits") : (sz == 4 ? "gen_bits2f" : "gen_bits2d");
       pushAtom(Atom(nm,optoken,EmitMarkup::no_color,op));
-      if (outF && isz != sz) {	// (the integer cut to the float's size first: `gen_bits2f((uint)x)`)
+      if (outF && (isz != sz || inP)) {	// (the integer cut to the float's size first: `gen_bits2f((uint)x)`)
         pushOp(&typecast,op);
         pushType(glb->types->getBase(sz,TYPE_UINT));
       }
@@ -2064,8 +2069,9 @@ void PrintC::pushPartialSymbol(const Symbol *sym,int4 off,int4 sz,
   //                       globalstruct.(arrayfield[0])
   vector<PartialSymbolEntry> stack;
   Datatype *finalcast = (Datatype *)0;
+  Datatype *castfrom = (Datatype *)0;	// RHIPPER: the type the cast piece is cut from
   int8 newoff;
-  
+
   Datatype *ct = sym->getType();
 
   while(ct != (Datatype *)0) {
@@ -2138,6 +2144,7 @@ void PrintC::pushPartialSymbol(const Symbol *sym,int4 off,int4 sz,
       if (castStrategy->isSubpieceCastEndian(outtype,ct,off,spc->isBigEndian())) {
 	// Treat truncation as SUBPIECE style cast
 	finalcast = outtype;
+	castfrom = ct;
 	ct = (Datatype*)0;
 	succeeded = true;
       }
@@ -2157,8 +2164,36 @@ void PrintC::pushPartialSymbol(const Symbol *sym,int4 off,int4 sz,
   }
 
   if ((finalcast != (Datatype *)0)&&(!option_nocasts)) {
-    pushOp(&typecast,op);
-    pushType(finalcast);
+    // RHIPPER: the low piece of an integer symbol read as a float changes no bits, as in
+    // opTypeCast: `(float)local_58` (a longlong whose low half holds a float or a fistp'd count)
+    // is a C value conversion. UpdateSimulation's substep count `mov eax,[ebp-0x48]` after
+    // `fistp qword [ebp-0x48]` became gen_fl2bits((float)N) = 0x3f800000 substeps, the port
+    // froze at character select (2026-10-31). Printed as the bit view gen_bits2f((uint)sym).
+    // (the names static: an Atom keeps its name by reference until it is emitted)
+    static const string bits2f = "gen_bits2f", bits2d = "gen_bits2d";
+    int4 fsz = finalcast->getSize();
+    if (finalcast->getMetatype() == TYPE_FLOAT && castfrom != (Datatype *)0
+        && castfrom->getMetatype() != TYPE_FLOAT && (fsz == 4 || fsz == 8)) {
+      pushOp(&function_call,op);
+      pushAtom(Atom(fsz == 4 ? bits2f : bits2d,optoken,EmitMarkup::no_color,op));
+      pushOp(&typecast,op);
+      pushType(glb->types->getBase(fsz,TYPE_UINT));
+    }
+    // (and the other way, an integer piece of a float symbol, its low bytes: `uVar4 = (uint)dVar7`
+    // of a double holding fpatan's bits is the double's value cut to an integer in C, not its low
+    // word; `(uint)gen_d2bits(dVar7)`. 0x60b7c0 and 27 sites like it, 2026-10-31)
+    else if (finalcast->getMetatype() != TYPE_FLOAT && castfrom != (Datatype *)0
+             && castfrom->getMetatype() == TYPE_FLOAT && (castfrom->getSize() == 4 || castfrom->getSize() == 8)) {
+      static const string fl2bits = "gen_fl2bits", d2bits = "gen_d2bits";
+      pushOp(&typecast,op);
+      pushType(finalcast);
+      pushOp(&function_call,op);
+      pushAtom(Atom(castfrom->getSize() == 4 ? fl2bits : d2bits,optoken,EmitMarkup::no_color,op));
+    }
+    else {
+      pushOp(&typecast,op);
+      pushType(finalcast);
+    }
   }
   // Push these on the RPN stack in reverse order
   for(int4 i=stack.size()-1;i>=0;--i)
@@ -2493,10 +2528,10 @@ void PrintC::initializeFromArchitecture(void)
 
 {
   castStrategy->setTypeFactory(glb->types);
-  if (glb->types->getSizeOfLong() == glb->types->getSizeOfInt())	// If long and int sizes are the same
-    sizeSuffix = "LL";		// Use "long long" suffix to indicate large integer
-  else
-    sizeSuffix = "L";		// Otherwise just use long suffix
+  // RHIPPER: always "LL". The suffix marks a shift's 8-byte constant (CastStrategy::markExplicitLongSize),
+  // and the translation builds where long is 4 bytes (MSVC x64): `1L << k` was a 32-bit shift, x64's
+  // 1 << (k & 31), CharacterBase::SetMaskBit 0x689570 and the occlusion query keys 0xb7e120 (2026-10-31)
+  sizeSuffix = "LL";
 }
 
 void PrintC::adjustTypeOperators(void)

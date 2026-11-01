@@ -135,9 +135,9 @@ HEADER_NAMES = {"REFG", "REFP", "GP", "PTR32", "MXCSR", "ExceptionList", "GenUni
                 "log2",
                 "builtin_strncpy", "builtin_memcpy", "builtin_memset",
                 "floor", "ceil", "trunc", "nearbyint", "memcpy", "memset", "rdtsc", "GEN_PIECE", "GEN_ISNAN",
-                "gen_piece_set", "gen_fl2bits", "gen_d2bits", "gen_bits2f", "gen_bits2d", "GEN_TOF", "GEN_TOD", "GEN_ARGF", "GEN_SLOT", "GEN_LOW",
+                "gen_piece_set", "gen_sext_n", "gen_ld80", "gen_fl2bits", "gen_d2bits", "gen_bits2f", "gen_bits2d", "GEN_TOF", "GEN_TOD", "GEN_ARGF", "GEN_SLOT", "GEN_LOW",
                 "gen_ac", "GEN_LO32", "GEN_HI32",
-                "GEN_TOP", "GEN_FLT_TO", "gen_vzero"}
+                "GEN_TOP", "GEN_FLT_TO", "gen_vzero", "GEN_NE"}
 _header_names: set[str] | None = None
 
 
@@ -313,11 +313,25 @@ def out_stack(body: str, alloca: bool = False, eh: bool = False) -> str:
     # `&stack0xffffffec`: one word, the tuple Od's map insert builds in place and passes, read
     # back as uStack_14. Apart, the constructor wrote gen_out and the call passed the garbage the
     # local held, a map node's key copied from nowhere, rhtest stl-Od)
+    # (all of a run of them, each next to the room as it grows: a 0x54-byte string built in place
+    # and passed by value, words 2..20 the decompiler's uStack_58..uStack_10. One word beyond the
+    # room alone, the rest were locals the constructor never wrote and the call passed garbage, its
+    # length 0xffffffff on Android, FUN_0043d1b0's hotbar names (the Android session's find,
+    # 2026-11-01); and gen_out only 8 bytes, the constructor's other 0x4c ran over its neighbours)
     named = {}
-    for m in re.finditer(r"(?m)^\s*(?!return\b)([A-Za-z_][^;=()\n]*?[\s*]+)(\w+Stack_([0-9a-f]{1,7}))\s*;", body):
-        off = (1 << 32) - int(m.group(3), 16)
-        if offs[0] - 4 <= off <= offs[-1] + 4 and not has_frame(body) and not eh:
-            named[m.group(2)] = (m.group(1).strip(), off)
+    cands = {}
+    if not has_frame(body) and not eh:
+        for m in re.finditer(r"(?m)^\s*(?!return\b)([A-Za-z_][^;=()\n]*?[\s*]+)(\w+Stack_([0-9a-f]{1,7}))\s*;", body):
+            cands[m.group(2)] = (m.group(1).strip(), (1 << 32) - int(m.group(3), 16))
+    lo_r, hi_r = offs[0], offs[-1]
+    grew = True
+    while grew:
+        grew = False
+        for n, (t, off) in cands.items():
+            if n not in named and lo_r - 4 <= off <= hi_r + 4:
+                named[n] = (t, off)
+                lo_r, hi_r = min(lo_r, off), max(hi_r, off)
+                grew = True
     if named:
         offs = sorted(set(offs) | {off for _, off in named.values()})
         for n, (t, off) in named.items():
@@ -871,7 +885,7 @@ def binary_amp(body: str, at: int) -> bool:
         return False
     # (a cast's parenthesis, `(int)`, `(uint *)`, `(undefined4 * PTR32)`: the unary after it)
     return not re.search(r"\(\s*(?:(?:const|unsigned|signed|struct)\s+)*[A-Za-z_]\w*(?:\s*\*+)?"
-                         r"(?:\s*PTR32(?:\s*\*+)?)?\s*\)\Z", before)
+                         r"(?:\s*PTR32(?:\s*\*+)?)*\s*\)\Z", before)
 
 
 def has_frame(body: str) -> bool:
@@ -926,6 +940,193 @@ def idiv32(body: str) -> str:
         i = end + 1
     out.append(body[i:])
     return "".join(out)
+
+
+# Ghidra's integer types 3, 5, 6 or 7 bytes wide, which Ghidra32.h holds in the next wider C type
+ODD_WIDTH = {f"{p}{n}": n for p in ("uint", "undefined", "int") for n in (3, 5, 6, 7)}
+_ODD_CAST = re.compile(r"\(\s*(" + "|".join(ODD_WIDTH) + r")\s*\*\s*\)")
+_ODD_PTR_DECL = re.compile(r"\b(" + "|".join(ODD_WIDTH) + r")\s*\*\s*([A-Za-z_]\w*)\s*(?=[=;,)])")
+
+
+def _operand_end(body: str, i: int) -> int:
+    """The end of a cast's operand starting at body[i]: a parenthesized group, `&` and an operand,
+    or a name with its calls, subscripts and members (`GEN_TOP((p + 0x6e))`, `&REFG(T, a)`)."""
+    while i < len(body) and body[i] in " \t\r\n":
+        i += 1
+    if i < len(body) and body[i] in "&*":
+        return _operand_end(body, i + 1)
+    if i < len(body) and body[i] == "(":
+        return match_paren(body, i)
+    m = re.compile(r"[A-Za-z_]\w*").match(body, i)
+    if not m:
+        return -1
+    j = m.end()
+    while True:
+        k = j
+        while k < len(body) and body[k] in " \t":
+            k += 1
+        if k < len(body) and body[k] == "(":
+            j = match_paren(body, k)
+        elif k < len(body) and body[k] == "[":
+            d, j = 0, k
+            while j < len(body):
+                d += {"[": 1, "]": -1}.get(body[j], 0)
+                j += 1
+                if d == 0:
+                    break
+        elif body.startswith("->", k) or (k < len(body) and body[k] == "." and not body[k + 1:k + 2].isdigit()):
+            m2 = re.compile(r"(?:->|\.)\s*[A-Za-z_]\w*").match(body, k)
+            if not m2:
+                return j
+            j = m2.end()
+        else:
+            return j
+        if j < 0:
+            return -1
+
+
+def _unary_at(body: str, at: int) -> bool:
+    """Whether the `*` at `at` is a dereference: no operand before it (a name, a number, a
+    subscript or a parenthesized expression), or one a cast's parenthesis closes, `(uint)*p`, or
+    a `return`."""
+    before = body[:at].rstrip()
+    if not before or not re.fullmatch(r"[\w)\]]", before[-1]) or re.search(r"\breturn\Z", before):
+        return True
+    return bool(re.search(r"\(\s*(?:(?:const|unsigned|signed|struct)\s+)*[A-Za-z_]\w*(?:\s*\*+)?"
+                          r"(?:\s*PTR32(?:\s*\*+)?)*\s*\)\Z", before)) and \
+        is_type(before[before.rfind("("):])
+
+
+def _value_end(body: str, i: int) -> int:
+    """The end of an assignment's right side from body[i]: up to the `;`, `,` or unmatched `)`
+    that ends it, at its own depth."""
+    d = 0
+    j = i
+    while j < len(body):
+        ch = body[j]
+        if ch in "\"'":
+            k = j + 1
+            while k < len(body) and body[k] != ch:
+                k += 2 if body[k] == "\\" else 1
+            j = k + 1
+            continue
+        if ch in "([":
+            d += 1
+        elif ch in ")]":
+            if d == 0:
+                return j
+            d -= 1
+        elif ch in ";," and d == 0:
+            return j
+        j += 1
+    return j
+
+
+def odd_width_access(body: str, var_types: dict[str, str] | None = None) -> str:
+    """A 3, 5, 6 or 7-byte value read or written through a pointer, `*(uint3 *)(p + 0x6e)`,
+    `(*(undefined3 *)(gen_frame + 0x88)) = x`, `*param_1` of a `uint3 *`: its own bytes, GEN_PIECE
+    and gen_piece_set. Ghidra32.h holds the type in the next wider C one (uint3 an unsigned int),
+    so as a dereference the load read a byte past the value, the high byte kept where no mask
+    follows (`(uint)*(uint3 *)(puVar6 + 6)`, 0x59ba30), and the store wrote the byte after it,
+    a frame's next local or a record's next field. A 24-bit sample's `movzx` of its three bytes,
+    FUN_00cfe6c0, read four, 2026-10-30."""
+    # (a pointer variable of the type, `uint3 *param_1`: its dereference and subscript the cast's)
+    # (a parameter's too, its type the signature's: var_types)
+    ptrs = {(m.group(1), m.group(2)) for m in _ODD_PTR_DECL.finditer(body)}
+    for n, tt in (var_types or {}).items():
+        pm = re.fullmatch(r"\s*(" + "|".join(ODD_WIDTH) + r")\s*\*\s*", tt)
+        if pm:
+            ptrs.add((pm.group(1), n))
+    for t, n in sorted(ptrs):
+        w = ODD_WIDTH[t]
+        body = re.sub(r"\b" + re.escape(n) + r"\s*\[([^\[\]]+)\]",
+                      lambda m: f"(*({t} *)((char *){n} + ({m.group(1)}) * {w}))", body)
+        out, i = [], 0
+        for m in re.finditer(r"\*\s*" + re.escape(n) + r"\b(?!\s*(?:\[|->|\.))", body):
+            if not _unary_at(body, m.start()):
+                continue                      # (a multiplication, or the declaration's own `*`)
+            out.append(body[i:m.start()])
+            out.append(f"(*({t} *){n})")
+            i = m.end()
+        out.append(body[i:])
+        body = "".join(out)
+        if re.search(r"\b" + re.escape(n) + r"\s*(?:\+\+|--|[-+]=?(?!=)\s*[\w(])", body):
+            raise ValueError(f"pointer arithmetic on a {t} *")
+    for m in reversed(list(_ODD_CAST.finditer(body))):
+        t, cast_at = m.group(1), m.start()
+        w = ODD_WIDTH[t]
+        signed = t.startswith("int")
+        # (the dereference: `*(T *)x`, or `*((T *)x)` the cast's own group)
+        k = cast_at - 1
+        while k >= 0 and body[k] in " \t":
+            k -= 1
+        if k >= 0 and body[k] == "*":
+            star, addr_lo = k, cast_at
+            end = _operand_end(body, m.end())
+            addr_hi = end
+        elif k >= 0 and body[k] == "(":
+            g = k
+            k -= 1
+            while k >= 0 and body[k] in " \t":
+                k -= 1
+            if k < 0 or body[k] != "*":
+                continue
+            star = k
+            end = match_paren(body, g)
+            if end < 0 or _operand_end(body, m.end()) != end - 1:
+                continue                       # (`*((T *)p + 1)`: arithmetic on the pointer)
+            addr_lo, addr_hi = cast_at, end - 1
+        else:
+            continue
+        if end < 0:
+            continue
+        # (a unary `*` only: not `a * (T *)b`, which C has no meaning for)
+        if not _unary_at(body, star):
+            continue
+        addr = body[addr_lo:addr_hi]
+        lo, hi = star, end
+        # (the parentheses around it, `(*(T *)(gen_frame + 0x88)) = x`)
+        while True:
+            p = lo - 1
+            while p >= 0 and body[p] in " \t":
+                p -= 1
+            q = hi
+            while q < len(body) and body[q] in " \t":
+                q += 1
+            if p >= 0 and body[p] == "(" and q < len(body) and body[q] == ")" and not \
+                    re.search(r"[\w\]]\s*$", body[:p]):
+                lo, hi = p, q + 1
+            else:
+                break
+        # (its address taken, `&(*(T *)p)`: the pointer, as it is)
+        p = lo - 1
+        while p >= 0 and body[p] in " \t":
+            p -= 1
+        if p >= 0 and body[p] == "&" and not binary_amp(body, p) and not body[:p].endswith("&"):
+            continue
+        q = hi
+        while q < len(body) and body[q] in " \t\r\n":
+            q += 1
+        load = f"GEN_PIECE({addr}, 0, {w})"
+        if signed:
+            load = f"gen_sext_n({load}, {w})"
+        load = f"(({t}){load})"
+        if body.startswith("++", q) or body.startswith("--", q) or body[:lo].rstrip().endswith(("++", "--")):
+            raise ValueError(f"an increment of a {t}")
+        op = re.compile(r"(<<|>>|[-+*/%&|^])?=(?!=)").match(body, q)
+        if op:
+            v_lo = op.end()
+            v_hi = _value_end(body, v_lo)
+            value = body[v_lo:v_hi].strip()
+            if op.group(1):
+                if re.search(r"\+\+|--|(?<![=!<>])=(?!=)|\b(?!GEN_TOP\b|REFG\b|REFP\b|GEN_PIECE\b)[A-Za-z_]\w*\s*\(", addr):
+                    raise ValueError(f"a compound assignment to a {t} through an address with effects")
+                value = f"{load} {op.group(1)} ({value})"
+            rep = f"gen_piece_set({addr}, 0, {w}, (unsigned long long)({value}))"
+            body = body[:lo] + rep + body[v_hi:]
+        else:
+            body = body[:lo] + load + body[hi:]
+    return body
 
 
 def eh_state_volatile(body: str) -> str:
@@ -1103,6 +1304,240 @@ def global_index(body: str) -> str:
         out.append(e if re.fullmatch(r"\s*-?(?:0x[0-9a-fA-F]+|\d+)\s*", e) else f"(int)({e})")
         out.append("]")
         i = k
+    out.append(body[i:])
+    return "".join(out)
+
+
+def pointer_index(body: str, var_types: dict[str, str]) -> str:
+    """A pointer's subscript, and a group added to it, in 32 bits as the reference computes the
+    address, frame_index's and global_index's rule for a local's or a parameter's pointer: an
+    unsigned offset past 0x7fffffff is a step back there, the sum wrapping, and C zero-extends it
+    to 64 bits, 16 GB on. The CRT's memmove (FID_conflict__memcpy 0xc46aa0 and 0xc46e20) copies a
+    backward tail of 2..7 dwords as `puVar4[6 - uVar1] = puVar3[6 - uVar1]` after case 7's
+    `[7 - uVar1]`, x86's [esi + ecx*4 + 0x18] with ecx = -7 (`neg ecx; jmp [ecx*4 + table]`), and
+    the port's `mov eax, 6; sub eax, r9d; mov eax, [r8 + rax*4]` read 0x3fffffffc on; hkMemUtil::
+    MemCpyBackward 0xda37e0's byte tail `puVar8[uVar5 - uVar3]` (src - dst, dst above src) the
+    same (2026-10-31). An address the reference computes fits 31 bits, so the signed reading is
+    the 32-bit sum's: `(int)(E)`, a literal left as it is."""
+    names = [n for n, t in var_types.items() if ("*" in t or t.endswith("[]")) and "(" not in t and not n.startswith("gen_")]
+    if not names:
+        return body
+    alt = "|".join(map(re.escape, sorted(names, key=len, reverse=True)))
+    pat = re.compile(r"(?<![\w.$])(?<!->)(?:" + alt + r")\s*(\[|\+ \()")
+    literal = re.compile(r"\s*-?(?:0x[0-9a-fA-F]+|\d+)[uU]?\s*")
+
+    ints = {"int", "short", "char", "long", "sbyte", "int8_t", "int16_t", "int32_t", "longlong", "int64_t", "bool"}
+
+    def signed(e: str) -> bool:
+        """a literal, already (int), or every operand a signed local's (`iVar5 + 4`)"""
+        if literal.fullmatch(e) or re.fullmatch(r"\s*\(int\)\s*\(.*\)\s*", e, re.S):
+            return True
+        if re.search(r"\bunsigned\b|\(\s*(?:u\w+|undefined\d|byte|word|dword|size_t|gen_size32)\s*\)|[0-9a-fA-F]U\b|\(|\[|->|\.", e):
+            return False
+        words = re.findall(r"\b[A-Za-z_]\w*\b", e)
+        return bool(words) and all(var_types.get(w, "").strip() in ints for w in words)
+
+    def walk(text: str) -> str:
+        out, i = [], 0
+        for m in pat.finditer(text):
+            if m.start() < i:
+                continue
+            # (the pointer cast to an integer first, `(int)p + (..)`: 32-bit arithmetic already)
+            if m.group(1) != "[" and re.search(r"\)\s*$", text[max(0, m.start() - 2):m.start()]):
+                continue
+            j = m.end()
+            k, depth = j, 1
+            opener, closer = ("[", "]") if m.group(1) == "[" else ("(", ")")
+            while k < len(text) and depth:
+                depth += {opener: 1, closer: -1}.get(text[k], 0)
+                k += 1
+            if depth:
+                continue
+            # (an added group that is a factor's, `p + (a) * 4`: not the whole offset)
+            if m.group(1) != "[" and re.match(r"\s*(?:[*/%\[.]|->|[\w(&*!~])", text[k:]):
+                continue
+            e = walk(text[j:k - 1])
+            out.append(text[i:j - (0 if m.group(1) == "[" else 1)])
+            # (an added group keeps its parentheses, signed or not: `p + (a - b >> 2)` bare was
+            # `p + a - b >> 2`, the pointer shifted, 78 functions demoted 2026-10-31)
+            if signed(e):
+                out.append(e if m.group(1) == "[" else f"({e})")
+            else:
+                out.append(f"(int)({e})")
+            out.append(closer if m.group(1) == "[" else "")
+            i = k
+        out.append(text[i:])
+        return "".join(out)
+    return walk(body)
+
+
+_ADDEND_INTS = {"int", "short", "char", "long", "sbyte", "int8_t", "int16_t", "int32_t", "longlong", "int64_t", "bool"}
+
+
+def _closes_at_end(e: str) -> bool:
+    """whether e's first parenthesis closes at its end"""
+    depth = 0
+    for k, ch in enumerate(e):
+        depth += {"(": 1, ")": -1}.get(ch, 0)
+        if depth == 0:
+            return k == len(e) - 1
+    return False
+
+
+def pointer_addends(body: str, var_types: dict[str, str]) -> str:
+    """A pointer's bare addends, `pcVar3 = pcVar3 + uVar4;`, `param_1 + (uVar2 - iVar6) * 0x47`, in 32
+    bits as the reference computes the address, pointer_index's rule for the terms it leaves (it
+    takes a subscript and a parenthesized group): an unsigned term past 0x7fffffff is a step back
+    there, the sum wrapping, and C zero-extends it, 16 GB on. A text control's length byte read
+    signed, `uVar4 = (int)pcVar3[2] + 3`, stepped back on x86 and 4 GB on in the port (0x55c170,
+    2026-10-31). Each term of the chain after the pointer, up to the end of its additive
+    expression, `(int)(T)` unless it is a literal, already (int), every operand a signed local's,
+    or another pointer (a difference of two)."""
+    names = [n for n, t in var_types.items() if ("*" in t or t.endswith("[]")) and "(" not in t and not n.startswith("gen_")]
+    if not names:
+        return body
+    ptrs = set(names)
+    alt = "|".join(map(re.escape, sorted(names, key=len, reverse=True)))
+    # (the pointer itself, not a cast's operand `(int)p + x` nor a member `a->p`, then + or -)
+    pat = re.compile(r"(?<![\w.$)\]*&])(?<!->)(?<!\* )(?:" + alt + r")(?![\w\[(])\s*([+-])(?![+\-=>])")
+    literal = re.compile(r"\s*-?(?:0x[0-9a-fA-F]+|\d+)[uU]?\s*")
+
+    def signed(e: str) -> bool:
+        if literal.fullmatch(e) or re.fullmatch(r"\s*\(int\)\s*\(.*\)\s*", e, re.S):
+            return True
+        if re.search(r"\bunsigned\b|\(\s*(?:u\w+|undefined\d|byte|word|dword|size_t|gen_size32)\s*\)|[0-9a-fA-F]U\b|\(|\[|->|\.", e):
+            return False
+        words = re.findall(r"\b[A-Za-z_]\w*\b", e)
+        return bool(words) and all(var_types.get(w, "").strip() in _ADDEND_INTS for w in words)
+
+    def term_end(text: str, j: int) -> int:
+        """the end of the multiplicative term starting at j: the next top-level + - or an operator
+        of lower precedence, or a closer"""
+        depth, k = 0, j
+        while k < len(text) and text[k] in " \t":
+            k += 1
+        start = k
+        while k < len(text):
+            ch = text[k]
+            if ch in "([":
+                depth += 1
+            elif ch in ")]":
+                if depth == 0:
+                    break
+                depth -= 1
+            elif depth == 0:
+                if ch in ",;?:" or ch == "\n" or text.startswith("GEN_", k):
+                    break
+                two = text[k:k + 2]
+                if two in ("<<", ">>", "<=", ">=", "==", "!=", "&&", "||") or ch in "<>=|^":
+                    break
+                if ch == "&" and text[k + 1:k + 2] != "&":
+                    break
+                if ch in "+-" and k > start:
+                    prev = text[start:k].rstrip()[-1:]
+                    if prev and prev not in "*/%+-(":
+                        break
+            k += 1
+        return k
+
+    out, i = [], 0
+    for m in pat.finditer(body):
+        if m.start() < i:
+            continue
+        j = m.end()
+        out.append(body[i:j])
+        i = j
+        # (each term of the chain: p + T1 + T2 - T3)
+        while True:
+            k = term_end(body, i)
+            t = body[i:k]
+            e = t.strip()
+            lead = t[:len(t) - len(t.lstrip())]
+            # (a parenthesized group whole is pointer_index's, signed or (int) already)
+            whole_group = e.startswith("(") and e.endswith(")") and _closes_at_end(e)
+            if not e or whole_group or any(re.search(r"\b" + re.escape(p) + r"\b", e) for p in ptrs) or signed(e) \
+                    or re.match(r"\(\s*\w[\w\s]*\*\s*\)", e):
+                out.append(t)
+            else:
+                out.append(f"{lead}(int)({e})")
+            i = k
+            mm = re.match(r"\s*([+-])(?![+-=])", body[i:])
+            if not mm:
+                break
+            out.append(body[i:i + mm.end()])
+            i += mm.end()
+    out.append(body[i:])
+    return "".join(out)
+
+
+_POLL_LOAD = re.compile(r"^(?:mov|movzx|movsx)$")
+_POLL_REG = re.compile(r"\b(e?[abcd]x|[abcd][lh]|e?[sd]i|e?bp|e?sp)\b")
+_POLL_FAM = {"al": "eax", "ah": "eax", "ax": "eax", "bl": "ebx", "bh": "ebx", "bx": "ebx", "cl": "ecx", "ch": "ecx",
+       "cx": "ecx", "dl": "edx", "dh": "edx", "dx": "edx", "si": "esi", "di": "edi", "bp": "ebp", "sp": "esp"}
+
+
+def ref_polls(insns) -> bool:
+    """insns [(addr, size, mnemonic, ops)]: a short backward loop of nothing but loads of memory
+    the loop never readdresses, compares and conditional jumps (`mov al, [edi + 6]; test al, al;
+    je $-5`): a wait on memory another thread writes"""
+    at = {x[0]: k for k, x in enumerate(insns)}
+    for k, (ad, _s, mn, ops) in enumerate(insns):
+        if not (mn.startswith("j") and mn != "jmp" and re.fullmatch(r"0x[0-9a-f]+", ops)):
+            continue
+        t = int(ops, 16)
+        if t > ad or t not in at or k - at[t] > 12:
+            continue
+        body = insns[at[t]:k + 1]
+        written, mems, ok = set(), [], True
+        for _a, _sz, m, o in body:
+            parts = [p.strip() for p in o.split(",")] if o else []
+            if m in ("cmp", "test", "nop", "pause") or (m.startswith("j") and m != "jmp"):
+                mems += [p for p in parts if "[" in p]
+            elif _POLL_LOAD.match(m) and len(parts) == 2 and "[" in parts[1] and "[" not in parts[0]:
+                mems.append(parts[1])
+                written |= {_POLL_FAM.get(r, r) for r in _POLL_REG.findall(parts[0])}
+            else:
+                ok = False
+                break
+        if not ok or not mems:
+            continue
+        if all(not ({_POLL_FAM.get(r, r) for r in _POLL_REG.findall(p[p.index("["):])} & written) for p in mems):
+            return True
+    return False
+
+
+def poll_barriers(body: str) -> str:
+    """GEN_POLL() first in each loop body of the function that calls nothing"""
+    def match(s, i, o, c):
+        d = 0
+        for j in range(i, len(s)):
+            d += (s[j] == o) - (s[j] == c)
+            if d == 0:
+                return j
+        return -1
+
+    call = re.compile(r"\b(?:F_[0-9a-f]{8}|W_[0-9a-f]{8}|gen_imp_\w+)\s*\(|GEN_TCODE|\(\s*\*\s*\(\s*code\b|\(\*\(\(code")
+    out, i = [], 0
+    for m in re.finditer(r"\b(?:do\s*\{|(?:while|for)\s*\()", body):
+        if m.start() < i:
+            continue
+        if m.group(0).startswith("do"):
+            bo = m.end() - 1
+        else:
+            pc = match(body, m.end() - 1, "(", ")")
+            r = re.match(r"\s*\{", body[pc + 1:]) if pc > 0 else None
+            if not r:
+                continue
+            # (a do-while's tail is no loop of its own)
+            if body[:m.start()].rstrip().endswith("}") and body[pc + 1:].lstrip().startswith(";"):
+                continue
+            bo = pc + 1 + r.end() - 1
+        bc = match(body, bo, "{", "}")
+        if bc < 0 or call.search(body[bo:bc]):
+            continue
+        out.append(body[i:bo + 1])
+        out.append(" GEN_POLL();")
+        i = bo + 1
     out.append(body[i:])
     return "".join(out)
 
@@ -1473,96 +1908,218 @@ def array_stores(c: str) -> str:
 
 
 WORD4 = r"(?:undefined4|uint|int|ulong|long|LONG|DWORD|UINT)"
+PTR4 = r"(?:(?:unsigned\s+)?[A-Za-z_]\w*\s*\*\s*PTR32)"
+WTYPE = r"(?:" + WORD4 + r"|" + PTR4 + r")"
 
 
-def interlocked(c: str) -> str:
+def interlocked(c: str, head: str = "") -> str:
     """A `lock`-prefixed read-modify-write on a 4-byte word, Ghidra's `LOCK(); ...; UNLOCK();`, as
-    the intrinsic it is: `lock xadd` an _InterlockedExchangeAdd, `xchg` an _InterlockedExchange, a
-    locked read (`lock xadd [p], 0`, `V = *p; *p = *p;`) an _InterlockedExchangeAdd(p, 0).
-    Under Ghidra32.h's one process-wide lock it was atomic only against other LOCK() sections, not
-    the runtime's own interlocked calls, and slower; and the reference's x86 is the instruction
-    (bytes32.py, 1,152 sections in a client, 2026-10-27). Any other shape keeps the lock."""
+    the intrinsic it is: `lock xadd` an _InterlockedExchangeAdd (an add, a subtract, or 0: a locked
+    read), `xchg` an _InterlockedExchange, `lock cmpxchg` an _InterlockedCompareExchange.
+    Under Ghidra32.h's one process-wide lock a section was atomic only against other LOCK()
+    sections, not against the intrinsics: ReferencedClassBase::AddRef 0x4f4040 an
+    _InterlockedExchangeAdd(+1) and its Release 0x4f4050 `LOCK(); v = *p; *p = *p - 1; UNLOCK();`,
+    an AddRef between the read and the write lost (2026-10-31). Each section is the instruction, the
+    word read and written as one whatever types Ghidra gave each side (`*(uint *)p` read, `*(int *)p`
+    written; `gen_fl2bits(*(float *)p)` the word's bits). `head` is the function's signature, for
+    its pointer parameters (the body has none). Any other shape keeps the lock."""
     if "LOCK();" not in c:
         return c
-    ptr4 = set(re.findall(r"(?m)^[ \t]+" + WORD4 + r"\s*\*\s*(?:PTR32\s+)?([A-Za-z_]\w*)\s*;", c))
+    ptr4 = set(re.findall(r"(?m)^[ \t]+(?:" + WORD4 + r"|" + PTR4 + r")\s*\*\s*(?:PTR32\s+)?([A-Za-z_]\w*)\s*;", c))
+    # (and the parameters: `in_ecx`, an entry register made one, FUN_004273f0's `uint *in_ecx`)
+    ptr4 |= set(re.findall(r"[(,]\s*(?:" + WORD4 + r"|" + PTR4 + r")\s*\*\s*(?:PTR32\s+)?([A-Za-z_]\w*)\s*(?=[,)])",
+                           head))
+    ptrvars = set(re.findall(r"(?m)^[ \t]+(?:unsigned\s+)?[A-Za-z_]\w*\s*\*+\s*(?:PTR32\s+)?([A-Za-z_]\w*)\s*;", c))
 
-    def addr(lv: str) -> str | None:
-        """the address of a 4-byte lvalue, or None"""
+    def balanced(s: str) -> bool:
+        d = 0
+        for ch in s:
+            d += ch == "("
+            d -= ch == ")"
+            if d < 0:
+                return False
+        return d == 0
+
+    def lvalue(lv: str):
+        """(address, regex for any 4-byte read of the word, regex for its read as a float, pointer-typed)"""
         lv = lv.strip()
-        m = re.fullmatch(r"REFG\(\s*" + WORD4 + r"\s*,\s*0x[0-9a-f]+\s*\)", lv)
+        m = re.fullmatch(r"REFG\(\s*(" + WTYPE + r")\s*,\s*(0x[0-9a-f]+)\s*\)", lv)
         if m:
-            return f"&{lv}"
+            return (f"&{lv}", r"REFG\(\s*" + WTYPE + r"\s*,\s*" + m.group(2) + r"\s*\)",
+                    r"REFG\(\s*float\s*,\s*" + m.group(2) + r"\s*\)", "PTR32" in m.group(1))
+        m = re.fullmatch(r"([A-Za-z_]\w*)\s*\[([^\[\]]+)\]", lv)
+        if m and m.group(1) in ptr4:
+            return (f"&{lv}", re.escape(m.group(1)) + r"\s*\[\s*" + re.escape(m.group(2).strip()) + r"\s*\]", None, False)
         if not lv.startswith("*"):
             return None
         inner = lv[1:].strip()
-        if inner in ptr4:
-            return inner
-        # `*(uint *)((int)this + 0x18)` and `*((int *)GEN_TOP(...))`: a cast to a 4-byte pointer
-        m = re.fullmatch(r"\(\s*\(\s*" + WORD4 + r"\s*\*\s*\)\s*(.+)\)", inner, re.S) or \
-            re.fullmatch(r"\(\s*" + WORD4 + r"\s*\*\s*\)\s*(.+)", inner, re.S)
-        if m and (m.group(1).count("(") == m.group(1).count(")")):
-            return f"({inner[1:-1] if inner.startswith('((') else inner})"
+        if re.fullmatch(r"[A-Za-z_]\w*", inner) and inner in ptr4:
+            return (inner, r"\*\s*" + re.escape(inner) + r"(?![\w\[])", None, False)
+        m = re.fullmatch(r"\(\s*\(\s*(" + WTYPE + r")\s*\*\s*\)\s*(.+)\)", inner, re.S) or \
+            re.fullmatch(r"\(\s*(" + WTYPE + r")\s*\*\s*\)\s*(.+)", inner, re.S)
+        if m and balanced(m.group(2)):
+            e = m.group(2).strip()
+            # (or a subscript, `*(undefined4 *)param_1[0x10] = 2` under LOCK, xchg on a shared word:
+            # FileManager::ProcessExtendedRequest 0x4fd6e0 left on the global lock, 2026-11-01)
+            if not (re.fullmatch(r"[A-Za-z_]\w*", e) or (e.startswith("(") and e.endswith(")") and balanced(e[1:-1]))
+                    or re.fullmatch(r"GEN_TOP\(.*\)", e, re.S) or re.fullmatch(r"[A-Za-z_]\w*\s*\[[^\[\]]+\]", e)):
+                return None
+            ek = r"\s*".join(re.escape(ch) for ch in re.sub(r"\s+", "", e))
+            rd = (r"(?:\(\s*(?:int|uint|undefined4)\s*\)\s*)?gen_fl2bits\(\s*\*\s*\(\s*float\s*\*\s*\)\s*" + ek + r"\s*\)"
+                  r"|\*\s*\(\s*\(\s*" + WTYPE + r"\s*\*\s*\)\s*" + ek + r"\s*\)"
+                  r"|\*\s*\(\s*" + WTYPE + r"\s*\*\s*\)\s*" + ek + r"(?![\w\[])")
+            fr = (r"\*\s*\(\s*\(\s*float\s*\*\s*\)\s*" + ek + r"\s*\)"
+                  r"|\*\s*\(\s*float\s*\*\s*\)\s*" + ek + r"(?![\w\[])")
+            return (f"(({m.group(1)} *){e})", rd, fr, "PTR32" in m.group(1))
         return None
 
-    def same(a: str, b: str) -> bool:
-        return re.sub(r"\s+", "", a) == re.sub(r"\s+", "", b)
+    def mentions(lv: str, s: str) -> bool:
+        """s names the word's address at all (its pointer, its global, its address expression)"""
+        lv = re.sub(r"\s+", "", lv)
+        m = re.fullmatch(r"REFG\([^,]+,(0x[0-9a-f]+)\)", lv)
+        if m:
+            core = m.group(1)
+        else:
+            core = lv.lstrip("*")
+            core = re.sub(r"^\(\([\w*]+\)(.*)\)$", r"\1", core)
+            core = re.sub(r"^\([\w*]+\)", "", core).split("[")[0]
+        return bool(core) and core.strip("()") in re.sub(r"\s+", "", s)
+
+    def mark(s: str, rd: str, names=(), fr=None) -> str:
+        """s with every read of the word as `@` (and the read variables; a float read `@F`)"""
+        s = re.sub(rd, "@", s)
+        if fr:
+            s = re.sub(fr, "@F", s)
+        for n in names:
+            s = re.sub(r"(?<![\w.>])" + re.escape(n) + r"(?![\w\[(])", "@", s)
+        return s
+
+    def delta(e: str):
+        """`@` 0, `@ + X` X, `@ - X` -(X); None for anything else that reads the word"""
+        e = e.strip()
+        if e == "@":
+            return "0"
+        m = re.fullmatch(r"@\s*([+-])\s*(.+)", e, re.S)
+        if m and "@" not in m.group(2):
+            x = m.group(2).strip()
+            return f"(long)({x})" if m.group(1) == "+" else f"-(long)({x})"
+        m = re.fullmatch(r"(.+?)\s*\+\s*@", e, re.S)
+        if m and "@" not in m.group(1):
+            return f"(long)({m.group(1).strip()})"
+        return None
+
+    def value(x: str, isptr: bool) -> str:
+        # (a pointer's word: through uintptr_t, no truncation warning)
+        if isptr or re.search(r"\*\s*\)|GEN_TOP\(", x) or x.strip() in ptrvars:
+            return f"(long)(uintptr_t)({x})"
+        return f"(long)({x})"
+
+    def place(r: str, call: str, v: str) -> str | None:
+        """the read `v = R` with the word's old value in R's `@`"""
+        if r.count("@") != 1:
+            return None
+        if r.strip() == "@F":
+            return f"{v} = gen_bits2f((uint)({call}));"
+        if "@F" in r:
+            return None
+        if r.strip() == "@":
+            if v in ptrvars:
+                # (a pointer variable given the word: as Ghidra's own reads of it)
+                return f"{v} = (void *)(uintptr_t)(uint)({call});"
+            return f"{v} = {call};"
+        return f"{v} = " + r.replace("@", f"(uint)({call})") + ";"
 
     def rewrite(stmts: list[str]) -> str | None:
-        # (`lock cmpxchg`: `V = *p; if (C == V) { *p = X; V = C; }`, the old value either way)
-        if len(stmts) in (4, 5) and stmts[-1] == "}":
+        stmts = [s for s in stmts if s]
+        # (`lock cmpxchg`: `V = *p; if (C == V) { *p = X; V = C; }`, the old value either way; or
+        # with the old value unread, `if (C == *p) { *p = X; }`)
+        if stmts and stmts[-1] == "}" and len(stmts) in (3, 4, 5):
+            if len(stmts) == 3:
+                m1 = re.fullmatch(r"if \((.+?) == (.+?)\) \{", stmts[0])
+                m2 = re.fullmatch(r"(.+?)\s*=(?!=)\s*(.+);", stmts[1])
+                if m1 and m2:
+                    lvi = lvalue(m2.group(1))
+                    if lvi:
+                        a, rd, fr, isptr = lvi
+                        l, r = mark(m1.group(1), rd), mark(m1.group(2), rd)
+                        cmp = m1.group(1) if r.strip() == "@" else m1.group(2) if l.strip() == "@" else None
+                        if cmp is not None and "@" not in mark(cmp, rd) and "@" not in mark(m2.group(2), rd):
+                            return f"_InterlockedCompareExchange((volatile long *)({a}), {value(m2.group(2), isptr)}, " \
+                                   f"{value(cmp, isptr)});"
+                return None
             m0 = re.fullmatch(r"([A-Za-z_]\w*)\s*=\s*(.+);", stmts[0])
             m1 = re.fullmatch(r"if \((.+?) == (.+?)\) \{", stmts[1])
             m2 = re.fullmatch(r"(.+?)\s*=(?!=)\s*(.+);", stmts[2])
-            if m0 and m1 and m2 and same(m2.group(1), m0.group(2)):
-                v, lv = m0.group(1), m0.group(2)
-                cmp = m1.group(1) if m1.group(2).strip() == v else m1.group(2) if m1.group(1).strip() == v else None
-                a = addr(lv)
-                ok_tail = len(stmts) == 4 or re.fullmatch(re.escape(v) + r"\s*=\s*" + re.escape(cmp or "~") + r"\s*;",
-                                                           stmts[3])
-                if cmp is not None and a is not None and ok_tail and lv.strip() not in m2.group(2) + cmp:
-                    return (f"{v} = _InterlockedCompareExchange((volatile long *)({a}), (long)({m2.group(2)}), "
-                            f"(long)({cmp}));")
-        # (each `name = expr;` split at the first top-level `=`)
+            if m0 and m1 and m2:
+                v = m0.group(1)
+                lvi = lvalue(m2.group(1))
+                if lvi:
+                    a, rd, fr, isptr = lvi
+                    r0 = mark(m0.group(2), rd)
+                    cmp = m1.group(1) if m1.group(2).strip() == v else m1.group(2) if m1.group(1).strip() == v else None
+                    ok_tail = len(stmts) == 4 or re.fullmatch(re.escape(v) + r"\s*=\s*" + re.escape(cmp or "~") + r"\s*;",
+                                                               stmts[3])
+                    if cmp is not None and ok_tail and "@" not in mark(m2.group(2) + cmp, rd) and r0.count("@") == 1:
+                        call = f"_InterlockedCompareExchange((volatile long *)({a}), {value(m2.group(2), isptr)}, " \
+                               f"{value(cmp, isptr)})"
+                        return place(r0, call, v)
+            return None
         parts = []
         for s in stmts:
-            m = re.fullmatch(r"(.+?)\s*=(?!=)\s*(.+);", s)
+            m = re.fullmatch(r"(.+?)\s*=(?!=)\s*(.+);", s, re.S)
             if not m:
                 return None
-            parts.append((m.group(1), m.group(2)))
-        if len(parts) == 1:
-            lv, rhs = parts[0]
-            a = addr(lv)
-            if a is None:
+            parts.append((m.group(1).strip(), m.group(2).strip(), s))
+        # (the write: the first statement to a memory word; the reads, every one before it, of the
+        # same word into a variable; after it, statements the scheduler moved in that touch neither)
+        w = next((k for k, p in enumerate(parts) if lvalue(p[0]) is not None), None)
+        if w is None:
+            return None
+        lv, rhs, _ = parts[w]
+        a, rd, fr, isptr = lvalue(lv)
+        reads, tail = parts[:w], parts[w + 1:]
+        names = []
+        for v, r, _ in reads:
+            if not re.fullmatch(r"[A-Za-z_]\w*", v) or mark(r, rd, (), fr).count("@") != 1:
                 return None
-            m = re.fullmatch(re.escape(lv) + r"\s*\+\s*(.+)", rhs) if not same(lv, rhs) else None
-            if m:
-                return f"_InterlockedExchangeAdd((volatile long *)({a}), (long)({m.group(1)}));"
-            if re.search(re.escape(lv.strip()), rhs):
+            names.append(v)
+        # (Ghidra's repeated reads, `u = G; u = G; i = G; G = u;`, are one: every variable the old value)
+        if len(reads) > 1 and not all(mark(r, rd).strip() == "@" for _, r, _ in reads):
+            return None
+        for tv, tr, _ in tail:
+            t = mark(tv + " = " + tr, rd, names, fr)
+            if "@" in t or re.search(r"\b(?!REFG\b)[A-Za-z_]\w*\s*\(", re.sub(r"\(\s*[\w\s]+\**\s*\)", "", tr)):
                 return None
-            return f"_InterlockedExchange((volatile long *)({a}), (long)({rhs}));"
-        if len(parts) == 2:
-            (v, lv), (lv2, rhs) = parts
-            a = addr(lv)
-            if a is None or not same(lv, lv2) or not re.fullmatch(r"[A-Za-z_]\w*", v.strip()):
+        e = mark(rhs, rd, names)
+        d = delta(e)
+        if d is not None:
+            call = f"_InterlockedExchangeAdd((volatile long *)({a}), {d})"
+        elif "@" not in e and not re.search(r"(?<![\w.>])(" + "|".join(map(re.escape, names or ["\0"])) + r")(?![\w])", rhs) \
+                and not mentions(lv, rhs):
+            # (an exchange's value reads nothing of the word in any type: `*(int *)p = (int)f(*(float *)p)
+            # - 0x8000` read outside the exchange was GrassRenderer's lost update, 0x6519d0)
+            call = f"_InterlockedExchange((volatile long *)({a}), {value(rhs, isptr)})"
+        else:
+            return None
+        if not reads:
+            out = [call + ";"]
+        else:
+            first = place(mark(reads[0][1], rd, (), fr), call, reads[0][0])
+            if first is None:
                 return None
-            if same(rhs, lv):
-                # (`lock xadd [p], 0`, the reference's locked read: an add of 0, not a cmpxchg)
-                return f"{v} = _InterlockedExchangeAdd((volatile long *)({a}), 0);"
-            m = re.fullmatch(re.escape(lv) + r"\s*\+\s*(.+)", rhs)
-            if m:
-                return f"{v} = _InterlockedExchangeAdd((volatile long *)({a}), (long)({m.group(1)}));"
-            if lv.strip() in rhs or re.search(r"\b" + re.escape(v.strip()) + r"\b", rhs):
-                return None
-            return f"{v} = _InterlockedExchange((volatile long *)({a}), (long)({rhs}));"
-        return None
+            out = [first] + [f"{v} = {reads[0][0]};" for v, _, _ in reads[1:] if v != reads[0][0]]
+        return " ".join(out + [s for _, _, s in tail])
 
     lines = c.split("\n")
     out, i = [], 0
     while i < len(lines):
         if lines[i].strip() == "LOCK();":
-            j = next((k for k in range(i + 1, min(i + 8, len(lines))) if lines[k].strip() == "UNLOCK();"), None)
+            j = next((k for k in range(i + 1, min(i + 10, len(lines))) if lines[k].strip() == "UNLOCK();"), None)
             if j is not None:
-                rep = rewrite([l.strip() for l in lines[i + 1:j]])
+                # (a statement Ghidra broke over lines joined: `*p =\n f(*p) - 0x8000;`)
+                body = " ".join(l.strip() for l in lines[i + 1:j])
+                stmts = [re.sub(r"\s+;$", ";", s.strip()) for s in re.split(r"(?<=[;{}])\s+", body) if s.strip()]
+                rep = rewrite(stmts)
                 if rep is not None:
                     out.append(re.match(r"[ \t]*", lines[i]).group(0) + rep)
                     i = j + 1
@@ -1570,6 +2127,72 @@ def interlocked(c: str) -> str:
         out.append(lines[i])
         i += 1
     return "\n".join(out)
+
+
+def wide_subscripts(c: str) -> str:
+    """A subscript the decompiler printed 64 bits wide, `puVar2[-0xffffffff00000002]`: x86's index
+    wraps at 32 bits, `[ebx - 4]`, two shorts back. As a 64-bit constant it is +0xfffffffe elements,
+    and the port wrote 8 GB past the pointer: a UI agent's reset loop 0x780040 corrupted the heap
+    at character select, 26 functions and 90 subscripts like it (2026-10-31). Its 32-bit signed
+    value, the offset the reference computes."""
+    def rep(m):
+        v = int(m.group(2), 16) * (-1 if m.group(1) else 1)
+        v &= 0xFFFFFFFF
+        v = v - (1 << 32) if v >= 1 << 31 else v
+        return f"[{'-' if v < 0 else ''}{abs(v):#x}]"
+    return re.sub(r"\[\s*(-)?\s*0x([0-9a-fA-F]{9,16})\s*\]", rep, c)
+
+
+def switch_guarded_loads(c: str) -> str:
+    """A load the decompiler hoisted above a switch out of the range check that guarded it, `uVar1 =
+    *(table + *(int *)(p + 0x14) * 4); switch (id) { case 0x39: G = uVar1; ...`: the reference's
+    `cmp ecx, 3; ja out` before the load, merged with the switch's own bound, read the table only for
+    the cases. Run for every value, the load read wherever an unrelated value pointed: the bone
+    physics config handler 0xa051e0, given every config change, faulted (2026-10-31). The load moves
+    into each case, the variable read nowhere but in the cases and the load calling nothing."""
+    lines = c.split("\n")
+    i = 0
+    while i < len(lines) - 1:
+        m = re.fullmatch(r"([ \t]*)([A-Za-z_]\w*) = ([^;]*\*[^;]*);[ \t]*", lines[i])
+        if not m or not re.match(r"[ \t]*switch\s*\(", lines[i + 1]):
+            i += 1
+            continue
+        v, rhs = m.group(2), m.group(3)
+        # (a read and nothing more: no call, no assignment, no increment)
+        if re.search(r"\b[A-Za-z_]\w*\s*\(", re.sub(r"\(\s*[\w\s]+\**\s*\)", "", rhs)) \
+                or re.search(r"[^=!<>]=[^=]|\+\+|--", rhs):
+            i += 1
+            continue
+        # (the switch's block: its braces counted from its line)
+        depth, end = 0, None
+        for k in range(i + 1, len(lines)):
+            depth += lines[k].count("{") - lines[k].count("}")
+            if depth == 0 and "{" in "".join(lines[i + 1:k + 1]):
+                end = k
+                break
+        if end is None:
+            i += 1
+            continue
+        head = lines[i + 1].split("{", 1)[0]
+        inside = lines[i + 2:end]
+        rest = lines[:i] + lines[end + 1:]
+        word = re.compile(rf"\b{re.escape(v)}\b")
+        if word.search(head) or any(word.search(l) for l in rest
+                                    if not re.fullmatch(rf"[ \t]+[A-Za-z_][\w ]*?[\s*]+{re.escape(v)}\s*;\s*", l)):
+            i += 1
+            continue
+        # (assigned again inside a case: not the hoisted value alone)
+        if any(re.search(rf"(?<![\w.>])\b{re.escape(v)}\s*(?:[-+*/|&^]|<<|>>)?=(?!=)", l) for l in inside):
+            i += 1
+            continue
+        moved = []
+        for l in inside:
+            moved.append(l)
+            if re.fullmatch(r"[ \t]*(?:case\s+[^:]+|default)\s*:[ \t]*", l):
+                moved.append(f"{m.group(1)}  {v} = {rhs};")
+        lines = lines[:i] + [lines[i + 1]] + moved + lines[end:]
+        i += 1
+    return "\n".join(lines)
 
 
 def locked_reads(c: str) -> str:
@@ -1669,6 +2292,10 @@ def returned_only(c: str) -> set[str]:
     # ecx` reserving a local starts it with, `local_5 = (undefined1)((uint)in_ECX >> 0x18)`: 0)
     # (and their low parts, `in_AL` a byte function's result on the path that set none, `if (*this
     # == 0) return in_AL;`, a client's 0xa6feb0 on its frame path 2026-10-27)
+    # (handed on to a call too, `FUN_00423ae0(p1, p2, p3, in_ECX)`: the word a `push ecx` reserved
+    # and never set, passed as an empty object's by-value copy, garbage in the reference. A real
+    # input pushed straight into a call, `push ecx; call [LeaveCriticalSection]`, is protos32.py's
+    # parameter now, hkJobQueue::UnlockQueue 2026-10-31)
     entry = set(re.findall(r"\bin_(?:E[ACD]X|[ACD][LX])(?:_\d+)?\b", c))
     # (and a scratch register a keep convention leaves "unaffected", read only as the slot a `push
     # ecx` reserved: `mov al, [ebp - 1]` of a function returning its uninitialized bool, the
@@ -1779,6 +2406,45 @@ def returned_only(c: str) -> set[str]:
     return ok | entry
 
 
+def icall_full_result(body: str) -> str:
+    """A call through a pointer whose result Ghidra merged into a byte or word local, the rest of
+    eax read after it as `extraout_var`: `bVar3 = ((code *)REFG(gen_code32, 0x1343098))(this, p);
+    n = n + (int)CONCAT31(extraout_var, bVar3);`. The target returns all of eax (the reference's
+    `call edx; add [ebp + 0x10], eax`), and the port's call through `code` returns all 32 bits,
+    which the narrow assignment cut and returned_only's 0 replaced. The call's value kept whole in
+    a local of its own, the CONCAT read as that. (The scheduler's TMB parser 0xbce490 sized a
+    timeline's object arena, 0xbc1ec0, by the low byte of 0xbceda0's sum, and its bump allocator
+    ran past it: the lobby's character select faulting in overwritten tracks, 2026-10-31.) A direct
+    call's prototype gives its own width: a byte callee's bytes above are 0 there as here."""
+    lines = body.split("\n")
+    wide: dict[tuple[int, str], str] = {}
+    for i, l in enumerate(lines):
+        if re.match(r"\s*return\b", l):
+            continue
+        for m in reversed(list(re.finditer(r"CONCAT[123]1\((extraout_var(?:_\d+)?),\s*(\w+)\)", l))):
+            v = m.group(2)
+            for j in range(i - 1, -1, -1):
+                a = re.fullmatch(rf"(\s*){re.escape(v)}\s*=\s*(\(\s*(?:\*\s*)?\(?\s*\(\s*(?:code|GEN_TCODE)\s*\*\).*\));\s*",
+                                 lines[j])
+                if a:
+                    w = wide.get((j, v))
+                    if w is None:
+                        w = wide[(j, v)] = f"gen_eax{len(wide)}"
+                        lines[j] = f"{a.group(1)}{v} = ({w} = {a.group(2)});"
+                    l = l[:m.start()] + w + l[m.end():]
+                    break
+                if re.search(rf"\b{re.escape(v)}\s*=(?!=)", lines[j]) or re.match(r"\s*(?:LAB_\w+:|case\b|default:)", lines[j]):
+                    break
+        lines[i] = l
+    if not wide:
+        return body
+    text = "\n".join(lines)
+    d = re.search(r"(?m)^([ \t]*)[A-Za-z_][\w ]*?[ \t]+extraout_var(?:_\d+)?;[ \t]*$", text)
+    if not d:
+        return body
+    return text[:d.start()] + "".join(f"{d.group(1)}uint {w} = 0;\n" for w in wide.values()) + text[d.start():]
+
+
 def math_words(body: str) -> str:
     """A typed math import called with each double argument as the two words its caller pushed:
     the decompiler, given no prototype for an import it does not know (the ucrt's lrint at /Od),
@@ -1824,9 +2490,9 @@ def math_words(body: str) -> str:
     return "".join(out)
 
 
-# the C runtime's functions that leave st0's value as it was, though their x87 code touches it
-# (kept_st0): quieting a signalling NaN
-ST0_VALUE_KEEPERS = {"__convertTOStoQNaN"}
+# the C runtime's functions that quiet a signalling NaN in st0, `test eax, 0x80000; jne; fadd
+# [1.0]` of the NaN whose high word eax is (kept_st0): their effect on st0 at each call
+ST0_QUIETERS = {"__convertTOStoQNaN"}
 
 CAPTURE_SEG = re.compile(r"\bin_(?:ES|CS|SS|DS|FS|GS)\b")
 CAPTURE_FLAG = re.compile(r"\bin_(?:AF|TF|IF|NT|AC|VIF|VIP|ID|CF|PF|ZF|SF|OF|DF)\b")
@@ -2494,6 +3160,29 @@ def load_corpus() -> dict[int, dict]:
     return out
 
 
+# the widths of the scalar types the decompiler gives a global in a function (corpus "gt"), for one
+# the data export has no entry for (global_lvalue). Others (structures, unknown names) None
+GT_SIZES = {
+    1: {"undefined", "undefined1", "byte", "char", "uchar", "sbyte", "bool", "int1", "uint1", "BYTE", "CHAR",
+        "BOOLEAN", "UCHAR"},
+    2: {"undefined2", "short", "ushort", "word", "wchar_t", "wchar16", "int2", "uint2", "WORD", "SHORT", "USHORT",
+        "WCHAR"},
+    4: {"undefined4", "int", "uint", "long", "ulong", "dword", "float", "int4", "uint4", "float4", "code",
+        "pointer", "BOOL", "DWORD", "INT", "UINT", "LONG", "ULONG", "HRESULT", "HANDLE", "HMODULE",
+        "HINSTANCE", "HWND", "HIMC", "PVOID", "LPVOID", "FARPROC", "size_t", "UINT_PTR", "ULONG_PTR",
+        "DWORD_PTR", "LPCRITICAL_SECTION"},
+    8: {"undefined8", "double", "longlong", "ulonglong", "qword", "int8", "uint8", "float8", "LONGLONG",
+        "ULONGLONG", "DWORD64", "DWORDLONG", "__time64_t"},
+}
+
+
+def gt_size(t: str) -> int | None:
+    t = t.strip()
+    if t.endswith("*"):
+        return 4
+    return next((n for n, names in GT_SIZES.items() if t in names), None)
+
+
 def load_refdata() -> tuple[dict[int, tuple[int, str]], dict[str, int]]:
     by_addr, by_name = {}, {}
     with open(REFDATA, encoding="utf-8") as f:
@@ -2536,6 +3225,14 @@ SETJMP_CALL = re.compile(r"\bgen_imp_(_setjmp3|_setjmp|setjmp|longjmp)\s*\(")
 # (the same functions linked into the image, by the names Ghidra's function ID gives them: VS2010's
 # /MT __setjmp3, and longjmp as `FID_conflict:___longjmp_internal`)
 SETJMP_NAME = re.compile(r"(?:FID_conflict:)?_*(setjmp3|setjmp|longjmp|longjmp_internal)")
+# (and the C runtime's frame helpers beside them, fidelity32's "folded": x86 that builds or tears
+# down its caller's frame, moves the return address, or saves the caller's registers and esp. The
+# decompiler injects each at every call (x86win.cspec's fixups, ApplyFacts' rh_SEH_prolog4), and the
+# translator's frame code and GEN_SETJMP are the port's own; their bodies are the caller's frame, no
+# C function's. 8 stubs of a VS2010 client, unaff_EBX and unaff_retaddr, none called, 2026-10-31)
+FOLDED_NAME = re.compile(r"(?:FID_conflict:)?_*(?:setjmp3|setjmp|longjmp|longjmp_internal|"
+                         r"(?:EH_prolog3|EH_epilog3|SEH_prolog4|SEH_epilog4)(?:_GS|_catch|_catch_GS)?|"
+                         r"alloca_probe(?:_8|_16)?|chkstk)")
 
 
 def jump_calls(body: str, linked: dict[int, str] | None = None) -> str:
@@ -2692,6 +3389,85 @@ def match_paren(s: str, i: int) -> int:
                 return j + 1
         j += 1
     return -1
+
+
+# (a pointer just loaded from its 4-byte slot, `*(T * PTR32 *)x`: ptr32_derefs)
+PTR32_LOAD = re.compile(r"\*\s*\(\(?\s*(?:struct\s+)?(?P<b>[A-Za-z_]\w*)(?:\s+[A-Za-z_]\w*)*(?:\s*\*\s*PTR32)*"
+                        r"\s*\*\s*PTR32\s*\*\s*\)")
+
+
+def ptr32_derefs(body: str) -> str:
+    """The checked build's blind spot (CMake GEN_CHECKED, runtime32/Checked.cpp): clang's
+    AddressSanitizer pass checks no load or store through a __ptr32 pointer (LLVM's address space
+    271), 1.7% of the translation's, sampled 2026-10-31. Where a pointer just loaded from its slot is
+    dereferenced, `**(T * PTR32 *)x`, `*(*(T * PTR32 *)x + n)`, `(*(T * PTR32 *)x)[i]` or `->f`,
+    the access is spelled GEN_NE(...), Ghidra32.h: in the checked build the lvalue at its own
+    address converted to a host pointer (the address computed the 32 bits' way first, as before), so
+    checked, 0.12% left; in any other build the lvalue as it is, the same code (MSVC's objects for
+    translated_100.c and _150.c identical, 2026-10-31)."""
+    spans: list[tuple[int, int]] = []
+    for m in PTR32_LOAD.finditer(body):
+        # (not a function's pointer, called, nor a volatile access: GEN_NE's cast drops the qualifier)
+        if m.group("b") == "code" or "volatile" in m.group(0):
+            continue
+        k = m.start() - 1
+        while k >= 0 and body[k] in " \t":
+            k -= 1
+        if k < 0:
+            continue
+        if body[k] == "*":
+            # `**(T * PTR32 *)x`: a dereference, not a product (`a * *p` has no pointer to multiply)
+            p = k - 1
+            while p >= 0 and body[p] in " \t":
+                p -= 1
+            if p >= 0 and (body[p].isalnum() or body[p] in "_)]"):
+                continue
+            spans.append((k, operand_end(body, k)))
+        elif body[k] == "(":
+            j = match_paren(body, k)
+            if j < 0:
+                continue
+            # `*(*(T * PTR32 *)x + n)`: the group dereferenced, its address the 32 bits' sum
+            p = k - 1
+            while p >= 0 and body[p] in " \t":
+                p -= 1
+            if p >= 0 and body[p] == "*":
+                q = p - 1
+                while q >= 0 and body[q] in " \t":
+                    q -= 1
+                if q < 0 or not (body[q].isalnum() or body[q] in "_)]"):
+                    spans.append((p, j))
+                    continue
+            # `(*(T * PTR32 *)x)` subscripted or a member taken: the group and those, no call
+            if not (body.startswith("[", j) or body.startswith("->", j)):
+                continue
+            e = j
+            while True:
+                if body.startswith("[", e):
+                    depth = 0
+                    for q in range(e, len(body)):
+                        depth += body[q] == "["
+                        depth -= body[q] == "]"
+                        if depth == 0:
+                            e = q + 1
+                            break
+                    else:
+                        break
+                elif body.startswith("->", e) and (mm := re.match(r"->\s*[A-Za-z_]\w*", body[e:])):
+                    e += mm.end()
+                else:
+                    break
+            if body.startswith("(", e):
+                continue   # (a call: its result is no lvalue)
+            spans.append((k, e))
+    if not spans:
+        return body
+    # (opened outermost first, closed innermost first; a span's end before another's start at one place)
+    marks = [(s, 1, -e, "GEN_NE(") for s, e in spans] + [(e, 0, -s, ")") for s, e in spans]
+    out = body
+    for pos, _kind, _o, text in sorted(marks, key=lambda x: (x[0], x[1], x[2]), reverse=True):
+        out = out[:pos] + text + out[pos:]
+    return out
 
 
 BOOL_PRODUCT = re.compile(r"\((ulonglong|longlong)\)\s*(!?)\s*\(")
@@ -2911,6 +3687,11 @@ class Translator32:
         self.fpu_clear = {int(k, 16) for k, v in protos.items() if v.get("fpu_clear")}
         # (and those that leave the x87 stack alone, kept_st0)
         self.keeps_st0 = {int(k, 16) for k, v in protos.items() if v.get("keeps_st0")}
+        # (and those that hand a callee reading through ebp their own frame: laid out whole, as an
+        # EH frame's, protos32's hands_ebp)
+        self.hands_ebp = {int(k, 16) for k, v in protos.items() if v.get("hands_ebp")}
+        # (and the C runtime's x87 dispatchers, protos32's x87_dispatch: their operand count)
+        self.x87_dispatch = {int(k, 16): v["x87_dispatch"] for k, v in protos.items() if v.get("x87_dispatch")}
         self.keeps = {int(k, 16): set(v["keep"]) for k, v in protos.items() if v.get("keep")}
         # (the functions no caller reads a result of: protos32's "v")
         self.ret_void = {int(k, 16) for k, v in protos.items() if v.get("ret") == "v"}
@@ -3132,6 +3913,24 @@ class Translator32:
     STALE_SIZES = {"float": 4, "int": 4, "uint": 4, "undefined4": 4, "double": 8, "undefined8": 8,
                    "short": 2, "ushort": 2, "undefined2": 2}
     STALE_BREAK = re.compile(r"[{}]|^\s*(?:if|else|while|do|for|switch|case|default|goto|return)\b|^\s*\w+\s*:(?!:)")
+
+    def spin_polls(self, a: int, body: str) -> str:
+        """A reference loop that only polls memory, `mov al, [edi + 6]; test al, al; je $-5` (0xa3dac0,
+        0xa3e4c0: a byte another thread sets), is `cVar1 = p[6]; while (cVar1 == 0) { cVar1 = p[6]; }`
+        here, with no volatile, call or store, and /O2 hoisted the load: `jmp $` in F_00a3dac0
+        (2026-10-31). In such a function each loop that calls nothing starts with GEN_POLL(), a
+        compiler barrier, so every iteration reads memory again."""
+        new = poll_barriers(body)
+        if new == body:
+            return body
+        import capstone
+        import pefile
+        if self._pe is None:
+            self._pe = pefile.PE(str(project.EXE), fast_load=True)
+        base = self._pe.OPTIONAL_HEADER.ImageBase
+        md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+        ins = [x for lo, hi in sorted(self.func_ranges(a)) for x in md.disasm_lite(self._pe.get_data(lo - base, hi - lo), lo)]
+        return new if ref_polls(ins) else body
 
     def stale_loads(self, a: int, body: str) -> str:
         """A field read again after it is stored, in straight-line code, where the reference read
@@ -3392,6 +4191,12 @@ class Translator32:
         # (the copies the function's own code names, `push 0x42f690`: where the image holds two,
         # the one it uses)
         code = self.ref_code(a) if a is not None else b""
+        # (the decompiler's mark of a cut literal is a comment, gone with the others before this
+        # (translate_one's strip_comments): the literals it marked, by their text in the corpus's C,
+        # 0xb3aec0's three, 2026-10-30)
+        cut = {m.group(1) for m in re.finditer(
+            r'(?<![\w\\L])"((?:\\.|[^"\\])*)\.\.\."\s*/\* TRUNCATED STRING LITERAL \*/',
+            self.corpus[a]["c"])} if a is not None and a in self.corpus else set()
         out = []
         for line in body.split("\n"):
             if '"' not in line:
@@ -3415,8 +4220,9 @@ class Translator32:
                             hits.add(va + k)
                         k = data.find(raw, k + 1)
                 return f"((char *)REFP(0x{hits.pop():x}))" if len(hits) == 1 else m.group(0)
-            if code and "TRUNCATED STRING LITERAL" in line:
-                line = re.sub(r'(?<![\w\\L])"((?:\\.|[^"\\])*)\.\.\."\s*/\* TRUNCATED STRING LITERAL \*/', trunc, line)
+            if code and cut and '..."' in line:
+                line = re.sub(r'(?<![\w\\L])"((?:\\.|[^"\\])*)\.\.\."',
+                              lambda m: trunc(m) if m.group(1) in cut else m.group(0), line)
             refs = [int(x, 16) for x in re.findall(r"&REFG\(undefined, (0x[0-9a-f]+)\)", line)]
 
             def rep(m):
@@ -3552,14 +4358,42 @@ class Translator32:
         (protos32's keeps_st0): st0 is what it was before the call, which the decompiler, told
         the call may load it, lost. Its st0 holder there is V itself, `FUN_00403815(cw); in_st0 =
         extraout_ST0;` (__load_CW between a VS2010 CRT math tail's argument and its use): the
-        statement goes, V keeping its value (rhtest msvc-16.00-x86 float)."""
-        if "extraout_ST0" not in c or not self.keeps_st0:
+        statement goes, V keeping its value (rhtest msvc-16.00-x86 float). A quieter's
+        (ST0_QUIETERS) st0 is the value handed with its `fadd [1.0]`, under its own test: taken as
+        st0 kept, the port's sqrt and atan of a signalling NaN returned it signalling, and
+        _atan_default (0xc4f398) read its `in_st0_00` uninitialized, 2026-10-30."""
+        if not self.keeps_st0 or ("extraout_ST0" not in c and "in_st0_" not in c and "(float10)" not in c):
             return c
         self.set_kept_ns(c)
         lines = c.split("\n")
+        # (or the call's own assignment, `fVar10 = (float10)FUN_00cef770(..);` of a void callee that
+        # leaves st0, the decompiler's st0 after it: the float10 as it was, the scale it held before.
+        # As a cast of the call, eax converted by value, an audio mix's PCM scale, 0xcf2d10 and
+        # 0xb67550, the operation census 2026-10-31)
+        float10s = set(re.findall(r"(?m)^[ \t]+float10\s+([A-Za-z_]\w*)\s*;", c))
+        for i in range(len(lines)):
+            m = re.fullmatch(r"(\s*)([A-Za-z_]\w*)\s*=\s*\(\s*float10\s*\)\s*(" + IDENT + r")(\s*(?:\(.*)?)", lines[i])
+            if not m or m.group(2) not in float10s:
+                continue
+            # (the statement the call alone, not an operand of more: `(..);` closing at its `;`)
+            rest = m.group(4).strip()
+            if ";" in rest and not (rest.startswith("(") and rest.endswith(";")
+                                    and match_paren(rest, 0) == len(rest.rstrip(";").rstrip())):
+                continue
+            a2 = self.printed_addr(m.group(3))
+            sig = self.sigs.get(a2) if a2 is not None else None
+            if a2 not in self.keeps_st0 or sig is None or sig.ret.strip() != "void" \
+                    or not self.held_before(lines, i, m.group(2)):
+                continue
+            lines[i] = f"{m.group(1)}{m.group(3)}{m.group(4)}"
         for i in range(1, len(lines)):
-            m = re.fullmatch(r"\s*([A-Za-z_]\w*)\s*=\s*(extraout_ST0(?:_\d+)?)\s*;\s*", lines[i])
+            m = re.fullmatch(r"\s*([A-Za-z_]\w*)\s*=\s*(extraout_ST0(?:_\d+)?|in_st0_\d+)\s*;\s*", lines[i])
             if not m:
+                continue
+            # (or st0 after the call under a name of its own the decompiler never assigns, `fVar1 =
+            # in_st0_00;`: a quieter's only)
+            lost = m.group(2).startswith("in_st0_")
+            if lost and re.search(r"\b" + m.group(2) + r"\s*=(?!=)", c):
                 continue
             prev = lines[i - 1]
             # (a qualified name too, crtsigs.py's `Global::__load_CW`: by a bare identifier no call,
@@ -3569,25 +4403,41 @@ class Translator32:
             if not call:
                 continue
             a2 = self.printed_addr(call.group(1))
-            # (or one known by name to leave st0's value as it was: the CRT's __convertTOStoQNaN
-            # makes a signalling NaN in st0 a quiet one, `fadd` of a NaN, which the port's SSE does
-            # of itself; its name from Function ID or crtsigs.py)
-            named_keep = a2 is not None and \
-                self.corpus.get(a2, {}).get("name", "").split("::")[-1] in ST0_VALUE_KEEPERS
-            if a2 is None or (a2 not in self.keeps_st0 and not named_keep):
+            # (or one that quiets a signalling NaN in st0, the CRT's __convertTOStoQNaN: its name
+            # from Function ID or crtsigs.py, its effect at the call, below)
+            quiets = a2 is not None and \
+                self.corpus.get(a2, {}).get("name", "").split("::")[-1] in ST0_QUIETERS
+            if a2 is None or (a2 not in self.keeps_st0 and not quiets) or (lost and not quiets):
                 continue
             # (st0 before the call: the x87 value the call is handed, `FUN_0040382c(hi, in_st0);
             # fVar2 = extraout_ST0_00;` its in_st0, or else V itself, an x87 value of the function's
             # own that held it, `in_st0 = extraout_ST0;`)
             float10s = set(re.findall(r"(?m)^[ \t]+float10\s+([A-Za-z_]\w*)\s*;", c)) | \
                 set(re.findall(r"\bfloat10\s+([A-Za-z_]\w*)\s*[,)]", c))
-            handed = [x for x in re.findall(r"[A-Za-z_]\w*", prev[prev.find("(") + 1:]) if x in float10s]
+            args = prev[call.end(1):]
+            args = args[args.find("(") + 1:args.rfind(")")]
+            handed = [x for x in re.findall(r"[A-Za-z_]\w*", args) if x in float10s]
+            held = None
             if len(set(handed)) == 1:
-                lines[i] = re.sub(r"=\s*extraout_ST0(?:_\d+)?\s*;", f"= {handed[0]};", lines[i])
+                held = handed[0]
             # (V only where it held st0 before the call: a parameter, or assigned before it. A
             # fresh float10 the line first assigns would be read uninitialized, ultrareview
             # 2026-10-27; that one stays as it is)
             elif m.group(1) in float10s and self.held_before(lines, i - 1, m.group(1)):
+                held = m.group(1)
+            if held is None:
+                continue
+            if quiets:
+                hi = split_top(args)[0].strip()
+                value = f"(({hi}) & 0x80000) != 0 ? {held} : {held} + 1.0"
+                if lost:
+                    ind = re.match(r"\s*", lines[i]).group(0)
+                    lines[i] = f"{ind}{m.group(2)} = {value};\n{lines[i]}"
+                else:
+                    lines[i] = re.sub(r"=\s*extraout_ST0(?:_\d+)?\s*;", lambda _m: f"= {value};", lines[i])
+            elif held != m.group(1):
+                lines[i] = re.sub(r"=\s*extraout_ST0(?:_\d+)?\s*;", f"= {held};", lines[i])
+            else:
                 lines[i] = ""
         return "\n".join(lines)
 
@@ -3626,12 +4476,15 @@ class Translator32:
         if re.search(r"(?m)^\s+\w+\s+in_ecx;\s*$", c) and not re.search(r"\bin_ecx\b", c.split("{", 1)[0]):
             lower.add("in_ecx")
         lower = {n for n in lower if not re.search(rf"(?<![=!<>])\b{n}\s*=(?!=)", c)}
-        names = [(n, "ecx" if "cx" in n.lower() else "edx")
-                 for n in sorted(set(re.findall(r"\bextraout_E[CD]X(?:_\d+)?\b", c)) | lower)]
+        # (eax too, a custom callee's input it neither writes nor returns in: `FUN_00dbf6c0(p, c);
+        # if (*extraout_EAX == 0)`, eax p throughout, hkBsdSocket's vf7 0xdbf6d0, 2026-10-31)
+        names = [(n, "eax" if "ax" in n.lower() else "ecx" if "cx" in n.lower() else "edx")
+                 for n in sorted(set(re.findall(r"\bextraout_E[ACD]X(?:_\d+)?\b", c)) | lower)]
         # (and a local the decompiler declared and reads but never assigns: a kept register it
         # named for the parameter it is passed as, `this_00` in a VS2010 client's 0x50b800, ecx
         # its `this` across two calls that keep it; translated as written, an uninitialized local
         # handed a deque's push_back its object, a crash at startup 2026-10-26)
+        kept_locals: set[str] = set()
         for n in sorted(set(re.findall(r"(?m)^[ \t]+[A-Za-z_][\w ]*?[\s*]+(this_\d+|pv\w+|p\w*Var\d+)\s*;\s*$", c))):
             if not re.search(rf"\b{n}\b(?!\s*;\s*$)", c, re.M):
                 continue
@@ -3641,6 +4494,7 @@ class Translator32:
             if len(uses_n) < 2:
                 continue
             names += [(n, "ecx"), (n, "edx")]
+            kept_locals.add(n)
         if not names or not self.keeps_in:
             return c
         # (a statement the decompiler wrapped over lines on one: the call above a use is the whole
@@ -3687,7 +4541,7 @@ class Translator32:
                 # box_chain. What they assign is noted: an argument made of it is not the same)
                 assigned = set()
                 while p >= 0 and (not orig[p].strip()
-                                  or re.fullmatch(r"\s*\w+\s*=\s*extraout_E[CD]X(?:_\d+)?;\s*", orig[p])):
+                                  or re.fullmatch(r"\s*\w+\s*=\s*extraout_E[ACD]X(?:_\d+)?;\s*", orig[p])):
                     if orig[p].strip():
                         assigned.add(orig[p].split("=")[0].strip())
                     p -= 1
@@ -3733,12 +4587,27 @@ class Translator32:
                 if at and calls_in.search(first[:at.start()]):
                     same = self.kept_call(first[:at.start()], reg)
                     if same is not None:
+                        # (an earlier name's value through the chain, `f(this) || f(in_ecx) ||
+                        # f(in_ecx_00)`, each the one before: 0xaec080, a stub on Start, 2026-10-31)
+                        for k2, v2 in resolved.items():
+                            same = re.sub(rf"\b{re.escape(k2)}\b", f"({v2})", same)
                         value = same
                         resolved[n] = value
                         dl_type = decl.match(lines[dl]).group(1).strip()
                         for i in uses:
                             lines[i] = re.sub(rf"\b{re.escape(n)}\b", f"(({dl_type})(uintptr_t)({value}))", lines[i])
                         lines[dl] = None
+                        done.add(n)
+                        continue
+                    # (or the call assigns what it passed, `(u = FUN_0055a2d0(u), (char)u != 0) &&
+                    # FUN_00570d10(extraout_ECX, ..)`: the value captured at the call, in the name
+                    # itself, before it runs. 0x576160's `this` was 0, 2026-10-31)
+                    cap = self.kept_call(first[:at.start()], reg, lhs_ok=True, whole=True)
+                    if cap is not None and n.startswith("extraout_") and lines[uses[0]] is not None \
+                            and lines[uses[0]].count(cap[1]) == 1:
+                        t = decl.match(lines[dl]).group(1).strip()
+                        lines[uses[0]] = lines[uses[0]].replace(
+                            cap[1], f"({n} = (({t})(uintptr_t)({cap[0]})), {cap[1]})")
                         done.add(n)
                         continue
 
@@ -3754,6 +4623,7 @@ class Translator32:
                 # if (extraout_ECX != 0)`, ecx the list kept through 0x5622f0 before the block, a
                 # stub when a client's settings filled their tabs, 2026-10-28)
                 start = p
+                captured = False
                 for skip_returning in (False, True):
                     p, call = start, None
                     while p >= 0:
@@ -3778,10 +4648,25 @@ class Translator32:
                             if call is None and self.call_keeps(orig[p], reg):
                                 p -= 1
                                 continue
+                            # (a statement that assigns what it passed, `param_1 = Type::GetClass(
+                            # param_1); local_14 = 0; ...; FindTypesUsingClass(this, extraout_ECX,
+                            # ..)`: its value before the line, kept in the name. Havok's
+                            # hkTypeManager::RemoveClass 0xe1ac10 passed 0, 2026-10-31)
+                            if call is None and n.startswith("extraout_") and lines[p] is not None \
+                                    and orig[p].rstrip().endswith(";"):
+                                before = self.kept_call(orig[p], reg, lhs_ok=True)
+                                if before is not None:
+                                    t = decl.match(lines[dl]).group(1).strip()
+                                    indent = re.match(r"[ \t]*", orig[p]).group(0)
+                                    lines[p] = f"{indent}{n} = (({t})(uintptr_t)({before}));\n" + lines[p]
+                                    captured = True
                             break
                         p -= 1
-                    if call is not None:
+                    if call is not None or captured:
                         break
+                if captured:
+                    done.add(n)
+                    continue
                 if call is not None:
                     # (assigned between the call and the name's last use: after it, no matter. The UI
                     # hit test 0x5791d0's `piVar4 = FUN_00559c20(iVar2); if (piVar4 == 0) {
@@ -3797,7 +4682,12 @@ class Translator32:
                     # + 4)` past it: the value as it was after the call, kept in the name itself.
                     # Havok's array chunk lookup 0xd92800, `FUN_00d927e0(this)` and then ecx, its
                     # first chunk, read after the walk; a stub, its null a crash, 2026-10-26)
-                    elif orig[p].rstrip().endswith(";") and lines[p] is not None and n.startswith("extraout_"):
+                    # (and a never-assigned local the decompiler named for the kept register, `this_00`
+                    # after `FUN_00b64ec0(pvVar13, ..)` in a loop that assigns pvVar13 at its end: the
+                    # value kept in it after the call. A curve sampler's 0xb65e10 read garbage for its
+                    # object, the zone loading screen's AV, 2026-11-01)
+                    elif orig[p].rstrip().endswith(";") and lines[p] is not None \
+                            and (n.startswith("extraout_") or n in kept_locals):
                         t = decl.match(lines[dl]).group(1).strip()
                         indent = re.match(r"[ \t]*", orig[p]).group(0)
                         lines[p] = lines[p] + f"\n{indent}{n} = (({t})(uintptr_t)({call}));"
@@ -3885,19 +4775,20 @@ class Translator32:
     def call_keeps(self, line: str, reg: str) -> bool:
         """Whether a statement's one call is to a function that leaves `reg` as it was, its keep
         convention (protos32's keep): the register goes on past it."""
-        m = re.fullmatch(r"\s*(?:[\w.\->\[\]]+\s*=\s*)?(?:\([^()]*\))?\s*((?:[A-Za-z_]\w*::)*[A-Za-z_]\w*)\s*\((.*)\);\s*", line)
+        m = re.fullmatch(r"\s*(?:[\w.\->\[\]]+\s*=\s*)?(?:\([^()]*\))?\s*((?:[A-Za-z_]\w*::)*~?[A-Za-z_]\w*)\s*\((.*)\);\s*", line)
         if not m or len(re.findall(r"\b(?!(?:if|while|for|switch|return|sizeof)\b)[A-Za-z_]\w*\s*\(", line)) != 1:
             return False
         a2 = self.printed_addr(m.group(1))
         return a2 is not None and reg in self.keeps.get(a2, ())
 
-    def kept_call(self, line: str, reg: str, lhs_ok: bool = False) -> str | None:
+    def kept_call(self, line: str, reg: str, lhs_ok: bool = False, whole: bool = False):
         """The argument a statement's one call passes in `reg`, when the callee leaves it as it
         found it and nothing on the line assigns what it is made of (kept_inputs). With lhs_ok, one
-        the statement's own assignment changes too: its value before the line."""
+        the statement's own assignment changes too: its value before the line. With whole, the
+        pair (that argument, the call's own text), for a capture at the call (kept_inputs)."""
         # (a qualified name too, `bVar1 = EventHandler::vf14((EventHandler *)this,param_1);` in a
         # quest handler's override, `this` read on through ecx: printed_addr)
-        m = re.fullmatch(r"\s*(?:[\w.\->\[\]]+\s*=\s*)?(?:\([^()]*\))?\s*((?:[A-Za-z_]\w*::)*[A-Za-z_]\w*)\s*\((.*)\);\s*", line)
+        m = re.fullmatch(r"\s*(?:[\w.\->\[\]]+\s*=\s*)?(?:\([^()]*\))?\s*((?:[A-Za-z_]\w*::)*~?[A-Za-z_]\w*)\s*\((.*)\);\s*", line)
         # (the statement's outer call a conversion around the real one, `fVar2 = gen_bits2f(
         # FUN_00bd1f30(param_1, ..));`, a float result's bits: the one inside, as below. A clip's
         # vf21 read its object on through ecx and was stubbed, 19 like it, 2026-10-30)
@@ -3905,22 +4796,37 @@ class Translator32:
             m = None
         if m:
             name, inner = m.group(1), m.group(2)
+            self_assigned, text = None, line[m.start(1):m.end(2) + 1]
         else:
             # (or the one call of a line that is more than it, a condition's: `if ((in_ecx != 0) &&
             # (uVar3 = FUN_0055a2d0(in_ecx), (char)uVar3 != '\0')) {`, its `this` read on in the
             # block, extraout_ECX; 91 stubs in a client 2026-10-27)
-            found = [mm for mm in re.finditer(r"(?<![\w:])((?:[A-Za-z_]\w*::)*[A-Za-z_]\w*)\s*\(", line)
+            found = [mm for mm in re.finditer(r"(?<![\w:~])((?:[A-Za-z_]\w*::)*~?[A-Za-z_]\w*)\s*\(", line)
                      if self.printed_addr(mm.group(1)) is not None]
-            if not found or lhs_ok:
+            if not found or (lhs_ok and not whole):
                 return None
             # (of several, the one run last, its parenthesis closing last: the later of a
             # condition's `&&` chain, or the outer of nested ones. `(b = FUN_00535b40(p), b != 0)
             # && (u = FUN_00535990(p, k), ..)`, ecx 0x535990's `this` kept, 0x5409a0)
+            # (not one still open where the line is cut, the call the use is an argument of: it
+            # runs after. `(u = FUN_0055a2d0(u), ..) && (b = FUN_00570d10(extraout_ECX, ..)`, a
+            # client's 0x576160, refused for it and its `this` passed as 0, 2026-10-31)
             closes = [(match_paren(line, mm.end() - 1), mm) for mm in found]
-            if any(cl < 0 for cl, _ in closes):
+            if any(cl < 0 for cl, _ in closes) and line.rstrip().endswith(";"):
+                return None
+            closes = [x for x in closes if x[0] >= 0]
+            if not closes:
                 return None
             close, last = max(closes, key=lambda x: x[0])
             name, inner = last.group(1), line[last.end():close - 1]
+            # (nor one whose own assignment, inside the condition, changes what it was passed:
+            # `u = FUN_0055a2d0(u)`, ecx u as it was before, not after)
+            own = re.search(r"\b([A-Za-z_]\w*)\s*=\s*(?:\([^()]*\)\s*)?$", line[:last.start()])
+            if own and not lhs_ok:
+                self_assigned = own.group(1)
+            else:
+                self_assigned = None
+            text = line[last.start():close]
         a2 = self.printed_addr(name)
         idx = self.keeps_in.get(a2, {}).get(reg) if a2 is not None else None
         if idx is None:
@@ -3943,7 +4849,9 @@ class Translator32:
         lhs = re.match(r"\s*([A-Za-z_]\w*)\s*=", line)
         if lhs and re.search(rf"\b{lhs.group(1)}\b", arg) and not lhs_ok:
             return None
-        return arg
+        if self_assigned and re.search(rf"\b{self_assigned}\b", arg):
+            return None
+        return (arg, text) if whole else arg
 
     def after_float_call(self, c: str) -> set[str]:
         """What eax or edx held after a call whose result is on the x87 stack: nothing the ABI
@@ -3986,7 +4894,7 @@ class Translator32:
 
     # ---- one function ---------------------------------------------------------------------------
     def why_not(self, a: int) -> str | None:
-        c = self.entry_registers(a, self.kept_inputs(self.kept_st0(stack_vs_const(neg_scaled(v16_forms(cpu_state(array_stores(locked_reads(strip_comments(self.corpus[a]["c"]))))))))))
+        c = self.entry_registers(a, self.kept_inputs(self.kept_st0(stack_vs_const(neg_scaled(v16_forms(cpu_state(array_stores(locked_reads(switch_guarded_loads(wide_subscripts(strip_comments(self.corpus[a]["c"]))))))))))))
         if a not in self.sigs:
             return "no signature"
         # (a register as the function found it that no parameter is in, never assigned: lost)
@@ -4001,7 +4909,8 @@ class Translator32:
             context_capture(c) | {"in_FPUControlWord", "in_FPUStatusWord"} | ({"in_ZF"} if libm_flag(c) else set()) | \
             set(re.findall(r"(?m)^\s*(extraout_ST0(?:_\d+)?) = \(\*", c)) | \
             set(re.findall(r"(?m)^[ \t]+undefined1\s+(in_XMM\d+)\s*\[\s*16\s*\]\s*;", c)) | \
-            set(re.findall(r"(?m)^\s*(extraout_E[CD]X(?:_\d+)?) = \(\(.*\)\(uintptr_t\)\(", c))
+            set(re.findall(r"(?m)^\s*(extraout_E[ACD]X(?:_\d+)?) = \(\(.*\)\(uintptr_t\)\(", c)) | \
+            set(re.findall(r"\((extraout_E[ACD]X(?:_\d+)?) = \(\(.*?\)\(uintptr_t\)\(", c))
         # (a variadic function's argument word its signature names no parameter for: its block's,
         # rewrite)
         if self.sigs[a].variadic:
@@ -4456,7 +5365,7 @@ class Translator32:
         sig = self.sigs[a]
         self.cur_params = sig.params              # (pointer_steps: the parameters' types)
         self.cur_gt = self.corpus[a].get("gt") or {}  # (global_lvalue: the decompiler's types of the globals)
-        c = self.entry_registers(a, self.kept_inputs(self.kept_st0(stack_vs_const(neg_scaled(v16_forms(cpu_state(array_stores(locked_reads(strip_comments(self.corpus[a]["c"]))))))))))
+        c = self.entry_registers(a, self.kept_inputs(self.kept_st0(stack_vs_const(neg_scaled(v16_forms(cpu_state(array_stores(locked_reads(switch_guarded_loads(wide_subscripts(strip_comments(self.corpus[a]["c"]))))))))))))
         # (the registers a failure reporter only records, context_capture: locals of their own,
         # zeroed at the end, by names that read as no register: `in_ES` would be one)
         for n in context_capture(c):
@@ -4482,6 +5391,10 @@ class Translator32:
         # graphics allocator's free-bucket mask found no bucket, a VS2010 client 2026-10-24)
         c = int_min(c)
         c = bool_products(c)
+        # (a shift's 8-byte constant as the decompiler suffixes it, `1L << k`: long is 4 bytes on the
+        # Windows host, so the shift was 32-bit, 1 << (k & 31), and 1L << 31 sign-extended into the high
+        # word. CharacterBase::SetMaskBit 0x689570, 30 functions, 2026-10-31)
+        c = re.sub(r"(?<![\w.'])((?:0x[0-9a-fA-F]+|\d+)U?)L(?=\s*<<)", r"\1LL", c)
         c = re.sub(r"(?<=[\w>])[ \t]*\n[ \t]*::", "::", c)
         # (a label named as the function that starts there, `FUN_00410044:` and `goto FUN_00410044;`
         # inside FUN_0041002d: a label still, not that function's address, a VS2010 client 2026-10-25)
@@ -4490,7 +5403,7 @@ class Translator32:
             c = re.sub(rf"\bgoto\s+{lab}\s*;", f"goto LAB_{lab[4:]}_f;", c)
         head, sep, body = c.partition("{")
         body = out_stack("{" + body, "replaced with injection: alloca_probe" in self.corpus[a]["c"],
-                         bool(EH_PROLOG.search(self.corpus[a]["c"]) or EH_LINK.search(body)))
+                         bool(EH_PROLOG.search(self.corpus[a]["c"]) or EH_LINK.search(body)) or a in self.hands_ebp)
         # (a small array assigned whole from its bytes, `local_64 = (char [4])s_alpha_0040324c._0_4_;`,
         # strcpy of a literal inlined: the bytes through a temporary of that size, C having no
         # array assignment, rhtest crt-O2 2026-10-24)
@@ -4602,6 +5515,12 @@ class Translator32:
         # (`(float)x` of an untyped 8-byte x: its low half's bits as a float, the piece the decompiler
         # prints as a cast where it tags the high one `x._4_4f_`. Converted by value, VS2010's
         # /arch:SSE2 vec_check read cross()'s c.x as 2^62-odd, rhtest msvc-16.00-x86 float-SSE2)
+        # (the decompiler's own bit view of a wider symbol's low piece, `gen_bits2f((uint)local_58)`
+        # (patch/printc.cc pushPartialSymbol): that piece, whatever type a later pass gives the
+        # symbol. A global typed float by its other uses read `(uint)REFG(float, ...)`, a value
+        # conversion, 0xd93970's bone transform)
+        body = re.sub(r"\bgen_bits2([fd])\(\s*\(\s*(?:uint|ulonglong|unsigned int|unsigned long long)\s*\)\s*"
+                      r"([A-Za-z_]\w*)\s*\)", lambda m: f"{m.group(2)}._0_{'4' if m.group(1) == 'f' else '8'}f_", body)
         wide = set(re.findall(r"(?m)^[ \t]+undefined8[ \t]+([A-Za-z_]\w*)[ \t]*;", body))
         if wide:
             body = re.sub(r"\(float\)\s*(" + "|".join(sorted(wide)) + r")\b(?![.\[(])", r"\1._0_4f_", body)
@@ -4690,7 +5609,7 @@ class Translator32:
         self.cur_call_ns = ["::".join(parts[:k]) + "::" for k in range(len(parts), 0, -1)]
         body = self.names(body)
         body = self.literal_places(body, a)
-        body = interlocked(body)
+        body = interlocked(body, re.split(r"(?m)^\{", self.corpus[a]["c"], 1)[0])
         body = jump_calls(body, self.linked_jumps)
         body = CC.sub("", body)
         body = re.sub(r"\(uint\)&stack0x[0-9a-f]+", "0u", body)
@@ -4744,7 +5663,9 @@ class Translator32:
         # (or links it through the CRT's prolog, whose call fixup shows no link: __wfsopen keeps its
         # stream in its first parameter's slot for its __finally, a VS2010 client 2026-10-24)
         eh_prolog = bool(EH_PROLOG.search(self.corpus[a]["c"]))
-        eh = (bool(EH_LINK.search(body)) or eh_prolog) and bool(sig.params)
+        # (or hands its ebp to a callee reading through it, its arguments at [ebp + 8] that
+        # callee's to copy: __ctrandisp1's helper 0xc6ba5c, hands_ebp)
+        eh = (bool(EH_LINK.search(body)) or eh_prolog or a in self.hands_ebp) and bool(sig.params)
         eh_args: list[str] = []
         # (or esp itself read as it came in, register0x00000010, the walk below: a structure by value
         # copied off the stack, `lea esi, [esp + 0x44]; rep movsd`, VS2010's sum_big, rhtest
@@ -4891,10 +5812,15 @@ class Translator32:
                       r"gen_piece_set(\1, \2, \3, (unsigned long long)(\4));", body)
         # a float global under a bitwise operator is its bits (xorps with the sign mask: Ghidra
         # writes `(uint)x ^ DAT_010920d0`)
-        body = re.sub(r"([\^|]\s*|&\s+)REFG\(float, (0x[0-9a-f]+)\)", r"\1REFG(uint, \2)", body)
-        body = re.sub(r"REFG\(float, (0x[0-9a-f]+)\)(?=\s*(?:\^|\||&(?!&)|>>|<<))", r"REFG(uint, \1)", body)
-        body = re.sub(r"([\^|]\s*|&\s+)REFG\(double, (0x[0-9a-f]+)\)", r"\1REFG(ulonglong, \2)", body)
-        body = re.sub(r"REFG\(double, (0x[0-9a-f]+)\)(?=\s*(?:\^|\||&(?!&)|>>|<<))", r"REFG(ulonglong, \1)", body)
+        # (not a logical operator's, `&& DAT_01088128 != fVar1` or `|| ..`: its second character
+        # read as a bitwise one made the float compared a uint converted by value, a NaN-aware
+        # compare in 0x412980 and 4 like it, the operation census 2026-10-31)
+        bitop = r"(\^\s*|(?<!\|)\|(?![|=])\s*|(?<!&)&\s+)"
+        after = r"(?=\s*(?:\^|\|(?!\|)|&(?!&)|>>|<<))"
+        body = re.sub(bitop + r"REFG\(float, (0x[0-9a-f]+)\)", r"\1REFG(uint, \2)", body)
+        body = re.sub(r"REFG\(float, (0x[0-9a-f]+)\)" + after, r"REFG(uint, \1)", body)
+        body = re.sub(bitop + r"REFG\(double, (0x[0-9a-f]+)\)", r"\1REFG(ulonglong, \2)", body)
+        body = re.sub(r"REFG\(double, (0x[0-9a-f]+)\)" + after, r"REFG(ulonglong, \1)", body)
         # (and its low word beside its high one, a double passed as the two stack words it is:
         # `f(this, (int)DAT_004034a0, (int)((ulonglong)DAT_004034a0 >> 0x20), ...)`, the decompiler's
         # 8 bytes cut in two. `(int)` of the double was its value, 9, not its low bits, and a COM
@@ -4933,8 +5859,28 @@ class Translator32:
         # (a statement of its own storing one through a dereference nested any deeper, `*(undefined4
         # *)((int)(*(unsigned int *)(gen_frame + 0x34)) + 0x1738) = REFG(float, ...);`: the line's
         # left side whole)
-        body = re.sub(r"(?m)^([ \t]*)(\*\s*\(.+?)\s*=(?!=)\s*(REFG\((?:float|double), 0x[0-9a-f]+\))\s*;[ \t]*$",
+        # (or the dereference in parentheses, `(*(undefined4 *)(gen_frame + 0x10)) = REFG(float, ..)`
+        # (a frame slot), or twice, `**(undefined4 * PTR32 *)(p + 0x1ec) = ..`: a vector's lanes
+        # filled with the float's value converted, 0xc1fa10 and 0x9d8a20, the operation census
+        # 2026-10-31)
+        body = re.sub(r"(?m)^([ \t]*)(\(?\*+\s*\(.+?)\s*=(?!=)\s*(REFG\((?:float|double), 0x[0-9a-f]+\))\s*;[ \t]*$",
                       lambda m: f"{m.group(1)}{m.group(2)} = GEN_FLT_TO({m.group(2)}, {m.group(3)});", body)
+        # (the other way, an integer local's bits stored to a global the instructions read as a
+        # float: `DAT_015d766c = uVar3;` copies 4 bytes, `REFG(float, ..) = uVar3` converted them,
+        # 0xc98b30)
+        def int_into_float(m):
+            indent, ft, addr, name = m.groups()
+            t = var_types.get(name, "").strip()
+            if not t or t in FLOATS or "[" in t or "*" in t or t not in KNOWN_TYPES:
+                return m.group(0)
+            return f"{indent}REFG({'ulonglong' if ft == 'double' else 'uint'}, {addr}) = {name};"
+        body = re.sub(r"(?m)^([ \t]*)REFG\((float|double), (0x[0-9a-f]+)\)\s*=(?!=)\s*([A-Za-z_]\w*)\s*;",
+                      int_into_float, body)
+        # (and a float global's bytes cut to an undefined piece, `(undefined4)DAT_01375ad0` beside its
+        # `._4_4_`: its low word's bits, 0x6452c0, not the float's value)
+        body = re.sub(r"\(\s*undefined4\s*\)\s*REFG\(float, (0x[0-9a-f]+)\)", r"(undefined4)REFG(uint, \1)", body)
+        body = re.sub(r"\(\s*undefined([48])\s*\)\s*REFG\(double, (0x[0-9a-f]+)\)",
+                      lambda m: f"(undefined{m.group(1)})REFG(ulonglong, {m.group(2)})", body)
         # (unary: `a * (*(undefined4 *)(...))` is a multiplication)
         # (the piece a pointer, as Ghidra typed what it holds: a locale facet's pointer kept in a
         # double's upper half, `*local_33c._4_4_ + 8`, std::num_get's do_get, rhtest stl-O2. An int *
@@ -4960,6 +5906,8 @@ class Translator32:
         body = self.code_pointer_calls(body, var_types)
         body = self.called_pointers(body)
         body = self.code_slots(body, var_types)
+        if a in self.x87_dispatch:
+            body = self.x87_dispatch_call(body, self.x87_dispatch[a])
         body = self.float_assignments(body, var_types)
         body = self.pointer_locals(body, var_types)
         # (a pointer-typed local in integer arithmetic C only allows integers in, `pcVar4 * 4` of
@@ -5040,6 +5988,9 @@ class Translator32:
             body = re.sub(r"\breturn\s*;", "return 0;", body)
         if not balanced(body):
             raise ValueError("unbalanced braces")
+        # (an indirect call's eax read whole after Ghidra narrowed its result, icall_full_result:
+        # before the zeroing below takes its extraout_var for nothing)
+        body = icall_full_result(body)
         # (the lost result registers it only returns: 0 where nothing set them, why_not. Last, as
         # the passes above read the declarations as `type name;`)
         # (and those only a call that does not return is given, noreturn_args_only)
@@ -5055,11 +6006,15 @@ class Translator32:
         # write through ebp into locals the body itself never touches, by_type's result and catch
         # object at [ebp - 0x14] and [ebp - 0x18], below the 16 bytes it did, rhtest eh 2026-10-24)
         eh = bool(EH_LINK.search(body)) or eh_prolog
-        body = frame_locals(body, 0x10000 if alloca else 0, self.frames.get(a, 0) if eh else 0, eh_args,
+        body = frame_locals(body, 0x10000 if alloca else 0, self.frames.get(a, 0) if eh or a in self.hands_ebp else 0, eh_args,
                             ebp=self.has_frame(a))
         body = global_index(body)
+        body = pointer_index(body, var_types)
+        # (and a pointer's bare addends, `pcVar3 + uVar4`: 32-bit as x86 adds them, 0x55c170)
+        body = pointer_addends(body, var_types)
         body = idiv32(body)
         body = self.hlt_loops(a, body)
+        body = self.spin_polls(a, body)
         # (a frame slot of a pointer type converted to a float, Ghidra reusing one local for both:
         # its bits, as GEN_TOF takes a pointer's)
         # (not one indexed: `(float)local_x[i]` converts the element)
@@ -5085,8 +6040,17 @@ class Translator32:
             body = shift_counts(body)
         # (a float argument of a call through a pointer, its bits: late, the globals REFG and the
         # x87 result's calls gen_fcode by now)
+        # (a 3, 5, 6 or 7-byte value through a pointer, its own bytes: odd_width_access)
+        body = odd_width_access(body, var_types)
         body = self.pointer_call_args(body, var_types)
         body = math_import_args(body)
+        # (an x87 extended constant of the reference's read as one, `*(float10 *)&REFG(undefined,
+        # 0x111ad1e)` for `fld tbyte [0x111ad1e]` (32767.5): float10 is a double here and the plain
+        # read took its mantissa's 8 bytes, NaN, so the C runtime's exp core 0xc5eb1e always took its
+        # out-of-range path and its +inf at 0x111ad00 read -0.0. Its 10 bytes, gen_ld80. Reads only;
+        # the frame's 10-byte slots stay doubles stored and loaded alike. 2026-10-30)
+        body = re.sub(r"\*\s*\(\s*float10\s*\*\s*\)\s*&\s*REFG\(\s*undefined\s*,\s*(0x[0-9a-f]+)\s*\)(?!\s*=[^=])",
+                      r"gen_ld80(&REFG(undefined, \1))", body)
         # (and a function that reads the unit's status flags: its floating-point locals volatile)
         body = fp_status_volatile(body)
         # (and an x87 function's results under the control word's precision, GEN_X87)
@@ -5096,6 +6060,9 @@ class Translator32:
             body = x87_precision(body, var_types, self.ret_type(sig.ret).strip() in ("double", "float10", "float"))
         elif "replaced with injection: rh_sqrt" in self.corpus[a]["c"]:
             body = x87_precision(body, var_types, False, sqrt_only=True)
+        # (a pointer loaded from its slot and dereferenced at once, through GEN_NE: checked in the
+        # checked build, as it is in any other; last, no pass after reads these forms)
+        body = ptr32_derefs(body)
         # (the shadow trace's record of the call, first: its address and first four integer
         # arguments, as shadow32.py records the reference's: its words, a float's bits and an
         # 8-byte argument's two words)
@@ -5258,6 +6225,45 @@ class Translator32:
         return "".join(out)
 
     @staticmethod
+    def x87_dispatch_call(body: str, n: int) -> str:
+        """The C runtime's x87 dispatcher's tail jump through its record, `jmp dword ptr [ebx]`
+        (protos32's x87_dispatch_records), a call that returns of ecx alone by its call-site shape.
+        Every handler takes ecx, st0 (st1 for two operands) and the entry's frame in ebp and returns
+        the function's value in st0, as its jumps.c W_ entry takes them, a double as its two words:
+        passed so, and its value returned. Called with ecx alone and `return 0` after, every handler
+        read garbage for its st0 and frame and its value was lost (2026-10-31)."""
+        m = re.search(r"\(\((?:code|gen_fcode) \*\)\*\(?\(gen_code32 \*\)", body)
+        if m is None:
+            return body
+
+        def close(i):
+            d = 0
+            for k in range(i, len(body)):
+                d += {"(": 1, ")": -1}.get(body[k], 0)
+                if d == 0:
+                    return k
+            return -1
+        ce = close(m.start())
+        j = ce + 1
+        while 0 < j < len(body) and body[j] in " \t\r\n":
+            j += 1
+        if ce < 0 or j >= len(body) or body[j] != "(":
+            return body
+        ae = close(j)
+        if ae < 0:
+            return body
+        args = [body[j + 1:ae].strip() or "0u"]
+        for s in ("in_st0", "in_st1")[:n]:
+            args += [f"(unsigned int)gen_d2bits((double){s})", f"(unsigned int)(gen_d2bits((double){s}) >> 32)"]
+        args.append("(unsigned int)in_ebp")
+        call = body[m.start():ce + 1].replace("((code *)", "((gen_fcode *)", 1) + "(" + ",".join(args) + ")"
+        ls = body.rfind("\n", 0, m.start()) + 1
+        tail = re.match(r"\s*;\s*return\b[^;]*;", body[ae + 1:])
+        if body[ls:m.start()].strip() == "" and tail:
+            return body[:m.start()] + "return (float10)" + call + ";" + body[ae + 1 + tail.end():]
+        return body[:m.start()] + call + body[ae + 1:]
+
+    @staticmethod
     def code_slots(body: str, var_types: dict[str, str]) -> str:
         """A stored function pointer is a 4-byte integer, gen_code32, and a call through one
         converts it to a function pointer first. MSVC drops __ptr32 from a pointer to a function:
@@ -5283,6 +6289,13 @@ class Translator32:
         if floats:
             body = re.sub(r"(?m)^(\s*)(" + "|".join(sorted(map(re.escape, floats))) + r")(\s*=\s*)(\(\*\s*)?\(\(code \*\)",
                           r"\1\2\3\4((gen_fcode *)", body)
+            # (or through a local the decompiler typed `code *`, `extraout_ST0 = (*pcVar1)();`: as
+            # code, eax converted by value, a mixer's level 0xb67a70, the operation census 2026-10-31)
+            fptrs = [n for n, t in var_types.items() if re.fullmatch(r"code\s*\*(?:\s*PTR32)?", t.strip())]
+            if fptrs:
+                body = re.sub(r"(?m)^(\s*)(" + "|".join(sorted(map(re.escape, floats))) + r")(\s*=\s*)\(\s*\*\s*("
+                              + "|".join(sorted(map(re.escape, fptrs))) + r")\s*\)(?=\s*\()",
+                              r"\1\2\3((gen_fcode *)\4)", body)
         # (and one whose edx:eax result goes to an 8-byte integer: through gen_lcode, its rax whole)
         longs = {n for n, t in var_types.items() if t.strip() in ("ulonglong", "longlong", "undefined8", "uint8", "int8")}
         if longs:
@@ -5400,6 +6413,12 @@ class Translator32:
         # a binary expression: float if any side is, otherwise what its sides agree on
         parts = [p for p in re.split(r"\s(?:[-+*/%|^]|<<|>>|&(?!&))\s", e) if p.strip()]
         if len(parts) > 1 and all(p.count("(") == p.count(")") for p in parts):
+            # (a bitwise operator's is an integer whatever its sides: a float's sign flipped by
+            # xor, `(uint)gen_fl2bits(f) ^ DAT_010920d0`, taken for a float and passed as
+            # gen_fl2bits((float)(..)), the bits converted by value, 0x8b4eb0's 8 calls, the
+            # operation census 2026-10-31)
+            if re.search(r"\s(?:[%|^]|<<|>>|&(?!&))\s", e):
+                return "int"
             kinds = [self.kind_of(p, var_types) for p in parts]
             if "float" in kinds:
                 return "float"
@@ -5671,7 +6690,7 @@ class Translator32:
                 # an int. Function ID's debug-library names, `fVirtual(enum CV_methodprop_e)`, 6
                 # stubs in a client, 2026-10-27)
                 if w in self.enum_words:
-                    t = re.sub(r"\b" + re.escape(w) + r"\b", "int", t)
+                    t = re.sub(r"\b" + re.escape(w) + r"\b", "uint", t)
                     continue
                 if "*" in t:
                     t = re.sub(r"\b" + re.escape(w) + r"\b", "undefined", t)
@@ -6013,7 +7032,26 @@ class Translator32:
         parts = re.split(r'''("(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])+')''', body)
         body = "".join(p if k % 2 else re.sub(r"(?<![\w$:.])(" + IDENT + r")(?![\w$(:])(?!\s*\()", value, p)
                        for k, p in enumerate(parts))
-        return self.pointer_globals(body)
+        return self.float_global_casts(self.pointer_globals(body))
+
+    def float_global_casts(self, body: str) -> str:
+        """`(byte)REFG(float, a)`: an integer cast of a global the instructions read as a float
+        (floatdata) that the decompiler, in this function, typed no float: a piece of its bits, as
+        the reference's `mov al, [a]` (Ghidra's `(byte)DAT_010c449c`), not its value converted.
+        0x7db120 stored 1 for each byte of 1.33f, 0x5f9fc0's `(undefined2)` of 1.0f was 1, and
+        Matrix34Invert3x3's `~m & (uint)DAT_01138af0` (0xda2230) and-ed the mask with 1, 2026-10-31.
+        (A float it typed float is converted: `(int)DAT_010abc60`, _ftol in 0xcce920)"""
+        gt = getattr(self, "cur_gt", {})
+
+        def rep(m):
+            seen = set(gt.get(f"{int(m.group(3), 16):x}", ()))
+            if not seen or seen & {"float", "double", "float10", "longdouble"}:
+                return m.group(0)
+            bits = "gen_d2bits" if m.group(2) == "double" else "gen_fl2bits"
+            return f"({m.group(1)}){bits}(REFG({m.group(2)}, {m.group(3)}))"
+        return re.sub(r"\(\s*(byte|char|uchar|sbyte|bool|undefined1?|undefined2|undefined4|undefined8|short|ushort|"
+                      r"int|uint|long|ulong|longlong|ulonglong|word|dword|qword)\s*\)\s*REFG\((float|double), "
+                      r"(0x[0-9a-f]+)\)", rep, body)
 
     def odd_names(self, body: str) -> str:
         """Names made of more than word characters (operators, templates, backquoted scopes),
@@ -6071,6 +7109,19 @@ class Translator32:
 
     def global_lvalue(self, addr: int) -> str:
         n, t = self.refdata.get(addr, (4, "undefined4"))
+        # (an address the data export has no entry for, a label the decompiler made for the access:
+        # the width it gave the global in this function, its one undefinedN. As 4 bytes, a byte
+        # store `DAT_014a2479 = uVar1` wrote its neighbours too, the bone physics config's
+        # 0x14a2479..7b (0xa051e0), 2026-10-31)
+        # (and by any type it gave it, not only an undefinedN: `byte`, `char` and `bool` were 4
+        # bytes, `DAT_014ac17c = param_1` (0x6bef90), `DAT_013723ba = c` (0x4352e0), `DAT_014c0a78 =
+        # bVar1` (0xae8ef0) writing 3 neighbours, `DAT_015d6858 != '\0'` (0xc50917) comparing 4)
+        if addr not in self.refdata:
+            seen = set(getattr(self, "cur_gt", {}).get(f"{addr:x}", ()))
+            sizes = {gt_size(s) for s in seen}
+            if seen and len(sizes) == 1 and None not in sizes:
+                n = next(iter(sizes))
+                t = f"undefined{n}"
         t = t.strip()
         # Ghidra's fs segment (its "tdb" block): this thread's x86 TEB (Ghidra32.h gen_teb32)
         if TEB_LO <= addr < TEB_HI:
@@ -6083,7 +7134,10 @@ class Translator32:
             return f"(*({ct} *)(uintptr_t){at})"
         m = re.fullmatch(r"(.+?)\s*\[(\d+)\]", t)
         # (a scalar the instructions load as a float is one, whatever the export says)
-        if addr in self.floats and not m:
+        # (Not one narrower than the data, though: a vector's two floats a `movq` copies whole, the
+        # decompiler's `*(undefined8 *)(p + 0x20) = DAT_01138c80`, as a float stored the first and
+        # zeroed the second, hkxScene's identity matrix with [1][1] 0 (0xde6760), 2026-10-31)
+        if addr in self.floats and not m and {"float": 4, "double": 8}.get(self.floats[addr], n) >= n:
             return f"REFG({self.floats[addr]}, 0x{addr:x})"
         if m:
             # (an array the instructions read as floats has float elements)
@@ -6349,12 +7403,17 @@ class Translator32:
         wps, conv = [], False
         if "..." not in ps:
             for p, nm in zip(ps, names):
-                m = re.fullmatch(r"(float|double)\s+(gen_a\d+)", p)
+                # (the first with the convention's dummy edx after it too, `float gen_a0
+                # GEN_EDX_PARAM`: a __thiscall's `this` Ghidra typed float, taken from xmm0 while
+                # its caller passed ecx's word in rcx. 0xbba5e0's this read as garbage, a crash on
+                # Start, 12 like it, 2026-10-31)
+                m = re.fullmatch(r"(float|double)\s+(gen_a\d+)(\s+GEN_EDX_PARAM)?", p)
                 if m:
                     conv = True
+                    edx = " GEN_EDX_PARAM" if m.group(3) else ""
                     if m.group(1) == "float":
-                        wps.append(f"unsigned int {m.group(2)}")
-                        names[names.index(nm)] = f"gen_bits2f({m.group(2)})"
+                        wps.append(f"unsigned int {m.group(2)}{edx}")
+                        names[names.index(nm)] = f"gen_bits2f({m.group(2)})" + (" GEN_EDX_FWD" if edx else "")
                     else:
                         # (a double its two stack words, low first, as an indirect caller passes
                         # them, each an integer argument: as one 64-bit word, the low word was the
@@ -6584,12 +7643,21 @@ class Translator32:
             im.append(f'  {{0x{slot:x}u, "{dll}", "{raw}", (void *)gen_imp_{cid(n)}, {real}}},')
         im += ["};", f"const unsigned int g_genImportCount = {len(self.imports)};"]
         write(GEN / "imports.c", "\n".join(im) + "\n")
-        reasons = Counter(re.sub(r"\(.*", "", v).split(":")[0].strip() for v in stubbed.values())
-        write(MANIFEST, json.dumps({"translated": len(translated), "stubbed": len(stubbed),
+        # (the frame helpers and setjmp no translation calls, FOLDED_NAME: their stubs stay, reached
+        # by nothing, a trap all the same; listed "folded" as fidelity32 scores them, not as stubs.
+        # One a translation names stays a stub)
+        folded = {a: v for a, v in stubbed.items() if a not in OWN
+                  and FOLDED_NAME.fullmatch(self.corpus.get(a, {}).get("name", ""))
+                  and not any(f"F_{a:08x}" in t for t in translated.values())}
+        kept = {a: v for a, v in stubbed.items() if a not in folded}
+        reasons = Counter(re.sub(r"\(.*", "", v).split(":")[0].strip() for v in kept.values())
+        write(MANIFEST, json.dumps({"translated": len(translated), "stubbed": len(kept),
                                     "suspect": {f"{a:08x}": n for a, n in sorted(suspect.items())},
                                     "reasons": dict(reasons.most_common()),
-                                    "stubs": {f"{a:08x}": v for a, v in sorted(stubbed.items()) if a not in OWN},
-                                    "own": {f"{a:08x}": v for a, v in sorted(stubbed.items()) if a in OWN}}, indent=1))
+                                    "stubs": {f"{a:08x}": v for a, v in sorted(kept.items()) if a not in OWN},
+                                    "own": {f"{a:08x}": v for a, v in sorted(stubbed.items()) if a in OWN},
+                                    "folded": {f"{a:08x}": f"{self.corpus[a]['name']}: {v}"
+                                               for a, v in sorted(folded.items())}}, indent=1))
         return files
 
 

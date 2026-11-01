@@ -47,6 +47,11 @@ static void (*p_set_window)(void *, int, int);
 static void (*p_set_pad)(int, const RhipperPad *);
 static void (*p_set_rumble)(RhipperRumbleFn);
 static void (*p_lifecycle)(int);
+/* version 2's input, optional: a real library older than this one has none, and its host interface
+   is then 1 (nativeInit says so; the host leaves keyboard and mouse to the system) */
+static void (*p_key)(int, int, int, int, int);
+static void (*p_pointer)(int, int, float, float, int, float, float, int);
+static void (*p_text)(const char *);
 
 static JavaVM *g_vm;
 static jclass g_native_class;
@@ -168,6 +173,13 @@ static int resolve(void) {
     SYM(p_set_rumble, "rhipper_host_set_rumble");
     SYM(p_lifecycle, "rhipper_host_lifecycle");
 #undef SYM
+    *(void **)(&p_key) = dlsym(g_real, "rhipper_host_key");
+    *(void **)(&p_pointer) = dlsym(g_real, "rhipper_host_pointer");
+    *(void **)(&p_text) = dlsym(g_real, "rhipper_host_text");
+    if (!p_key || !p_pointer || !p_text) {
+        LOGI("boot: the real library has no keyboard/mouse input (host interface 1)");
+        p_key = NULL, p_pointer = NULL, p_text = NULL;
+    }
     return 1;
 }
 
@@ -227,7 +239,7 @@ Java_dev_rhipper_host_RhipperNative_nativeInit(JNIEnv *env, jclass cls) {
         if (!g_real || !resolve()) return -1;
     }
     p_set_rumble(g_on_rumble ? jni_rumble : NULL);
-    return RHIPPER_HOST_VERSION;
+    return p_key ? RHIPPER_HOST_VERSION : 1;
 }
 
 JNIEXPORT void JNICALL
@@ -279,6 +291,33 @@ JNIEXPORT void JNICALL
 Java_dev_rhipper_host_RhipperNative_nativeLifecycle(JNIEnv *env, jclass cls, jint event) {
     (void)env; (void)cls;
     if (p_lifecycle) p_lifecycle(event);
+}
+
+JNIEXPORT void JNICALL
+Java_dev_rhipper_host_RhipperNative_nativeKey(JNIEnv *env, jclass cls, jint key_code, jint scan_code, jboolean down,
+                                              jint meta_state, jint unicode_char) {
+    (void)env; (void)cls;
+    if (p_key) p_key(key_code, scan_code, down ? 1 : 0, meta_state, unicode_char);
+}
+
+JNIEXPORT void JNICALL
+Java_dev_rhipper_host_RhipperNative_nativePointer(JNIEnv *env, jclass cls, jint action, jint pointer_id, jfloat x,
+                                                  jfloat y, jint buttons, jfloat scroll_v, jfloat scroll_h,
+                                                  jint source) {
+    (void)env; (void)cls;
+    if (p_pointer) p_pointer(action, pointer_id, x, y, buttons, scroll_v, scroll_h, source);
+}
+
+JNIEXPORT void JNICALL
+Java_dev_rhipper_host_RhipperNative_nativeText(JNIEnv *env, jclass cls, jstring text) {
+    (void)cls;
+    if (!p_text || !text) return;
+    /* (GetStringUTFChars is modified UTF-8: a character outside the BMP comes as two 3-byte
+       surrogates, which the runtime drops as it does any surrogate's unit; U+0000 as C0 80) */
+    const char *s = (*env)->GetStringUTFChars(env, text, NULL);
+    if (!s) return;
+    p_text(s);
+    (*env)->ReleaseStringUTFChars(env, text, s);
 }
 
 static char *copy_string(JNIEnv *env, jstring s) {

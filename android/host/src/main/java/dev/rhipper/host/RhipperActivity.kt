@@ -36,6 +36,7 @@ open class RhipperActivity : Activity(), SurfaceHolder.Callback {
         private set
 
     private lateinit var gamepads: RhipperGamepads
+    private lateinit var input: RhipperInput
     private var ready = false
     private var hasSurface = false
     private var lastBackPress = 0L
@@ -44,6 +45,10 @@ open class RhipperActivity : Activity(), SurfaceHolder.Callback {
     /** What to run. The default reads [RhipperConfig]'s extras from the Intent. */
     protected open fun createConfig(): RhipperConfig =
         RhipperConfig.fromIntent(intent) ?: error("no ${RhipperConfig.EXTRA_LIBRARY} / ${RhipperConfig.EXTRA_REFERENCE_EXE} extras")
+
+    /** Capture an attached mouse (relative motion, no system pointer) from the start; Ctrl+Alt+M
+     *  toggles it either way. Off suits a reference that draws no cursor of its own. */
+    protected open val captureMouseByDefault: Boolean get() = true
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -63,6 +68,7 @@ open class RhipperActivity : Activity(), SurfaceHolder.Callback {
         hideSystemBars()
 
         gamepads = RhipperGamepads(this)
+        input = RhipperInput(this, surfaceView, captureMouseByDefault)
         if (Build.VERSION.SDK_INT >= 33) {
             onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT) { onBackRequested() }
         }
@@ -86,12 +92,14 @@ open class RhipperActivity : Activity(), SurfaceHolder.Callback {
         super.onResume()
         if (!ready) return
         gamepads.start()
+        input.start()
         RhipperNative.nativeLifecycle(RhipperNative.RESUME)
     }
 
     override fun onPause() {
         if (ready) {
             RhipperNative.nativeLifecycle(RhipperNative.PAUSE)
+            input.stop()
             gamepads.stop()
         }
         super.onPause()
@@ -110,6 +118,7 @@ open class RhipperActivity : Activity(), SurfaceHolder.Callback {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) hideSystemBars()
+        if (ready) input.onFocus(hasFocus) // (pointer capture needs the focus, and goes with it)
     }
 
     override fun onLowMemory() {
@@ -141,13 +150,25 @@ open class RhipperActivity : Activity(), SurfaceHolder.Callback {
         hasSurface = false
     }
 
-    // ---- input
+    // ---- input: controllers first (XInput), then the keyboard, mouse and touchscreen ([RhipperInput]);
+    // what neither takes (the system's keys, a controller's leftovers) goes on as usual
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean =
-        (ready && gamepads.onKey(event)) || super.dispatchKeyEvent(event)
+        (ready && (gamepads.onKey(event) || input.onKey(event))) || super.dispatchKeyEvent(event)
 
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean =
-        (ready && gamepads.onMotion(event)) || super.dispatchGenericMotionEvent(event)
+        (ready && (gamepads.onMotion(event) || input.onGenericMotion(event))) || super.dispatchGenericMotionEvent(event)
+
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean =
+        (ready && input.onTouch(event)) || super.dispatchTouchEvent(event)
+
+    /**
+     * Committed text for the reference, as WM_CHAR: the hook for a soft keyboard (none is shown yet;
+     * one needs an InputConnection on the surface view) or a subclass's own text entry.
+     */
+    protected fun sendText(text: CharSequence) {
+        if (ready) input.sendText(text)
+    }
 
     @Deprecated("Below API 33 only; 33+ uses OnBackInvokedCallback")
     override fun onBackPressed() = onBackRequested()

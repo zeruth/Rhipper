@@ -24,6 +24,10 @@
 #include "RefImage.hpp"
 
 void RefPrintStack(HANDLE thread, CONTEXT c);   // RefImage.cpp
+#ifdef GEN_CHECKED
+// (the checked build's: the stack's shadow cleared above here, Checked.cpp)
+extern "C" void __asan_handle_no_return(void);
+#endif
 
 extern "C" uint32_t gen_ref_base;   // RefImage.cpp
 const wchar_t* RefImagePath();       // RefImage.cpp
@@ -525,6 +529,10 @@ void UnwindFrame(uint32_t node) {
     g_resumeAt = at;
     g_resumeEbp = ebp;
     if (Tracing()) fprintf(stderr, "rhipper eh: land at node %08X, continuation %08X\n", node, at);
+#ifdef GEN_CHECKED
+    // (the checked build: the frames this jump leaves keep their redzones; cleared)
+    __asan_handle_no_return();
+#endif
     longjmp(l->buf, 1);
 }
 
@@ -1426,6 +1434,21 @@ unsigned int gen_imp_CreateFileW(uint32_t name, uint32_t access, uint32_t share,
     return Low(CreateFileW(At<wchar_t>(name), access, share, Sa64(sa, &s), disposition, flags,
                            reinterpret_cast<HANDLE>(static_cast<uintptr_t>(tmpl))));
 }
+// CreateThread: the reference's thread on at least 4 MB reserved: its code is x64 here, frames wider
+// than x86's (127-327 KB in BGLocalCullingRenderObject::CullLocal 0x62d8d0 and its kind), where it
+// asked 64 KB committed (Thread::Start 0x4cf9e0) on the image's 1 MB; the reference's main thread has
+// 32 MB for the same reason (RefImage.cpp RefRun). Its SECURITY_ATTRIBUTES the x86 one, as CreateFile's
+unsigned int gen_imp_CreateThread(uint32_t sa, uint32_t size, uint32_t start, uint32_t param, uint32_t flags,
+                                  uint32_t id) {
+    SECURITY_ATTRIBUTES s;
+    const SIZE_T least = 4u << 20;
+    DWORD tid = 0;
+    HANDLE h = CreateThread(Sa64(sa, &s), size > least ? size : least,
+                            reinterpret_cast<LPTHREAD_START_ROUTINE>(static_cast<uintptr_t>(start)), At<void>(param),
+                            flags | STACK_SIZE_PARAM_IS_A_RESERVATION, &tid);
+    if (id) *At<DWORD>(id) = tid;
+    return Low(h);
+}
 // ---- OVERLAPPED: 20 bytes on x86 (Internal, InternalHigh, Offset, OffsetHigh, hEvent), 32 on
 // x64. Handed through, Windows took the x86 Offset for InternalHigh's upper half and the event from
 // past the end: every positioned ReadFile and WriteFile failed (rhtest sys, 2026-10-27). Each x86
@@ -1518,6 +1541,122 @@ unsigned int gen_imp_UnlockFileEx(uint32_t h, uint32_t reserved, uint32_t lo, ui
 }
 unsigned int gen_imp_CancelIoEx(uint32_t h, uint32_t ov) {
     return CancelIoEx(H64(h), ov ? Ov64(ov) : nullptr);
+}
+// ---- IcmpSendEcho: ICMP_ECHO_REPLY holds a pointer (Data) and an IP_OPTION_INFORMATION holding
+// another, 28 bytes on x86 and 40 on x64 (IP_OPTION_INFORMATION 8 and 16), the echoed data after
+// the replies. Passed through, x64's wrote its 40-byte reply and the 4 echoed bytes, 44, into the
+// 32 PingClientRequest::SendEchoRequests (0xba8050) mallocs for x86's 28 + 4 (its ReplySize says
+// 0x3c): bytes 40..43 the next heap block's header, a c0000374 at that block's free in the UI
+// teardown on entering the game, 2026-10-31. The replies rebuilt in x86's layout, their data and
+// options after them, no more bytes than x86's would be
+struct IpOptions32 {
+    uint8_t ttl, tos, flags, size;
+    uint32_t data;
+};
+struct EchoReply32 {
+    uint32_t address, status, rtt;
+    uint16_t dataSize, reserved;
+    uint32_t data;
+    IpOptions32 options;
+};
+static_assert(sizeof(EchoReply32) == 28, "ICMP_ECHO_REPLY, x86");
+// (x64's, as ipexport.h has them: the runtime includes no iphlpapi header)
+struct IpOptions64 {
+    uint8_t ttl, tos, flags, size;
+    uint8_t* data;
+};
+struct EchoReply64 {
+    uint32_t address, status, rtt;
+    uint16_t dataSize, reserved;
+    void* data;
+    IpOptions64 options;
+};
+static_assert(sizeof(EchoReply64) == 40, "ICMP_ECHO_REPLY, x64");
+unsigned int gen_imp_IcmpSendEcho(uint32_t handle, uint32_t dest, uint32_t data, uint32_t size, uint32_t options,
+                                  uint32_t reply, uint32_t replySize, uint32_t timeout) {
+    using Send = DWORD(WINAPI*)(HANDLE, uint32_t, void*, WORD, IpOptions64*, void*, DWORD, DWORD);
+    static Send send = reinterpret_cast<Send>(GetProcAddress(LoadLibraryA("iphlpapi.dll"), "IcmpSendEcho"));
+    IpOptions64 o64 = {};
+    IpOptions64* po = nullptr;
+    if (options) {
+        const IpOptions32* o = At<IpOptions32>(options);
+        o64.ttl = o->ttl;
+        o64.tos = o->tos;
+        o64.flags = o->flags;
+        o64.size = o->size;
+        o64.data = o->data ? At<uint8_t>(o->data) : nullptr;
+        po = &o64;
+    }
+    // (x86's minimum, as its IcmpSendEcho checks it: a reply, the data, 8 bytes for an ICMP error)
+    if (reply == 0 || replySize < sizeof(EchoReply32) + size + 8) {
+        SetLastError(ERROR_INSUFFICIENT_BUFFER);
+        return 0;
+    }
+    // (x64's own buffer, each reply 12 bytes more than x86's)
+    std::vector<uint8_t> buf(static_cast<size_t>(replySize) * 2 + sizeof(EchoReply64));
+    DWORD n = send(H64(handle), dest, data ? At<void>(data) : nullptr, static_cast<WORD>(size), po, buf.data(),
+                   static_cast<DWORD>(buf.size()), timeout);
+    if (n == 0) return 0;
+    const EchoReply64* r64 = reinterpret_cast<const EchoReply64*>(buf.data());
+    uint8_t* out = At<uint8_t>(reply);
+    size_t at = sizeof(EchoReply32) * n;
+    if (at > replySize) {
+        SetLastError(ERROR_INSUFFICIENT_BUFFER);
+        return 0;
+    }
+    for (DWORD k = 0; k < n; k++) {
+        EchoReply32 r = {};
+        r.address = r64[k].address;
+        r.status = r64[k].status;
+        r.rtt = r64[k].rtt;
+        r.dataSize = r64[k].dataSize;
+        r.reserved = r64[k].reserved;
+        r.options.ttl = r64[k].options.ttl;
+        r.options.tos = r64[k].options.tos;
+        r.options.flags = r64[k].options.flags;
+        r.options.size = r64[k].options.size;
+        if (r64[k].options.data && r64[k].options.size && at + r64[k].options.size <= replySize) {
+            memcpy(out + at, r64[k].options.data, r64[k].options.size);
+            r.options.data = reply + static_cast<uint32_t>(at);
+            at += r64[k].options.size;
+        }
+        if (r64[k].data && r64[k].dataSize && at + r64[k].dataSize <= replySize) {
+            memcpy(out + at, r64[k].data, r64[k].dataSize);
+            r.data = reply + static_cast<uint32_t>(at);
+            at += r64[k].dataSize;
+        }
+        memcpy(out + sizeof(EchoReply32) * k, &r, sizeof r);
+    }
+    return n;
+}
+
+// ---- RegCreateKeyExA: an HKEY is a pointer, written through phkResult as 8 bytes over the
+// reference's 4-byte slot. Global::WriteInstallInformation (0xa0dc80) keeps its subkey's handle at
+// [frame+0x14] beside the parent's at [frame+0x18]: the subkey's high half, 0, overwrote the parent
+// key and its RegEnumKeyExA loop ended after the first subkey. Its SECURITY_ATTRIBUTES is x86's too
+unsigned int gen_imp_RegCreateKeyExA(uint32_t key, uint32_t sub, uint32_t reserved, uint32_t cls, uint32_t opts,
+                                     uint32_t sam, uint32_t sa, uint32_t out, uint32_t disposition) {
+    SECURITY_ATTRIBUTES s;
+    HKEY h = nullptr;
+    LSTATUS r = RegCreateKeyExA(reinterpret_cast<HKEY>(static_cast<intptr_t>(static_cast<int32_t>(key))),
+                                At<char>(sub), reserved, At<char>(cls), opts, sam, Sa64(sa, &s), &h,
+                                disposition ? At<DWORD>(disposition) : nullptr);
+    if (out) *At<uint32_t>(out) = r == ERROR_SUCCESS ? Low(reinterpret_cast<HANDLE>(h)) : 0;
+    return static_cast<unsigned int>(r);
+}
+
+// ---- VerQueryValueA: lplpBuffer is an LPVOID*, written as 8 bytes over the reference's 4. In
+// Global::CheckXAudio2DllVersion (0xccb5e0) the slot at [frame+0x10004] sits just below the version
+// block at [frame+0x10008]: the pointer's high half overwrote the block's first word
+unsigned int gen_imp_VerQueryValueA(uint32_t block, uint32_t sub, uint32_t out, uint32_t len) {
+    using Query = BOOL(WINAPI*)(const void*, const char*, void**, UINT*);
+    static Query query = reinterpret_cast<Query>(GetProcAddress(LoadLibraryA("version.dll"), "VerQueryValueA"));
+    void* p = nullptr;
+    UINT n = 0;
+    BOOL ok = query(At<void>(block), At<char>(sub), &p, &n);
+    if (out) *At<uint32_t>(out) = ok ? Low(static_cast<const void*>(p)) : 0;
+    if (len) *At<uint32_t>(len) = n;
+    return ok;
 }
 // a completion port hands back the native OVERLAPPED: the reference's own, its status copied in
 // (and a key or an OVERLAPPED posted by PostQueuedCompletionStatus, an x86 value, as it is)

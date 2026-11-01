@@ -28,6 +28,8 @@
 
 namespace rh {
 
+void RefWatchProtected(uintptr_t lo, uintptr_t hi);   // Trace.cpp
+
 namespace {
 
 constexpr uint32_t kLowStart = 0x00010000;
@@ -104,6 +106,7 @@ void Protect(uint32_t at, uint32_t size, int prot) {
     if (mprotect(reinterpret_cast<void*>(lo), hi - lo, prot) != 0)
         Log("mprotect %lx+%lx %d failed (%d)", static_cast<unsigned long>(lo), static_cast<unsigned long>(hi - lo), prot,
             errno);
+    RefWatchProtected(lo, hi);   // (Trace.cpp's <ENV>_WATCH: armed again over the new protection)
 }
 
 // the pages back to the kernel, address space kept (only whole host pages inside the range)

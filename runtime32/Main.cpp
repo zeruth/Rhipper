@@ -42,6 +42,15 @@ int Launch() {
         TerminateProcess(pi.hProcess, 1);
         return 1;
     }
+    // (the program dies with the launcher: a script that stopped the launcher after its seconds left
+    // the program running on, unattended, the next run's start refused and its exe locked, 2026-10-31.
+    // The job's handle stays open, closed by the launcher's exit)
+    if (HANDLE job = CreateJobObjectW(nullptr, nullptr)) {
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION li = {};
+        li.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        SetInformationJobObject(job, JobObjectExtendedLimitInformation, &li, sizeof li);
+        AssignProcessToJobObject(job, pi.hProcess);
+    }
     ResumeThread(pi.hThread);
     WaitForSingleObject(pi.hProcess, INFINITE);
     DWORD code = 1;

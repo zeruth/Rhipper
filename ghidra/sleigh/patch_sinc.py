@@ -59,6 +59,25 @@ FIXES = [
     (":FLDENV Mem     is vexMode=0 & byte=0xD9; (mod != 0b11 & reg_opcode=4) ... & Mem\n{\n",
      ":FLDENV Mem     is vexMode=0 & byte=0xD9; (mod != 0b11 & reg_opcode=4) ... & Mem\n{\n"
      "  x87_fldenv(Mem);\n"),
+    # RHIPPER: CVTPS2DQ, CVTPD2DQ, CVTPD2PI round by MXCSR (nearest); the release truncates them as
+    # CVTT* does. trunc(round()) is CVTSS2SI's own form, printed (int)ROUND(x). InterleaveFloatToPcm16
+    # 0xcef770, the 4-lane sincos 0xc33f00's quadrant (2026-10-31)
+    ("    XmmReg[0,32] = trunc( m[0,32] );\n    XmmReg[32,32] = trunc( m[32,32] );\n"
+     "    XmmReg[64,32] = trunc( m[64,32] );\n    XmmReg[96,32] = trunc( m[96,32] );\n",
+     "    XmmReg[0,32] = trunc(round( m[0,32] ));\n    XmmReg[32,32] = trunc(round( m[32,32] ));\n"
+     "    XmmReg[64,32] = trunc(round( m[64,32] ));\n    XmmReg[96,32] = trunc(round( m[96,32] ));\n"),
+    ("    XmmReg1[0,32] = trunc( XmmReg2[0,32] );\n    XmmReg1[32,32] = trunc( XmmReg2[32,32] );\n"
+     "    XmmReg1[64,32] = trunc( XmmReg2[64,32] );\n    XmmReg1[96,32] = trunc( XmmReg2[96,32] );\n",
+     "    XmmReg1[0,32] = trunc(round( XmmReg2[0,32] ));\n    XmmReg1[32,32] = trunc(round( XmmReg2[32,32] ));\n"
+     "    XmmReg1[64,32] = trunc(round( XmmReg2[64,32] ));\n    XmmReg1[96,32] = trunc(round( XmmReg2[96,32] ));\n"),
+    ("    XmmReg[0,32] = trunc( m[0,64] );\n    XmmReg[32,32] = trunc( m[64,64] );\n",
+     "    XmmReg[0,32] = trunc(round( m[0,64] ));\n    XmmReg[32,32] = trunc(round( m[64,64] ));\n"),
+    ("    XmmReg1[0,32] = trunc( XmmReg2[0,64] );\n    XmmReg1[32,32] = trunc( XmmReg2[64,64] );\n",
+     "    XmmReg1[0,32] = trunc(round( XmmReg2[0,64] ));\n    XmmReg1[32,32] = trunc(round( XmmReg2[64,64] ));\n"),
+    ("    mmxreg[0,32] = trunc( m[0,64] );\n    mmxreg[32,32] = trunc( m[64,64] );\n",
+     "    mmxreg[0,32] = trunc(round( m[0,64] ));\n    mmxreg[32,32] = trunc(round( m[64,64] ));\n"),
+    ("    mmxreg1[0,32] = trunc( XmmReg2[0,64] );\n    mmxreg1[32,32] = trunc( XmmReg2[64,64] );\n",
+     "    mmxreg1[0,32] = trunc(round( XmmReg2[0,64] ));\n    mmxreg1[32,32] = trunc(round( XmmReg2[64,64] ));\n"),
 ]
 
 

@@ -22,6 +22,13 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # ROOT, G (the Ghidra install), PROJ, GPROJECT, PROG, GMAXMEM: the project's settings
 eval "$(python "$HERE/../project.py" --sh)"
 G="$(cygpath -u "$G")"
+# (Ghidra refuses a project under a directory starting with a dot, such as ~/.rhipper: ProjectLocator,
+# "Path element starting with '.' is not permitted")
+case "/$(cygpath -u "$PROJ")/" in
+  */.*) echo "ERROR rhipper.json ghidra.projects ($PROJ) is under a directory starting with '.', which Ghidra refuses: move it"; exit 1 ;;
+esac
+# (and refuses one whose directory does not exist, "Directory not found": a new project's is made here)
+mkdir -p "$(cygpath -u "$PROJ")"
 PROJ="$(cygpath -w "$PROJ")"
 # one directory only: cmd.exe splits a ";"-joined script path into separate arguments
 SCRIPTS="$(cygpath -w "$HERE")"
@@ -32,6 +39,8 @@ run() {
   "$G/support/analyzeHeadless.bat" "$PROJ" "$GPROJECT" -process "$PROG" -noanalysis \
     -scriptPath "$SCRIPTS" "$@" > "$ROOT/build/ghidra-last.log" 2>&1 || true
   grep -E "ApplyFacts:|ERROR|Exception|wrote" "$ROOT/build/ghidra-last.log" | head -20
+  # (a session that never opened the program exits 0 too: fail, or the steps after read stale facts)
+  ! grep -q "Abort due to Headless analyzer error" "$ROOT/build/ghidra-last.log"
 }
 
 # the project's committed facts, where it has them: imports.json needs a live client to
@@ -106,7 +115,8 @@ case "$1" in
           "$G/support/analyzeHeadless.bat" "$PROJ" "$GPROJECT" -import "$(cygpath -w "$EXE")" $over \
             -scriptPath "$SCRIPTS" \
             -postScript ExportFunctions.java "$(cygpath -w "$ROOT/build/facts/functions.json")" \
-            2>&1 | tee "$ROOT/build/ghidra-import.log" | grep --line-buffered -E "ExportFunctions:|ERROR|Exception|Import succeeded|already exists" || true ;;
+            2>&1 | tee "$ROOT/build/ghidra-import.log" | grep --line-buffered -E "ExportFunctions:|ERROR|Exception|Import succeeded|already exists" || true
+          ! grep -q "Abort due to Headless analyzer error" "$ROOT/build/ghidra-import.log" ;;
   functions) mkdir -p "$ROOT/build/facts"
           run -postScript ExportFunctions.java "$(cygpath -w "$ROOT/build/facts/functions.json")" ;;
   # (the program opened once for both: each session's start is most of a small program's run)

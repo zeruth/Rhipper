@@ -15,6 +15,9 @@ port, rhipper.json "run" "exe" and the .pdb beside it), on fidelity.py's signals
           which both sides name by the same address (x86: an absolute operand or immediate in the
           image; the port: REFG/REFP, an immediate or displacement in the reference's image).
   shape   mnemonic trigrams: x86 against x64, so reported only.
+  ops     opcensus.py's conversions and call results cut to a byte.
+  probes  probes32.py's bug classes (LOCK, WRAP, WIDE, THIS, ARGS, GUARD, ZEROREG): 0 where one
+          flags, else none; probe_flags / probe_weak in each row.
 
 Fields and constants count by presence too (how often is the compilers' choice), a comparison's
 constant matches its neighbour (`cmp 1000` / `cmp 1001`), and a global matches one up to 16 bytes
@@ -45,6 +48,8 @@ import pefile
 from capstone import x86
 
 import fidelity as F
+import opcensus
+import probes32
 import project
 from corpus import load_corpus
 from pebin import Binary
@@ -55,6 +60,7 @@ OUT_HTML = ROOT / "build/fidelity.html"
 JCC = re.compile(r"^j(?!mp)\w+$")
 STACK_REGS = {"esp", "ebp", "rsp", "rbp"}
 STACK_PTRS = {"rsp", "rbp"}                  # (STACK_REGS by canon_reg's names)
+PROBES: set[int] = set()                     # the reference's stack probes, __alloca_probe and kin (main's)
 # Ghidra32.h's traps, the reference's `int 3` / `int 0x29`
 TRAPS = {"gen_swi_break": "trap:3", "gen_swi_fastfail": "trap:29", "gen_ud2": "trap:ud2"}
 # the port's own setjmp and longjmp (Ghidra32.h GEN_SETJMP, GEN_LONGJMP), the reference's imports
@@ -62,6 +68,15 @@ TRAPS = {"gen_swi_break": "trap:3", "gen_swi_fastfail": "trap:29", "gen_ud2": "t
 PORT_JUMPS = {"setjmp": "imp:setjmp3", "setjmpex": "imp:setjmp3", "intrinsic_setjmp": "imp:setjmp3",
               "intrinsic_setjmpex": "imp:setjmp3", "longjmp": "imp:longjmp"}
 FLOAT_MNEMONIC = re.compile(r"(ss|sd|ps|pd)$|^f(?!(?:nstcw|ldcw|nstsw|stsw|xch|wait|nclex))")
+# the operation census's weight beside fidelity.py's WEIGHTS (opcensus.py): a strong mismatch, a
+# conversion the reference never makes or a call's result cut to a byte, is 0 there, so a function
+# with every call, field and constant right scores 0.8 (2026-10-31, 0xbbc320's int->float of a bit
+# move at 1.0)
+OPS_WEIGHT = 0.25
+# the bug-class probes' weight (probes32.py): a strong flag (an atomic on the global lock, an address
+# x86 wraps that the port does not, a global written wider, a virtual call's `this` or argument lost,
+# a table load hoisted out of its guard, a register input zeroed) is 0 there, as the census's
+PROBES_WEIGHT = 0.25
 
 
 class Image:
@@ -172,6 +187,10 @@ class Fn:
         self.case_keys: dict = {}            # and its i: key -> those sums
         self.and_masks: set[int] = set()     # every `and r, imm` mask, at the register's width
         self.lane_loads: list = []           # (global, f: key) of each float set into a frame vector's lane
+        self.wide16: set[int] = set()        # the fields read or written 16 bytes at once, `movaps xmm0, [ecx + 0x20]`
+        self.halves: set[int] = set()        # an 8-byte access's upper word, `movsd [eax + 0x50]`'s 0x54
+        self.shift_counts: set[str] = set()  # the i: keys of shift and rotate counts
+        self.step_sums: dict = {}            # an `add/sub r, imm`'s i: key -> the step plus each field through r
 
 
 
@@ -586,15 +605,104 @@ def destruct_flags(insns: list) -> set[int]:
     bookkeeping of a conditionally made temporary, which the decompiler resolves on each path and
     drops: no constant of the source (bits 9-12 of a client's 0xa22b40, 2026-10-30)"""
     seen: dict = {}
+    movs = []
     for x in insns:
         ops = x.operands
-        if x.mnemonic in ("or", "test", "and") and len(ops) == 2 and ops[0].type == x86.X86_OP_REG \
-                and ops[1].type == x86.X86_OP_IMM and ops[0].size == 4:
+        # (or set with the others the compiler knows are, `mov edi, 0x6000` for bits 13 and 14 together:
+        # ShellCommandGM::vf2 0x48c090's ten, 2026-10-31)
+        if x.mnemonic == "mov" and len(ops) == 2 and ops[0].type == x86.X86_OP_REG and ops[0].size == 4 \
+                and ops[1].type == x86.X86_OP_IMM:
             v = ops[1].imm & 0xFFFFFFFF
+            bits = [1 << b for b in range(32) if v >> b & 1]
+            if 1 <= len(bits) <= 4 and v >= 0x100:
+                movs.append((x.address, x.reg_name(ops[0].reg), bits))
+            continue
+        # (and tested by its low byte, `test bl, 0x40` of an ebx flag, 0xe82bd0, 2026-10-31)
+        low_test = x.mnemonic == "test" and len(ops) == 2 and ops[0].type == x86.X86_OP_REG and ops[0].size == 1 \
+            and x.reg_name(ops[0].reg) in ("al", "bl", "cl", "dl")
+        if x.mnemonic in ("or", "test", "and") and len(ops) == 2 and ops[0].type == x86.X86_OP_REG \
+                and ops[1].type == x86.X86_OP_IMM and (ops[0].size == 4 or low_test):
+            v = ops[1].imm & (0xFF if low_test else 0xFFFFFFFF)
             bit = ~v & 0xFFFFFFFF if x.mnemonic == "and" else v
+            name = PARTS[x.reg_name(ops[0].reg)][0] if low_test else x.reg_name(ops[0].reg)
             if bit and bit & (bit - 1) == 0:
-                seen.setdefault((x.reg_name(ops[0].reg), bit), {}).setdefault(x.mnemonic, []).append(x.address)
-    return {a for d in seen.values() if len(d) == 3 for xs in d.values() for a in xs}
+                seen.setdefault((name, bit), {}).setdefault(x.mnemonic, []).append(x.address)
+    out = {a for d in seen.values() if len(d) == 3 for xs in d.values() for a in xs}
+    for a, r, bits in movs:
+        if all({"test", "and"} <= set(seen.get((r, b), {})) for b in bits):
+            out.add(a)
+            out |= {y for b in bits for m in ("test", "and") for y in seen[(r, b)][m]}
+    return out
+
+
+def write_only_slots(insns: list) -> set[int]:
+    """The addresses of a register's store to an ebp frame slot that no instruction of the range
+    reads: a record's words copied into locals the code never uses, `mov edx, [eax + 0xc]; mov
+    [ebp - 4], eax` of BindSockAddr 0xba75c0's sockaddr, 0x787910's. None where the frame's address
+    is taken (`lea r, [ebp - k]`, a copy of ebp or esp) or fs:[0] linked (an EH frame its funclets
+    read through ebp), 2026-10-31"""
+    reads: list = []
+    stores: list = []
+    for x in insns:
+        ops = x.operands
+        if any(o.type == x86.X86_OP_MEM and o.mem.segment for o in ops):
+            return set()
+        if x.mnemonic == "lea" and any(o.type == x86.X86_OP_MEM and o.mem.base and x.reg_name(o.mem.base) in ("ebp", "esp")
+                                       for o in ops):
+            return set()
+        if x.mnemonic == "mov" and len(ops) == 2 and ops[1].type == x86.X86_OP_REG \
+                and x.reg_name(ops[1].reg) in ("ebp", "esp") and ops[0].type == x86.X86_OP_REG \
+                and x.reg_name(ops[0].reg) not in ("ebp", "esp"):
+            return set()
+        for i, o in enumerate(ops):
+            if o.type != x86.X86_OP_MEM or not o.mem.base or x.reg_name(o.mem.base) != "ebp":
+                continue
+            if o.mem.index:
+                return set()
+            span = (o.mem.disp, o.mem.disp + o.size)
+            if i == 0 and x.mnemonic == "mov" and len(ops) == 2 and ops[1].type == x86.X86_OP_REG and o.mem.disp < 0:
+                stores.append((x.address, span))
+            else:
+                reads.append(span)
+    return {a for a, (lo, hi) in stores if not any(lo < h and l < hi for l, h in reads)}
+
+
+def shifted_away_masks(insns: list) -> set[int]:
+    """The addresses of an `and r, 2^n - 1` whose cleared top bits the left shifts right after it push
+    out: `and eax, 0x7fffffff; add eax, eax; add eax, eax` for the C's `n * 4` (Global::Clear 0x46dab0),
+    `and eax, 0x3fffffff` and three adds for `* 8` (0xe140e0). The decompiler's product has no mask,
+    2026-10-31"""
+    out = set()
+    for at, x in enumerate(insns):
+        ops = x.operands
+        if not (x.mnemonic == "and" and len(ops) == 2 and ops[0].type == x86.X86_OP_REG and ops[0].size == 4
+                and ops[1].type == x86.X86_OP_IMM):
+            continue
+        m = ops[1].imm & 0xFFFFFFFF
+        if not m or m & (m + 1) or m == 0xFFFFFFFF:
+            continue
+        r = canon_reg(x.reg_name(ops[0].reg))
+        need, got = 32 - m.bit_length(), 0
+        for y in insns[at + 1:at + 10]:
+            yo = y.operands
+            if y.mnemonic.startswith(("j", "loop")) or y.mnemonic in ("call", "ret"):
+                break
+            regs = {canon_reg(y.reg_name(o.reg)) for o in yo if o.type == x86.X86_OP_REG} | \
+                {canon_reg(y.reg_name(q)) for o in yo if o.type == x86.X86_OP_MEM for q in (o.mem.base, o.mem.index) if q}
+            if r not in regs:
+                continue
+            if y.mnemonic == "add" and len(yo) == 2 and all(o.type == x86.X86_OP_REG and o.size == 4
+                                                            and canon_reg(y.reg_name(o.reg)) == r for o in yo):
+                got += 1
+            elif y.mnemonic in ("shl", "sal") and len(yo) == 2 and yo[0].type == x86.X86_OP_REG and yo[0].size == 4 \
+                    and canon_reg(y.reg_name(yo[0].reg)) == r and yo[1].type == x86.X86_OP_IMM:
+                got += yo[1].imm & 31
+            else:
+                break
+            if got >= need:
+                out.add(x.address)
+                break
+    return out
 
 
 def shifted_out_reads(insns: list) -> set[int]:
@@ -837,7 +945,10 @@ def rounded_adds(insns: list) -> dict[int, list[int]]:
                 and 0 < ops[1].imm < 0x10000):
             continue
         # (the value a multiple of the alignment going in: shifted left by the mask's bits)
-        p = insns[at - 1] if at else None
+        # (the last instruction to touch the register before it, `shl esi, 4; lea ecx, [eax*4 +
+        # 0x14a0a00]; mov eax, ...; add esi, 0xf`, 0x9be040)
+        p = next((q for q in reversed(insns[max(0, at - 4):at])
+                  if any(o.type == x86.X86_OP_REG and o.reg == ops[0].reg for o in q.operands)), None)
         for y in insns[at + 1:at + 4]:
             yo = y.operands
             if y.mnemonic == "and" and len(yo) == 2 and yo[0].type == x86.X86_OP_REG and yo[0].reg == ops[0].reg \
@@ -848,6 +959,9 @@ def rounded_adds(insns: list) -> dict[int, list[int]]:
                         and p.operands[0].type == x86.X86_OP_REG and p.operands[0].reg == ops[0].reg \
                         and p.operands[1].type == x86.X86_OP_IMM and (1 << p.operands[1].imm) > low:
                     out[x.address] = [ops[1].imm & m]
+                    # (and the mask the rounding's own, no constant of the source: `(n * 16 + 0xf) &
+                    # ~0xf` is the C's `n * 0x10`, AllocateParticles 0x98e220, 2026-10-31)
+                    out[y.address] = []
                 break
             if any(o.type == x86.X86_OP_REG and o.reg == ops[0].reg for o in yo):
                 break
@@ -941,9 +1055,268 @@ def stack_arity(c: str) -> int | None:
     return max(n, 0)
 
 
+# (dead_registers' registers: each general one by the full one its widths name, the flags as one,
+# the xmm ones by name)
+FULL = {}
+for _r in "abcd":
+    for _n in (f"e{_r}x", f"{_r}x", f"{_r}l", f"{_r}h"):
+        FULL[_n] = f"r{_r}x"
+for _r in ("si", "di", "bp", "sp"):
+    for _n in (f"e{_r}", _r, f"{_r}l"):
+        FULL[_n] = f"r{_r}"
+WIDE = {"eax", "ebx", "ecx", "edx", "esi", "edi", "ebp", "esp"}
+GPRS = frozenset({"rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rbp", "rsp"})
+XMMS = frozenset(f"xmm{i}" for i in range(8))
+EVERY = GPRS | {"flags", "cf"} | XMMS
+# (the conditions that read no carry: a Jcc's, SETcc's or CMOVcc's suffix)
+CC_NO_CF = {"e", "ne", "z", "nz", "s", "ns", "o", "no", "p", "np", "pe", "po", "l", "ge", "le", "g",
+            "nl", "nge", "nle", "ng"}
+EVERY_NAMES = frozenset(WIDE | {"eflags"} | XMMS)
+REMOVABLE = {"mov", "movzx", "movsx", "lea", "xor", "and", "or", "add", "sub", "adc", "sbb", "inc", "dec",
+             "neg", "not", "cmp", "test", "shl", "shr", "sar", "sal", "rol", "ror", "bt"}
+FLAG_KILLS = {"cmp", "test", "add", "sub", "and", "or", "xor", "neg", "adc", "sbb",
+              "comisd", "ucomisd", "comiss", "ucomiss"}
+# (SSE arithmetic into an xmm register, the moves that write all of one, and its compares)
+SSE_REMOVABLE = {"movsd", "movss", "movlpd", "movhpd", "movlps", "movhps", "movapd", "movaps", "movupd", "movups",
+                 "movdqa", "movdqu", "addsd", "subsd", "mulsd", "divsd", "addss", "subss", "mulss", "divss",
+                 "addpd", "subpd", "mulpd", "divpd", "addps", "subps", "mulps", "divps", "unpcklpd", "unpckhpd",
+                 "unpcklps", "unpckhps", "shufps", "shufpd", "andpd", "andps", "andnpd", "andnps", "orpd", "orps",
+                 "xorpd", "xorps", "pxor", "sqrtsd", "sqrtss", "minsd", "maxsd", "minss", "maxss",
+                 "cvtsd2ss", "cvtss2sd"}
+SSE_WHOLE = {"movapd", "movaps", "movupd", "movups", "movdqa", "movdqu"}
+SSE_COMPARES = {"comisd", "ucomisd", "comiss", "ucomiss"}
+PURE_WRITES = {"mov", "movzx", "movsx", "lea", "pop", "movapd", "movaps", "movupd", "movups", "movdqa", "movdqu",
+               "pextrw", "movd"}
+
+
+def call_regs(c: str):
+    """A decompiled function's registers at a call of it, dead_registers': those its signature and
+    body read (`this`, __fastcall's pair, `in_EDX`, `unaff_ESI`), those the call leaves undefined
+    (eax, ecx, edx and the flags, less what its convention keeps, `__cdecl_keep_ecx_edx`), and those
+    its return gives back (the result's but a void one's, and those kept). None where unreadable:
+    variadic, or a register input of another kind (`in_CF`), read as every register."""
+    if not c:
+        return None
+    text = re.sub(r"/\*.*?\*/", "", c, flags=re.S)
+    head = text.split("{", 1)[0]
+    if "..." in head:
+        return None
+    reads = set()
+    if "__thiscall" in head:
+        reads.add("rcx")
+    if "__fastcall" in head:
+        reads |= {"rcx", "rdx"}
+    for r in re.findall(r"\b(?:in|unaff)_([A-Za-z]{2,3})\b", text):
+        if r.lower() in FULL:
+            reads.add(FULL[r.lower()])
+        elif r.lower().startswith("st") or r.lower() in ("fs", "gs", "ds", "es", "cs", "ss"):
+            continue
+        else:
+            return None
+    kept = set()
+    m = re.search(r"__\w+?_keep_(\w+)", head)
+    if m:
+        kept = {FULL.get(r, r) for r in m.group(1).split("_")}
+    out = set(kept) | ({"rax", "rdx"} if not re.match(r"\s*void\s+(?!\*)", head) else set())
+    return frozenset(reads), frozenset({"rax", "rcx", "rdx", "flags"} - kept), frozenset(out)
+
+
+def dead_registers(insns: list, regs_of: dict, own=None, pre: set = frozenset(),
+                   unreachable: set = frozenset(), imports: set = frozenset()) -> set[int]:
+    """The addresses of register arithmetic whose results nothing reads, every register and flag it
+    writes written again before a live read on every path: what the decompiler drops as dead. A
+    call reads what the callee's signature takes and leaves undefined what its convention does not
+    keep (regs_of, call_regs); a callee unknown or called through a pointer and any way out of the
+    range read every register, a return what the function's own signature gives back (`own`). A
+    conditional jump whose two ways reach one instruction past dead ones only decides dead values,
+    so it reads no flags: a loop's `cmp esi, [0x112a808]; jne` choosing the ecx of an empty method's
+    call (`ret`, which keeps eax, ecx and edx), a client's 0xcc00e0; a `this` loaded for callees
+    that never read ecx, `mov esi, [ecx + 4]; ...; mov ecx, esi; call f`, 0x537cc0; and the CRT's
+    tiny-argument sine raising underflow into an xmm3 nothing reads, `movlpd xmm3, [0x11218d0];
+    mulsd xmm3, xmm0; ...`, _sin_pentium4's (0xc68d1e) 2.77556e-17 and 3.60288e+16, 2026-10-30"""
+    n = len(insns)
+    by_addr = {x.address: k for k, x in enumerate(insns)}
+    info = []
+    for k, x in enumerate(insns):
+        mn = x.mnemonic
+        ops = x.operands
+        # (the next instruction where the code runs on into it: a piece's last runs out of the range)
+        nxt_k = k + 1 if k + 1 < n and insns[k + 1].address == x.address + x.size else None
+        try:
+            rd, wr = x.regs_access()
+            rn = {x.reg_name(r) for r in rd}
+            wn = {x.reg_name(r) for r in wr}
+        except Exception:
+            rn, wn = set(EVERY_NAMES), set()
+        # (the implicit reads capstone leaves out: xlatb's table in ebx, `mov ebx, 0x111ad7c; ...;
+        # xlatb` in the CRT's __trandisp2; and what reads every register)
+        if mn == "xlatb":
+            rn |= {"ebx", "al"}
+        elif mn in ("pushal", "pushad", "pusha", "int", "int1", "syscall", "sysenter", "cpuid", "rdtsc"):
+            rn |= set(EVERY_NAMES)
+        reads = {FULL[r] for r in rn if r in FULL} | ({"flags"} if any("flags" in r for r in rn) else set()) \
+            | (rn & XMMS)
+        # (the carry apart from the other flags: `inc` and `dec` keep it, and a condition but a
+        # carry's reads none of it, `add esi, 0x40; dec edi; jne` of a loop over empty methods'
+        # calls, FUN_00fe2540's dead `this` steps, 2026-10-31)
+        cc = mn[1:] if JCC.match(mn) else mn[3:] if mn.startswith("set") else mn[4:] if mn.startswith("cmov") else None
+        if "flags" in reads and cc not in CC_NO_CF:
+            reads.add("cf")
+        # (a memory operand's registers are read too, and every register operand but a pure write's
+        # destination: capstone leaves out bl of `test byte ptr [ecx + esi + 0x26d], bl`, 0xa68960)
+        for i, o in enumerate(ops):
+            if o.type == x86.X86_OP_REG and not (i == 0 and (mn in PURE_WRITES or mn.startswith(("set", "cvt")))):
+                nm = x.reg_name(o.reg)
+                if nm in FULL:
+                    reads.add(FULL[nm])
+                elif nm in XMMS:
+                    reads.add(nm)
+            if o.type == x86.X86_OP_MEM:
+                for r in (o.mem.base, o.mem.index):
+                    if r and x.reg_name(r) in FULL:
+                        reads.add(FULL[x.reg_name(r)])
+        # (a register cleared by itself, `xor ecx, ecx`, reads nothing of it)
+        same = len(ops) == 2 and ops[0].type == ops[1].type == x86.X86_OP_REG and ops[0].reg == ops[1].reg
+        if mn in ("xor", "sub", "xorps", "xorpd", "pxor") and same:
+            reads = set()
+        kills = {FULL[r] for r in wn if r in WIDE}
+        if mn in FLAG_KILLS:
+            kills |= {"flags", "cf"}
+        elif mn in ("inc", "dec"):
+            kills.add("flags")
+        writes = {FULL[r] for r in wn if r in FULL} | ({"flags"} if any("flags" in r for r in wn) else set()) \
+            | (wn & XMMS)
+        if "flags" in writes and mn not in ("inc", "dec"):
+            writes.add("cf")
+        # (an xmm register written whole: a 16-byte move, a scalar's from memory (the rest zeroed),
+        # or cleared by itself; the others keep what they do not write)
+        sse = mn in SSE_REMOVABLE and bool(ops) and ops[0].type == x86.X86_OP_REG \
+            and x.reg_name(ops[0].reg) in XMMS
+        if sse and (mn in SSE_WHOLE or mn in ("movsd", "movss") and ops[1].type == x86.X86_OP_MEM
+                    or mn in ("xorps", "xorpd", "pxor") and same):
+            kills.add(x.reg_name(ops[0].reg))
+        succ = []
+        if mn == "jmp":
+            if ops and ops[0].type == x86.X86_OP_IMM and ops[0].imm in by_addr:
+                succ = [by_addr[ops[0].imm]]
+            else:
+                succ = [None]
+        elif JCC.match(mn) or mn.startswith("loop"):
+            succ = [nxt_k]
+            succ.append(by_addr.get(ops[0].imm) if ops and ops[0].type == x86.X86_OP_IMM else None)
+            # (a way the decompiler proved unreachable, `and eax, 0x3fffffff; lea ebx, [esi + 4]; jge`
+            # whose fall-through it removed: a jump that decides nothing, its flags read by none,
+            # Assign_00de8a20's 0xde8a3f, 2026-10-31)
+            if unreachable and JCC.match(mn):
+                way = [s for s in succ if s is None or insns[s].address not in unreachable]
+                if len(way) == 1:
+                    succ = way
+                    reads = reads - {"flags", "cf"}
+        elif mn == "ret":
+            # (a return reads what the caller may: the result, the registers callees keep, and
+            # those the function's own convention keeps, `__cdecl_keep_edx`; not ecx or the flags)
+            succ = []
+            reads = reads | (set(EVERY) if own is None else
+                             {"rbx", "rsi", "rdi", "rbp", "rsp", "xmm0"} | set(own[2]))
+        elif mn in ("retf", "int3", "ud2", "hlt", "int", "iret", "iretd"):
+            succ = [None]
+        else:
+            succ = [nxt_k]
+        if mn == "call":
+            regs = regs_of.get(ops[0].imm & 0xFFFFFFFF) if ops and ops[0].type == x86.X86_OP_IMM else None
+            # (an import's, `call [__imp__ntohs]`: Windows' conventions take no register, keep none
+            # of eax, ecx, edx, BindSockAddr 0xba75c0's sockaddr words past it, 2026-10-31)
+            if regs is None and ops and ops[0].type == x86.X86_OP_MEM and not ops[0].mem.base \
+                    and not ops[0].mem.index and ops[0].mem.disp & 0xFFFFFFFF in imports:
+                regs = (frozenset(), frozenset({"rax", "rcx", "rdx", "flags"}), frozenset({"rax", "rdx"}))
+            if regs is None:
+                # (no callee reads the flags, nor keeps them: an unknown one's every register but
+                # those, `and eax, 0x3c00000; mov eax, [esi]; ...; call ecx` of a dead mask,
+                # RenderCapture 0x4db9a0, 2026-10-31)
+                reads, kills = set(EVERY) - {"flags", "cf"}, {"flags", "cf"}
+            else:
+                # (an xmm register passed is no signature's: every one read)
+                reads = set(regs[0]) | {"rsp"} | XMMS
+                kills = set(regs[1]) | ({"cf"} if "flags" in regs[1] else set())
+        removable = (mn in REMOVABLE or sse or mn in SSE_COMPARES) and not x.prefix[0] and bool(ops) and (
+            mn in ("cmp", "test", "bt") or mn in SSE_COMPARES or ops[0].type == x86.X86_OP_REG) \
+            and "rsp" not in writes \
+            and not any(r not in FULL and "flags" not in r and r not in XMMS for r in wn)
+        # (an integer instruction writing no general register, a segment's, is none of these)
+        if mn in REMOVABLE and ops and ops[0].type == x86.X86_OP_REG and x.reg_name(ops[0].reg) not in FULL:
+            removable = False
+        info.append((reads, kills, writes, succ, removable, JCC.match(mn) is not None))
+    # (and what the other passes found dead, its reads none: a record's word copied into a frame
+    # slot nothing reads, `mov edx, [eax + 0xc]; mov [ebp - 8], edx`, BindSockAddr 0xba75c0's
+    # sockaddr and 0x787910's, dead_stack_stores, 2026-10-31)
+    dead: set[int] = {k for k, x in enumerate(insns) if x.address in pre}
+    empty: set[int] = set()
+    preds = [[] for _ in range(n)]
+    for k in range(n):
+        for s in info[k][3]:
+            if s is not None:
+                preds[s].append(k)
+    while True:
+        # (the registers live after each instruction, a dead one passing them through, an empty
+        # jump reading no flags)
+        live_out = [set() for _ in range(n)]
+        live_in = [set() for _ in range(n)]
+        work = list(range(n))
+        queued = set(work)
+        while work:
+            k = work.pop()
+            queued.discard(k)
+            reads, kills, writes, succ, removable, jcc = info[k]
+            out = set()
+            for s in succ:
+                out |= EVERY if s is None else live_in[s]
+            # (one whose results nothing live reads reads nothing itself, strong liveness: a loop's
+            # pointer only its own step reads, `add esi, 0x40; ...; mov ecx, esi; call f` of an f
+            # that never reads ecx, FUN_00fe2540's, 2026-10-31)
+            if k in dead or (removable and writes and not (writes & out)):
+                inn = out
+            else:
+                r = reads - {"flags", "cf"} if (jcc and k in empty) else reads
+                inn = (out - kills) | r
+            live_out[k] = out
+            if inn != live_in[k]:
+                live_in[k] = inn
+                for p in preds[k]:
+                    if p not in queued:
+                        queued.add(p)
+                        work.append(p)
+        grew = False
+        for k in range(n):
+            reads, kills, writes, succ, removable, jcc = info[k]
+            if k not in dead and removable and writes and not (writes & live_out[k]):
+                dead.add(k)
+                grew = True
+
+        def walk(k):
+            """Where the code from k goes past dead instructions, jumps and empty conditional ones."""
+            for _ in range(64):
+                if k is None:
+                    return None
+                if k in dead or k in empty or (insns[k].mnemonic == "jmp" and info[k][3][0] is not None):
+                    k = info[k][3][0]
+                else:
+                    return k
+            return None
+        for k in range(n):
+            if info[k][5] and k not in empty and len(info[k][3]) == 2 and None not in info[k][3]:
+                a, b = walk(info[k][3][0]), walk(info[k][3][1])
+                if a is not None and a == b:
+                    empty.add(k)
+                    grew = True
+        if not grew:
+            break
+    return {insns[k].address for k in dead}
+
+
 def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, port: bool,
          dead: set[int] = frozenset(), injected: set[int] = frozenset(), arity: dict | None = None,
-         takes_ecx: set | frozenset = frozenset(), noret: set | frozenset = frozenset()) -> Fn:
+         takes_ecx: set | frozenset = frozenset(), noret: set | frozenset = frozenset(),
+         regs_of: dict | None = None) -> Fn:
     """A function's features. `ref` names the reference's globals and strings: the port reads
     them at the reference's own addresses. `dead`: the starts of blocks the decompiler proved
     unreachable, left out to the next jump or return (__RTC_Initialize's loop over an empty table).
@@ -957,6 +1330,7 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
     held: dict = {}                         # register -> the address a `mov r, imm` put in it
     stackp: set = set()                     # registers holding an address in the frame
     lea_disp: dict = {}                     # register -> the displacement of the indexed lea that set it
+    step_disp: dict = {}                    # register -> (i: key, step) of the `add/sub r, imm` that last moved it
     pushed: list = []                       # the integer immediates pushed since the last call
     ecx_fields: list = []                   # the fields read into ecx since the last call
     reg_fields: dict = {}                   # register -> the fields read into it since the last call
@@ -1014,9 +1388,27 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
         nxt = after.operands
         return after.mnemonic == "pop" and nxt and nxt[0].type == x86.X86_OP_REG and nxt[0].reg == r
 
+    # (a function's pieces read together for its frame's lanes: the store in one, the vector reads
+    # in a loop past alignment padding in the next, 0x61fe90's [0x61fe90, 0x61ff07) and [0x61ff10,
+    # 0x620029), 2026-10-30)
+    lanes = frame_lanes([x for lo, hi in ranges for x in md.disasm(img.read(lo, hi - lo), lo)]) \
+        if not port else set()
+    # (the frame's registers as a forward branch leaves them, for its target past a ret or jmp: an
+    # early return's epilogue, `mov esp, ebx; pop ebx; ret 4`, undid the realigned frame's anchor for
+    # the code the branch skips to, its `[ebx + 8]` taken for a field. Across the pieces, scan's)
+    at_branch: dict = {}
+    # (the register arithmetic nothing reads, over the pieces together: a jump into the next piece
+    # reaches its code, `jge` past Assign_00de8a20's piece at 0xde8a6d, and a frame slot one piece
+    # writes another may read, write_only_slots, 2026-10-31)
+    dead_regs: set = set()
+    if not port and regs_of is not None:
+        every = [x for lo, hi in ranges for x in md.disasm(img.read(lo, hi - lo), lo)]
+        dead_regs = dead_registers(every, regs_of, regs_of.get(own), write_only_slots(every), dead, set(img.iat))
     for lo, hi in ranges:
         insns = list(md.disasm(img.read(lo, hi - lo), lo))
         dead_stores = dead_stack_stores(insns) | dead_compares(insns) | dead_masks(insns) | lane_folds(insns) | truth_loads(insns) | dead_overwrites(insns) if not port else set()
+        # (and the register arithmetic nothing reads, dead_registers, over the pieces together)
+        dead_stores |= dead_regs
         chains = mask_chains(insns)
         if not port:
             chains.update(rounded_adds(insns))
@@ -1029,8 +1421,7 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
             # away: known_clear_masks, destruct_flags, shifted_out_reads. A mask chain's own kept,
             # its fold the chain's constant)
             dead_stores |= (known_clear_masks(insns, img) | destruct_flags(insns)) - chains.keys()
-            dead_stores |= shifted_out_reads(insns)
-        lanes = frame_lanes(insns) if not port else set()
+            dead_stores |= shifted_out_reads(insns) | shifted_away_masks(insns)
         # (the code after a call of a function that does not return, up to the next instruction a
         # jump or a switch's table reaches: the decompiler's unreachable, `call _inconsistency; call
         # terminate` (0xc73ebd), the cookie check after lua's error raise (0xc11b70), 2026-10-30)
@@ -1039,21 +1430,27 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
         after_noret = False
         steps = address_steps(insns) if not port else {}
         imm_in: dict = {}                      # register -> the constant a `mov r, imm` put in it
-        # (the frame's registers as a forward branch leaves them, for its target past a ret or
-        # jmp: an early return's epilogue, `mov esp, ebx; pop ebx; ret 4`, undid the realigned
-        # frame's anchor for the code the branch skips to, its `[ebx + 8]` taken for a field)
-        at_branch: dict = {}
         for at, insn in enumerate(insns):
             mn = insn.mnemonic
-            if at and insn.address in at_branch and (insns[at - 1].mnemonic in ("ret", "jmp")):
-                sp, ld = at_branch[insn.address]
+            # (and a later piece's first, which a jump from an earlier one reaches: the anchor as that
+            # jump left it, the realigned frame's [ebx + 0x24] past FUN_00d53070's piece at 0xd53310
+            # taken for a field, 2026-10-31)
+            if insn.address in at_branch and (insns[at - 1].mnemonic in ("ret", "jmp") if at
+                                              else lo != ranges[0][0]):
+                sp, ld, rf_ = at_branch[insn.address]
                 stackp.clear()
                 stackp |= sp
                 lea_disp.clear()
                 lea_disp.update(ld)
+                step_disp.clear()
+                # (and the fields each register held: an early return's `pop esi` took them from the
+                # esi the code past it passes on, `mov esi, [ecx + 4]; ...; jne X; pop esi; ret 4; X:
+                # mov ecx, esi; call f` of an f that never reads ecx, a client's 0x537cc0, 2026-10-30)
+                reg_fields = {r: list(ds) for r, ds in rf_.items()}
             if (JCC.match(mn) or mn == "jmp") and insn.operands and insn.operands[0].type == x86.X86_OP_IMM \
                     and insn.operands[0].imm > insn.address:
-                at_branch.setdefault(insn.operands[0].imm, (set(stackp), dict(lea_disp)))
+                at_branch.setdefault(insn.operands[0].imm, (set(stackp), dict(lea_disp),
+                                                            {r: list(ds) for r, ds in reg_fields.items()}))
             # (a locked operation on a frame slot, `lock cmpxchg [edx], ecx` with edx `lea [esp + k]`:
             # an atomic on a local no other thread sees, a volatile one, which the decompiler folds
             # to its value. The constants it takes are the fold's: `_InterlockedCompareExchange(&n,
@@ -1132,6 +1529,7 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
             # (the member bases as they were before this instruction writes its register: `mov eax,
             # [eax + 0x5c]` reads the old eax, 0x815e30)
             lea_before = dict(lea_disp)
+            step_before = dict(step_disp)
             if ops and ops[0].type == x86.X86_OP_REG:
                 r0 = canon_reg(insn.reg_name(ops[0].reg))
                 if mn == "mov" and len(ops) == 2 and ops[1].type == x86.X86_OP_IMM and ops[1].imm > 0x10000:
@@ -1151,8 +1549,30 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
                 elif mn == "lea" and src is not None and src.type == x86.X86_OP_MEM and src.mem.base \
                         and canon_reg(insn.reg_name(src.mem.base)) in lea_disp and not src.mem.index:
                     lea_disp[r0] = lea_disp[canon_reg(insn.reg_name(src.mem.base))] + src.mem.disp
+                # (or a plain member's, `lea esi, [ecx + 8]`, its [esi + 0x54] the C's param_3[0x17],
+                # an int array's index the offset it is: a copy of a record's tail, 2026-10-30)
+                elif mn == "lea" and src is not None and src.type == x86.X86_OP_MEM and src.mem.base \
+                        and not src.mem.index and 0 < src.mem.disp < 0x1000 \
+                        and canon_reg(insn.reg_name(src.mem.base)) not in STACK_PTRS | stackp:
+                    lea_disp[r0] = src.mem.disp
+                # (or a pointer stepped by an immediate, `sub eax, 0x14; mov [eax + 0x24], ecx` for the
+                # C's puVar2[4] of a record copy's loop (0x958600), `add eax, 0x1c4; cmp byte ptr [eax +
+                # 8], 0` for the C's `+ 0x1cc` (0xaea5a0): the base it adds to, and the step alone, the
+                # C's pointer taken afresh, `puVar3 = puVar1 + 0xc` (0xbc4380), step_disp, 2026-10-31)
+                elif mn in ("add", "sub") and src is not None and src.type == x86.X86_OP_IMM \
+                        and r0 not in STACK_PTRS | stackp and ops[0].size == 4:
+                    s_ = src.imm & 0xFFFFFFFF
+                    s_ = (s_ - (1 << 32) if s_ & 0x80000000 else s_) * (1 if mn == "add" else -1)
+                    if abs(s_) < 0x10000:
+                        lea_disp[r0] = lea_disp.get(r0, 0) + s_
+                        step_disp[r0] = (f"i:{src.imm & 0xFFFFFFFF:x}", s_)
+                    else:
+                        lea_disp.pop(r0, None)
                 elif not (mn in ("push", "cmp", "test")):
                     lea_disp.pop(r0, None)
+                if not (mn in ("add", "sub", "push", "cmp", "test") and src is not None
+                        and src.type == x86.X86_OP_IMM) and mn not in ("push", "cmp", "test"):
+                    step_disp.pop(r0, None)
                 if mn == "lea" and src is not None and src.mem.base and \
                         canon_reg(insn.reg_name(src.mem.base)) in STACK_PTRS | stackp:
                     stackp.add(r0)
@@ -1372,11 +1792,25 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
                         # [rcx] is the reference's [esi] and [esi + 4])
                         # (a vector's lanes are no fields: `vmovdqu ymm0, [esi]` is one access, the
                         # port's helper a copy of its bytes, rhtest stl-Od's AVX2 reverse)
-                        for d in range(disp, disp + (max(op.size, 4) if op.size <= 8 else 4), 4):
+                        if op.size == 16 and disp > 0:
+                            f.wide16.add(disp)
+                        if op.size == 8 and disp > 0:
+                            f.halves.add(disp + 4)
+                        # (and the port's 16 bytes at once its four words: two doubles stored by one
+                        # `movupd [rax + 0x50]` for the reference's `movsd [eax + 0x50]; movsd [eax +
+                        # 0x58]`, whose 0x54 and 0x5c it writes too, Matrix44StoreDouble 0xdbc740)
+                        for d in range(disp, disp + (max(op.size, 4) if op.size <= 8 else
+                                                     16 if port and op.size == 16 else 4), 4):
                             if d > 0:
                                 f.fields[d] += 1
                                 if canon_reg(base) in lea_before:
-                                    f.member_at.setdefault(d, set()).add(lea_before[canon_reg(base)] + d)
+                                    f.member_at.setdefault(d, set()).add((lea_before[canon_reg(base)] + d) & 0xFFFFFFFF)
+                                # (and through a pointer stepped by an immediate, the step alone the
+                                # C's base afresh: scan's step_disp)
+                                if canon_reg(base) in step_before:
+                                    k_, s_ = step_before[canon_reg(base)]
+                                    f.member_at.setdefault(d, set()).add((s_ + d) & 0xFFFFFFFF)
+                                    f.step_sums.setdefault(k_, set()).add((s_ + d) & 0xFFFFFFFF)
                                 if ops[0].type == x86.X86_OP_REG and op is not ops[0]:
                                     reg_fields.setdefault(insn.reg_name(ops[0].reg), []).append(d)
                                     if insn.reg_name(ops[0].reg) == "ecx":
@@ -1410,6 +1844,14 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
                                 reg_imms.setdefault(canon_reg(insn.reg_name(ops[0].reg)), []).append(k)
                             elif mn == "push" and args:
                                 args[-1].append(k)
+                    # (nor the frame's size handed the stack probe, `mov eax, 0x1004; call
+                    # __alloca_probe`: the reference's frame, the port's its own (`mov eax, 0x110d0;
+                    # call __chkstk`), no constant of the source. 55 of a client's functions,
+                    # DebugPrintf 0x430c00's, 2026-10-31)
+                    elif mn == "mov" and at + 1 < len(insns) and insns[at + 1].mnemonic == "call" \
+                            and insns[at + 1].operands and insns[at + 1].operands[0].type == x86.X86_OP_IMM \
+                            and insns[at + 1].operands[0].imm & 0xFFFFFFFF in PROBES:
+                        pass
                     # (not the stack's own arithmetic, `sub esp, k` or a realignment `and esp, -0x40`,
                     # nor a SIMD op's lane control, `shufps xmm1, xmm0, 0xdd`: the machine's, no
                     # constant of the source)
@@ -1417,8 +1859,15 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
                                                           and insn.reg_name(ops[0].reg) in STACK_REGS) \
                             and not SIMD_CONTROL.match(mn):
                         f.consts[f"i:{v:x}"] += 1
-                        if mn in ("add", "sub") and ops[0].type == x86.X86_OP_REG:
+                        # (a pointer kept in memory too, `add dword ptr [ebp - 4], 0x28` for the C's
+                        # `local_8 + 10` of an int pointer, 0x591ce0, 2026-10-31)
+                        # (and a stride, `imul ecx, ecx, 0x2080` for the C's `param_2 + n * 0x820` of
+                        # an int pointer, 0xa1aa80)
+                        if mn in ("add", "sub") and ops[0].type in (x86.X86_OP_REG, x86.X86_OP_MEM) \
+                                or mn == "imul" and len(ops) == 3:
                             f.steps.add(f"i:{v:x}")
+                        if mn in ("shl", "sal", "shr", "sar", "rol", "ror"):
+                            f.shift_counts.add(f"i:{v:x}")
                         if insn.address in f.case_alt:
                             f.case_keys.setdefault(f"i:{v:x}", set()).add(f.case_alt[insn.address])
                         if mn == "mov" and ops[0].type == x86.X86_OP_REG and insn.reg_name(ops[0].reg) in ("cl", "ecx"):
@@ -1568,11 +2017,10 @@ def presence(ref: Counter, port: Counter, source: set[int] = frozenset(),
             # `this + 0x3c`: the formatting buffer's members in the CRT's printf, rhtest stl-O2)
             if any(s > k and s - k in source for s in source):
                 return True
-            # (the same with the C's indices as the offsets they are, an int array's [0x17] at 0x5c:
-            # `lea esi, [ecx + 8]; ... mov eax, [esi + 0x54]` for `param_3[0x17]` beside its
-            # `param_3 + 2`, a copy of a record's tail, 10 of a client's functions, 2026-10-30)
-            scaled = {v * m for v in source if 0 < v < 0x10000 for m in (1, 2, 4, 8)}
-            return any(0 < b < 0x1000 and b + k in scaled for b in scaled)
+            # (not any two of the C's literals, scaled and summed: an unrelated function's C kept 57%
+            # of the fields so. A member's base its lea made, `lea esi, [ecx + 8]` for `param_3 + 2`,
+            # is scan's member_at and main's rule, 2026-10-30)
+            return False
         if isinstance(k, str) and k.startswith("i:"):
             v = int(k[2:], 16)
             if v in source or (v + 1) & 0xFFFFFFFF in source or (v - 1) & 0xFFFFFFFF in source:
@@ -1627,7 +2075,9 @@ def presence(ref: Counter, port: Counter, source: set[int] = frozenset(),
                             return True
             # (or shifted: a bitfield's store the decompiler folds, `(s * 0x3e8 & 0xffff) << 16` as
             # `s * 0x3e80000`, `(x & 0x7f) << 3` as `x & 0x3f8`, rhtest misc's bitfields)
-            if any(((v << s) & 0xFFFFFFFF) in source for s in range(1, 32)):
+            # (no bit shifted out, of a value of its own: `(v << 31) & 0xffffffff` is 0 for every
+            # even v, and 0 is in nearly every C: every even constant was kept, 2026-10-30)
+            if v and any((v << s) <= 0xFFFFFFFF and (v << s) in source for s in range(1, 32)):
                 return True
             # (or a low-bit mask a shift makes redundant at a width: `x >> 16 & 0xffff` is `x >> 16`,
             # `(ushort)x >> 4 & 0xfff` the ushort's shift alone)
@@ -1779,6 +2229,12 @@ def main() -> None:
                  or not e.get("c")}
     # (the functions that do not return, ApplyFacts' noreturn facts: what follows a call of one is
     # the decompiler's unreachable, scan's)
+    # (and each one's registers at a call of it, dead_registers': what it reads, what it leaves
+    # undefined, what its return gives back)
+    regs_of = {a: r for a, e in cor.items() if (r := call_regs(e.get("c", ""))) is not None}
+    # (and the stack probes, whose `mov eax, <frame size>` is the frame's, scan's)
+    PROBES.update(a for a, e in cor.items()
+                  if re.fullmatch(r"(?:Global::)?_*(?:alloca_probe(?:_8|_16)?|chkstk)", e.get("name", "")))
     noret_path = ROOT / "build/facts/noreturn.json"
     noret = {int(x, 16) for x in json.loads(noret_path.read_text(encoding="utf-8")).get("functions", {})} \
         if noret_path.exists() else set()
@@ -1854,6 +2310,14 @@ def main() -> None:
         m = re.fullmatch(r"F_([0-9a-f]{8})", name)
         if m:
             f_of_ref[int(m.group(1), 16)] = va
+    # (what each function does to its values, opcensus.py: the conversions and call results the
+    # presence comparisons below cannot see)
+    census = opcensus.Census(ref, port, refbin, cor, proc_at, f_of_ref)
+    # (and the bug classes' probes, probes32.py: what was 98% right and failed only at runtime, each
+    # reference x86 against the port's x64 or its C; the virtual calls' by callsites.json's words)
+    cs_path = ROOT / "build/facts/callsites.json"
+    callsites = json.loads(cs_path.read_text(encoding="utf-8")) if cs_path.exists() else {}
+    probe = probes32.Probes(ref, port, refbin, cor, proc_at, f_of_ref, translations, callsites)
 
     # the reference's import thunks (`jmp [slot]`) by name
     ref_thunk = {}
@@ -2021,6 +2485,10 @@ def main() -> None:
             subset |= {a for a, r in previous.items() if r.get("kind") == "stub" or (r.get("score") or 0) < 0.999}
         print(f"measuring {len(subset)} functions", flush=True)
 
+    unreached: dict[int, str] = {}
+    # (the functions the image points to, through their thunks too: a call through the pointer runs
+    # the translation, not the fixup)
+    address_taken = {through_thunks(refbin.ptr(s)) for s in refbin.relocs() if refbin.is_code(refbin.ptr(s))}
     rows = []
     for a in sorted(cor):
         if subset is not None and a not in subset:
@@ -2028,7 +2496,9 @@ def main() -> None:
         e = cor[a]
         size = e.get("size", 0)
         row = {"addr": f"{a:08x}", "name": e["name"], "size": size}
-        if a in fixed_up:
+        # (unless the image points to it: Global::floor in a function table at 0x12b57bc, Reverb's
+        # vf11 in two vtables, FUN_00cc2740 through its thunk 0x1054ef0, folded unmeasured, 2026-10-30)
+        if a in fixed_up and a not in address_taken:
             # (a helper the decompiler injects at every call, ApplyFacts' call fixups: its p-code
             # is its translation, wherever it is called; its own body never runs)
             row.update(kind="folded", score=1.0, why="injected at every call site (a call fixup)")
@@ -2061,13 +2531,35 @@ def main() -> None:
             continue
         dead = {int(x, 16) for x in re.findall(r"Removing unreachable block \(ram,0x([0-9a-f]+)\)", e["c"])}
         rf = scan(ref, ref, md32, own_pieces(a, sorted(pieces.get(a, [(a, a + size)]))), a, False, dead, fixed_up,
-                  arity, takes_ecx, noret)
+                  arity, takes_ecx, noret, regs_of)
         pva = f_of_ref[a]
         psize = proc_at[pva][0]
         pf = scan(port, ref, md64, [(pva, pva + psize)], a, True)
+        # (the operation census: a reference bit move the port converts by value, `fistp qword [ebp -
+        # 0x48]; mov eax, [ebp - 0x48]` as `gen_fl2bits((float)(longlong)...)`, keeps every call, field
+        # and constant. The translations the PDB says were inlined here are the port's too)
+        inl = [int(m_.group(1), 16) for _s, n_ in inline_sites.get(pva, [])
+               if (m_ := re.fullmatch(r"F_([0-9a-f]{8})", n_ or ""))]
+        try:
+            ops = census.run(a, own_pieces(a, sorted(pieces.get(a, [(a, a + size)]))), inl)
+        except Exception:  # noqa: BLE001  (a census failure is no score)
+            ops = None
+        ops_flags = [f for f in (ops or {}).get("flags", []) if f.startswith(("KIND", "NARROWED"))]
+        ops_weak = [f for f in (ops or {}).get("flags", []) if not f.startswith(("KIND", "NARROWED"))]
+        ops_seen = bool(ops) and (ops["ref"]["i2f"] or ops["ref"]["f2i"] or ops["port"]["i2f"] or ops["port"]["f2i"]
+                                  or ops_flags)
+        try:
+            pr = probe.run(a, own_pieces(a, sorted(pieces.get(a, [(a, a + size)]))), inl)
+        except Exception:  # noqa: BLE001  (a probe's failure is no score)
+            pr = None
+        probe_flags = (pr or {}).get("flags", [])
+        probe_weak = (pr or {}).get("weak", [])
         # (a call Ghidra replaced with an injection, the stack cookie check, is in no translation)
         injected = injections(e["c"])
         rseq = [x for x in ref_calls(rf) if x not in injected]
+        for x in rseq:
+            if isinstance(x, int) and x not in cor and refbin.func_containing(x) is None:
+                unreached.setdefault(x, f"called from {a:08x}, no function covers it")
         pseq = port_calls(pva, pf)
         # (a static C runtime's function the port calls as the import of its name, the runtime's
         # own: `__setjmp3` as imp:setjmp3, GEN_SETJMP. The same call)
@@ -2168,6 +2660,11 @@ def main() -> None:
         for v, k in rf.float_at.items():
             if v in source and k in rf.consts and k not in pf.consts:
                 del rf.consts[k]
+        # (the C runtime's __convertTOStoQNaN, `test eax, 0x80000; jne; fadd [1.0]`: st0 is no result
+        # the port's function has, its add each caller's own (translate32 kept_st0, ST0_QUIETERS),
+        # 0xc5edcc 2026-10-30)
+        if e["name"].split("::")[-1] == "__convertTOStoQNaN":
+            rf.consts.pop("f:1", None)
         if '""' in translations.get(a, ""):
             for k in [k for k in rf.consts if k.startswith("g:")]:
                 if ref.read(int(k[2:], 16), 1) == b"\x00" and k not in pf.consts:
@@ -2197,7 +2694,10 @@ def main() -> None:
                 continue
             # (or a pointer's step the port unrolled away, `sub esi, 0x70` for the C's `p + -0x1c`
             # of a 4-byte pointer: a destructor's loop over two members, 2 of a client's)
-            if k in rf.steps and v < 0x10000 and any(v % s == 0 and v // s in source for s in (2, 4, 8)):
+            # (a step back too, `sub edi, -0x80` or `add ecx, -0x5c`, by its size: 0x5ccf40's `+ 0x20`
+            # of an int pointer, 0x7ca4b0's `local_8[-0x17]`, 2026-10-31)
+            w = v if v < 0x10000 else -v & 0xFFFFFFFF
+            if k in rf.steps and w < 0x10000 and any(w % s == 0 and w // s in source for s in (2, 4, 8)):
                 del rf.consts[k]
                 continue
             # (one bit cleared, `and ebx, 0xfffffdff`, that the port clears with `btr` or a byte's
@@ -2217,7 +2717,8 @@ def main() -> None:
         # the word's own, `((g & 0xffe0001b | w << 5) & 0x881fffff | 0x8000000) & 0x7fffffff` as `g &
         # 0x800001b` (0x650340); a byte's 0xc7 and 0xbf as `& 0x87` (0x55e670), 2026-10-30)
         c_text = translations.get(a, "")
-        hexes = {int(h, 16) for h in re.findall(r"\b0x([0-9a-fA-F]+)\b", c_text)}
+        # (the C's masks, a hex after `&`: any hex in it accepted near noise, 2026-10-30)
+        hexes = {int(h, 16) for h in re.findall(r"&\s*\(?\s*0x([0-9a-fA-F]+)\b", c_text)}
         masks = sorted(rf.and_masks)
         for k in [k for k in rf.consts if k.startswith("i:") and k not in pf.consts]:
             v = int(k[2:], 16)
@@ -2226,6 +2727,47 @@ def main() -> None:
             others = [m for m in masks if m != v]
             folds = {v & m for m in others} | {v & m & q for i, m in enumerate(others) for q in others[i + 1:]}
             if any(w >= 0x10 and w != v and w in hexes for w in folds):
+                del rf.consts[k]
+        # (a field's mask after its shift where the C masks before it, `shl eax, 0x15; ...; and eax,
+        # 0x7fe00000` for `(x & 0x3ff) << 0x15` (0x1070ea0 and 6 like it), or an exponent the decompiler
+        # knew fits, `shl eax, 0x17; and eax, 0x7f800000` for `* 0x800000` (0xa4b730); and a low mask a
+        # narrow value's shift makes, `and eax, 0x881fffff` past a ushort's `<< 5` for the C's `(uint)w
+        # << 5` (0x62e0b0): by the C's own shift counts and powers of two, 2026-10-31)
+        shifts = {int(n, 0) for n in re.findall(r"<<\s*(0x[0-9a-fA-F]+|\d+)", c_text)} \
+            | {p_.bit_length() - 1 for p_ in source if 0x200 <= p_ < 1 << 31 and p_ & (p_ - 1) == 0}
+        for k in [k for k in rf.consts if k.startswith("i:") and k not in pf.consts]:
+            v = int(k[2:], 16)
+            low_ = (v & -v).bit_length() - 1
+            run_ = v >> low_
+            if low_ >= 9 and run_ >= 0xf and run_ & (run_ + 1) == 0 and low_ in shifts:
+                del rf.consts[k]
+            elif v and v & (v + 1) == 0 and any(v.bit_length() - s == 16 for s in shifts if 2 <= s < 16):
+                del rf.consts[k]
+        # (a byte lane's shift, by 8, 16 or 24, where the C composes or takes bytes its own way: `shl
+        # eax, 0x10; add eax, ecx` of _memset's fill as `* 0x1010101` (0xc48350), a colour's bytes
+        # moved into place and out again as `(uVar2 & 0xff00) >> 8` (0x7a3eb0), 2026-10-31)
+        lanes_c = bool(re.search(r"CONCAT\d\d|\((?:u?char|byte|u?short|undefined[12])\)|&\s*0xff(?:00)?\b"
+                                 r"|>>\s*(?:8|0x10|0x18)\b|<<\s*(?:8|0x10|0x18)\b", c_text)) \
+            or bool({0x10001, 0x10101, 0x1000001, 0x1010101} & set(source))
+        for k in [k for k in ("i:10", "i:18") if k in rf.consts and k not in pf.consts and k in rf.shift_counts]:
+            if lanes_c:
+                del rf.consts[k]
+        # (MSVC's unsigned 64-bit to x87 conversion, `mov eax, hi; and hi, 0x7fffffff; ...; fild qword
+        # [lo, hi]; and eax, 0x80000000`: the low 63 bits loaded and 2^63 added back when the top one
+        # is set, the C's `(float10)ull`, no mask of the source. 0x427ff0, 2026-10-31)
+        if "i:7fffffff" in rf.consts and "i:7fffffff" not in pf.consts and 0x80000000 in rf.and_masks \
+                and "fild" in rf.mnemonics and re.search(r"\bu?longlong\b|\bundefined8\b", c_text):
+            del rf.consts["i:7fffffff"]
+        # (two of the reference's constants the decompiler folded into one, the C's literal: `mov eax,
+        # 0xc8; mov edx, 0x48; mul edx` as 0x3840 (0x437510), `lea edx, [eax + 0x7f]; or edx, 0x8000`
+        # of an eax known 0 as 0x807f, its bits in a literal of the C's that the port stores too
+        # (0x55ee30), 2026-10-31)
+        ref_ints = {int(p[2:], 16) for p in rf.consts if p.startswith("i:")}
+        port_lits = {int(p[2:], 16) for p in pf.consts if p.startswith("i:")} & set(source)
+        for k in [k for k in rf.consts if k.startswith("i:") and k not in pf.consts]:
+            v = int(k[2:], 16)
+            if any(w != v and 0x100 <= v * w <= 0xFFFFFFFF and v * w in source for w in ref_ints if 0x10 <= w < 0x10000) \
+                    or (v >= 0x100 and v & (v - 1) == 0 and any(t != v and t & v and (t ^ v) < v for t in port_lits)):
                 del rf.consts[k]
         # (a float set into one lane of a frame vector, frame_lanes, where the C has neither its
         # address nor its value: dead, the lane's products shuffled away, 0x61fe90's 1.0, 2026-10-30)
@@ -2265,8 +2807,28 @@ def main() -> None:
                     break
         # (a field of a member addressed by an indexed lea, `lea edi, [eax + ecx + 0x1c4]; cmp
         # [edi + 0x58], 0` for the C's `this + i * 0xb4 + 0x21c`, 4 of a client's)
+        # (and a negative index's, `puVar1[-0x69]` for [eax + 0x15c] past `sub eax, 0x300`, 0xa65720)
+        scaled = set(source) | {(v * m) & 0xFFFFFFFF for v in source
+                                if 0 < v < 0x10000 or 0 < -v & 0xFFFFFFFF < 0x10000 for m in (1, 2, 4, 8)}
         for d in [d for d in rf.fields if d not in pf.fields and d in rf.member_at]:
-            if rf.member_at[d] & set(source):
+            if rf.member_at[d] & scaled:
+                del rf.fields[d]
+        # (a pointer's step whose fields through it are the C's offsets, scan's step_sums: `add eax,
+        # 0x1c4; cmp byte ptr [eax + 8], 0` for the C's `+ 0x1cc`, 0xaea5a0, 2026-10-31)
+        for k, sums in rf.step_sums.items():
+            if k in rf.consts and k not in pf.consts and sums & scaled:
+                del rf.consts[k]
+        # (a vector read whole, one lane kept, `movaps xmm0, [ecx + 0x20]; shufps xmm0, xmm0, 0xaa`
+        # for the C's `*(in_ecx + 0x28)`: the port reads the lane, Global::SplatM22 0xda91f0 and 3
+        # like it, 2026-10-31)
+        for d in [d for d in rf.fields if d not in pf.fields and d in rf.wide16]:
+            if any(d + 4 * i in pf.fields or d + 4 * i in scaled for i in (1, 2, 3)):
+                del rf.fields[d]
+        # (an 8-byte access's upper word, one access with its lower, where the C indexes 8-byte
+        # elements there: `movsd [eax + 0x50], xmm0` for `param_2[10]` of a double *, its 0x54,
+        # Matrix44StoreDouble 0xdbc740; not two dwords, a 64-bit value a 32-bit one took)
+        for d in [d for d in rf.fields if d not in pf.fields and d in rf.halves]:
+            if (d - 4) % 8 == 0 and (d - 4) // 8 in source:
                 del rf.fields[d]
         globals_of = (lambda fn: {int(k[2:], 16) for k in fn.consts if k.startswith("g:")})
         fields, missing_fields = presence(rf.fields, pf.fields, source, (globals_of(rf), globals_of(pf)))
@@ -2276,7 +2838,8 @@ def main() -> None:
         # other way. A client's 0x8bc850, 2026-10-30)
         port_globals = globals_of(pf)
         for k in [k for k in rf.consts if k.startswith("g:") and k not in pf.consts]:
-            if any(int(k[2:], 16) + d in port_globals for d in rf.fields if 0 < d < 0x1000):
+            # (a field the port has not of its own: it addresses that one absolutely, 2026-10-30)
+            if any(int(k[2:], 16) + d in port_globals for d in rf.fields if 0 < d < 0x1000 and d not in pf.fields):
                 del rf.consts[k]
         port_addrs = globals_of(pf) | {x for xs in pf.str_at.values() for x in xs} \
             | {int(k[2:], 16) for k in pf.consts if k.startswith("a:")}
@@ -2288,24 +2851,56 @@ def main() -> None:
             "fields": fields,
             "consts": consts,
             "shape": F.trigram_score(rf.mnemonics, pf.mnemonics),
+            # (none where neither side converts and no result is cut: nothing to weigh)
+            "ops": (0.0 if ops_flags else 1.0) if ops_seen else None,
+            # (only where a strong probe flags: a clean function's score is its other parts')
+            "probes": 0.0 if probe_flags else None,
         }
-        avail = {k: v for k, v in parts.items() if v is not None and F.WEIGHTS[k] > 0}
-        score = sum(F.WEIGHTS[k] * v for k, v in avail.items()) / sum(F.WEIGHTS[k] for k in avail) if avail else 1.0
+        weights = {**F.WEIGHTS, "ops": OPS_WEIGHT, "probes": PROBES_WEIGHT}
+        avail = {k: v for k, v in parts.items() if v is not None and weights[k] > 0}
+        score = sum(weights[k] * v for k, v in avail.items()) / sum(weights[k] for k in avail) if avail else 1.0
         row.update(kind="translated", score=round(score, 4), parts={k: (round(v, 4) if v is not None else None)
                                                                      for k, v in parts.items()},
                    missing_calls=[label(x) for x in missing_calls],
                    extra_calls=[label(x) for x in sorted(set(pseq) - set(rseq), key=str)],
                    missing_fields=[f"{k:#x}" for k in missing_fields],
                    missing_consts=missing_consts,
-                   extra_consts=sorted(k for k in pf.consts if not near(k, set(rf.consts))))
+                   extra_consts=sorted(k for k in pf.consts if not near(k, set(rf.consts))),
+                   ops_flags=ops_flags, ops_weak=ops_weak, probe_flags=probe_flags, probe_weak=probe_weak)
         rows.append(row)
         if f"{a:08x}" in {s.lower().removeprefix("0x").rjust(8, "0") for s in args.show}:
             print(f"==== {a:08x} {e['name']}  score {score:.3f}  {row['parts']}")
             print(f"  reference calls: {[label(x) for x in rseq]}")
             print(f"  port calls:      {[label(x) for x in pseq]}")
-            for k in ("missing_calls", "extra_calls", "missing_fields", "missing_consts", "extra_consts"):
+            for k in ("missing_calls", "extra_calls", "missing_fields", "missing_consts", "extra_consts",
+                      "ops_flags", "ops_weak", "probe_flags", "probe_weak"):
                 if row[k]:
                     print(f"  {k}: {row[k]}")
+            if ops:
+                print(f"  reference conversions: {ops['ref_sites']}")
+                print(f"  port conversions:      {ops['port_sites']}")
+                for d in ops["narrowed"]:
+                    print(f"  narrowed {d['callee']}: port {d['port_sites']} reference {d['ref_sites']}")
+
+    # (and the code the reference reaches that no function starts at: a data pointer into a body,
+    # an EH4 filter of __callthreadstartex's at 0xc4d709 that the runtime's EH walker calls by
+    # address, the port's `not translated: 00c4d709`; or a direct call into code no function covers.
+    # In no row, neither the stubs nor the scores saw it: each a stub's row of its own, 2026-10-30)
+    if subset is None:
+        uncovered = dict(unreached)
+        for site in refbin.relocs():
+            if refbin.is_code(site):
+                continue                    # (a jump table's word, an operand: the code's own)
+            t = refbin.ptr(site)
+            t2 = through_thunks(t) if refbin.is_code(t) else t
+            if refbin.is_code(t) and t2 not in cor and t not in ref_thunk and t2 not in ref_thunk \
+                    and ref.read(t, 1) not in (b"\x00", b"\xcc"):
+                uncovered.setdefault(t, f"pointed to from {site:#x}; no function starts there")
+        for t, why in sorted(uncovered.items()):
+            own = refbin.func_containing(t)
+            rows.append({"addr": f"{t:08x}", "name": f"(code at {t:08x}" + (f" in {own:08x})" if own else ")"),
+                         "size": 1, "kind": "stub", "score": 0.0, "why": why})
+        rows.sort(key=lambda r: int(r["addr"], 16))
 
     if subset is not None:
         # (each measured function against its last score, then the whole report again, merged)
@@ -2317,7 +2912,8 @@ def main() -> None:
             if args.only or before is None or abs(before - r["score"]) > 0.0005:
                 b = "-" if before is None else f"{before:.3f}"
                 why = r.get("why") or "; ".join(f"{k.replace('_', ' ')} {r[k][:3]}" for k in
-                                                 ("missing_calls", "extra_calls", "missing_fields", "missing_consts")
+                                                 ("missing_calls", "extra_calls", "missing_fields", "missing_consts",
+                                                  "probe_flags")
                                                  if r.get(k))
                 print(f"  {r['addr']}  {b} -> {r['score']:.3f}  {r['name'][:32]:<32} {why[:110]}")
         print(f"{len(rows)} measured, {moved} changed")
@@ -2341,8 +2937,9 @@ def main() -> None:
                 continue
             p = r["parts"]
             ps = " ".join(f"{k}={p[k]:.2f}" if p[k] is not None else f"{k}=-" for k in ("calls", "fields", "consts"))
-            what = "; ".join(f"{k.replace('_', ' ')} {r[k][:3]}" for k in ("missing_calls", "missing_fields", "missing_consts")
-                             if r[k])
+            what = "; ".join(f"{k.replace('_', ' ')} {r[k][:3]}" for k in ("missing_calls", "missing_fields", "missing_consts",
+                                                                          "ops_flags", "probe_flags")
+                             if r.get(k))
             print(f"  {r['addr']}  {r['score']:.3f}  {r['name'][:28]:<28} {ps}  {what[:110]}")
     if args.html:
         write_html(rows)
