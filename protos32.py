@@ -2082,6 +2082,11 @@ def analyse(root: int, ranges):
         fields = [x for x in loc_read if t + 8 <= x < top and x not in stored]
         if fields:
             block = [t, ((max(fields) + 1 - t) + 3) & ~3]
+    # (none in a realigned frame: its locals' offsets are from REALIGNED_ESP, no entry-relative
+    # place, and as one 121 functions' blocks reached 1 MB down, a stack the main thread lacks:
+    # AtkUnitBase's 0x5a1fa0 overflowed it each frame and the port stuck after the logo, 2026-11-02)
+    if block is not None and block[0] <= REALIGNED_ESP:
+        block = None
     tail_jumps = any(insns[a].mnemonic == "jmp" and (_target(insns[a]) is None or _target(insns[a]) not in insns)
                      for a in state)
     # (the constants it pushes or loads into eax: an EH4 frame's scope table, `push -2; push
