@@ -681,3 +681,16 @@ RH_REG(d3d9, D3DPERF_SetOptions, D3DPERF_SetOptions_)
 RH_STUB(d3dx9_43, D3DXSaveSurfaceToFileA, 5, win::E_FAIL, 0)
 RH_STUB(d3dx9_43, D3DXSaveSurfaceToFileW, 5, win::E_FAIL, 0)
 RH_STUB(d3dx9_43, D3DXSaveTextureToFileA, 4, win::E_FAIL, 0)
+// (and as the translation calls them directly: runtime32's Adapters.cpp makes them adapters for x64)
+extern "C" unsigned int gen_imp_D3DXSaveSurfaceToFileA(uint32_t file, uint32_t format, uint32_t surface,
+                                                       uint32_t palette, uint32_t rect) {
+    return stub_D3DXSaveSurfaceToFileA(file, format, surface, palette, rect);
+}
+extern "C" unsigned int gen_imp_D3DXSaveSurfaceToFileW(uint32_t file, uint32_t format, uint32_t surface,
+                                                       uint32_t palette, uint32_t rect) {
+    return stub_D3DXSaveSurfaceToFileW(file, format, surface, palette, rect);
+}
+extern "C" unsigned int gen_imp_D3DXSaveTextureToFileA(uint32_t file, uint32_t format, uint32_t texture,
+                                                       uint32_t palette) {
+    return stub_D3DXSaveTextureToFileA(file, format, texture, palette);
+}
