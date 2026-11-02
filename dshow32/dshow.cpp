@@ -619,19 +619,10 @@ struct Graph {
     uint32_t SetPositions(uint32_t, uint32_t pCur, uint32_t curFlags, uint32_t pStop, uint32_t stopFlags);
     uint32_t GetPositions(uint32_t, uint32_t pCur, uint32_t pStop) {
         std::lock_guard<std::mutex> hold(lock);
-        const int64_t p = Position();
-        Put64(pCur, p);
+        Put64(pCur, Position());
         Put64(pStop, info.duration);
-        // (the position the reference reads, every 2 s of its asking, against the stream's own state)
-        const int64_t now = Now100ns();
-        if (now - lastPositionLog >= 20000000) {
-            lastPositionLog = now;
-            Log("DirectShow: position %.3f s (state %d, presented %.3f s, streaming %d)", p / 1e7, state,
-                presented / 1e7, streaming);
-        }
         return S_OK;
     }
-    int64_t lastPositionLog = 0;
     uint32_t GetAvailable(uint32_t, uint32_t early, uint32_t late) {
         Put64(early, 0);
         Put64(late, info.duration);
@@ -1119,7 +1110,6 @@ void Graph::StopStream(bool flush) {
 }
 
 uint32_t Graph::Pause(uint32_t) {
-    Log("DirectShow: Pause (state %d)", state);
     int was;
     {
         std::lock_guard<std::mutex> hold(lock);
@@ -1141,7 +1131,6 @@ uint32_t Graph::Pause(uint32_t) {
 }
 
 uint32_t Graph::Run(uint32_t self) {
-    Log("DirectShow: Run (state %d)", state);
     int was;
     {
         std::lock_guard<std::mutex> hold(lock);
@@ -1161,7 +1150,6 @@ uint32_t Graph::Run(uint32_t self) {
 }
 
 uint32_t Graph::Stop(uint32_t) {
-    Log("DirectShow: Stop (state %d)", state);
     {
         std::lock_guard<std::mutex> hold(lock);
         if (state == 0) return S_OK;
@@ -1177,8 +1165,6 @@ uint32_t Graph::Stop(uint32_t) {
 
 uint32_t Graph::SetPositions(uint32_t, uint32_t pCur, uint32_t curFlags, uint32_t pStop, uint32_t stopFlags) {
     const uint32_t how = curFlags & 3;
-    Log("DirectShow: SetPositions(%.3f s, flags %#x; stop flags %#x)", pCur ? Get64(pCur) / 1e7 : -1.0, curFlags,
-        stopFlags);
     if (how && pCur) {
         int64_t to;
         int st;
