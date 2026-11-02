@@ -35,6 +35,9 @@ const wchar_t* RefImagePath();       // RefImage.cpp
 extern "C" unsigned int gen_teb32(void);
 extern "C" int gen_teb32_made(void);
 extern "C" const unsigned int g_genEhFuncInfo[];   // gen/jumps.c
+namespace com32 {
+void* Unwrap(uint32_t proxy);   // Com32.cpp: the object behind a proxy the port gave the reference
+}
 extern "C" const unsigned int g_genThiscall[];     // gen/jumps.c, sorted
 extern "C" const unsigned int g_genThiscallCount;
 extern "C" {
@@ -907,6 +910,36 @@ unsigned int gen_imp_GetSystemInfo(uint32_t out) {
 }
 unsigned int gen_imp_GetNativeSystemInfo(uint32_t out) {
     return gen_imp_GetSystemInfo(out);
+}
+// ---- D3DX's saves: the surface or texture the port's Direct3D gave the reference is a 32-bit
+// proxy (Com32.cpp); x64 D3DX wants the object behind it. Through the generic adapter it read the
+// proxy as a COM object and faulted, the game's screenshot (0x4d9240), 2026-11-02
+static FARPROC D3dx(const char* name) {
+    static HMODULE m = LoadLibraryA("d3dx9_43.dll");
+    return m ? GetProcAddress(m, name) : nullptr;
+}
+unsigned int gen_imp_D3DXSaveSurfaceToFileW(uint32_t file, uint32_t format, uint32_t surface, uint32_t palette,
+                                           uint32_t rect) {
+    using Fn = HRESULT(WINAPI*)(LPCWSTR, UINT, void*, const PALETTEENTRY*, const RECT*);
+    auto f = reinterpret_cast<Fn>(D3dx("D3DXSaveSurfaceToFileW"));
+    if (!f) return static_cast<unsigned int>(E_NOTIMPL);
+    return static_cast<unsigned int>(f(file ? At<wchar_t>(file) : nullptr, format, com32::Unwrap(surface),
+                                       palette ? At<PALETTEENTRY>(palette) : nullptr, rect ? At<RECT>(rect) : nullptr));
+}
+unsigned int gen_imp_D3DXSaveSurfaceToFileA(uint32_t file, uint32_t format, uint32_t surface, uint32_t palette,
+                                           uint32_t rect) {
+    using Fn = HRESULT(WINAPI*)(LPCSTR, UINT, void*, const PALETTEENTRY*, const RECT*);
+    auto f = reinterpret_cast<Fn>(D3dx("D3DXSaveSurfaceToFileA"));
+    if (!f) return static_cast<unsigned int>(E_NOTIMPL);
+    return static_cast<unsigned int>(f(file ? At<char>(file) : nullptr, format, com32::Unwrap(surface),
+                                       palette ? At<PALETTEENTRY>(palette) : nullptr, rect ? At<RECT>(rect) : nullptr));
+}
+unsigned int gen_imp_D3DXSaveTextureToFileA(uint32_t file, uint32_t format, uint32_t texture, uint32_t palette) {
+    using Fn = HRESULT(WINAPI*)(LPCSTR, UINT, void*, const PALETTEENTRY*);
+    auto f = reinterpret_cast<Fn>(D3dx("D3DXSaveTextureToFileA"));
+    if (!f) return static_cast<unsigned int>(E_NOTIMPL);
+    return static_cast<unsigned int>(f(file ? At<char>(file) : nullptr, format, com32::Unwrap(texture),
+                                       palette ? At<PALETTEENTRY>(palette) : nullptr));
 }
 // MEMORYSTATUS, its sizes DWORDs on x86 and SIZE_Ts on x64 (32 bytes against 56): through the
 // generic adapter the x64 one wrote 24 bytes past the reference's and its counts where the x86's
