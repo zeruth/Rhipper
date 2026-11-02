@@ -16,8 +16,13 @@
 #               CAST or SUBPIECE between a float and an integer prints as the reader's bit views
 #               (gen_fl2bits, gen_bits2f, ...), not a C conversion; a float-typed piece is `_4_4f_`
 #               float + and * are not associative (a nested sum keeps its parentheses), and an
-#               unlocked undefinedN local takes its variable's inferred type before printing
-#   printc.hh   (the float tokens' declarations)
+#               unlocked undefinedN local takes its variable's inferred type before printing;
+#               a FLOAT_TRUNC prints as the reader's gen_ftrunc<size>(x), x86's conversion (its
+#               integer indefinite out of range, its signed bits), not C's cast (AArch64 saturates)
+#   printc.hh   (the float tokens' declarations, and opFloatTrunc's, no longer inline)
+#   printjava.cc/.hh  the release's, unchanged: copied here so they include patch/printc.hh (a quoted
+#               include is looked for beside its includer first), where the release's inline
+#               opFloatTrunc in its own printc.hh clashed with printc.cc's at the link
 #   ruleaction.cc  a NaN test guarding a float comparison stays (the default drops it): x87 and SSE
 #               compares set the less/equal flags on unordered, and branches read them so; a test
 #               and comparison one comparison means exactly fold, `NAN(a) || NAN(b) || a <= b`

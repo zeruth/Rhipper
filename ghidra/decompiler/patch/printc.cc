@@ -538,6 +538,33 @@ void PrintC::opTypeCast(const PcodeOp *op)
   pushVn(op->getIn(0),op,mods);
 }
 
+/// RHIPPER: a float's conversion to an integer (cvttss2si, cvttsd2si, a truncating fistp) printed
+/// as the reader's gen_ftrunc<size>(x), cast to the type the output has, not as C's `(int)x`: C
+/// leaves a value out of range (and a NaN) undefined, and AArch64 saturates it (a NaN 0) where x86
+/// gives its integer indefinite, 0x80000000 / 0x8000 / 0x8000000000000000; and C's `(uint)x` of a
+/// negative float is fcvtzu's 0 there where x86 converted signed and kept the bits, -1 0xffffffff.
+/// Skinned characters on Android threw their vertices across the screen that way (2026-11-02)
+void PrintC::opFloatTrunc(const PcodeOp *op)
+
+{
+  int4 sz = op->getOut()->getSize();
+  if (option_nocasts || (sz != 1 && sz != 2 && sz != 4 && sz != 8)) {
+    opTypeCast(op);
+    return;
+  }
+  // (an unsigned 4-byte result through 64 bits, gen_ftruncu4: the decompiler narrows a 64-bit
+  // conversion whose high half nothing reads, fistp qword / _ftol2 for `(uint)f`, to 4 bytes, and
+  // 3e9 is then 0xb2d05e00, not cvttss2si's indefinite. As 32-bit, FFXIV's heap broke on Android)
+  Datatype *dt = op->getOut()->getHighTypeDefFacing();
+  bool u4 = sz == 4 && dt->getMetatype() == TYPE_UINT;
+  pushOp(&typecast,op);
+  pushType(dt);
+  pushOp(&function_call,op);
+  pushAtom(Atom(sz == 1 ? "gen_ftrunc1" : sz == 2 ? "gen_ftrunc2" : u4 ? "gen_ftruncu4" : sz == 4 ? "gen_ftrunc4" : "gen_ftrunc8",
+		optoken,EmitMarkup::no_color,op));
+  pushVn(op->getIn(0),op,mods);
+}
+
 /// The syntax represents the given op using a function with one input,
 /// where the function name is not printed. The input expression is simply printed
 /// without adornment inside the larger expression, with one minor difference.

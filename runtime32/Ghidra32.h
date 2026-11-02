@@ -1022,6 +1022,29 @@ static GEN_INLINE unsigned long long gen_u2bits32(unsigned long long x) { return
 #define gen_fl2bits(x) _Generic((x), float: gen_fl2bits_, double: gen_fl2bits_, long double: gen_fl2bits_, \
     default: gen_u2bits32)(x)
 #define GEN_BITS(x) _Generic((x), double: gen_d2bits_, float: gen_fl2bits_, default: gen_u2bits64)(x)
+/* a float's conversion to an integer as x86 makes it (Ghidra's FLOAT_TRUNC, the decompiler's
+   gen_ftrunc<size>: cvttss2si / cvttsd2si, a truncating fistp): a value out of the integer's range,
+   or a NaN, is the integer indefinite, 0x80000000 (0x8000 for fist's word, 0x8000000000000000 for its
+   qword), where C leaves it undefined and AArch64 saturates (a NaN 0); and the result is the signed
+   integer's bits, so `(uint)gen_ftrunc4(-1.0)` is 0xffffffff where C's `(uint)-1.0` is fcvtzu's 0.
+   The same on every host: MSVC's x64 cast agrees for 4 and 8 bytes, but not for fist's word */
+static GEN_INLINE int gen_ftrunc4_(double d) {
+    return d > -2147483649.0 && d < 2147483648.0 ? (int)d : (int)0x80000000u;
+}
+static GEN_INLINE long long gen_ftrunc8_(double d) {
+    return d >= -9223372036854775808.0 && d < 9223372036854775808.0 ? (long long)d
+                                                                     : (long long)0x8000000000000000ull;
+}
+static GEN_INLINE short gen_ftrunc2_(double d) {
+    return d > -32769.0 && d < 32768.0 ? (short)(int)d : (short)0x8000;
+}
+#define gen_ftrunc1(x) ((signed char)gen_ftrunc4_((double)(x)))
+#define gen_ftrunc2(x) gen_ftrunc2_((double)(x))
+#define gen_ftrunc4(x) gen_ftrunc4_((double)(x))
+/* (an unsigned one through 64 bits: the decompiler's 4-byte narrowing of a 64-bit conversion, fistp
+   qword or _ftol2 for `(uint)f`, keeps the low half, 3e9 0xb2d05e00, as MSVC's x64 `(uint)d` does) */
+#define gen_ftruncu4(x) ((unsigned int)gen_ftrunc8_((double)(x)))
+#define gen_ftrunc8(x) gen_ftrunc8_((double)(x))
 /* an 8-byte value as the reference's two argument words, low first (a variadic call's double:
    translate32.py's calls to a variadic translation) */
 #define GEN_LO32(x) ((unsigned int)(unsigned long long)GEN_BITS(x))

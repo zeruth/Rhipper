@@ -49,6 +49,11 @@ NOINLINE double ul2d(u64 a) { return (double)a; }                     /* _ultod3
 NOINLINE float d2f(double a) { return (float)a; }
 NOINLINE double f2d(float a) { return (double)a; }
 NOINLINE i32 f2i(float a) { return (i32)a; }
+NOINLINE u32 f2u(float a) { return (u32)a; }
+NOINLINE short d2s(double a) { return (short)a; }
+/* (each the decompiler's FLOAT_TRUNC, printed as Ghidra32.h's gen_ftrunc<size>: C's cast saturates
+   out of range on AArch64 and gives 0 for a NaN or a negative unsigned, where x86 gives its integer
+   indefinite and the signed bits; FFXIV's skinned characters on Android, 2026-11-02) */
 
 /* comparisons: ordered, unordered, equal, the NaN cases */
 NOINLINE u32 dcmp(double a, double b) {
@@ -202,6 +207,14 @@ void rhtest_run(void) {
     checkf("d2f", d2f(s / 3.0));
     checkd("f2d", f2d(sf / 3.0f));
     check("f2i", (u32)f2i(-sf * 99.9f));
+    check("f2i_nan", (u32)f2i((float)nan));
+    check("f2i_huge", (u32)f2i(sf * 1.0e9f));
+    check("f2i_neg_huge", (u32)f2i(-sf * 1.0e9f));
+    check("f2u_neg", f2u(-sf * 1.5f));
+    check("f2u_big", f2u(sf * 4.0e8f));            /* (past 2^31: _ftol2's 64 bits, the low half) */
+    check("d2u_big", d2u(s * 4.0e8));
+    check("d2s", (u32)(i32)d2s(-s * 1000.5));
+    check("d2s_huge", (u32)(i32)d2s(s * 10000.0));
     check("dcmp_lt", dcmp(s, s + 1.0));
     check("dcmp_eq", dcmp(s, s));
     check("dcmp_nan", dcmp(nan, s));

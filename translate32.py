@@ -135,7 +135,8 @@ HEADER_NAMES = {"REFG", "REFP", "GP", "PTR32", "MXCSR", "ExceptionList", "GenUni
                 "log2",
                 "builtin_strncpy", "builtin_memcpy", "builtin_memset",
                 "floor", "ceil", "trunc", "nearbyint", "memcpy", "memset", "rdtsc", "GEN_PIECE", "GEN_ISNAN",
-                "gen_piece_set", "gen_sext_n", "gen_ld80", "gen_fl2bits", "gen_d2bits", "gen_bits2f", "gen_bits2d", "GEN_TOF", "GEN_TOD", "GEN_ARGF", "GEN_SLOT", "GEN_LOW",
+                "gen_piece_set", "gen_sext_n", "gen_ld80", "gen_fl2bits", "gen_d2bits", "gen_bits2f", "gen_bits2d",
+                "gen_ftrunc1", "gen_ftrunc2", "gen_ftrunc4", "gen_ftruncu4", "gen_ftrunc8", "GEN_TOF", "GEN_TOD", "GEN_ARGF", "GEN_SLOT", "GEN_LOW",
                 "gen_ac", "GEN_LO32", "GEN_HI32",
                 "GEN_TOP", "GEN_FLT_TO", "gen_vzero", "GEN_NE"}
 _header_names: set[str] | None = None
@@ -293,8 +294,13 @@ RAM_TYPES = {"i": "int", "u": "uint", "c": "char", "b": "byte", "s": "short", "u
 
 
 # the words of a variadic function's arguments after its fixed ones that its argument block holds
-# (rewrite): a printf's format and its values, a scanf's pointers
-VA_WORDS = 32
+# (rewrite): a printf's format and its values, a scanf's pointers. 32 was too few: FFXIV's
+# Global::FormatKey passes _sprintf_s 3 ints and 16 doubles (35 words), and its last %.3f read the
+# saved frame pointer and return address past the block, a 1e24 whose digits overflowed the buffer
+# (invalid parameter, the loading screen on arm64). The widest call in FFXIV is 75 words, the cascade
+# shadow camera's debug dump (a pointer and 37 %10.6f): 96 holds it with room. Words past what a
+# caller passed are its own stack, read and never used
+VA_WORDS = 96
 
 # the stack below a function's locals, by its offset from the entry esp (`&stack0xffffeffc`,
 # `in_stack_fffff000`): where it builds what it passes by value (out_stack)
