@@ -514,6 +514,10 @@ def _target(ins) -> int | None:
     return None
 
 
+# a realigned frame's esp after its `and esp, -16`: a fresh base below every parameter (analyse)
+REALIGNED_ESP = -0x100000
+
+
 def analyse(root: int, ranges):
     """Local facts of one function: register inputs, highest stack slot read, calls/tail jumps
     with the registers not yet written there, open, stack-tracking losses."""
@@ -968,8 +972,18 @@ def analyse(root: int, ranges):
                 esp = None if ebp is None else ebp + src.mem.disp
             elif mn == "lea" and src.type == X.X86_OP_MEM and src.mem.base == X.X86_REG_ESP and not src.mem.index:
                 esp = None if esp is None else esp + src.mem.disp
+            elif mn == "and" and src.type == X.X86_OP_IMM and esp is not None \
+                    and (-src.imm) & 0xFFFFFFFF in (8, 16, 32, 64):
+                # (the frame realigned, /arch:SSE2's `push ebx; mov ebx, esp; sub esp, 8; and esp, -16;
+                # add esp, 4; push ebp; mov ebp, [ebx + 4]; mov [esp + 4], ebp; mov ebp, esp; sub esp, k`:
+                # the parameters through ebx (anchor), esp a fresh base no parameter is at. Lost here,
+                # the frame's allocation and each later `sub esp, 0xc; fstp [esp + 8] ...` of a call's
+                # arguments went uncounted: PointSound::vf14's WhizManager call 0xd190ea passed two of
+                # five words, BattleChara::vf33's SetPosition 0xaab36d none of its three floats, and a
+                # PointSound's attenuation went NaN on a zone's load, F_00d2edb0 faulting, 2026-11-01)
+                esp = REALIGNED_ESP
             else:
-                esp = None                    # `and esp, -16` and the like
+                esp = None                    # `and esp` by anything else
         elif len(ops) == 2 and ops[0].type == X.X86_OP_REG and ops[0].reg == X.X86_REG_EBP:
             src = ops[1]
             if mn == "mov" and src.type == X.X86_OP_REG and src.reg == X.X86_REG_ESP:
@@ -2116,6 +2130,14 @@ def analyse(root: int, ranges):
             "vslots": {a: k for a in icalls if insns[a].mnemonic == "call"
                        and (k := own_vslot(insns, prv, labels, a,
                                            lambda p: p in state and not state[p][0] & ECX)) is not None},
+            # (and each one on a direct call's result, (callee, slot): main's result_targets)
+            "rslots": {a: r for a in icalls if insns[a].mnemonic == "call"
+                       and (r := own_vslot(insns, prv, labels, a, None, True)) is not None},
+            # (the next call through a pointer in a straight line from each, where it takes every
+            # word pushed for it: main hands it the words a site is found to take fewer of)
+            "icall_next": {a: g[0] for a in icalls if insns[a].mnemonic == "call"
+                           and (g := next_icall(insns, prv, nxt, labels, a)) is not None
+                           and icalls.get(g[0]) is not None and icalls[g[0]][1] * 4 >= g[1]},
             "results": {t: k for t, k in results.items() if not isinstance(t, tuple)},
             "handoffs": handoffs, "ecx_handoffs": ecx_hands,
             # (an indirect call's x87 result, for its call-site signature: `(float)extraout_ST0`
@@ -2144,6 +2166,15 @@ def analyse(root: int, ranges):
             # 0x1cc]; ...; call [esi + 0x1d0]`, its object beside its function, main's)
             "field_icalls": {a: d for a in state if insns[a].mnemonic == "call" and _target(insns[a]) is None
                              and (d := field_call_disp(insns, prv, a)) is not None},
+            # (and every call through a function table in the image's data, by index: main's)
+            "table_icalls": {a: g for a in state if insns[a].mnemonic == "call" and _target(insns[a]) is None
+                             and (g := table_call_base(insns, prv, a)) is not None},
+            # (each call through a pointer with ecx written before it only by direct calls, the ones
+            # before it in the function: main's, where every such callee leaves ecx as it was)
+            "icall_ecx_calls": icall_ecx_calls(insns, state, icalls),
+            # (those of them with the entry's ecx still there: it passes on what it was given)
+            "table_icalls_own_ecx": [a for a in state if insns[a].mnemonic == "call" and _target(insns[a]) is None
+                                     and not state[a][0] & ECX and table_call_base(insns, prv, a) is not None],
             # (its first x87 instruction from the entry, in address order, reads the stack rather
             # than loading: it takes st0, __ftol2's `fstp`/`fistp`, whatever inputs makes of it)
             "st0_entry": st0_at_entry(insns, root),
@@ -3099,6 +3130,97 @@ def image_member_ptrs(b: Binary, funcs: set[int]) -> set[int]:
     return out
 
 
+def icall_ecx_calls(insns, state, icalls) -> dict[int, list[int]]:
+    """site -> the direct calls' targets before it, for each call through a pointer the analysis
+    has ecx written at where every instruction before it (by address) that writes ecx is a direct
+    call: ecx is the entry's there if each of those callees keeps it (main, by kills)."""
+    writers = sorted(a for a, i in insns.items() if X.X86_REG_ECX in regs_access(i)[1]
+                     or (i.mnemonic == "call"))
+    out: dict[int, list[int]] = {}
+    for a in icalls:
+        if a not in state or insns[a].mnemonic != "call" or not state[a][0] & ECX:
+            continue
+        ts = []
+        for p in writers:
+            if p >= a:
+                break
+            i = insns[p]
+            t = _target(i) if i.mnemonic == "call" else None
+            if t is None:
+                ts = None
+                break
+            ts.append(t)
+        if ts:
+            out[a] = ts
+    return out
+
+
+def table_call_base(insns, prv, a) -> int | None:
+    """`call [i * 4 + G]`, or `call r` of `mov r, [i * 4 + G]`, through a function table in the
+    image's data (no base register, the index scaled 4): the table's address G, else None."""
+    op = insns[a].operands[0] if insns[a].operands else None
+    if op is None:
+        return None
+    mem = None
+    if op.type == X.X86_OP_MEM:
+        mem = op.mem
+    elif op.type == X.X86_OP_REG:
+        p = prv.get(a)
+        for _ in range(40):
+            if p is None or p not in insns or insns[p].mnemonic in ("call", "jmp", "ret"):
+                return None
+            ins = insns[p]
+            if op.reg in regs_access(ins)[1]:
+                ops = ins.operands
+                if ins.mnemonic == "mov" and len(ops) == 2 and ops[1].type == X.X86_OP_MEM:
+                    mem = ops[1].mem
+                break
+            p = prv.get(p)
+    if mem is None or mem.base or not mem.index or mem.scale != 4 or mem.segment or mem.disp <= 0:
+        return None
+    return mem.disp & 0xFFFFFFFF
+
+
+def image_global_fn_stores(b: Binary, funcs: set[int]) -> dict[int, set[int]]:
+    """global -> the functions the image's code stores there as constants, `mov eax, 0x62df40; mov
+    [0x137fa10], eax; mov [0x137fa14], eax` or `mov dword [G], 0x62df40`, and those its data holds
+    there relocated: a function table's entries, by slot (main's table_icalls)."""
+    md = disassembler()
+    md.detail = True
+    img = bytes(b.image)
+    out: dict[int, set[int]] = {}
+    for k in range(len(img) - 10):
+        if 0xB8 <= img[k] <= 0xBF and int.from_bytes(img[k + 1:k + 5], "little") in funcs:
+            pass
+        elif img[k] == 0xC7 and img[k + 1] == 0x05 and int.from_bytes(img[k + 6:k + 10], "little") in funcs:
+            pass
+        else:
+            continue
+        va = b.base + k
+        if not b.is_code(va):
+            continue
+        regs: dict[int, int] = {}
+        for ins in md.disasm(img[k:k + 64], va):
+            ops = ins.operands
+            if ins.mnemonic in ("ret", "call", "jmp") or ins.mnemonic.startswith("j"):
+                break
+            if ins.mnemonic == "mov" and len(ops) == 2 and ops[0].type == X.X86_OP_REG and ops[1].type == X.X86_OP_IMM:
+                regs[ops[0].reg] = ops[1].imm & 0xFFFFFFFF
+            elif ins.mnemonic == "mov" and len(ops) == 2 and ops[0].type == X.X86_OP_MEM and not ops[0].mem.base \
+                    and not ops[0].mem.index and ops[0].size == 4:
+                v = regs.get(ops[1].reg) if ops[1].type == X.X86_OP_REG else (
+                    ops[1].imm & 0xFFFFFFFF if ops[1].type == X.X86_OP_IMM else None)
+                if v in funcs:
+                    out.setdefault(ops[0].mem.disp & 0xFFFFFFFF, set()).add(v)
+            else:
+                for r in regs_access(Insn(ins))[1]:
+                    regs.pop(r, None)
+    for site in b.relocs():
+        if not b.is_code(site) and b.ptr(site) in funcs:
+            out.setdefault(site, set()).add(b.ptr(site))
+    return out
+
+
 def image_registered(b: Binary, funcs: set[int]) -> dict[int, set[int]]:
     """callee -> the functions pushed as constants to a direct call of it, `push 0x75e100; push
     0x17; mov ecx, esi; call 0x5919f0`: one registration call's callbacks, each kind the same."""
@@ -3934,7 +4056,7 @@ def object_in_ecx(insns, prv, a) -> bool:
     return True
 
 
-def own_vslot(insns, prv, labels, a, ecx_unwritten):
+def own_vslot(insns, prv, labels, a, ecx_unwritten, result_of=False):
     """The slot K of a virtual call on the method's own object, else None: `call [vt + K]` (or
     `call r` of `mov r, [vt + K]`), vt loaded from `[obj]` -- straight back, through a spill to an
     ebp local -- and obj the method's `this`: ecx at that load with nothing writing it since the
@@ -3944,7 +4066,13 @@ def own_vslot(insns, prv, labels, a, ecx_unwritten):
     `push ecx (&loc); call [vt + 0xfc]; push eax; call [vt + 0x6c]` -- vf27(this, vf63(), &loc),
     vf63 a `lea eax, [ecx + 0x40]; ret` -- gave the getter &loc and vf27 one word: its second
     parameter garbage, its switch on it took the default and stored through a null this+0x30, the
-    zone loading screen's AV, TriggerBoxLayoutInstance::vf4 0x5deaf0 2026-10-31."""
+    zone loading screen's AV, TriggerBoxLayoutInstance::vf4 0x5deaf0 2026-10-31.
+    With result_of, (D, K) where obj is instead what a direct call to D returned, in eax (through
+    register copies): the same function's result is one static type at every site, so a slot a
+    reference run saw at one site sizes the others (main's result_targets). FUN_00cf5f80's three
+    `call 0xd2ccd0; ...; push 0; push matrix; mov edx, [eax]; mov ecx, eax; call [edx + 0x124]`,
+    the getter seen at the first alone, took SetOutputMatrix's last two words at the other two,
+    2026-11-01."""
     def back(at, hit, through_calls=False):
         """the nearest instruction before `at`, in a straight line (no label crossed, no jmp or
         ret), for which hit() holds; a call ends it unless through_calls"""
@@ -4012,6 +4140,21 @@ def own_vslot(insns, prv, labels, a, ecx_unwritten):
         obj = o[1].mem.base
         if o[1].mem.disp or obj in (X.X86_REG_ESP, X.X86_REG_EBP):
             return None
+        if result_of:
+            # (a direct call's result, eax, copied to obj at most twice on the way)
+            for _ in range(3):
+                q = def_of(obj, p)
+                if q is None:
+                    return None
+                qi = insns[q]
+                if qi.mnemonic == "call":
+                    t = _target(qi)
+                    return (t, k) if t is not None and _reg_bits(obj) == EAX else None
+                qo = qi.operands
+                if qi.mnemonic != "mov" or len(qo) != 2 or qo[1].type != X.X86_OP_REG:
+                    return None
+                obj, p = qo[1].reg, q
+            return None
         if _reg_bits(obj) == ECX:
             return k if ecx_unwritten(p) else None
         # (a copy of the entry ecx, `mov esi, ecx`, the register's one write in the function but
@@ -4024,6 +4167,59 @@ def own_vslot(insns, prv, labels, a, ecx_unwritten):
             return None
         return k if ecx_unwritten(ws[0]) else None
     return None
+
+
+
+def next_icall(insns, prv, nxt, labels, a):
+    """The next call through a pointer after the one at `a`, in a straight line: nothing between
+    entered by a jump, leaving, popping what was not pushed since, or moving esp but pushes and
+    the `add esp, k` of a direct __cdecl call's own words; a direct call between takes only words
+    pushed since `a`. (Its address, the bytes pushed for it since `a`), else None; analyse keeps
+    it only for a call that takes all of those (one that passes some on, next_call_deficit's, hands
+    on the rest too: `push eax; call [vt + 0x15c]` (pops none) `; push ecx; push eax; call [vt2 +
+    0x14]` (none) `; push eax; call 0xcd7980` (four), the word cd7980's). Words main takes off `a` (a reference run's target
+    or a vtable's popping fewer) are still on the stack there: they are that call's. `push 0;
+    push matrix; mov ecx, obj; call [vt + 0x124]` (a getter, seen to pop none) `; push eax; push
+    ...; push edi; call [ebx + 0x40]` is SetOutputMatrix's six; given four, XAudio2 compared the
+    level matrix through null, FUN_00cf5f80 on a zone's load, 2026-11-01."""
+    p, end, after = nxt.get(a), a + insns[a].size, 0
+    for _ in range(40):
+        if p is None or p != end or p not in insns or p in labels:
+            return None
+        pi = insns[p]
+        m, ops = pi.mnemonic, pi.operands
+        end = p + pi.size
+        if m == "push":
+            after += 4
+        elif m == "pop":
+            if after < 4:
+                return None
+            after -= 4
+        elif m == "call":
+            t = _target(pi)
+            if t is None:
+                if import_slot(insns, prv, p) is not None:
+                    return None
+                return p, after
+            k = later_cleanup(insns, nxt, p, True)
+            take = k[0] if k else _cleanup.get(t, _cdecl_args.get(t))
+            if take is None or take > after:
+                return None
+            after -= take
+            if k:
+                # (on past the cleanup, its words counted with the call)
+                while p != k[1]:
+                    p = nxt.get(p)
+                    if p is None or p in labels:
+                        return None
+                end = p + insns[p].size
+        elif m in ("jmp", "ret", "int3") or m.startswith(("j", "loop", "ret")):
+            return None
+        elif X.X86_REG_ESP in regs_access(pi)[1]:
+            return None
+        p = nxt.get(p)
+    return None
+
 
 
 def icall_shape(insns, prv, nxt, state, a, labels, own_this):
@@ -4569,6 +4765,12 @@ def code_pointers(b: Binary) -> set[int]:
         if b.image[b.off(t)] not in (0x00, 0xCC) and any(
                 a == t for a, _s, _m, _o in md.disasm_lite(bytes(b.image[b.off(lo):b.off(t) + 16]), lo)):
             on_insn.add(t)
+    # (in an image without relocations, nor one its code before runs straight into: its data words
+    # are found by value alone (pebin._stripped_relocs), and a coincidence on an instruction split a
+    # live function there, its tail reading what its head set as unaff_EBX: 72 of a VS2003 game's
+    # 102 such entries, none of its scope-table or vtable words, sands3 2026-11-01)
+    if b.stripped():
+        on_insn = {t for t in on_insn if not b.mid_body(t, md)}
     for insn, t, _site in b._abs_refs(keep=lambda t: b.is_code(t) and b.func_containing(t) is None):
         o = b.off(insn)
         ins = next(md.disasm(bytes(b.image[o:o + 16]), insn, 1), None)
@@ -5551,6 +5753,76 @@ def main() -> None:
                 continue
             methods.update(t for t in all_stored.get(d, ()) if t in local and not inputs.get(t, 0)
                            and cleanup.get(t) == 4 * shape[1])
+    # (and a function table in the image's data called by index at a __thiscall site, `mov ecx,
+    # [ebp - 4]; mov edx, [edi * 4 + 0x137fa10]; push eax; push ebx; call edx`, where some entry
+    # reads `this`: the entries that read no ecx and pop the site's words are methods of it too.
+    # A sub-view renderer 0x62df40, a __stdcall of two beside __thiscall ones, took the call's
+    # `this` for its first argument, and every render worker read through its field, Global::
+    # RenderSubViews 0x63c880 past a zone's loading screen, 2026-11-01. The table runs from its
+    # base to the next one a site indexes, slot by slot while stored)
+    g_stores = image_global_fn_stores(b, set(local))
+    t_bases = sorted({g for v in local.values() for g in v.get("table_icalls", {}).values()})
+
+    def table_entries(g):
+        """the functions of the table at g: slot by slot while stored, up to the next base a site
+        indexes, and while each slot's functions pop what the first slot's do (one signature: the
+        0x137fa50 pair's slots run on into another table's, 0x650340 and kin, no site at its base)"""
+        i = bisect.bisect_right(t_bases, g)
+        nb = t_bases[i] if i < len(t_bases) else None
+        ts, k, pops = set(), g, None
+        while k in g_stores and (nb is None or k < nb) and k - g < 0x400:
+            slot = {t for t in g_stores[k] if t in local}
+            p = {cleanup.get(t) or 0 for t in slot}
+            if pops is None:
+                pops = p
+            elif p != pops:
+                break
+            ts |= slot
+            k += 4
+        return ts
+
+    for v in local.values():
+        for a, g in v.get("table_icalls", {}).items():
+            shape = v.get("icalls", {}).get(a)
+            if shape is None or shape[0] != "__thiscall":
+                continue
+            ts = table_entries(g)
+            if any(inputs.get(t, 0) & ECX for t in ts):
+                methods.update(t for t in ts if not inputs.get(t, 0) and cleanup.get(t) == 4 * shape[1])
+    # (and a __stdcall site through such a table with its function's own ecx still there, where the
+    # entries that read `this` pop the site's words: a __thiscall one passing that ecx on, its
+    # function a method so it has it. 0x62df40, a method by the rule above, tail-calls the next
+    # table, 0x137fa50, `(param_1, param_2)` with its caller's `this` untouched in ecx; as __stdcall
+    # its entry 0x656940, a __thiscall, took param_1 for `this` and read through param_2, the render
+    # workers' AV at the end of a zone's loading screen, 2026-11-01)
+    for f, v in local.items():
+        for a in v.get("table_icalls_own_ecx", ()):
+            shape = v.get("icalls", {}).get(a)
+            g = v.get("table_icalls", {}).get(a)
+            if shape is None or shape[0] != "__stdcall" or g is None:
+                continue
+            this_ts = {t for t in table_entries(g) if inputs.get(t, 0) & ECX}
+            # (a function that cleans its own stack, a method's shape, or one already reading ecx)
+            if not (inputs.get(f, 0) & ECX or f in methods or cleanup.get(f)):
+                continue
+            if this_ts and all(cleanup.get(t) == 4 * shape[1] for t in this_ts):
+                v["icalls"][a] = ("__thiscall", shape[1])
+                if not inputs.get(f, 0) & ECX:
+                    methods.add(f)
+    # (and a virtual call on a method's own object with ecx untouched since the entry but by direct
+    # calls that each keep it, kills: `mov esi, ecx; call 0xbd2390; ...; mov edx, [esi]; mov eax,
+    # [edx + 0xa4]; call eax`, /GL relying on its callee leaving ecx. A __stdcall of none as the
+    # analysis has calls write ecx, the port passed no `this`: HavokAnimationClip::vf41 read through
+    # 0 on a phone at a character's login, FUN_00bd2970, 2026-11-01)
+    for f, v in local.items():
+        if not inputs.get(f, 0) & ECX:
+            continue
+        for a, ts in v.get("icall_ecx_calls", {}).items():
+            shape = v.get("icalls", {}).get(a)
+            if shape is None or shape[0] != "__stdcall" or a not in v.get("vslots", {}):
+                continue
+            if all(t in kills and not kills[t] & ECX for t in ts):
+                v["icalls"][a] = ("__thiscall", shape[1])
     # (and the targets a reference run saw a __thiscall site reach, data/icall_targets.json, the
     # ones that read no ecx and pop the site's words: a delegate built on the stack, `{this,
     # FUN_008fb7a0}` handed to a list by AddonCharaMakeDataImport::vf44, no field store to see)
@@ -6005,14 +6277,28 @@ def main() -> None:
                 vt_holders.setdefault(s, []).append(slots)
     purecalls = {e for e, nm in names.items() if nm in ("__purecall", "_purecall")}
 
+    # (the targets a run saw through each slot of a direct call's result, analyse's rslots: one
+    # static type at every site. FUN_00cf5f80's three `call 0xd2ccd0; ...; call [vt + 0x124]`,
+    # the getter seen at the first alone, 2026-11-01)
+    result_targets: dict[tuple, set[int]] = {}
+    for v in local.values():
+        for a, r in v.get("rslots", {}).items():
+            if a in icall_targets:
+                result_targets.setdefault(r, set()).update(icall_targets[a])
+
     def site_words(f, a, cc):
         n2 = observed_words(a, cc)
         if n2 is not None:
             return n2
         k = local[f].get("vslots", {}).get(a)
-        if k is None:
-            return None
-        ts = {s[k // 4] for s in vt_holders.get(f, ()) if k // 4 < len(s)} - purecalls
+        if k is not None:
+            ts = {s[k // 4] for s in vt_holders.get(f, ()) if k // 4 < len(s)} - purecalls
+            n2 = observed_words(a, cc, ts) if ts else None
+            if n2 is not None:
+                return n2
+        # (a slot on a direct call's result: what a run saw at any site on the same callee's result)
+        r = local[f].get("rslots", {}).get(a)
+        ts = result_targets.get(r) if r is not None else None
         return observed_words(a, cc, ts) if ts else None
 
     # (an observed site that takes more words than were pushed for it takes them from the calls
@@ -6022,7 +6308,7 @@ def main() -> None:
     # getters kept one each, and the decompiler read the frame's saved ebx, a stub, 2026-10-28)
     for f, v in local.items():
         ic = v.get("icalls", {})
-        if not any(a in icall_targets or a in v.get("vslots", {}) for a in ic):
+        if not any(a in icall_targets or a in v.get("vslots", {}) or a in v.get("rslots", {}) for a in ic):
             continue
         sized = {a: n2 for a in ic if (n2 := site_words(f, a, ic[a][0])) is not None}
         order = sorted(ic)
@@ -6033,7 +6319,15 @@ def main() -> None:
             if n2 is None:
                 continue
             if n2 < n:
-                pool += n - n2
+                # (the words it does not take still on the stack, for the next call in a straight
+                # line where nothing sized that one, analyse's icall_next: a getter seen popping
+                # none left SetOutputMatrix its matrix and OperationSet unpassed, XAudio2's memcmp
+                # of null, FUN_00cf5f80 on a zone's load, 2026-11-01)
+                b = v.get("icall_next", {}).get(a)
+                if b in ic and b not in sized and ic[b][0] != "__cdecl":
+                    ic[b] = (ic[b][0], ic[b][1] + n - n2)
+                else:
+                    pool += n - n2
             elif n2 > n:
                 need = n2 - n
                 take = min(pool, need)

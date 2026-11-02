@@ -197,6 +197,20 @@ def main() -> None:
         if nxt in piece_end or d[nxt - s] == 0xCC:
             dead[tgt] += 1
     callsite = {t for t, n in sites.items() if n >= MIN_SITES and dead[t] / n >= MIN_RATIO}
+    # (but not a function that returns by its own body, a ret of its own or a tail jump into one that
+    # does: the pieces counted are Ghidra's, cut after calls its import took for noreturn, so the signal
+    # confirmed Ghidra's guess. POP.EXE's (VS2003) _free 0x728c48, a ret after __SEH_epilog, 88/88
+    # sites "dead", operator delete 0x726cc6 (`jmp _free`) 663/663: 550 functions lost what follows a
+    # free, 218 their return; __fload_withFB 0x72f4d5 there, 0xc5ede5 in a VS2010 client, 2026-11-01)
+    returns = {f for f, (has_ret, _t, _i) in facts.items() if has_ret}
+    grew = True
+    while grew:
+        grew = False
+        for f, (_r, tails, _i) in facts.items():
+            if f not in returns and f not in noret and any(t in returns for t in tails if t != DEAD):
+                returns.add(f)
+                grew = True
+    callsite -= returns
 
     out = write_facts("noreturn", {
         "rule": "structural: no ret in any piece and every tail jump to a noreturn function; "

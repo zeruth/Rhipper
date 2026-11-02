@@ -38,6 +38,15 @@ struct GEN_IMPORT {
 };
 extern const GEN_IMPORT g_genImports[];
 extern const unsigned int g_genImportCount;
+namespace {
+// An import of a library the port cannot load, a 32-bit one with no x64 build (RAD's binkw32.dll):
+// each call answers 0, the failure such an API reports. Null, its first call faulted; BinkOpen's 0 is
+// no movie, POP.EXE's VIDEO_Load returns 0 and its caller skips the movie (sands3 2026-11-01)
+intptr_t MissingLibraryImport(intptr_t, intptr_t, intptr_t, intptr_t, intptr_t, intptr_t, intptr_t, intptr_t,
+                              intptr_t, intptr_t, intptr_t, intptr_t, intptr_t, intptr_t) {
+    return 0;
+}
+}  // namespace
 
 unsigned int gen_tls_array(void);
 // the reference's image base, once mapped (Adapters.cpp's GetModuleHandle(NULL), the PEB's)
@@ -500,6 +509,8 @@ uint32_t RefLowStub(void* fn) {
 
 // a function of a library the runtime bridges, by name (Com32.cpp): 0 for none
 uint32_t Com32Proc(uint32_t module, const char* name);
+// an adapter of the runtime's by its export name, imported or not (Adapters.cpp): null for none
+void* RefRuntimeAdapter(const char* name);
 
 // GetProcAddress: a function the reference resolves at run time goes through the adapter its
 // import would (the CRT's __crtMessageBoxW finds MessageBoxW so, and its old pointer-encoding
@@ -514,6 +525,12 @@ extern "C" unsigned int gen_imp_GetProcAddress(uint32_t module, uint32_t name) {
                 return static_cast<uint32_t>(reinterpret_cast<uintptr_t>(g_genImports[k].adapter));
             }
         }
+        // (one the reference does not import is still the runtime's where it adapts it: VS2003's
+        // __crtInitCritSecAndSpinCount resolves InitializeCriticalSectionAndSpinCount so, POP.EXE
+        // importing only InitializeCriticalSection; x64's wrote its 40-byte section, DebugInfo -1,
+        // over the reference's 24-byte one, and EnterCriticalSection took 0xffffffff for the port's
+        // and wrote 0x100000007, sands3 2026-11-01)
+        if (void* own = RefRuntimeAdapter(n)) return static_cast<uint32_t>(reinterpret_cast<uintptr_t>(own));
     }
     FARPROC fn = GetProcAddress(reinterpret_cast<HMODULE>(static_cast<uintptr_t>(module)),
                                 reinterpret_cast<LPCSTR>(static_cast<uintptr_t>(name)));
@@ -1152,12 +1169,14 @@ bool RefMapImage(const wchar_t* path) {
         }
         HMODULE dll = LoadLibraryA(im.dll);
         FARPROC fn = dll ? GetProcAddress(dll, im.name) : nullptr;
-        *im.real = reinterpret_cast<gen_real_fn>(fn);
+        *im.real = fn ? reinterpret_cast<gen_real_fn>(fn) : dll ? nullptr : MissingLibraryImport;
         if (fn) {
             resolved++;
         } else {
             missing++;
-            fprintf(stderr, "%s: import %s!%s has no x64 export (needs an adapter of its own)\n", RHIPPER_NAME, im.dll, im.name);
+            fprintf(stderr, dll ? "%s: import %s!%s has no x64 export (needs an adapter of its own)\n"
+                                : "%s: import %s!%s: the library does not load in x64; its calls answer 0\n",
+                    RHIPPER_NAME, im.dll, im.name);
         }
     }
     GuardHeapStart();

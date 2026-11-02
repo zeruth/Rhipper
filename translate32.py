@@ -160,7 +160,8 @@ def header_names() -> set[str]:
         names = set(re.findall(r"#define\s+([A-Za-z_]\w*)", text))
         names |= set(re.findall(r"\b([A-Za-z_]\w*)\s*\(", text))      # functions declared or defined
         names |= set(re.findall(r"\b([A-Za-z_]\w*)\s*;", text))        # typedef names, variables
-        names |= set(re.findall(r"\bGEN_VLANES\(\s*([A-Za-z_]\w*)", text))  # (the vector lane ops)
+        # (the vector lane ops, and MMX's and 3DNow!'s, the helpers a macro makes)
+        names |= set(re.findall(r"(?<!define )\bGEN_(?:VLANES|MM_W|3DN_F|3DN_CMP)\(\s*([A-Za-z_]\w*)", text))
         _header_names = names | HEADER_NAMES
     return _header_names
 # where Ghidra maps the x86 fs segment (the TEB) of a 32-bit Windows program
@@ -437,6 +438,15 @@ def v16_forms(c: str) -> str:
     a `gen_v16 *` (a pointer to the 16-byte array, stepping 16 and indexing its bytes), and a
     value stored into one, `*p = (undefined1 [16])0x0;`, GEN_V16_SET. __VEC_memzero, the CRT
     memset's path for large zero fills, is written so (2026-10-23)."""
+    # (a unary MMX or 3DNow! op's first operand, the destination as it was, which the op ignores
+    # (ia.sinc's `mmxreg = op(mmxreg, m64)`): a lost register there is no input, Ghidra32.h's helper
+    # takes 0. POP.EXE's 3DNow! math library, sands3 2026-11-01)
+    c = re.sub(r"\b(FloatingReciprocalAprox|PackedFloatingReciprocalSQRAprox|PackedIntToFloatingDwordConv|"
+               r"PackedFloatingToIntDwordConv|PackedIntToFloatingWord|PackedFloatingToIntWord|PackedSwapDWords)"
+               r"\(\s*in_MM\d+\s*,", r"\1(0,", c)
+    # (and a port write, `out(port, v);`, Ghidra32.h's gen_port_out: a macro named `out` would take
+    # every other `out`, std::codecvt's out() among them)
+    c = re.sub(r"(?m)^([ \t]*)out\((.*)\);", r"\1gen_port_out(\2);", c)
     # (and a pointer to one stored, `*(undefined1 (**) [16])((int)this + 0x10)`: the stored pointer
     # 4 bytes, as the reference stores one. Read as a host pointer, 8 bytes, the memset of a VS2010
     # client's 0xb16250 wrote through its neighbour's bits above 4 GB, 2026-10-27)
@@ -509,7 +519,10 @@ def v16_forms(c: str) -> str:
 
 SSE_OPS = {"minps", "maxps", "divps", "rsqrtps", "rcpps", "sqrtps", "packssdw", "psllw", "pmulld", "vpsllvd_avx2",
            # (MSVC 14.51's float to u64, AVX-512VL behind __isa_available, rhtest msvc-14.51-x86 fpenv)
-           "vcvttps2qq_avx512vl"}
+           "vcvttps2qq_avx512vl",
+           # (the scalar approximations, the destination's upper lanes kept: POP.EXE's math, 12 stubs,
+           # sands3 2026-11-01)
+           "rsqrtss", "rcpss"}
 SSE_BITS = {"|": "or", "&": "and", "^": "xor"}
 # (the ones on integer lanes)
 SSE_INT_OPS = {"packssdw", "psllw", "pmulld", "vpsllvd_avx2", "vcvttps2qq_avx512vl"}
@@ -892,7 +905,12 @@ def has_frame(body: str) -> bool:
     """Whether frame_locals lays the function's frame out: its code takes a local's address or
     uses a local array."""
     # (the unary `&`: `uVar1 & local_8` takes no address)
-    return bool(any(not binary_amp(body, m.start()) for m in re.finditer(r"(?<!&)&\s*" + FRAME_LOCAL + r"\b", body)) or
+    # (and one parenthesized, `&(local_24)`: the member access lvalue() writes for Ghidra's
+    # `local_24.dwOemId`, a SYSTEM_INFO split into nine locals. Missed, they stayed C locals,
+    # GetSystemInfo's 36 bytes ran over the x64 frame's saved rbx/rbp and the fields read back as
+    # the 0 they were set to: sands3 FUN_0065a260, its PageManager stored as 0x10000, 2026-11-01)
+    return bool(any(not binary_amp(body, m.start())
+                    for m in re.finditer(r"(?<!&)&\s*(?:\(\s*)?" + FRAME_LOCAL + r"\b", body)) or
                 re.search(r"(?m)^[ \t]+[A-Za-z_][\w \t*]*?\b" + FRAME_LOCAL + r"[ \t]*\[", body))
 
 
@@ -2509,9 +2527,19 @@ def context_capture(c: str) -> set[str]:
     # record of the frame unwinding passes through, for a debugger, the same thing)
     if not CAPTURE_SEG.search(c):
         names = set(re.findall(r"\bunaff_(?:EBP|retaddr)\b", c))
-        return {n for n in names if all(
+        out = {n for n in names if all(
             re.fullmatch(rf"\s*(?:[A-Za-z_][\w ]*?[\s*]+{n};|(?:\*\s*\([^()]*\)\s*&?)?DAT_\w+\s*=\s*{n};)\s*", l)
             for l in c.split("\n") if re.search(rf"\b{n}\b", l))}
+        # (and the flags word a pushfd made, each flag only a bit of it, `(uint)(in_ID & 1) *
+        # 0x200000`: the CPUID probe's, which toggles ID through popfd and compares. Each 0, the
+        # toggled bit still differs, and the probe finds CPUID, as every x64 host has it: VS2003's
+        # ___sse2_available_init 0x72e54b, a stub the entry called, sands3 2026-11-01)
+        for n in set(CAPTURE_FLAG.findall(c)):
+            bit = rf"(?:\(\s*uint\s*\)\s*)?\(\s*{n}\s*&\s*1\s*\)\s*\*\s*(?:0x[0-9a-fA-F]+|\d+)"
+            if all(re.fullmatch(rf"\s*[A-Za-z_][\w ]*?[\s*]+{n};\s*", l) or not re.search(rf"\b{n}\b", re.sub(bit, "", l))
+                   for l in c.split("\n") if re.search(rf"\b{n}\b", l)):
+                out.add(n)
+        return out
     names = set(CAPTURE_SEG.findall(c)) | set(CAPTURE_FLAG.findall(c))
     # (and the general registers the CONTEXT records beside them, protos32 giving such a function
     # no register inputs: unaff_ESI and its kin)
@@ -2794,6 +2822,10 @@ def x87_pow(c: str) -> str:
     c = re.sub(r"(?m)^([ \t]*\w+ = from_bcd\([^;]*\))[ \t]*\r?\n[ \t]*;", r"\1;", c)
     c = re.sub(r"(?m)^([ \t]*\w+ = from_bcd\()([^;]*?)\);",
                lambda m: m.group(1) + " ".join(m.group(2).split()) + ");", c)
+    # (a double's bits loaded into an 8-byte integer and pushed as itself, `uVar5 = _DAT_007a9170;
+    # uVar5 = from_bcd(uVar5); ... fpatan(uVar5,4)`: the double those bits are. POP.EXE's 0x449aa0,
+    # 0x4382b0, sands3 2026-11-01)
+    c = re.sub(r"(?m)^([ \t]*)(\w+) = from_bcd\(\s*\2\s*\);", r"\1\2 = from_bcd(gen_bits2d(\2));", c)
     for var in set(re.findall(r"(?m)^[ \t]*(\w+) = from_bcd\(", c)):
         lines = c.split("\n")
         cur, depth, at_depth, ok = None, 0, 0, True
@@ -2802,18 +2834,30 @@ def x87_pow(c: str) -> str:
             m = re.fullmatch(r"[ \t]*" + re.escape(var) + r" = from_bcd\((.*)\);[ \t]*", line)
             if m:
                 cur, at_depth = m.group(1), depth
+                # (a double's two words, `from_bcd(CONCAT44(hi, lo))`: its bits, not the integer's
+                # value. VS2010's cos/sin/tan SSE2 branches and their x87 fallbacks, 2026-11-01)
+                if re.match(r"\s*CONCAT44\(", cur):
+                    cur = f"gen_bits2d({cur.strip()})"
                 depth += line.count("{") - line.count("}")
                 continue
             if re.fullmatch(r"[ \t]*(?:unkbyte10|undefined8|ulonglong|longlong|double|float10)\s+" + re.escape(var)
                             + r"\s*;[ \t]*", line):
-                continue
+                # (kept where the variable is read as itself too, its bits above)
+                if not re.search(r"\bfrom_bcd\(gen_bits2d\(" + re.escape(var) + r"\)\)", c):
+                    continue
             if re.search(r"\b" + re.escape(var) + r"\b", line):
                 if cur is None:
-                    ok = False
-                    break
+                    # (a use before any from_bcd, no math of it: an ordinary use)
+                    if re.search(r"\b(?:fscale|fpatan)\(\s*" + re.escape(var) + r"\s*,", line):
+                        ok = False
+                        break
+                    out.append(line)
+                    depth += line.count("{") - line.count("}")
+                    continue
                 line = re.sub(r"\bfscale\(\s*" + re.escape(var) + r"\s*,", f"pow({cur},", line)
                 line = re.sub(r"\bfpatan\(\s*" + re.escape(var) + r"\s*,", f"GEN_X87MATH({cur},", line)
-                if re.search(r"\b" + re.escape(var) + r"\b", line):
+                # (cur's own text aside: `pow(gen_bits2d(uVar5),` names the variable it was)
+                if re.search(r"\b" + re.escape(var) + r"\b", line.replace(cur, "")):
                     ok = False
                     break
             depth += line.count("{") - line.count("}")
@@ -3183,6 +3227,11 @@ def gt_size(t: str) -> int | None:
     return next((n for n, names in GT_SIZES.items() if t in names), None)
 
 
+# the integer types the decompiler gives a global (corpus "gt"): one it gave only these in a function
+# is an integer there, whatever loads elsewhere read it as (global_lvalue)
+INT_GT = re.compile(r"undefined[1248]?|u?int|u?long|u?longlong|u?short|byte|char|uchar|sbyte|bool|word|dword|qword")
+
+
 def load_refdata() -> tuple[dict[int, tuple[int, str]], dict[str, int]]:
     by_addr, by_name = {}, {}
     with open(REFDATA, encoding="utf-8") as f:
@@ -3232,6 +3281,7 @@ SETJMP_NAME = re.compile(r"(?:FID_conflict:)?_*(setjmp3|setjmp|longjmp|longjmp_i
 # C function's. 8 stubs of a VS2010 client, unaff_EBX and unaff_retaddr, none called, 2026-10-31)
 FOLDED_NAME = re.compile(r"(?:FID_conflict:)?_*(?:setjmp3|setjmp|longjmp|longjmp_internal|"
                          r"(?:EH_prolog3|EH_epilog3|SEH_prolog4|SEH_epilog4)(?:_GS|_catch|_catch_GS)?|"
+                         r"SEH_prolog|SEH_epilog|EH_prolog|"   # (VS2003's, sands3 2026-11-01)
                          r"alloca_probe(?:_8|_16)?|chkstk)")
 
 
@@ -4110,10 +4160,18 @@ class Translator32:
 
     def import_of(self, name: str) -> str | None:
         """The import a name in the body calls: its own, or the one Ghidra printed without its
-        C underscore (ucrt's `_initterm_e` as `initterm_e`, `_crt_atexit` as `crt_atexit`)."""
+        C underscore (ucrt's `_initterm_e` as `initterm_e`, `_crt_atexit` as `crt_atexit`), or a
+        decorated __stdcall one with its @ as Ghidra prints it (`_BinkOpen@8` as `_BinkOpen_8`)."""
         if name in self.imports:
             return name
-        return "_" + name if "_" + name in self.imports else None
+        if "_" + name in self.imports:
+            return "_" + name
+        # (a decorated __stdcall import, `_BinkOpen@8`, as Ghidra prints it: `_BinkOpen_8`, its @ no C
+        # name holds; POP.EXE's binkw32.dll, 4 stubs, sands3 2026-11-01)
+        m = re.fullmatch(r"(.+)_(\d+)", name)
+        if m and f"{m.group(1)}@{m.group(2)}" in self.imports:
+            return f"{m.group(1)}@{m.group(2)}"
+        return None
 
     def unread_result(self, a: int, c: str) -> set[str]:
         """The eax a void callee left that a function no caller reads a result of (protos32 gave it
@@ -7132,12 +7190,23 @@ class Translator32:
                 return f"(({et} *)(uintptr_t){at})"
             ct = self.c_data_type(t) or {1: "undefined1", 2: "undefined2", 8: "undefined8"}.get(n, "undefined4")
             return f"(*({ct} *)(uintptr_t){at})"
+        # (a global the decompiler typed float10 in this function, `fld tbyte [0x801e3a]`: its 10 bytes
+        # (gen_ld80, below), not the data export's undefined4 converted by value, POP.EXE 0x7334cc/0x72f466)
+        gt_seen = {s.strip() for s in getattr(self, "cur_gt", {}).get(f"{addr:x}", ())}
+        if gt_seen and gt_seen <= {"float10", "longdouble"}:
+            return f"(*(float10 *)&REFG(undefined, 0x{addr:x}))"
         m = re.fullmatch(r"(.+?)\s*\[(\d+)\]", t)
         # (a scalar the instructions load as a float is one, whatever the export says)
         # (Not one narrower than the data, though: a vector's two floats a `movq` copies whole, the
         # decompiler's `*(undefined8 *)(p + 0x20) = DAT_01138c80`, as a float stored the first and
         # zeroed the second, hkxScene's identity matrix with [1][1] 0 (0xde6760), 2026-10-31)
-        if addr in self.floats and not m and {"float": 4, "double": 8}.get(self.floats[addr], n) >= n:
+        # (nor where the decompiler gave it only integer types in this function (gt): every use there an
+        # integer's. As a float `DAT_00b1ab68 = 0x4322f983` stored 1.13e9f (POP.EXE 0x79bf40), a word
+        # copied `= *(undefined4 *)(p + 0xb8)` (0x6b92f0; a VS2010 client's movss copies, 0x62a390) was
+        # converted, a lexer's int `DAT_009ec75c * 10 + c - 0x30` (0x43da90) done in floats, a pointer
+        # `DAT_00a7c44c + 0x1c` (0x45aa50) built through one, 2026-11-01)
+        int_only = bool(gt_seen) and all(INT_GT.fullmatch(s) for s in gt_seen) and not re.search(r"float|double", t)
+        if addr in self.floats and not m and not int_only and {"float": 4, "double": 8}.get(self.floats[addr], n) >= n:
             return f"REFG({self.floats[addr]}, 0x{addr:x})"
         if m:
             # (an array the instructions read as floats has float elements)

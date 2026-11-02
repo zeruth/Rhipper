@@ -208,11 +208,65 @@ public class ApplyFacts extends GhidraScript {
         println(String.format("ApplyFacts: x86 tail jumps marked calls that return %d (%d already)", marked, kept));
     }
 
+    // a function Ghidra made a thunk whose code does more than jump (`mov dl, 1; jmp
+    // FUN_14216a080`): decompiled as the target, its callers passed the target's second
+    // parameter themselves and read `in_DL` (FUN_141ef4090, 2026-10-16). A function of its own.
+    // (x86's too: POP.EXE's 0x409940, `mov ecx, [0x80bbd8]; add ecx, 0xc; jmp 0x712630`, its 13
+    // callers' `thunk_FUN_00712630` no function the corpus has and their `this` the caller's ecx;
+    // a VS2010 client's 0xbd9630 so, pointed to from data with no W_ of its own, 2026-11-01)
+    private void unthunkNonJumps() {
+        int unthunked = 0;
+        for (Function f : currentProgram.getFunctionManager().getFunctions(true)) {
+            if (!f.isThunk() || f.isExternal()) continue;
+            Instruction first = getInstructionAt(f.getEntryPoint());
+            if (first == null || first.getFlowType().isJump()) continue;
+            f.setThunkedFunction(null);
+            unthunked++;
+        }
+        println("ApplyFacts: thunks that do more than jump made functions " + unthunked);
+    }
+
+    // a direct call from a function to code no function starts at or holds: a function there. As
+    // none, the caller's `func_0x005794d0()` has no prototype and no translation, a stub (POP.EXE's
+    // 0x5794d0, 0x5b12d0, 0x4da1c0, 0x498b90, sands3 2026-11-01). A target inside another's body,
+    // or in the middle of an instruction, is left alone, as applyLeaves leaves it (anti-tamper
+    // calls into mid-code); their prototypes come on protos32.py's next run
+    private void callTargetFunctions32() throws Exception {
+        Memory mem = currentProgram.getMemory();
+        java.util.Set<Address> want = new java.util.TreeSet<>();
+        InstructionIterator it = currentProgram.getListing().getInstructions(true);
+        while (it.hasNext()) {
+            Instruction insn = it.next();
+            if (!insn.getFlowType().isCall() || insn.getFlowType().isComputed()) continue;
+            Address[] flows = insn.getFlows();
+            if (flows.length != 1 || getFunctionContaining(insn.getAddress()) == null) continue;
+            Address t = flows[0];
+            ghidra.program.model.mem.MemoryBlock b = mem.getBlock(t);
+            if (b == null || !b.isExecute() || b.isExternalBlock()) continue;
+            if (getFunctionAt(t) == null && getFunctionContaining(t) == null) want.add(t);
+        }
+        int made = 0;
+        for (Address t : want) {
+            if (getFunctionAt(t) != null || getFunctionContaining(t) != null) continue;
+            if (getInstructionAt(t) == null) {
+                if (getInstructionContaining(t) != null || getDataContaining(t) != null) continue;
+                disassemble(t);
+            }
+            if (getInstructionAt(t) == null) continue;
+            if (new CreateFunctionCmd(t).applyTo(currentProgram, monitor)) made++;
+        }
+        created += made;
+        println("ApplyFacts: call targets outside every function made functions " + made + " of " + want.size());
+    }
+
     private void applyProtos32(JsonObject root) throws Exception {
         // (the code Ghidra's analysis never reached, made functions first: their prototypes come
         // on protos32.py's next run, over the extents `ghidra.sh functions` then exports)
         applyLeaves(root);
         cleanFunctions32();
+        callTargetFunctions32();
+        // (before the tail jumps, which pass thunks by: the un-thunked one's jmp is its tail call)
+        unthunkNonJumps();
         tailJumps32();
         int set = 0, keptSig = 0, missing = 0, failed = 0, custom = 0, keeps = 0;
         DataType u4 = Undefined.getUndefinedDataType(4);
@@ -520,6 +574,13 @@ public class ApplyFacts extends GhidraScript {
         return null;
     }
 
+    // a helper identified by its bytes, named as the C runtime's where function ID left it unnamed
+    // (protos32's FRAME_HELPERS, translate32's FOLDED_NAME and is_library go by the name)
+    private void vs2003Name(Function f, String name) {
+        if (!f.getName().startsWith("FUN_")) return;
+        try { f.setName(name, SourceType.ANALYSIS); } catch (Exception e) { /* (a duplicate) */ }
+    }
+
     private void applyLongHelpers32() throws Exception {
         // (a fixup runs after the call pushed its return address, as x86win.cspec's alloca_probe
         // and SEH_prolog4 read theirs: the arguments from ESP + 4, and the helper's `ret 16` is
@@ -649,6 +710,7 @@ public class ApplyFacts extends GhidraScript {
         // signaling NaN or infinity plus one. As calls, the caller read ZF and st0 from nowhere,
         // `in_ZF`, `extraout_ST0`, and the helpers' own translations returned eax alone, rhtest
         // stl /MT. By their exact bytes, a function ID name or none)
+        Function vs2003Epilog = null;
         for (Function f : currentProgram.getFunctionManager().getFunctions(true)) {
             byte[] b = new byte[67];
             try {
@@ -671,6 +733,42 @@ public class ApplyFacts extends GhidraScript {
                         + "EAX = 0;" + pop0);
                 helperAt.put(f.getEntryPoint(), "x87_nan_add");
             }
+            // (and VS2003's frame helpers by their bytes, a toolchain function ID has no signatures for:
+            // __EH_prolog (`push -1; push eax; push fs:[0]; ...; lea ebp, [esp + 0xc]; push eax; ret`),
+            // x86win.cspec's own EH_prolog. Unnamed, its callers read the frame it builds through ebp
+            // as a parameter, `in_ebp`: std::_Xran's throw wrote through its caller's ebp, scored 1.0,
+            // sands3 0x726114 0x726154 0x751858, 2026-11-01. And __SEH_prolog / __SEH_epilog,
+            // _except_handler3's frame with no cookie, built and unlinked as SEH_prolog4's above)
+            else if (bytesMatch(b, "6aff5064a100000000508b44240c64892500000000896c240c8d6c240c50c3")) {
+                vs2003Name(f, "__EH_prolog");
+                if (!"EH_prolog".equals(f.getCallFixup())) f.setCallFixup("EH_prolog");
+            } else if (bytesMatch(b, "68????????64a100000000508b442410896c24108d6c24102be05356578b45f8"
+                    + "8965e8508b45fcc745fcffffffff8945f88d45f064a300000000c3")) {
+                long h = (b[1] & 0xffL) | (b[2] & 0xffL) << 8 | (b[3] & 0xffL) << 16 | (b[4] & 0xffL) << 24;
+                // (run after the call pushed its return address: the scope table at ESP + 4, the locals'
+                // size at ESP + 8, whose slot becomes the frame's ebp; the try level -1)
+                bodies.put("SEH_prolog", "frame:4 = ESP + 8; size:4 = *:4 frame; *:4 frame = EBP; EBP = frame;\n"
+                        + "p:4 = EBP - 4; scope:4 = *:4 p; *:4 p = 0xffffffff:4; p = EBP - 8; *:4 p = scope;\n"
+                        + "p = EBP - 12; *:4 p = 0x" + Long.toHexString(h) + ":4;\n"
+                        + "fsp:4 = FS_OFFSET; old:4 = *:4 fsp; p = EBP - 16; *:4 p = old;\n"
+                        + "ESP = EBP - 16; ESP = ESP - size;\n"
+                        + "ESP = ESP - 4; *:4 ESP = EBX; ESP = ESP - 4; *:4 ESP = ESI; ESP = ESP - 4; *:4 ESP = EDI;\n"
+                        + "p = EBP - 24; *:4 p = ESP; EAX = EBP - 16;\n"
+                        + "*:4 fsp = EBP - 16;");
+                vs2003Name(f, "__SEH_prolog");
+                helperAt.put(f.getEntryPoint(), "SEH_prolog");
+            } else if (bytesMatch(b, "8b4df064890d00000000595f5e5bc951c3")) {
+                vs2003Epilog = f;
+            }
+        }
+        // (its epilog only with the prolog's, as SEH_epilog4's: run after the call pushed its return
+        // address, the prolog's saves of edi, esi and ebx above it)
+        if (vs2003Epilog != null && bodies.containsKey("SEH_prolog")) {
+            bodies.put("SEH_epilog", "p:4 = EBP - 16; prev:4 = *:4 p; fsp:4 = FS_OFFSET; *:4 fsp = prev;\n"
+                    + "p = ESP + 4; EDI = *:4 p; p = ESP + 8; ESI = *:4 p; p = ESP + 12; EBX = *:4 p;\n"
+                    + "ESP = EBP; EBP = *:4 ESP; ESP = ESP + 4;");
+            vs2003Name(vs2003Epilog, "__SEH_epilog");
+            helperAt.put(vs2003Epilog.getEntryPoint(), "SEH_epilog");
         }
         Class<?> se = Function.class.getClassLoader().loadClass("ghidra.program.database.SpecExtension");
         Object ext = se.getConstructor(ghidra.program.model.listing.Program.class).newInstance(currentProgram);
@@ -1921,6 +2019,30 @@ public class ApplyFacts extends GhidraScript {
                 if (caller != null) refit.add(caller);
             }
         }
+        // (and each call Ghidra made call-and-return for a callee then noreturn, its instruction's
+        // CALL_RETURN override, that the callee returns now: the override is the instruction's,
+        // and clearing the function's flag left the call a terminator. A VS2010 CRT's _cos entry,
+        // `call __fload_withFB` then falling into _cos_default, ended at the call and returned its
+        // argument: _cos_pentium4's fallback for 0, cos(0) = 0, a sound's falloff a NaN and its
+        // stack table read out of range on a zone's login, 2026-11-01. Rhipper's own CALL_RETURN
+        // overrides are all on jumps, tail calls)
+        int callsGivenBack = 0;
+        if (currentProgram.getDefaultPointerSize() == 4) {
+            InstructionIterator it = currentProgram.getListing().getInstructions(true);
+            while (it.hasNext()) {
+                Instruction in = it.next();
+                if (in.getFlowOverride() != FlowOverride.CALL_RETURN || in.getFlowType().isJump()
+                        || !in.getMnemonicString().toUpperCase().startsWith("CALL")) continue;
+                Address[] flows = in.getFlows();
+                if (flows.length != 1) continue;
+                Function callee = getFunctionAt(flows[0]);
+                if (callee == null || callee.hasNoReturn() || listed.contains(flows[0])) continue;
+                in.setFlowOverride(FlowOverride.NONE);
+                callsGivenBack++;
+                Function caller = getFunctionContaining(in.getAddress());
+                if (caller != null) refit.add(caller);
+            }
+        }
         // (and any body that ends at a call to a function that returns, the code after it no
         // function's: cut by a flag cleared in an earlier session, before callers were refit)
         if (currentProgram.getDefaultPointerSize() == 4) {
@@ -1945,7 +2067,7 @@ public class ApplyFacts extends GhidraScript {
         }
         for (Function caller : refit) CreateFunctionCmd.fixupFunctionBody(currentProgram, caller, monitor);
         println("ApplyFacts: marked " + noreturnSet + " functions noreturn (" + cleared + " that return unmarked, "
-                + refit.size() + " callers' bodies refit)");
+                + refit.size() + " callers' bodies refit, " + callsGivenBack + " calls no longer call-and-return)");
     }
 
     // varargs.json: variadic functions and their fixed parameter count (tools/varargs.py).
@@ -2245,18 +2367,7 @@ public class ApplyFacts extends GhidraScript {
             }
         }
         println("ApplyFacts: functions no longer inlined into their callers " + inlined);
-        // a function Ghidra made a thunk whose code does more than jump (`mov dl, 1; jmp
-        // FUN_14216a080`): decompiled as the target, its callers passed the target's second
-        // parameter themselves and read `in_DL` (FUN_141ef4090, 2026-10-16). A function of its own
-        int unthunked = 0;
-        for (Function f : currentProgram.getFunctionManager().getFunctions(true)) {
-            if (!f.isThunk() || f.isExternal()) continue;
-            Instruction first = getInstructionAt(f.getEntryPoint());
-            if (first == null || first.getFlowType().isJump()) continue;
-            f.setThunkedFunction(null);
-            unthunked++;
-        }
-        println("ApplyFacts: thunks that do more than jump made functions " + unthunked);
+        unthunkNonJumps();
         // functions that do nothing (spills and a ret: the release build's log calls) were given
         // the cspec's security_check_cookie fixup on 2026-10-16, which is no code: but no code
         // also leaves the call's return-address push in place, so the stack drifted 8 bytes a call

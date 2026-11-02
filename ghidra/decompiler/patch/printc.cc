@@ -15,6 +15,8 @@
  */
 #include "printc.hh"
 #include "funcdata.hh"
+#include <iomanip>
+#include <sstream>
 
 namespace ghidra {
 
@@ -1518,7 +1520,20 @@ void PrintC::push_float(uintb val,int4 sz,tagtype tag,const Varnode *vn,const Pc
 	token = "NAN";
     }
     else {
-      if ((mods & force_scinote)!=0) {
+      if (sz == 4) {
+	// (a 4-byte float as the exact decimal of its value, 17 digits: C reads a literal as a
+	// double, and the float's shortest decimal, `1.4013e-45` for the bits 1, is another
+	// number there. A float compared with it, promoted, never matched: StreamingThreadWin::
+	// Update's `== 1.4013e-45` / `== 2.8026e-45` for a DirectShow state 1 / 2 in a float-typed
+	// slot, the movie's Run called every frame and its subtitles racing, 2026-11-01. And 0.1f
+	// as `0.1` in double arithmetic was the double 0.1, not the float the x87 loads)
+	ostringstream s;
+	s << setprecision(17) << floatval;
+	token = s.str();
+	if (token.find_first_of(".en") == string::npos)
+	  token += ".0";	// Force token to look like a floating-point value
+      }
+      else if ((mods & force_scinote)!=0) {
 	token = format->printDecimal(floatval, true);
       }
       else {

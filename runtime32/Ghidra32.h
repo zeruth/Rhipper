@@ -356,6 +356,10 @@ static GEN_INLINE void gen_divps(void *r, const void *a, const void *b) { gen_st
 static GEN_INLINE void gen_rsqrtps(void *r, const void *d, const void *s) { (void)d; gen_stps(r, _mm_rsqrt_ps(gen_ldps(s))); }
 static GEN_INLINE void gen_rcpps(void *r, const void *d, const void *s) { (void)d; gen_stps(r, _mm_rcp_ps(gen_ldps(s))); }
 static GEN_INLINE void gen_sqrtps(void *r, const void *d, const void *s) { (void)d; gen_stps(r, _mm_sqrt_ps(gen_ldps(s))); }
+/* (RSQRTSS, RCPSS: the source's low float, the destination's upper three as they were: the host's
+   own instruction, its approximation an x86-64 reference host's to the bit) */
+static GEN_INLINE void gen_rsqrtss(void *r, const void *d, const void *s) { gen_stps(r, _mm_move_ss(gen_ldps(d), _mm_rsqrt_ss(_mm_load_ss((const float *)s)))); }
+static GEN_INLINE void gen_rcpss(void *r, const void *d, const void *s) { gen_stps(r, _mm_move_ss(gen_ldps(d), _mm_rcp_ss(_mm_load_ss((const float *)s)))); }
 static GEN_INLINE void gen_packssdw(void *r, const void *a, const void *b) { gen_sti(r, _mm_packs_epi32(gen_ldi(a), gen_ldi(b))); }
 static GEN_INLINE void gen_psllw(void *r, const void *a, const void *n) { gen_sti(r, _mm_sll_epi16(gen_ldi(a), gen_ldi(n))); }
 /* (SSE4.1: MSVC's /O2 vectorizes an integer multiply loop with it, behind __isa_available) */
@@ -428,6 +432,9 @@ GEN_PS2(gen_divps, gen_divss_(a[k], b[k]))
 GEN_PS1(gen_rsqrtps, gen_rsqrtss_(s[k]))
 GEN_PS1(gen_rcpps, gen_rcpss_(s[k]))
 GEN_PS1(gen_sqrtps, gen_sqrtss_(s[k]))
+/* (RSQRTSS, RCPSS: the source's low float, the destination's upper three as they were) */
+static GEN_INLINE void gen_rsqrtss(void *r, const void *d, const void *s_) { float x[4], s; memcpy(x, d, 16); memcpy(&s, s_, 4); x[0] = gen_rsqrtss_(s); memcpy(r, x, 16); }
+static GEN_INLINE void gen_rcpss(void *r, const void *d, const void *s_) { float x[4], s; memcpy(x, d, 16); memcpy(&s, s_, 4); x[0] = gen_rcpss_(s); memcpy(r, x, 16); }
 /* (a's four dwords then b's, each saturated to a signed word) */
 static GEN_INLINE void gen_packssdw(void *r, const void *a, const void *b) {
     int x[8]; short t[8];
@@ -481,6 +488,189 @@ static GEN_INLINE void gen_vcvttps2qq_avx512vl(void *r, const void *a) {
             ? (long long)0x8000000000000000ull : (long long)f[k];
     memcpy(r, q, 16);
 }
+
+/* ---- MMX's and 3DNow!'s pseudo-ops, by Ghidra's names (`uVar3 = PackedFloatingMUL(uVar1,uVar2)`,
+   `uVar4 = pmaddwd(a,b)`): an mm register's 8 bytes an unsigned long long, the destination register
+   as it was first, then the source (ia.sinc's `mmxreg = op(mmxreg, m64)`). In C on every host:
+   MSVC's x64 has no MMX intrinsics, and no CPU since AMD's family 15h has 3DNow!, so the game takes
+   its 3DNow! paths only where cpuid's 0x80000001 edx bit 31 says so, which no host the port runs
+   on reports (GEN_CPUIDEX is the host's own; another host's is an Intel's). The integer ops are the
+   instruction's to the bit; the 3DNow! ones are AMD's lanes as its manual gives them (no
+   denormals in or out, an overflow the largest normal, no infinities), their approximations
+   (PFRCP, PFRSQRT) the exact value, which the Newton steps PFRCPIT1/PFRSQIT1/PFRCPIT2 then keep.
+   A POP.EXE's 3DNow! math library (0x76c000..0x774000), 60 stubs, sands3 2026-11-01 */
+static GEN_INLINE void gen_mm_ld_(unsigned long long v, void *p) { memcpy(p, &v, 8); }
+static GEN_INLINE unsigned long long gen_mm_st_(const void *p) { unsigned long long v; memcpy(&v, p, 8); return v; }
+static GEN_INLINE short gen_sat16_(int x) { return (short)(x > 32767 ? 32767 : x < -32768 ? -32768 : x); }
+static GEN_INLINE signed char gen_sat8_(int x) { return (signed char)(x > 127 ? 127 : x < -128 ? -128 : x); }
+/* (a's two dwords then b's, each saturated to a signed word) */
+static GEN_INLINE unsigned long long packssdw(unsigned long long a, unsigned long long b) {
+    int x[4]; short t[4];
+    gen_mm_ld_(a, x); gen_mm_ld_(b, x + 2);
+    for (int k = 0; k < 4; k++) t[k] = gen_sat16_(x[k]);
+    return gen_mm_st_(t);
+}
+/* (a's four words then b's, each saturated to a signed byte) */
+static GEN_INLINE unsigned long long packsswb(unsigned long long a, unsigned long long b) {
+    short x[8]; signed char t[8];
+    gen_mm_ld_(a, x); gen_mm_ld_(b, x + 4);
+    for (int k = 0; k < 8; k++) t[k] = gen_sat8_(x[k]);
+    return gen_mm_st_(t);
+}
+#define GEN_MM_W(name, expr) \
+    static GEN_INLINE unsigned long long name(unsigned long long a_, unsigned long long b_) { \
+        short a[4], b[4]; gen_mm_ld_(a_, a); gen_mm_ld_(b_, b); \
+        for (int k = 0; k < 4; k++) a[k] = (short)(expr); return gen_mm_st_(a); }
+GEN_MM_W(paddsw, gen_sat16_(a[k] + b[k]))
+GEN_MM_W(psubsw, gen_sat16_(a[k] - b[k]))
+GEN_MM_W(paddusw, ((unsigned short)a[k] + (unsigned short)b[k] > 0xffff ? 0xffff : (unsigned short)a[k] + (unsigned short)b[k]))
+GEN_MM_W(pmulhw, ((int)a[k] * (int)b[k]) >> 16)
+/* (3DNow!'s PMULHRW, Ghidra's PackedAverageHighRoundedWord: the product's high word rounded) */
+GEN_MM_W(PackedAverageHighRoundedWord, ((int)a[k] * (int)b[k] + 0x8000) >> 16)
+/* (each dword the sum of its two words' signed products, wrapping: 0x8000 * 0x8000 twice is
+   0x80000000) */
+static GEN_INLINE unsigned long long pmaddwd(unsigned long long a_, unsigned long long b_) {
+    short a[4], b[4]; unsigned int r[2];
+    gen_mm_ld_(a_, a); gen_mm_ld_(b_, b);
+    for (int k = 0; k < 2; k++)
+        r[k] = (unsigned int)((int)a[2 * k] * (int)b[2 * k]) + (unsigned int)((int)a[2 * k + 1] * (int)b[2 * k + 1]);
+    return gen_mm_st_(r);
+}
+/* (each word by the count's whole qword: an arithmetic shift fills with the sign past 15, a
+   logical one leaves 0) */
+static GEN_INLINE unsigned long long psraw(unsigned long long a_, unsigned long long n) {
+    short a[4]; int c = n > 15 ? 15 : (int)n;
+    gen_mm_ld_(a_, a);
+    for (int k = 0; k < 4; k++) a[k] = (short)(a[k] < 0 ? ~(~(int)a[k] >> c) : (int)a[k] >> c);
+    return gen_mm_st_(a);
+}
+static GEN_INLINE unsigned long long psllw(unsigned long long a_, unsigned long long n) {
+    unsigned short a[4];
+    gen_mm_ld_(a_, a);
+    for (int k = 0; k < 4; k++) a[k] = n > 15 ? 0 : (unsigned short)(a[k] << n);
+    return gen_mm_st_(a);
+}
+/* (PAVGUSB: each byte's rounded average) */
+static GEN_INLINE unsigned long long PackedAverageUnsignedBytes(unsigned long long a_, unsigned long long b_) {
+    unsigned char a[8], b[8];
+    gen_mm_ld_(a_, a); gen_mm_ld_(b_, b);
+    for (int k = 0; k < 8; k++) a[k] = (unsigned char)((a[k] + b[k] + 1) >> 1);
+    return gen_mm_st_(a);
+}
+/* FEMMS, EMMS's faster twin: the x87 tag word empty, which the port does not keep */
+#define FastExitMediaState() ((void)0)
+/* (3DNow!'s numbers: a denormal operand is 0; a result past the largest normal is it, its sign,
+   one below the smallest 0) */
+static GEN_INLINE float gen_3dn_in_(float f) {
+    unsigned int u; memcpy(&u, &f, 4);
+    if (!(u & 0x7f800000u)) u &= 0x80000000u;
+    memcpy(&f, &u, 4); return f;
+}
+static GEN_INLINE float gen_3dn_out_(double d) {
+    float f; unsigned int u;
+    if (d > 3.4028234663852886e38) d = 3.4028234663852886e38;
+    if (d < -3.4028234663852886e38) d = -3.4028234663852886e38;
+    f = (float)d; memcpy(&u, &f, 4);
+    if (!(u & 0x7f800000u)) u &= 0x80000000u;
+    memcpy(&f, &u, 4); return f;
+}
+#define GEN_3DN_F(name, expr) \
+    static GEN_INLINE unsigned long long name(unsigned long long a_, unsigned long long b_) { \
+        float a[2], b[2], r[2]; gen_mm_ld_(a_, a); gen_mm_ld_(b_, b); \
+        a[0] = gen_3dn_in_(a[0]); a[1] = gen_3dn_in_(a[1]); b[0] = gen_3dn_in_(b[0]); b[1] = gen_3dn_in_(b[1]); \
+        r[0] = gen_3dn_out_(expr(0)); r[1] = gen_3dn_out_(expr(1)); return gen_mm_st_(r); }
+/* (each lane's result as the float the operation rounds to, then 3DNow!'s range) */
+#define GEN_3DN_ADD(k) (double)(float)(a[k] + b[k])
+#define GEN_3DN_SUB(k) (double)(float)(a[k] - b[k])
+#define GEN_3DN_SUBR(k) (double)(float)(b[k] - a[k])
+#define GEN_3DN_MUL(k) ((double)a[k] * (double)b[k])
+#define GEN_3DN_MIN(k) (double)(a[k] < b[k] ? a[k] : b[k])
+#define GEN_3DN_MAX(k) (double)(a[k] > b[k] ? a[k] : b[k])
+/* (the Newton steps' halves: PFRCPIT1 1 - b * x0, PFRSQIT1 (1 - b * x0^2) / 2 from x0 squared,
+   PFRCPIT2 x0 + x0 * t, so PFRCP's or PFRSQRT's value refined by them is itself) */
+#define GEN_3DN_RCPIT1(k) (double)(float)(1.0f - a[k] * b[k])
+#define GEN_3DN_RSQIT1(k) (double)(float)((1.0f - a[k] * b[k]) * 0.5f)
+#define GEN_3DN_RCPIT2(k) (double)(float)(b[k] + b[k] * a[k])
+GEN_3DN_F(PackedFloatingADD, GEN_3DN_ADD)
+GEN_3DN_F(PackedFloatingSUB, GEN_3DN_SUB)
+GEN_3DN_F(PackedFloatingSUBR, GEN_3DN_SUBR)
+GEN_3DN_F(PackedFloatingMUL, GEN_3DN_MUL)
+GEN_3DN_F(PackedFloatingMIN, GEN_3DN_MIN)
+GEN_3DN_F(PackedFloatingMAX, GEN_3DN_MAX)
+GEN_3DN_F(PackedFloatingReciprocalIter1, GEN_3DN_RCPIT1)
+GEN_3DN_F(PackedFloatingReciprocalSQRIter1, GEN_3DN_RSQIT1)
+GEN_3DN_F(PackedFloatingReciprocalIter2, GEN_3DN_RCPIT2)
+/* (PFACC, PFNACC, PFPNACC: each operand's two lanes summed or differenced, a's into the low) */
+#define GEN_3DN_ACC(k) ((k) ? (double)(float)(b[0] + b[1]) : (double)(float)(a[0] + a[1]))
+#define GEN_3DN_NACC(k) ((k) ? (double)(float)(b[0] - b[1]) : (double)(float)(a[0] - a[1]))
+#define GEN_3DN_PNACC(k) ((k) ? (double)(float)(b[0] + b[1]) : (double)(float)(a[0] - a[1]))
+GEN_3DN_F(PackedFloatingAccumulate, GEN_3DN_ACC)
+GEN_3DN_F(PackedFloatingNegAccumulate, GEN_3DN_NACC)
+GEN_3DN_F(PackedFloatingPosNegAccumulate, GEN_3DN_PNACC)
+#define GEN_3DN_CMP(name, op) \
+    static GEN_INLINE unsigned long long name(unsigned long long a_, unsigned long long b_) { \
+        float a[2], b[2]; unsigned int r[2]; gen_mm_ld_(a_, a); gen_mm_ld_(b_, b); \
+        for (int k = 0; k < 2; k++) r[k] = gen_3dn_in_(a[k]) op gen_3dn_in_(b[k]) ? 0xffffffffu : 0; \
+        return gen_mm_st_(r); }
+GEN_3DN_CMP(PackedFloatingCompareGE, >=)
+GEN_3DN_CMP(PackedFloatingCompareGT, >)
+GEN_3DN_CMP(PackedFloatingCompareEQ, ==)
+/* (PFRCP and PFRSQRT: the source's low lane alone, the result in both; PFRSQRT of the magnitude,
+   its sign the source's. The destination as it was is no operand: translate32 passes 0 for a lost
+   one) */
+static GEN_INLINE unsigned long long FloatingReciprocalAprox(unsigned long long d, unsigned long long s_) {
+    float s[2], r[2]; (void)d; gen_mm_ld_(s_, s);
+    s[0] = gen_3dn_in_(s[0]);
+    r[0] = r[1] = s[0] == 0.0f ? gen_3dn_out_(signbit(s[0]) ? -1e300 : 1e300) : gen_3dn_out_(1.0 / (double)s[0]);
+    return gen_mm_st_(r);
+}
+static GEN_INLINE unsigned long long PackedFloatingReciprocalSQRAprox(unsigned long long d, unsigned long long s_) {
+    float s[2], r[2]; double m; (void)d; gen_mm_ld_(s_, s);
+    s[0] = gen_3dn_in_(s[0]); m = fabs((double)s[0]);
+    r[0] = m == 0.0 ? gen_3dn_out_(1e300) : gen_3dn_out_(1.0 / sqrt(m));
+    if (signbit(s[0])) r[0] = -r[0];
+    r[1] = r[0];
+    return gen_mm_st_(r);
+}
+/* (PI2FD, PF2ID: dwords to floats and back, the conversion to an integer truncating and saturating
+   to the dword's range; PI2FW and PF2IW the same through each dword's low word) */
+static GEN_INLINE unsigned long long PackedIntToFloatingDwordConv(unsigned long long d, unsigned long long s_) {
+    int s[2]; float r[2]; (void)d; gen_mm_ld_(s_, s);
+    for (int k = 0; k < 2; k++) r[k] = (float)s[k];
+    return gen_mm_st_(r);
+}
+static GEN_INLINE unsigned long long PackedIntToFloatingWord(unsigned long long d, unsigned long long s_) {
+    int s[2]; float r[2]; (void)d; gen_mm_ld_(s_, s);
+    for (int k = 0; k < 2; k++) r[k] = (float)(short)s[k];
+    return gen_mm_st_(r);
+}
+static GEN_INLINE int gen_3dn_f2i_(float f, double lo, double hi) {
+    double v = (double)gen_3dn_in_(f);
+    if (v != v) return (int)lo;
+    v = v < lo ? lo : v > hi ? hi : v;
+    return (int)v;                                  /* (C's conversion truncates) */
+}
+static GEN_INLINE unsigned long long PackedFloatingToIntDwordConv(unsigned long long d, unsigned long long s_) {
+    float s[2]; int r[2]; (void)d; gen_mm_ld_(s_, s);
+    for (int k = 0; k < 2; k++) r[k] = gen_3dn_f2i_(s[k], -2147483648.0, 2147483647.0);
+    return gen_mm_st_(r);
+}
+static GEN_INLINE unsigned long long PackedFloatingToIntWord(unsigned long long d, unsigned long long s_) {
+    float s[2]; int r[2]; (void)d; gen_mm_ld_(s_, s);
+    for (int k = 0; k < 2; k++) r[k] = gen_3dn_f2i_(s[k], -32768.0, 32767.0);
+    return gen_mm_st_(r);
+}
+/* (PSWAPD: the source's dwords swapped) */
+static GEN_INLINE unsigned long long PackedSwapDWords(unsigned long long d, unsigned long long s) {
+    (void)d; return s >> 32 | s << 32;
+}
+/* FFREE: one register's tag empty, which the port does not keep (`ffree(fVar5);`) */
+#define ffree(x) ((void)0)
+/* `out`, a port write, as translate32 renames Ghidra's `out(port, v);` (a macro named `out` would
+   take std::codecvt's out() in a C++ file): in user mode a privileged instruction, faulting as hlt
+   does (Windows' STATUS_PRIVILEGED_INSTRUCTION for both). Junk the decompiler made functions of,
+   POP.EXE's 0x796172 and 3 like it */
+#define gen_port_out(p, v) ((void)(p), (void)(v), gen_hlt())
 
 /* ---- vectors of any width, as vec32.py writes Ghidra's (the static C runtime's and C++ library's
    AVX2 and SSE4.2 string and search routines, behind __isa_available, rhtest stl /MT). A value is

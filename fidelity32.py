@@ -61,6 +61,7 @@ JCC = re.compile(r"^j(?!mp)\w+$")
 STACK_REGS = {"esp", "ebp", "rsp", "rbp"}
 STACK_PTRS = {"rsp", "rbp"}                  # (STACK_REGS by canon_reg's names)
 PROBES: set[int] = set()                     # the reference's stack probes, __alloca_probe and kin (main's)
+RET64: set[int] = set()                      # the functions whose C returns 64 bits, in edx:eax (main's)
 # Ghidra32.h's traps, the reference's `int 3` / `int 0x29`
 TRAPS = {"gen_swi_break": "trap:3", "gen_swi_fastfail": "trap:29", "gen_ud2": "trap:ud2"}
 # the port's own setjmp and longjmp (Ghidra32.h GEN_SETJMP, GEN_LONGJMP), the reference's imports
@@ -306,6 +307,83 @@ def dead_overwrites(insns: list) -> set[int]:
                 break
             written = {canon_reg(nxt.reg_name(r)) for r in nxt.regs_access()[1]}
             if regs & {sub.get(r, r) for r in written}:
+                break
+    return out
+
+
+SUBREG = {"al": "rax", "ah": "rax", "ax": "rax", "bl": "rbx", "bh": "rbx", "bx": "rbx", "cl": "rcx",
+          "ch": "rcx", "cx": "rcx", "dl": "rdx", "dh": "rdx", "dx": "rdx", "si": "rsi", "di": "rdi",
+          "bp": "rbp", "sp": "rsp", "sil": "rsi", "dil": "rdi", "bpl": "rbp", "spl": "rsp"}
+
+
+def restored_globals(insns: list, returns: frozenset = frozenset({"rax", "rdx"})) -> set[int]:
+    """The addresses of a global saved into a register and put back from it unchanged, and of every
+    store to it between, where nothing between calls, returns, leaves the span or reads the global:
+    `mov ebx, [g]; ...; mov [g], ecx; ...; mov [g], ebx`. The stores between are overwritten before
+    anything could read them, and the restore writes back the value g held: the decompiler drops
+    them all as dead, and the save with them unless its register is read after. A VS2003 game's
+    context globals around inlined accessors, `mov ebx, [0xabc928]; ...; mov [0xabc928], ebx`,
+    missing in 263 of sands3's functions, 2026-11-01."""
+    def absmem(o):
+        return o.type == x86.X86_OP_MEM and not o.mem.base and not o.mem.index and not o.mem.segment
+
+    def full(insn, r):
+        return SUBREG.get(insn.reg_name(r), canon_reg(insn.reg_name(r)))
+    branches = [(x.address, x.operands[0].imm) for x in insns
+                if (JCC.match(x.mnemonic) or x.mnemonic in ("jmp", "jecxz", "jcxz") or x.mnemonic.startswith("loop"))
+                and x.operands and x.operands[0].type == x86.X86_OP_IMM]
+    out = set()
+    for i, x in enumerate(insns):
+        ops = x.operands
+        if not (x.mnemonic == "mov" and len(ops) == 2 and ops[0].type == x86.X86_OP_REG and ops[0].size == 4
+                and absmem(ops[1]) and ops[1].size == 4):
+            continue
+        g = ops[1].mem.disp & 0xFFFFFFFF
+        r = full(x, ops[0].reg)
+        # (ebp too, a general register in a frame without one: `mov ebp, [0xabc92c]`)
+        if r == canon_reg("esp"):
+            continue
+        stores = []
+        for j in range(i + 1, len(insns)):
+            y = insns[j]
+            mn, yo = y.mnemonic, y.operands
+            if mn in ("call", "ret", "int", "int3", "leave") or mn.startswith(("rep", "movs", "stos", "cmps", "scas", "lods")) \
+                    or y.prefix[0] == 0xF0 or (mn == "jmp" and not (yo and yo[0].type == x86.X86_OP_IMM)):
+                break
+            on_g = [o for o in yo if absmem(o) and (o.mem.disp & 0xFFFFFFFF) < g + 4
+                    and (o.mem.disp & 0xFFFFFFFF) + max(o.size, 1) > g]
+            if on_g:
+                # (only whole-word stores of g: anything else reads it)
+                if not (mn == "mov" and len(yo) == 2 and on_g == [yo[0]] and (yo[0].mem.disp & 0xFFFFFFFF) == g
+                        and yo[0].size == 4):
+                    break
+                if not (yo[1].type == x86.X86_OP_REG and full(y, yo[1].reg) == r):
+                    stores.append(y.address)
+                    continue
+                # (the restore: no branch leaves the span or enters it from outside)
+                lo, hi = x.address, y.address
+                if any((lo <= s <= hi) != (lo <= t <= hi) for s, t in branches):
+                    break
+                # (the save itself too, unless its register is read past the restore: `mov eax, [g];
+                # ...; mov [g], eax; ret` returns g, which the C reads, 0x4a5ee0; a void function's
+                # eax is no result, 0x5574d0. `returns`: the registers the function's C returns in)
+                live = True
+                for z in insns[j + 1:]:
+                    if z.mnemonic == "ret":
+                        live = r in returns
+                        break
+                    if z.mnemonic in ("call", "jmp") or JCC.match(z.mnemonic):
+                        break
+                    rd, wr = z.regs_access()
+                    if any(full(z, q) == r for q in rd):
+                        break
+                    if any(full(z, q) == r for q in wr):
+                        live = False
+                        break
+                out |= set(stores) | {y.address} | (set() if live else {x.address})
+                break
+            # (the register written: the restore would put back something else)
+            if any(full(y, q) == r for q in y.regs_access()[1]):
                 break
     return out
 
@@ -1397,6 +1475,15 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
     # early return's epilogue, `mov esp, ebx; pop ebx; ret 4`, undid the realigned frame's anchor for
     # the code the branch skips to, its `[ebx + 8]` taken for a field. Across the pieces, scan's)
     at_branch: dict = {}
+    # (and the constants each register held at a forward branch, for its target: a value chosen on
+    # two paths, `jne A; mov eax, [0xa99474]; jmp B; A: ...; mov eax, [0xa99478]; B: push eax; call
+    # f` of an f that takes nothing, both dead, not the last path's alone. 41 of sands3's, 2026-11-01)
+    join_imms: dict = {}
+    # (the registers the function's C returns in: none of a void one's, call_regs', edx only of a
+    # 64-bit result, RET64, main's)
+    returns = frozenset({"rax", "rdx"})
+    if regs_of and regs_of.get(own):
+        returns = frozenset(({"rax"} | ({"rdx"} if own in RET64 else set())) & regs_of[own][2])
     # (the register arithmetic nothing reads, over the pieces together: a jump into the next piece
     # reaches its code, `jge` past Assign_00de8a20's piece at 0xde8a6d, and a frame slot one piece
     # writes another may read, write_only_slots, 2026-10-31)
@@ -1406,7 +1493,7 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
         dead_regs = dead_registers(every, regs_of, regs_of.get(own), write_only_slots(every), dead, set(img.iat))
     for lo, hi in ranges:
         insns = list(md.disasm(img.read(lo, hi - lo), lo))
-        dead_stores = dead_stack_stores(insns) | dead_compares(insns) | dead_masks(insns) | lane_folds(insns) | truth_loads(insns) | dead_overwrites(insns) if not port else set()
+        dead_stores = dead_stack_stores(insns) | dead_compares(insns) | dead_masks(insns) | lane_folds(insns) | truth_loads(insns) | dead_overwrites(insns) | restored_globals(insns, returns) if not port else set()
         # (and the register arithmetic nothing reads, dead_registers, over the pieces together)
         dead_stores |= dead_regs
         chains = mask_chains(insns)
@@ -1447,6 +1534,26 @@ def scan(img: Image, ref: Image, md, ranges: list[tuple[int, int]], own: int, po
                 # esi the code past it passes on, `mov esi, [ecx + 4]; ...; jne X; pop esi; ret 4; X:
                 # mov ecx, esi; call f` of an f that never reads ecx, a client's 0x537cc0, 2026-10-30)
                 reg_fields = {r: list(ds) for r, ds in rf_.items()}
+            if insn.address in join_imms and not port:
+                # (and what each path pushed since the last call, position by position, where they
+                # pushed alike: `push ecx; jmp B` on one, `push edx` on the other, 0x4d6810)
+                # (a global's value alone, what a `mov r, [g]` loaded: an immediate a `cmp r, k`
+                # left in reg_imms is no value of r's, and joined it reached a dead `this`)
+                # (on what the scan carried in, as before: the joins add the other paths' globals)
+                states = join_imms.pop(insn.address)
+                merged = {r: list(ks) for r, ks in reg_imms.items()}
+                margs = [list(ks) for ks in args]
+                for st, sargs in states:
+                    for r, ks in st.items():
+                        merged[r] = merged.get(r, []) + [k for k in ks if k.startswith("g:") and k not in merged.get(r, [])]
+                    if len(sargs) == len(margs):
+                        for p, ks in enumerate(sargs):
+                            margs[p] += [k for k in ks if k.startswith("g:") and k not in margs[p]]
+                reg_imms, args = merged, margs
+            if (JCC.match(mn) or mn == "jmp") and insn.operands and insn.operands[0].type == x86.X86_OP_IMM \
+                    and insn.operands[0].imm > insn.address and not port:
+                join_imms.setdefault(insn.operands[0].imm, []).append(
+                    ({r: list(ks) for r, ks in reg_imms.items()}, [list(ks) for ks in args]))
             if (JCC.match(mn) or mn == "jmp") and insn.operands and insn.operands[0].type == x86.X86_OP_IMM \
                     and insn.operands[0].imm > insn.address:
                 at_branch.setdefault(insn.operands[0].imm, (set(stackp), dict(lea_disp),
@@ -1894,11 +2001,13 @@ def near(k, have: set) -> bool:
         # (a global within 16 bytes of one the other side uses: neighbours stored as one vector,
         # `movups [g], xmm0` for four of them, or one address made from another's register)
         v = int(k[2:], 16)
-        if any(f"g:{v + d:x}" in have for d in range(-15, 16) if d):
+        # (an array's too, a:, where the other side reads floats through it: `fild [ecx + 0xab4300]`
+        # of an int against the port's `movss xmm0, [rax + 0xab42e0]`, sands3's 0x499720, 2026-11-01)
+        if any(f"{p}:{v + d:x}" in have for p in ("g", "a") for d in range(-15, 16) if d):
             return True
         # (or a record's further on, an index's constant part folded in by whole words, `[eax +
         # 0x10993b0]` for the port's 0x10993d0, element -1 of a 32-byte table)
-        if any(f"g:{v + d:x}" in have for d in range(-0x40, 0x41, 4) if d):
+        if any(f"{p}:{v + d:x}" in have for p in ("g", "a") for d in range(-0x40, 0x41, 4) if d):
             return True
         # (or its address folded into a scaled index, as an array's below: `table[-i]` of a
         # pointer table at 0x10efcc8 as `mov eax, 0x43bf32; sub rax, rbx; mov eax, [rax*4]`, the
@@ -2232,6 +2341,11 @@ def main() -> None:
     # (and each one's registers at a call of it, dead_registers': what it reads, what it leaves
     # undefined, what its return gives back)
     regs_of = {a: r for a, e in cor.items() if (r := call_regs(e.get("c", ""))) is not None}
+    # (and those whose C returns 64 bits, edx with eax: scan's restored_globals)
+    for a, e in cor.items():
+        sig = [ln for ln in re.sub(r"/\*.*?\*/", "", e.get("c", ""), flags=re.S).split("{", 1)[0].splitlines() if "(" in ln]
+        if sig and re.match(r"\s*(?:unsigned\s+)?(?:u?longlong|undefined8|__int64|u?int64_t|u?int8)\b", sig[-1]):
+            RET64.add(a)
     # (and the stack probes, whose `mov eax, <frame size>` is the frame's, scan's)
     PROBES.update(a for a, e in cor.items()
                   if re.fullmatch(r"(?:Global::)?_*(?:alloca_probe(?:_8|_16)?|chkstk)", e.get("name", "")))
@@ -2845,6 +2959,18 @@ def main() -> None:
             | {int(k[2:], 16) for k in pf.consts if k.startswith("a:")}
         # (an immediate, or a displacement from a register holding the other: `lea rcx, [rax + 0x50]`)
         port_ints = {int(k[2:], 16) for k in pf.consts if k.startswith("i:")} | set(pf.fields) | pf.imms
+        # (a table's base the reference reaches through a register it stepped, `sub ecx, 0x20` four
+        # times then `lea edx, [ecx + 0xab4300]`, that the decompiler folded the steps into,
+        # `&DAT_00ab4280 + DAT_00abc90c`: the port's global a few of the steps off. Only one presence
+        # would miss: a kept one deleted lowers the score, 2026-11-01)
+        steps_ = {int(s[2:], 16) for s in rf.steps}
+        steps_ = {s if s < 0x80000000 else s - (1 << 32) for s in steps_}
+        steps_ = {s for s in steps_ if 0 < abs(s) < 0x1000}
+        for k in [k for k in rf.consts if k.startswith("g:") and k not in pf.consts] if steps_ else []:
+            v = int(k[2:], 16)
+            if any((v + n * s) & 0xFFFFFFFF in port_addrs for s in steps_ for n in range(-8, 9) if n) \
+                    and presence(Counter({k: 1}), pf.consts, source, moved=(rf.str_at, port_addrs, port_ints))[1]:
+                del rf.consts[k]
         consts, missing_consts = presence(rf.consts, pf.consts, source, moved=(rf.str_at, port_addrs, port_ints))
         parts = {
             "calls": calls,
@@ -2859,10 +2985,17 @@ def main() -> None:
         weights = {**F.WEIGHTS, "ops": OPS_WEIGHT, "probes": PROBES_WEIGHT}
         avail = {k: v for k, v in parts.items() if v is not None and weights[k] > 0}
         score = sum(weights[k] * v for k, v in avail.items()) / sum(weights[k] for k in avail) if avail else 1.0
+        # (the port's own calls by construction, not extra: a translation the PDB says it inlined here
+        # makes that callee's calls (POP.EXE's sound lock 0x6f7a50 inlined, ReleaseMutex in 111 callers),
+        # and a function linking an EH frame lands its catch through `setjmp(*gen_eh_landing(..))`,
+        # imp:setjmp3, no call the reference makes (466 of sands3's))
+        own_calls = {y for c in inl if c in cor for y in callees_of(c)}
+        if "imp:setjmp3" not in rseq and re.search(r"\bsetjmp\(\*gen_eh_landing\(", translations.get(a, "")):
+            own_calls.add("imp:setjmp3")
         row.update(kind="translated", score=round(score, 4), parts={k: (round(v, 4) if v is not None else None)
                                                                      for k, v in parts.items()},
                    missing_calls=[label(x) for x in missing_calls],
-                   extra_calls=[label(x) for x in sorted(set(pseq) - set(rseq), key=str)],
+                   extra_calls=[label(x) for x in sorted(set(pseq) - set(rseq) - own_calls, key=str)],
                    missing_fields=[f"{k:#x}" for k in missing_fields],
                    missing_consts=missing_consts,
                    extra_consts=sorted(k for k in pf.consts if not near(k, set(rf.consts))),
@@ -2894,7 +3027,8 @@ def main() -> None:
             t = refbin.ptr(site)
             t2 = through_thunks(t) if refbin.is_code(t) else t
             if refbin.is_code(t) and t2 not in cor and t not in ref_thunk and t2 not in ref_thunk \
-                    and ref.read(t, 1) not in (b"\x00", b"\xcc"):
+                    and ref.read(t, 1) not in (b"\x00", b"\xcc") \
+                    and not (refbin.stripped() and refbin.mid_body(t)):
                 uncovered.setdefault(t, f"pointed to from {site:#x}; no function starts there")
         for t, why in sorted(uncovered.items()):
             own = refbin.func_containing(t)

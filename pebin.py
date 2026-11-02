@@ -97,6 +97,9 @@ class Binary:
             ))
         self.reloc_dir = pe.OPTIONAL_HEADER.DATA_DIRECTORY[pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_BASERELOC"]]
         self.reloc_dir = (self.reloc_dir.VirtualAddress, self.reloc_dir.Size)
+        rs = pe.OPTIONAL_HEADER.DATA_DIRECTORY[pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_RESOURCE"]]
+        # the resource directory [start, end) as VAs: its records hold RVAs and offsets, no address
+        self.rsrc = (self.base + rs.VirtualAddress, self.base + rs.VirtualAddress + rs.Size) if rs.Size else (0, 0)
         iat = pe.OPTIONAL_HEADER.DATA_DIRECTORY[pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_IAT"]]
         # the import address table [start, end) as VAs (empty when the directory is)
         self.iat = (self.base + iat.VirtualAddress, self.base + iat.VirtualAddress + iat.Size) if iat.Size else (0, 0)
@@ -217,6 +220,26 @@ class Binary:
     def is_func_start(self, va: int) -> bool:
         i = bisect.bisect_left(self.func_starts, va)
         return i < len(self.func_starts) and self.func_starts[i] == va
+
+    def stripped(self) -> bool:
+        """32-bit, an image linked without its relocations: relocs() then found by value"""
+        return X86 and not self.reloc_dir[1]
+
+    def mid_body(self, t: int, md=None) -> bool:
+        """t inside a function's piece and no entry of one: off the piece's linear decode (inside an
+        instruction), or right after one that runs on into it (no ret, jmp, int3; a call may be a
+        noreturn one, an EH4 filter's after `call _endthreadex`)"""
+        i = bisect.bisect_right(self.piece_starts, t) - 1
+        if i < 0 or not self.piece_starts[i] < t < self.piece_ends[i]:
+            return False
+        lo = self.piece_starts[i]
+        md = md or disassembler()
+        last = None
+        for a, size, mn, _o in md.disasm_lite(bytes(self.image[self.off(lo):self.off(t)]), lo):
+            last = (a, size, mn)
+        if last is None or last[0] + last[1] != t:
+            return True
+        return not (last[2].startswith("ret") or last[2] in ("jmp", "int3", "ud2", "hlt", "call"))
 
     # ---- references --------------------------------------------------------------
     _RIPREL = re.compile(
@@ -374,17 +397,39 @@ class Binary:
         lo, hi = self.base, self.base + len(self.image)
         sites = []
 
-        def aligned(start: int, end: int) -> None:
+        pr = lambda c: 0x20 <= c < 0x7F
+
+        def u16(w: int) -> bool:
+            return (w & 0xFF00FF00) == 0 and pr(w & 0xFF) and pr(w >> 16 & 0xFF)
+
+        def text(site: int) -> bool:
+            # (a word of a string, no pointer: its first byte and the three before it printable ASCII,
+            # or two printable UTF-16 units as a neighbour's are. Taken for pointers, RTTI names' tails,
+            # `.?AVbad_alloc@std@@` holding "d@@\0" = 0x404064, made functions inside live ones' bodies
+            # (protos32's "pointed", ApplyFacts' applyLeaves), 189 of a VS2003 game's lost-register
+            # stubs and 710 fidelity rows. Of 1,545 such words into the middle of an instruction 1,272
+            # dropped, of 2,737 vtable slots and EH table entries none, sands3 2026-11-01)
+            o = self.off(site)
+            if o >= 3 and all(pr(c) for c in self.image[o - 3:o + 1]):
+                return True
+            w = self.u32(site)
+            return u16(w) and ((o >= 4 and u16(self.u32(site - 4)))
+                               or (o + 8 <= len(self.image) and u16(self.u32(site + 4))))
+
+        def aligned(start: int, end: int, data: bool = False) -> None:
             start = (start + 3) & ~3
             n = (end - start) // 4
             if n <= 0:
                 return
             v = np.frombuffer(self.image, dtype="<u4", count=n, offset=self.off(start))
-            sites.extend((start + 4 * np.nonzero((v >= lo) & (v < hi))[0]).tolist())
+            found = (start + 4 * np.nonzero((v >= lo) & (v < hi))[0]).tolist()
+            if data:
+                found = [s for s in found if not self.rsrc[0] <= s < self.rsrc[1] and not text(s)]
+            sites.extend(found)
 
         for s in self.sections:
             if not s.exec:
-                aligned(s.start, s.end)
+                aligned(s.start, s.end, data=True)
         md = disassembler()
         md.detail = True
         prev = self.text.start

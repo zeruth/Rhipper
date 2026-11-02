@@ -126,6 +126,16 @@ def ghidra_install() -> str:
     found = sorted(glob.glob(pattern)) if pattern else []
     if not found:
         sys.exit(f"{CONFIG_FILE}: ghidra.install ({pattern!r}) matches no Ghidra installation")
+    g = Path(found[0])
+    # (Rhipper's decompiler and SLEIGH fixes in it: install.sh keeps the release's decompiler as
+    # decompile*.orig, patch_sinc.py its ia.sinc as ia.sinc.orig. A release install decompiled
+    # sands3 with no bit views, every float moved as bits a C conversion, 2026-11-01)
+    missing = [what for what, ok in (
+        ("the decompiler's (bash ghidra/decompiler/install.sh)", any(g.glob("Ghidra/Features/Decompiler/os/*/decompile*.orig"))),
+        ("SLEIGH's (python ghidra/sleigh/patch_sinc.py)", (g / "Ghidra/Processors/x86/data/languages/ia.sinc.orig").exists()))
+        if not ok]
+    if missing and not os.environ.get("RHIPPER_RELEASE_GHIDRA"):
+        sys.exit(f"{CONFIG_FILE}: {g} lacks Rhipper's fixes: {'; '.join(missing)} (RHIPPER_RELEASE_GHIDRA=1 to use it as it is)")
     return found[0]
 
 

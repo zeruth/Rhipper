@@ -7,6 +7,7 @@
 #include <windows.h>
 #include <shlobj.h>
 
+#include <algorithm>
 #include <csetjmp>
 #include <cstdint>
 #include <cstdio>
@@ -34,6 +35,8 @@ const wchar_t* RefImagePath();       // RefImage.cpp
 extern "C" unsigned int gen_teb32(void);
 extern "C" int gen_teb32_made(void);
 extern "C" const unsigned int g_genEhFuncInfo[];   // gen/jumps.c
+extern "C" const unsigned int g_genThiscall[];     // gen/jumps.c, sorted
+extern "C" const unsigned int g_genThiscallCount;
 extern "C" {
 struct GEN_JUMP {
     unsigned int ref;
@@ -93,6 +96,12 @@ struct MemoryInfo32 {
     uint32_t BaseAddress, AllocationBase, AllocationProtect, RegionSize, State, Protect, Type;
 };
 static_assert(sizeof(MemoryInfo32) == 28, "MEMORY_BASIC_INFORMATION, x86");
+
+struct MemoryStatus32 {
+    uint32_t dwLength, dwMemoryLoad, dwTotalPhys, dwAvailPhys, dwTotalPageFile, dwAvailPageFile;
+    uint32_t dwTotalVirtual, dwAvailVirtual;
+};
+static_assert(sizeof(MemoryStatus32) == 32, "MEMORYSTATUS, x86");
 #pragma pack(pop)
 
 uint32_t Low(const void* p) {
@@ -468,10 +477,13 @@ void BuildCatchObject(uint32_t handler, uint32_t ct, const Thrown& t, uint32_t e
         *At<uint32_t>(dest) = src;
     else if ((props & 1) || copy == 0)
         memcpy(At<void>(dest), At<void>(src), size);
-    else if (props & 4)
-        Call3(copy, dest, src, 1);
+    // (MSVC calls it __thiscall, ecx the new object, the source (and 1, for a virtual base) on the
+    // stack: a translation typed __thiscall takes the object first; one that reads no ecx, a
+    // __stdcall, the stack words alone, and given the object first it read it for the source)
+    else if (std::binary_search(g_genThiscall, g_genThiscall + g_genThiscallCount, copy))
+        (props & 4) ? Call3(copy, dest, src, 1) : Call2(copy, dest, src);
     else
-        Call2(copy, dest, src);
+        (props & 4) ? Call2(copy, src, 1) : Call1(copy, src);
 }
 
 // a C++ frame's state stepped back to `target`, each state's unwind action run
@@ -895,6 +907,26 @@ unsigned int gen_imp_GetSystemInfo(uint32_t out) {
 }
 unsigned int gen_imp_GetNativeSystemInfo(uint32_t out) {
     return gen_imp_GetSystemInfo(out);
+}
+// MEMORYSTATUS, its sizes DWORDs on x86 and SIZE_Ts on x64 (32 bytes against 56): through the
+// generic adapter the x64 one wrote 24 bytes past the reference's and its counts where the x86's
+// halves are, its available memory a total's high word: POP.EXE's crash reporter 0x401590 reads it
+// into a 32-byte frame block (sands3 2026-11-01). Each count as Windows gives a process that is not
+// large-address-aware, as the reference is: at most 2 GB, its virtual space the 2 GB the port lives in
+unsigned int gen_imp_GlobalMemoryStatus(uint32_t out) {
+    MEMORYSTATUSEX ms = {sizeof ms};
+    GlobalMemoryStatusEx(&ms);
+    auto cap = [](DWORDLONG v, DWORDLONG most) { return static_cast<uint32_t>(v < most ? v : most); };
+    auto o = At<MemoryStatus32>(out);
+    o->dwLength = sizeof(MemoryStatus32);
+    o->dwMemoryLoad = ms.dwMemoryLoad;
+    o->dwTotalPhys = cap(ms.ullTotalPhys, 0x7fffffff);
+    o->dwAvailPhys = cap(ms.ullAvailPhys, 0x7fffffff);
+    o->dwTotalPageFile = cap(ms.ullTotalPageFile, 0x7fffffff);
+    o->dwAvailPageFile = cap(ms.ullAvailPageFile, 0x7fffffff);
+    o->dwTotalVirtual = cap(ms.ullTotalVirtual, 0x7ffe0000);
+    o->dwAvailVirtual = cap(ms.ullAvailVirtual, 0x7ffe0000);
+    return 0;
 }
 unsigned int gen_imp_VirtualQuery(uint32_t address, uint32_t out, uint32_t length) {
     if (length < sizeof(MemoryInfo32)) return 0;
@@ -2622,3 +2654,163 @@ unsigned int gen_imp_CallWindowProcW(uint32_t proc, uint32_t hwnd, uint32_t msg,
 }
 
 }  // extern "C"
+
+// ---- the adapters by name, for GetProcAddress (RefImage.cpp): every Windows export this runtime
+// adapts, so a function resolved at run time is its adapter whether the reference imports it or not.
+// A new adapter goes here too (scratchpad agents\s3rt\gen_table.py generated it, 2026-11-01)
+// (Com32.cpp's)
+extern "C" {
+unsigned int gen_imp_VariantInit(uint32_t p);
+unsigned int gen_imp_VariantClear(uint32_t p);
+unsigned int gen_imp_Direct3DCreate9(uint32_t sdk);
+unsigned int gen_imp_DirectInput8Create(uint32_t inst, uint32_t version, uint32_t riid, uint32_t out, uint32_t outer);
+unsigned int gen_imp_CoCreateInstance(uint32_t clsid, uint32_t outer, uint32_t context, uint32_t riid, uint32_t out);
+unsigned int gen_imp_CreateStreamOnHGlobal(uint32_t hglobal, uint32_t release, uint32_t out);
+unsigned int gen_imp_GetHGlobalFromStream(uint32_t stream, uint32_t out);
+unsigned int gen_imp_CoGetClassObject(uint32_t clsid, uint32_t context, uint32_t server, uint32_t riid, uint32_t out);
+}
+void* RefRuntimeAdapter(const char* name) {
+    static const struct {
+        const char* name;
+        void* fn;
+    } table[] = {
+        {"RaiseException", reinterpret_cast<void*>(&gen_imp_RaiseException)},
+        {"AddVectoredExceptionHandler", reinterpret_cast<void*>(&gen_imp_AddVectoredExceptionHandler)},
+        {"RemoveVectoredExceptionHandler", reinterpret_cast<void*>(&gen_imp_RemoveVectoredExceptionHandler)},
+        {"ExitProcess", reinterpret_cast<void*>(&gen_imp_ExitProcess)},
+        {"InitializeCriticalSection", reinterpret_cast<void*>(&gen_imp_InitializeCriticalSection)},
+        {"InitializeCriticalSectionAndSpinCount", reinterpret_cast<void*>(&gen_imp_InitializeCriticalSectionAndSpinCount)},
+        {"InitializeCriticalSectionEx", reinterpret_cast<void*>(&gen_imp_InitializeCriticalSectionEx)},
+        {"EnterCriticalSection", reinterpret_cast<void*>(&gen_imp_EnterCriticalSection)},
+        {"LeaveCriticalSection", reinterpret_cast<void*>(&gen_imp_LeaveCriticalSection)},
+        {"TryEnterCriticalSection", reinterpret_cast<void*>(&gen_imp_TryEnterCriticalSection)},
+        {"DeleteCriticalSection", reinterpret_cast<void*>(&gen_imp_DeleteCriticalSection)},
+        {"SetCriticalSectionSpinCount", reinterpret_cast<void*>(&gen_imp_SetCriticalSectionSpinCount)},
+        {"GetStartupInfoW", reinterpret_cast<void*>(&gen_imp_GetStartupInfoW)},
+        {"GetStartupInfoA", reinterpret_cast<void*>(&gen_imp_GetStartupInfoA)},
+        {"GetSystemInfo", reinterpret_cast<void*>(&gen_imp_GetSystemInfo)},
+        {"GetNativeSystemInfo", reinterpret_cast<void*>(&gen_imp_GetNativeSystemInfo)},
+        {"GlobalMemoryStatus", reinterpret_cast<void*>(&gen_imp_GlobalMemoryStatus)},
+        {"VirtualQuery", reinterpret_cast<void*>(&gen_imp_VirtualQuery)},
+        {"MessageBoxW", reinterpret_cast<void*>(&gen_imp_MessageBoxW)},
+        {"MessageBoxA", reinterpret_cast<void*>(&gen_imp_MessageBoxA)},
+        {"TerminateProcess", reinterpret_cast<void*>(&gen_imp_TerminateProcess)},
+        {"SetClassLongA", reinterpret_cast<void*>(&gen_imp_SetClassLongA)},
+        {"GetCursorPos", reinterpret_cast<void*>(&gen_imp_GetCursorPos)},
+        {"PeekMessageW", reinterpret_cast<void*>(&gen_imp_PeekMessageW)},
+        {"PeekMessageA", reinterpret_cast<void*>(&gen_imp_PeekMessageA)},
+        {"GetMessageW", reinterpret_cast<void*>(&gen_imp_GetMessageW)},
+        {"GetMessageA", reinterpret_cast<void*>(&gen_imp_GetMessageA)},
+        {"TranslateMessage", reinterpret_cast<void*>(&gen_imp_TranslateMessage)},
+        {"DispatchMessageW", reinterpret_cast<void*>(&gen_imp_DispatchMessageW)},
+        {"DispatchMessageA", reinterpret_cast<void*>(&gen_imp_DispatchMessageA)},
+        {"TranslateAcceleratorA", reinterpret_cast<void*>(&gen_imp_TranslateAcceleratorA)},
+        {"RegisterClassExA", reinterpret_cast<void*>(&gen_imp_RegisterClassExA)},
+        {"RegisterClassExW", reinterpret_cast<void*>(&gen_imp_RegisterClassExW)},
+        {"RegisterClassA", reinterpret_cast<void*>(&gen_imp_RegisterClassA)},
+        {"RegisterClassW", reinterpret_cast<void*>(&gen_imp_RegisterClassW)},
+        {"EncodePointer", reinterpret_cast<void*>(&gen_imp_EncodePointer)},
+        {"DecodePointer", reinterpret_cast<void*>(&gen_imp_DecodePointer)},
+        {"InterlockedIncrement", reinterpret_cast<void*>(&gen_imp_InterlockedIncrement)},
+        {"InterlockedDecrement", reinterpret_cast<void*>(&gen_imp_InterlockedDecrement)},
+        {"InterlockedExchange", reinterpret_cast<void*>(&gen_imp_InterlockedExchange)},
+        {"InterlockedExchangeAdd", reinterpret_cast<void*>(&gen_imp_InterlockedExchangeAdd)},
+        {"InterlockedCompareExchange", reinterpret_cast<void*>(&gen_imp_InterlockedCompareExchange)},
+        {"GetModuleHandleW", reinterpret_cast<void*>(&gen_imp_GetModuleHandleW)},
+        {"GetModuleHandleA", reinterpret_cast<void*>(&gen_imp_GetModuleHandleA)},
+        {"LoadLibraryA", reinterpret_cast<void*>(&gen_imp_LoadLibraryA)},
+        {"CreateFileA", reinterpret_cast<void*>(&gen_imp_CreateFileA)},
+        {"CreateFileW", reinterpret_cast<void*>(&gen_imp_CreateFileW)},
+        {"CreateThread", reinterpret_cast<void*>(&gen_imp_CreateThread)},
+        {"ReadFile", reinterpret_cast<void*>(&gen_imp_ReadFile)},
+        {"WriteFile", reinterpret_cast<void*>(&gen_imp_WriteFile)},
+        {"GetOverlappedResult", reinterpret_cast<void*>(&gen_imp_GetOverlappedResult)},
+        {"DeviceIoControl", reinterpret_cast<void*>(&gen_imp_DeviceIoControl)},
+        {"LockFileEx", reinterpret_cast<void*>(&gen_imp_LockFileEx)},
+        {"UnlockFileEx", reinterpret_cast<void*>(&gen_imp_UnlockFileEx)},
+        {"CancelIoEx", reinterpret_cast<void*>(&gen_imp_CancelIoEx)},
+        {"IcmpSendEcho", reinterpret_cast<void*>(&gen_imp_IcmpSendEcho)},
+        {"RegCreateKeyExA", reinterpret_cast<void*>(&gen_imp_RegCreateKeyExA)},
+        {"VerQueryValueA", reinterpret_cast<void*>(&gen_imp_VerQueryValueA)},
+        {"GetQueuedCompletionStatus", reinterpret_cast<void*>(&gen_imp_GetQueuedCompletionStatus)},
+        {"PostQueuedCompletionStatus", reinterpret_cast<void*>(&gen_imp_PostQueuedCompletionStatus)},
+        {"WaitForMultipleObjects", reinterpret_cast<void*>(&gen_imp_WaitForMultipleObjects)},
+        {"WaitForMultipleObjectsEx", reinterpret_cast<void*>(&gen_imp_WaitForMultipleObjectsEx)},
+        {"MsgWaitForMultipleObjects", reinterpret_cast<void*>(&gen_imp_MsgWaitForMultipleObjects)},
+        {"MsgWaitForMultipleObjectsEx", reinterpret_cast<void*>(&gen_imp_MsgWaitForMultipleObjectsEx)},
+        {"InitializeSListHead", reinterpret_cast<void*>(&gen_imp_InitializeSListHead)},
+        {"InitOnceInitialize", reinterpret_cast<void*>(&gen_imp_InitOnceInitialize)},
+        {"InitOnceExecuteOnce", reinterpret_cast<void*>(&gen_imp_InitOnceExecuteOnce)},
+        {"InterlockedPushEntrySList", reinterpret_cast<void*>(&gen_imp_InterlockedPushEntrySList)},
+        {"InterlockedPopEntrySList", reinterpret_cast<void*>(&gen_imp_InterlockedPopEntrySList)},
+        {"InterlockedFlushSList", reinterpret_cast<void*>(&gen_imp_InterlockedFlushSList)},
+        {"QueryDepthSList", reinterpret_cast<void*>(&gen_imp_QueryDepthSList)},
+        {"InterlockedPushListSListEx", reinterpret_cast<void*>(&gen_imp_InterlockedPushListSListEx)},
+        {"CreateDirectoryW", reinterpret_cast<void*>(&gen_imp_CreateDirectoryW)},
+        {"CreateDirectoryA", reinterpret_cast<void*>(&gen_imp_CreateDirectoryA)},
+        {"CreateEventA", reinterpret_cast<void*>(&gen_imp_CreateEventA)},
+        {"CreateEventW", reinterpret_cast<void*>(&gen_imp_CreateEventW)},
+        {"CreateMutexA", reinterpret_cast<void*>(&gen_imp_CreateMutexA)},
+        {"CreateMutexW", reinterpret_cast<void*>(&gen_imp_CreateMutexW)},
+        {"CreateSemaphoreA", reinterpret_cast<void*>(&gen_imp_CreateSemaphoreA)},
+        {"CreateSemaphoreW", reinterpret_cast<void*>(&gen_imp_CreateSemaphoreW)},
+        {"CreatePipe", reinterpret_cast<void*>(&gen_imp_CreatePipe)},
+        {"CreateTimerQueue", reinterpret_cast<void*>(&gen_imp_CreateTimerQueue)},
+        {"CreateTimerQueueTimer", reinterpret_cast<void*>(&gen_imp_CreateTimerQueueTimer)},
+        {"QueueUserWorkItem", reinterpret_cast<void*>(&gen_imp_QueueUserWorkItem)},
+        {"ChangeTimerQueueTimer", reinterpret_cast<void*>(&gen_imp_ChangeTimerQueueTimer)},
+        {"DeleteTimerQueueTimer", reinterpret_cast<void*>(&gen_imp_DeleteTimerQueueTimer)},
+        {"DeleteTimerQueueEx", reinterpret_cast<void*>(&gen_imp_DeleteTimerQueueEx)},
+        {"DeleteTimerQueue", reinterpret_cast<void*>(&gen_imp_DeleteTimerQueue)},
+        {"RegisterWaitForSingleObject", reinterpret_cast<void*>(&gen_imp_RegisterWaitForSingleObject)},
+        {"UnregisterWait", reinterpret_cast<void*>(&gen_imp_UnregisterWait)},
+        {"UnregisterWaitEx", reinterpret_cast<void*>(&gen_imp_UnregisterWaitEx)},
+        {"DuplicateHandle", reinterpret_cast<void*>(&gen_imp_DuplicateHandle)},
+        {"OpenProcessToken", reinterpret_cast<void*>(&gen_imp_OpenProcessToken)},
+        {"OpenThreadToken", reinterpret_cast<void*>(&gen_imp_OpenThreadToken)},
+        {"GetLogicalProcessorInformation", reinterpret_cast<void*>(&gen_imp_GetLogicalProcessorInformation)},
+        {"GetProcessAffinityMask", reinterpret_cast<void*>(&gen_imp_GetProcessAffinityMask)},
+        {"SetFilePointerEx", reinterpret_cast<void*>(&gen_imp_SetFilePointerEx)},
+        {"SHGetMalloc", reinterpret_cast<void*>(&gen_imp_SHGetMalloc)},
+        {"CoGetMalloc", reinterpret_cast<void*>(&gen_imp_CoGetMalloc)},
+        {"SHGetSpecialFolderLocation", reinterpret_cast<void*>(&gen_imp_SHGetSpecialFolderLocation)},
+        {"GetModuleFileNameW", reinterpret_cast<void*>(&gen_imp_GetModuleFileNameW)},
+        {"GetModuleFileNameA", reinterpret_cast<void*>(&gen_imp_GetModuleFileNameA)},
+        {"SetUnhandledExceptionFilter", reinterpret_cast<void*>(&gen_imp_SetUnhandledExceptionFilter)},
+        {"strtoll", reinterpret_cast<void*>(&gen_imp_strtoll)},
+        {"strtoull", reinterpret_cast<void*>(&gen_imp_strtoull)},
+        {"strtod", reinterpret_cast<void*>(&gen_imp_strtod)},
+        {"strtof", reinterpret_cast<void*>(&gen_imp_strtof)},
+        {"wcstod", reinterpret_cast<void*>(&gen_imp_wcstod)},
+        {"atof", reinterpret_cast<void*>(&gen_imp_atof)},
+        {"div", reinterpret_cast<void*>(&gen_imp_div)},
+        {"ldiv", reinterpret_cast<void*>(&gen_imp_ldiv)},
+        {"WSAStartup", reinterpret_cast<void*>(&gen_imp_WSAStartup)},
+        {"select", reinterpret_cast<void*>(&gen_imp_select)},
+        {"getaddrinfo", reinterpret_cast<void*>(&gen_imp_getaddrinfo)},
+        {"freeaddrinfo", reinterpret_cast<void*>(&gen_imp_freeaddrinfo)},
+        {"gethostbyname", reinterpret_cast<void*>(&gen_imp_gethostbyname)},
+        {"__WSAFDIsSet", reinterpret_cast<void*>(&gen_imp___WSAFDIsSet)},
+        {"DefWindowProcA", reinterpret_cast<void*>(&gen_imp_DefWindowProcA)},
+        {"DefWindowProcW", reinterpret_cast<void*>(&gen_imp_DefWindowProcW)},
+        {"DefDlgProcA", reinterpret_cast<void*>(&gen_imp_DefDlgProcA)},
+        {"DefDlgProcW", reinterpret_cast<void*>(&gen_imp_DefDlgProcW)},
+        {"DefMDIChildProcA", reinterpret_cast<void*>(&gen_imp_DefMDIChildProcA)},
+        {"DefMDIChildProcW", reinterpret_cast<void*>(&gen_imp_DefMDIChildProcW)},
+        {"DefFrameProcA", reinterpret_cast<void*>(&gen_imp_DefFrameProcA)},
+        {"DefFrameProcW", reinterpret_cast<void*>(&gen_imp_DefFrameProcW)},
+        {"CallWindowProcA", reinterpret_cast<void*>(&gen_imp_CallWindowProcA)},
+        {"CallWindowProcW", reinterpret_cast<void*>(&gen_imp_CallWindowProcW)},
+        {"VariantInit", reinterpret_cast<void*>(&gen_imp_VariantInit)},
+        {"VariantClear", reinterpret_cast<void*>(&gen_imp_VariantClear)},
+        {"Direct3DCreate9", reinterpret_cast<void*>(&gen_imp_Direct3DCreate9)},
+        {"DirectInput8Create", reinterpret_cast<void*>(&gen_imp_DirectInput8Create)},
+        {"CoCreateInstance", reinterpret_cast<void*>(&gen_imp_CoCreateInstance)},
+        {"CreateStreamOnHGlobal", reinterpret_cast<void*>(&gen_imp_CreateStreamOnHGlobal)},
+        {"GetHGlobalFromStream", reinterpret_cast<void*>(&gen_imp_GetHGlobalFromStream)},
+        {"CoGetClassObject", reinterpret_cast<void*>(&gen_imp_CoGetClassObject)},
+    };
+    for (const auto& e : table)
+        if (strcmp(e.name, name) == 0) return e.fn;
+    return nullptr;
+}

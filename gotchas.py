@@ -90,6 +90,8 @@ RISKY = {
     "RegOpenKeyExA": "PHKEY out", "RegOpenKeyExW": "PHKEY out", "RegOpenKeyA": "PHKEY out",
     "RegCreateKeyA": "PHKEY out",
     "VerQueryValueA": "LPVOID* out: 8 bytes on x64", "VerQueryValueW": "LPVOID* out",
+    # (sizes as SIZE_T: the x64 one overran POP.EXE's crash reporter's 32-byte block, sands3 2026-11-01)
+    "GlobalMemoryStatus": "MEMORYSTATUS's counts are SIZE_T: 32 bytes on x86, 56 on x64",
     "FormatMessageA": "FORMAT_MESSAGE_ALLOCATE_BUFFER writes a pointer, 8 bytes", "FormatMessageW": "the same",
     "SHGetSpecialFolderLocation": "PIDL* out: 8 bytes",
     "CoTaskMemAlloc": "returns memory that may sit above 4 GB",
