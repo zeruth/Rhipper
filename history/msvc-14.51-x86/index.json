@@ -1894,5 +1894,17 @@
   "stubs": 105,
   "perfect": 9408,
   "translated": 9682
+ },
+ {
+  "sha": "a270e6c1e53194cf9b1686b8f075180ddd9162ce",
+  "date": "2026-11-01T22:52:39-05:00",
+  "subject": "runtime: emulated DirectShow (Media Foundation) and the Android runtime's progress",
+  "run": "2026-11-02 04:56 UTC",
+  "file": "a270e6c1e53194cf9b1686b8f075180ddd9162ce.json",
+  "passing": 25,
+  "projects": 36,
+  "stubs": 25,
+  "perfect": 9453,
+  "translated": 9720
  }
 ]
