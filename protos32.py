@@ -2119,7 +2119,10 @@ def analyse(root: int, ranges):
                 and all(w == 1 and not wr and b == 0 for w, wr, b in acc):
             slots[off] = "b"
     return {"reg_handoff": reg_handoff(insns, prv, state), "fpu_clear": fpu_clear, "x87_data": x87_data, "x87_own_ret": x87_own_ret, "own_i8": own_i8, "own_sse": own_sse, "local_block": block, "ebp_calls": sorted(ebp_calls) if not loc_lea else [], "passed": passed, "passed_fwd": passed_fwd, "tail_jumps": tail_jumps, "eh_imms": eh_imms,
-            "frame": -floor[0] if floor[0] is not None and floor[0] < 0 else None,"inputs": inputs, "in_width": in_width, "stack_hi": stack_hi, "slots": slots,
+            # (a realigned frame's locals from its new base, REALIGNED_ESP: as -floor its 1 MB offset
+            # was the frame, 121 functions' GEN_FRAME_DECL(0x1000xx) on a 1 MB main thread, 2026-11-02)
+            "frame": (REALIGNED_ESP - floor[0] if floor[0] <= REALIGNED_ESP else -floor[0])
+                     if floor[0] is not None and floor[0] < 0 else None,"inputs": inputs, "in_width": in_width, "stack_hi": stack_hi, "slots": slots,
             "addr_taken": addr_taken, "calls": calls, "variadic": variadic, "call_pushes": call_pushes, "pushes_past": pushes_past,
             "untyped_pushed": untyped_pushed,
             "x87_use": x87_use, "st0_live": st0_live, "st0_across": st0_across, "st_across_deep": st_across_deep,
@@ -2251,6 +2254,14 @@ def result_reads(insns, state, nxt):
                 and fall not in passes:
             passes.append(fall)
         if t is None:
+            # (an indirect tail jump's too: a forwarder returns whatever the pointer's target does,
+            # an x87 value among them. `mov ecx, [ecx + 0x28]; mov eax, [ecx]; jmp [eax + 0x30]` to
+            # a float getter, 0x410a20, passed nothing: refused the f4 its caller 0xba1980 hands it
+            # (reaches_x87), it returned eax, and the movie subtitles' clock was garbage, every cue
+            # at once, 2026-11-01)
+            if indirect_tail_jump(ins):
+                passes.append(("site", a))
+                continue
             # (an indirect call's: by its address, for its call-site signature)
             if ins.mnemonic != "call":
                 continue
@@ -6356,6 +6367,10 @@ def main() -> None:
             # (an x87 dispatcher's: the handler's value in st0 its own, x87_dispatch_records)
             if f in x87_disp:
                 rets[hexa(a)] = ["d", 8]
+            # (and a forwarder's whose result is an x87 or edx:eax one: the jump returns it, read
+            # off the site as gen_fcode / gen_lcode, not eax. 0x410a20's jmp to GetPosition)
+            elif ret_of.get(f) in ("f4", "d8", "i8"):
+                rets[hexa(a)] = {"f4": ["f", 4], "d8": ["d", 8], "i8": ["i", 8]}[ret_of[f]]
         for a, (cc, n) in v.get("icalls", {}).items():
             # (the callees the reference really reached here, shadow32 --sites: where every one
             # that pops its own arguments pops the same, the call passes that many words. Counted

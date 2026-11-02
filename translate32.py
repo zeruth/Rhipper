@@ -1255,6 +1255,8 @@ def frame_locals(body: str, reserve: int = 0, minimum: int = 0, args: list[str] 
 
 
 FRAME_AT = re.compile(r"\(gen_frame \+ 0x[0-9a-f]+\)")
+# (a frame array as frame_locals names one, `((T *)(gen_frame + 0xK))`, T and the place)
+FRAME_ARRAY = re.compile(r"\(\((.+?) \*\)(\(gen_frame \+ 0x[0-9a-f]+\))\)")
 
 
 def frame_cookie(body: str, size: int) -> tuple[str, bool]:
@@ -1290,10 +1292,22 @@ def frame_index(body: str, bases: list) -> str:
                 depth += {"[": 1, "]": -1}.get(body[k], 0)
                 k += 1
             e = frame_index(body[j:k - 1], bases)
-            out.append(body[i:j])
-            # (a literal index is the same either way)
-            out.append(e if re.fullmatch(r"\s*-?(?:0x[0-9a-fA-F]+|\d+)\s*", e) else f"(int)({e})")
-            out.append("]")
+            typed = FRAME_ARRAY.fullmatch(base)
+            # (a literal index is the same either way; another subscript after it, a row of a
+            # 2-D local, left as it was)
+            if re.fullmatch(r"\s*-?(?:0x[0-9a-fA-F]+|\d+)\s*", e) or not typed or body[k:k + 1] == "[":
+                out.append(body[i:j])
+                out.append(e if re.fullmatch(r"\s*-?(?:0x[0-9a-fA-F]+|\d+)\s*", e) else f"(int)({e})")
+                out.append("]")
+            else:
+                # (the element's address in 32 bits, the reference's [ebp + ecx*4 - 0x30]: an index
+                # past 2^29 wraps there to a slot of the frame, and C's 64-bit sum left it. A NaN
+                # gain's ftol, 0x80000000, read 9 - 0x80000000 of an 11-float table, ebp - 0xc on
+                # x86 and 8 GB below the frame in the port: d2edb0 from PointSound::vf15, 2026-11-01.
+                # The port's stack is below 4 GB, frame_wrap's premise)
+                t, at = typed.group(1), typed.group(2)
+                out.append(body[i:p])
+                out.append(f"(*({t} *)GP((uint)(uintptr_t){at} + (uint)({e}) * (uint)sizeof({t})))")
             i = k
         out.append(body[i:])
         body = "".join(out)
@@ -1318,9 +1332,18 @@ def global_index(body: str) -> str:
             depth += {"[": 1, "]": -1}.get(body[k], 0)
             k += 1
         e = global_index(body[j:k - 1])
-        out.append(body[i:j])
-        out.append(e if re.fullmatch(r"\s*-?(?:0x[0-9a-fA-F]+|\d+)\s*", e) else f"(int)({e})")
-        out.append("]")
+        typed = re.fullmatch(r"\(&REFG\((.+), (0x[0-9a-fA-F]+)\)\)\[", m.group(0))
+        if re.fullmatch(r"\s*-?(?:0x[0-9a-fA-F]+|\d+)\s*", e) or not typed or body[k:k + 1] == "[":
+            out.append(body[i:j])
+            out.append(e if re.fullmatch(r"\s*-?(?:0x[0-9a-fA-F]+|\d+)\s*", e) else f"(int)({e})")
+            out.append("]")
+        else:
+            # (the element's address in 32 bits, as x86's [A + ecx*S]: frame_index's rule. A table
+            # looked up by a NaN's ftol, 0x80000000, wraps there to the table's base, 8 GB on in a
+            # 64-bit sum, 2026-11-01)
+            t, at = typed.groups()
+            out.append(body[i:m.start()])
+            out.append(f"(*({t} *)GP({at}u + (uint)({e}) * (uint)sizeof({t})))")
         i = k
     out.append(body[i:])
     return "".join(out)
