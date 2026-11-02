@@ -1918,5 +1918,17 @@
   "stubs": 25,
   "perfect": 9453,
   "translated": 9720
+ },
+ {
+  "sha": "630c2947666c29f006c91dc55005f0d1f06ac8ac",
+  "date": "2026-11-02T03:11:47-05:00",
+  "subject": "protos32: no stack block in a realigned frame (1 MB frames, the hang after the logo)",
+  "run": "2026-11-02 09:14 UTC",
+  "file": "630c2947666c29f006c91dc55005f0d1f06ac8ac.json",
+  "passing": 25,
+  "projects": 36,
+  "stubs": 25,
+  "perfect": 9453,
+  "translated": 9720
  }
 ]

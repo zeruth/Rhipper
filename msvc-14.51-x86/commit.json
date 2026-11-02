@@ -1,1 +1,1 @@
-{"sha": "d6bcb6674f2c633fb84d74f04955ad3306b26158", "date": "2026-11-02T02:34:47-05:00", "subject": "accuracy: realigned frames' real size, 32-bit array addresses, forwarders' x87 results"}
+{"sha": "630c2947666c29f006c91dc55005f0d1f06ac8ac", "date": "2026-11-02T03:11:47-05:00", "subject": "protos32: no stack block in a realigned frame (1 MB frames, the hang after the logo)"}
