@@ -1343,7 +1343,10 @@ def global_index(body: str) -> str:
             # 64-bit sum, 2026-11-01)
             t, at = typed.groups()
             out.append(body[i:m.start()])
-            out.append(f"(*({t} *)GP({at}u + (uint)({e}) * (uint)sizeof({t})))")
+            # (the global by its REFG still: text_data finds the code section's data the port reads
+            # by `REFG(T, 0xA)`. As `GP(0xAu + ..)` 3.6 KB of byte switches' index tables were left
+            # int3, every such switch took its default, and the port stuck after the logo, 2026-11-02)
+            out.append(f"(*({t} *)GP((uint)(uintptr_t)&REFG({t}, {at}) + (uint)({e}) * (uint)sizeof({t})))")
         i = k
     out.append(body[i:])
     return "".join(out)
