@@ -1,1 +1,1 @@
-{"sha": "a270e6c1e53194cf9b1686b8f075180ddd9162ce", "date": "2026-11-01T22:52:39-05:00", "subject": "runtime: emulated DirectShow (Media Foundation) and the Android runtime's progress"}
+{"sha": "d6bcb6674f2c633fb84d74f04955ad3306b26158", "date": "2026-11-02T02:34:47-05:00", "subject": "accuracy: realigned frames' real size, 32-bit array addresses, forwarders' x87 results"}

@@ -1906,5 +1906,17 @@
   "stubs": 25,
   "perfect": 9453,
   "translated": 9720
+ },
+ {
+  "sha": "d6bcb6674f2c633fb84d74f04955ad3306b26158",
+  "date": "2026-11-02T02:34:47-05:00",
+  "subject": "accuracy: realigned frames' real size, 32-bit array addresses, forwarders' x87 results",
+  "run": "2026-11-02 08:33 UTC",
+  "file": "d6bcb6674f2c633fb84d74f04955ad3306b26158.json",
+  "passing": 25,
+  "projects": 36,
+  "stubs": 25,
+  "perfect": 9453,
+  "translated": 9720
  }
 ]
