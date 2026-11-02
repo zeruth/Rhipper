@@ -1930,5 +1930,17 @@
   "stubs": 25,
   "perfect": 9453,
   "translated": 9720
+ },
+ {
+  "sha": "c9e931b22beed3e6d567e04be0a7150f7c55dedb",
+  "date": "2026-11-02T03:59:27-05:00",
+  "subject": "translate32: a global array's 32-bit address keeps its REFG (the hang after the logo)",
+  "run": "2026-11-02 09:40 UTC",
+  "file": "c9e931b22beed3e6d567e04be0a7150f7c55dedb.json",
+  "passing": 25,
+  "projects": 36,
+  "stubs": 25,
+  "perfect": 9453,
+  "translated": 9720
  }
 ]

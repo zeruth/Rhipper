@@ -1,1 +1,1 @@
-{"sha": "630c2947666c29f006c91dc55005f0d1f06ac8ac", "date": "2026-11-02T03:11:47-05:00", "subject": "protos32: no stack block in a realigned frame (1 MB frames, the hang after the logo)"}
+{"sha": "c9e931b22beed3e6d567e04be0a7150f7c55dedb", "date": "2026-11-02T03:59:27-05:00", "subject": "translate32: a global array's 32-bit address keeps its REFG (the hang after the logo)"}
