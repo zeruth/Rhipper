@@ -396,8 +396,17 @@ void Translator::Prescan() {
             psT_ |= 1u << r.reg;
         }
     }
+    uint32_t constCount = ps_ ? 224 : 256;
     for (const Inst& in : insts_) {
         auto ref = [&](const Param& p, bool write) {
+            // what the uniform block must hold: c up to the highest read (+3: a m4x4's rows), all of
+            // it under relative addressing; i and b when read (loop / rep / if b# read them as sources)
+            if (!write) {
+                if (p.type == kRegConst)   // (the banks past 2047 read zero, not the block)
+                    info_->floatConsts = std::max(info_->floatConsts, p.rel ? constCount : std::min(constCount, p.reg + 4));
+                else if (p.type == kRegConstInt) info_->intConsts = true;
+                else if (p.type == kRegConstBool) info_->boolConsts = true;
+            }
             if (!ps_) {
                 if (!write && p.type == kRegInput && p.reg < 16) vsUsed_ |= p.rel ? 0xffffu : 1u << p.reg;
                 if (write && p.type == kRegRastOut && p.reg < 3) rastWritten_ |= 1u << p.reg;
@@ -1322,6 +1331,17 @@ void Translator::Prologue() {
         }
         return;
     }
+    // point sprites (the push constants' flags bit 1): every texture coordinate is (PointCoord, 0, 1)
+    uint32_t sprite = 0, spriteCoord = 0;
+    auto texcoord = [&](uint32_t value) {
+        if (!sprite) {
+            uint32_t flags = b_.Load(tUint_, b_.Emit(spv::OpAccessChain, pPushUint_, {push_, I(3)}));
+            sprite = SplatB(Bin(spv::OpINotEqual, tBool_, Bin(spv::OpBitwiseAnd, tUint_, flags, U(2)), U(0)));
+            uint32_t pc = b_.Load(tVec2_, BuiltInVar(b_.TypePointer(spv::Input, tVec2_), spv::Input, spv::PointCoord));
+            spriteCoord = Vec(Comp(pc, 0), Comp(pc, 1), F(0), F(1));
+        }
+        return Select(tVec4_, sprite, spriteCoord, value);
+    };
     if (major_ >= 3) {
         // by (usage, index); a register carrying two semantics (dcl_texcoord0 v1.xy, dcl_texcoord1
         // v1.zw) takes each one's components from its location
@@ -1332,6 +1352,7 @@ void Translator::Prologue() {
             uint32_t value = 0;
             for (const IoDecl* d : ds) {
                 uint32_t x = b_.Load(tVec4_, InputAt(LinkLocation(uint8_t(d->usage), uint8_t(d->index))));
+                if (d->usage == 5) x = texcoord(x);
                 if (ds.size() == 1) value = x;
                 else value = Merge(tVec4_, value ? value : Vec4(0, 0, 0, 0), x, d->mask);
             }
@@ -1341,7 +1362,7 @@ void Translator::Prologue() {
     }
     // shader model 1/2: tN is TEXCOORDn, vN COLORn
     for (uint32_t reg = 0; reg < 8; ++reg)
-        if (psT_ & (1u << reg)) store(t_, reg, b_.Load(tVec4_, InputAt(LinkLocation(5, uint8_t(reg)))));
+        if (psT_ & (1u << reg)) store(t_, reg, texcoord(b_.Load(tVec4_, InputAt(LinkLocation(5, uint8_t(reg))))));
     for (uint32_t reg = 0; reg < 2; ++reg)
         if (psV_ & (1u << reg)) store(v_, reg, b_.Load(tVec4_, InputAt(LinkLocation(10, uint8_t(reg)))));
 }
@@ -1396,7 +1417,10 @@ void Translator::Epilogue() {
         uint32_t flip = Bin(OpINotEqual, tBool_, Bin(OpBitwiseAnd, tUint_, flags, U(1)), U(0));
         y = Select(tFloat_, flip, b_.Emit(OpFNegate, tFloat_, {y}), y);
         b_.Store(BuiltInVar(pOutVec4_, Output, Position), Vec(x, y, Comp(pos, 2), w));
-        if (psize) b_.Store(BuiltInVar(b_.TypePointer(Output, tFloat_), Output, PointSize), psize);
+        // the point size: the shader's (clamped to POINTSIZE_MAX), else D3DRS_POINTSIZE (viewport.z);
+        // always written, so a point list draws at the size D3D9 does whatever the shader
+        uint32_t size = psize ? b_.Ext(tFloat_, FMin, {psize, Comp(vp, 3)}) : Comp(vp, 2);
+        b_.Store(BuiltInVar(b_.TypePointer(Output, tFloat_), Output, PointSize), size);
         return;
     }
 
@@ -1418,8 +1442,9 @@ void Translator::Epilogue() {
     }
     for (uint32_t k = 0; k < 4; ++k)
         if (info_->outputColors & (1u << k)) b_.Store(OutputAt(k), color(k));
-    if (info_->writesDepth)
-        b_.Store(BuiltInVar(b_.TypePointer(Output, tFloat_), Output, FragDepth), Comp(b_.Load(tVec4_, oDepth_), 0));
+    if (info_->writesDepth)   // (clamped to [0, 1] as D3D9 does: Vulkan's is undefined outside it)
+        b_.Store(BuiltInVar(b_.TypePointer(Output, tFloat_), Output, FragDepth),
+                 b_.Ext(tFloat_, NClamp, {Comp(b_.Load(tVec4_, oDepth_), 0), F(0), F(1)}));
 }
 
 std::vector<uint32_t> Translator::Run(const uint32_t* tokens, size_t count) {

@@ -4,7 +4,11 @@
 //
 // Overlapped I/O: the reference imports no GetOverlappedResult nor a completion port, so an
 // OVERLAPPED is a position (and an event to set): ReadFile and WriteFile with one read or write at
-// its offset, synchronously, and report the transfer in it as a completed operation would.
+// its offset, synchronously, and report the transfer in it as a completed operation would (on a
+// handle opened without FILE_FLAG_OVERLAPPED the file pointer then moves past it, as Windows').
+//
+// A missing file's error is Windows' own pair: ERROR_FILE_NOT_FOUND, or ERROR_PATH_NOT_FOUND when
+// its directory is missing too (the reference's File::Open makes the directories on that one).
 #include <dirent.h>
 #include <fcntl.h>
 #include <fnmatch.h>
@@ -13,6 +17,9 @@
 #include <sys/statvfs.h>
 #include <time.h>
 #include <unistd.h>
+
+#include <atomic>
+#include <cstring>
 
 #include <algorithm>
 #include <cerrno>
@@ -30,6 +37,7 @@ struct File : Object {
     bool dir = false;
     uint32_t type = 1;            // FILE_TYPE_DISK 1, CHAR 2, PIPE 3
     int logStream = 0;            // 1 stdout, 2 stderr: written into the log
+    bool overlapped = false;      // FILE_FLAG_OVERLAPPED: an OVERLAPPED's offset leaves the file pointer
     std::string path, deleteOnClose;
     const char* Kind() const override { return "file"; }
     bool Close() override {
@@ -62,14 +70,52 @@ using namespace rh;
 
 namespace {
 
+uint32_t g_std[3] = {};
+std::shared_ptr<File> StdFile(int which);
+
 std::shared_ptr<File> FileOf(uint32_t h) {
-    // (the standard handles' pseudo values, -10/-11/-12, are GetStdHandle's)
+    // (the standard handles' pseudo values, -10/-11/-12, name the standard handles, as kernel32's
+    // ReadFile, WriteFile and GetFileType take them)
+    if (h >= 0xFFFFFFF4u && h <= 0xFFFFFFF6u) {
+        int k = static_cast<int>(0xFFFFFFF6u - h);
+        return g_std[k] ? GetAs<File>(g_std[k]) : StdFile(k);
+    }
     return GetAs<File>(h);
 }
 
 uint32_t Fail(int e) {
     SetLastError(ErrnoToWin(e));
     return 0;
+}
+
+// a missing file as Windows tells it: ERROR_PATH_NOT_FOUND when its directory is missing too (a
+// caller may make the directories on that error and try again), ERROR_FILE_NOT_FOUND when only it is
+uint32_t Missing(const std::string& host) {
+    size_t cut = host.rfind('/');
+    if (cut == std::string::npos || cut == 0) return win::ERROR_FILE_NOT_FOUND;
+    struct stat st;
+    return stat(host.substr(0, cut).c_str(), &st) == 0 && S_ISDIR(st.st_mode) ? win::ERROR_FILE_NOT_FOUND
+                                                                               : win::ERROR_PATH_NOT_FOUND;
+}
+uint32_t FailAt(int e, const std::string& host) {
+    SetLastError(e == ENOENT ? Missing(host) : ErrnoToWin(e));
+    return 0;
+}
+
+// the file pointer moved (FILE_BEGIN 0, FILE_CURRENT 1, FILE_END 2): -1 and the last error set on a
+// failure, a move before the start ERROR_NEGATIVE_SEEK as Windows'
+off_t Seek(int fd, int64_t d, uint32_t method) {
+    if (method > 2) return SetLastError(win::ERROR_INVALID_PARAMETER), -1;
+    off_t at = lseek(fd, static_cast<off_t>(d), method == 0 ? SEEK_SET : method == 1 ? SEEK_CUR : SEEK_END);
+    if (at < 0) SetLastError(errno == EINVAL ? 131 : ErrnoToWin(errno));
+    return at;
+}
+
+// an empty name: no file, as Windows answers it
+bool EmptyName(const std::string& windows) {
+    if (!windows.empty()) return false;
+    SetLastError(win::ERROR_PATH_NOT_FOUND);
+    return true;
 }
 
 // CreateFile: access GENERIC_READ 0x80000000 / GENERIC_WRITE 0x40000000; disposition CREATE_NEW 1,
@@ -81,11 +127,13 @@ uint32_t OpenFile(const std::string& windows, uint32_t access, uint32_t disposit
         SetLastError(win::ERROR_FILE_NOT_FOUND);
         return kInvalidHandle;
     }
+    if (EmptyName(windows)) return kInvalidHandle;
     std::string path = HostPath(windows, disposition != 3 && disposition != 5);
     struct stat st;
     bool existed = stat(path.c_str(), &st) == 0;
     auto f = std::make_shared<File>();
     f->path = path;
+    f->overlapped = (flags & 0x40000000u) != 0;   // FILE_FLAG_OVERLAPPED
     if (existed && S_ISDIR(st.st_mode)) {
         if (!(flags & 0x02000000)) {
             SetLastError(win::ERROR_ACCESS_DENIED);
@@ -111,8 +159,12 @@ uint32_t OpenFile(const std::string& windows, uint32_t access, uint32_t disposit
     f->fd = open(path.c_str(), o, 0644);
     if (f->fd < 0) {
         int e = errno;
-        SetLastError(e == EEXIST ? win::ERROR_FILE_EXISTS : ErrnoToWin(e));
-        if (e != ENOENT) Log("CreateFile(%s -> %s): errno %d", windows.c_str(), path.c_str(), e);
+        if (e == EEXIST) SetLastError(win::ERROR_FILE_EXISTS);
+        else FailAt(e, path);
+        // (a missing file too, the first ones: a resource that never finishes loading is often one)
+        static std::atomic<int> s_missLogged{0};
+        if (e != ENOENT || s_missLogged++ < 200)
+            Log("CreateFile(%s -> %s): %s", windows.c_str(), path.c_str(), e == ENOENT ? "not found" : strerror(e));
         return kInvalidHandle;
     }
     if (flags & 0x04000000) f->deleteOnClose = path;
@@ -126,12 +178,16 @@ struct Ov32 {
 };
 static_assert(sizeof(Ov32) == 20, "OVERLAPPED, x86");
 
-void OvDone(uint32_t ov, ssize_t n) {
+void OvDone(uint32_t ov, ssize_t n, bool eof = false) {
     auto o = At<Ov32>(ov);
-    o->internal = 0;   // STATUS_SUCCESS
+    o->internal = eof ? 0xC0000011u : 0;   // STATUS_END_OF_FILE / STATUS_SUCCESS
     o->internalHigh = n < 0 ? 0 : static_cast<uint32_t>(n);
     if (o->event)
         if (auto e = GetHandle(o->event)) SignalEvent(e);
+}
+int64_t OvOffset(uint32_t ov) {
+    auto o = At<Ov32>(ov);
+    return static_cast<int64_t>(o->offset | (static_cast<uint64_t>(o->offsetHigh) << 32));
 }
 
 std::shared_ptr<File> StdFile(int which) {
@@ -147,7 +203,6 @@ std::shared_ptr<File> StdFile(int which) {
     });
     return files[which];
 }
-uint32_t g_std[3] = {};
 
 }  // namespace
 
@@ -167,19 +222,27 @@ unsigned int gen_imp_ReadFile(uint32_t h, uint32_t buf, uint32_t n, uint32_t got
     if (got) *At<uint32_t>(got) = 0;
     if (!f || f->fd < 0) return SetLastError(win::ERROR_INVALID_HANDLE), 0;
     ssize_t r;
-    if (ov) {
-        auto o = At<Ov32>(ov);
-        r = pread(f->fd, At(buf), n, static_cast<off_t>(o->offset | (static_cast<uint64_t>(o->offsetHigh) << 32)));
+    if (ov && f->type == 1) {
+        int64_t at = OvOffset(ov);
+        do r = pread(f->fd, At(buf), n, static_cast<off_t>(at));
+        while (r < 0 && errno == EINTR);
+        // (a handle opened without FILE_FLAG_OVERLAPPED moves its file pointer past what it read)
+        if (r >= 0 && !f->overlapped) lseek(f->fd, static_cast<off_t>(at + r), SEEK_SET);
     } else {
         do r = read(f->fd, At(buf), n);
         while (r < 0 && errno == EINTR);
     }
-    if (r < 0) return Fail(errno);
+    if (r < 0) {
+        static std::atomic<int> s_readLogged{0};
+        if (s_readLogged++ < 50) Log("ReadFile(handle %08x, %u bytes): %s", h, n, strerror(errno));
+        return Fail(errno);
+    }
     if (got) *At<uint32_t>(got) = static_cast<uint32_t>(r);
     if (ov) {
-        OvDone(ov, r);
-        // (an overlapped read at the end: ERROR_HANDLE_EOF, as Windows)
-        if (r == 0 && n) return SetLastError(win::ERROR_HANDLE_EOF), 0;
+        // (an overlapped read at the end of a file: ERROR_HANDLE_EOF, as Windows)
+        bool eof = r == 0 && n && f->type == 1;
+        OvDone(ov, r, eof);
+        if (eof) return SetLastError(win::ERROR_HANDLE_EOF), 0;
     }
     return 1;
 }
@@ -197,9 +260,13 @@ unsigned int gen_imp_WriteFile(uint32_t h, uint32_t buf, uint32_t n, uint32_t pu
     }
     if (f->fd < 0) return SetLastError(win::ERROR_INVALID_HANDLE), 0;
     ssize_t r;
-    if (ov) {
-        auto o = At<Ov32>(ov);
-        r = pwrite(f->fd, At(buf), n, static_cast<off_t>(o->offset | (static_cast<uint64_t>(o->offsetHigh) << 32)));
+    if (ov && f->type == 1) {
+        int64_t at = OvOffset(ov);
+        // (an offset of 0xFFFFFFFF:FFFFFFFF writes at the end, as FILE_WRITE_TO_END_OF_FILE)
+        if (at == -1) at = lseek(f->fd, 0, SEEK_END);
+        do r = pwrite(f->fd, At(buf), n, static_cast<off_t>(at));
+        while (r < 0 && errno == EINTR);
+        if (r >= 0 && !f->overlapped) lseek(f->fd, static_cast<off_t>(at + r), SEEK_SET);
     } else {
         do r = write(f->fd, At(buf), n);
         while (r < 0 && errno == EINTR);
@@ -214,16 +281,21 @@ unsigned int gen_imp_WriteFile(uint32_t h, uint32_t buf, uint32_t n, uint32_t pu
 unsigned int gen_imp_SetFilePointerEx(uint32_t h, uint32_t low, uint32_t high, uint32_t out, uint32_t method) {
     auto f = FileOf(h);
     if (!f || f->fd < 0) return SetLastError(win::ERROR_INVALID_HANDLE), 0;
-    off_t at = lseek(f->fd, static_cast<off_t>(static_cast<int64_t>(low | (static_cast<uint64_t>(high) << 32))),
-                     method == 0 ? SEEK_SET : method == 1 ? SEEK_CUR : SEEK_END);
-    if (at < 0) return Fail(errno);
+    off_t at = Seek(f->fd, static_cast<int64_t>(low | (static_cast<uint64_t>(high) << 32)), method);
+    if (at < 0) return 0;
     if (out) *At<int64_t>(out) = at;
     return 1;
 }
 
+// (a missing parent is ERROR_PATH_NOT_FOUND: the reference makes a path's directories one by one on it)
 unsigned int gen_imp_CreateDirectoryW(uintptr_t path, uint32_t) {
-    std::string p = HostPath(Narrow(WStr(path)), true);
-    if (mkdir(p.c_str(), 0755) != 0) return SetLastError(errno == EEXIST ? win::ERROR_ALREADY_EXISTS : ErrnoToWin(errno)), 0;
+    std::string w = Narrow(WStr(path));
+    if (EmptyName(w)) return 0;
+    std::string p = HostPath(w, true);
+    if (mkdir(p.c_str(), 0755) != 0) {
+        int e = errno;
+        return SetLastError(e == EEXIST ? win::ERROR_ALREADY_EXISTS : e == ENOENT ? win::ERROR_PATH_NOT_FOUND : ErrnoToWin(e)), 0;
+    }
     return 1;
 }
 
@@ -245,8 +317,8 @@ static uint32_t SetFilePointer_(uint32_t h, uint32_t low, uint32_t phigh, uint32
     if (!f || f->fd < 0) return SetLastError(win::ERROR_INVALID_HANDLE), 0xFFFFFFFFu;
     int64_t d = phigh ? static_cast<int64_t>(low | (static_cast<uint64_t>(U32(phigh)) << 32))
                       : static_cast<int64_t>(static_cast<int32_t>(low));
-    off_t at = lseek(f->fd, static_cast<off_t>(d), method == 0 ? SEEK_SET : method == 1 ? SEEK_CUR : SEEK_END);
-    if (at < 0) return Fail(errno), 0xFFFFFFFFu;
+    off_t at = Seek(f->fd, d, method);
+    if (at < 0) return 0xFFFFFFFFu;
     if (phigh) *At<uint32_t>(phigh) = static_cast<uint32_t>(static_cast<uint64_t>(at) >> 32);
     SetLastError(0);
     return static_cast<uint32_t>(at);
@@ -264,7 +336,9 @@ RH_REG(KERNEL32, GetFileSizeEx, GetFileSizeEx_)
 
 static uint32_t GetFileType_(uint32_t h) {
     auto f = FileOf(h);
-    return f ? f->type : 0;
+    if (!f) return SetLastError(win::ERROR_INVALID_HANDLE), 0;   // FILE_TYPE_UNKNOWN
+    SetLastError(0);
+    return f->type;
 }
 RH_REG(KERNEL32, GetFileType, GetFileType_)
 
@@ -312,9 +386,10 @@ static uint32_t GetFileInformationByHandle_(uint32_t h, uint32_t out) {
 RH_REG(KERNEL32, GetFileInformationByHandle, GetFileInformationByHandle_)
 
 static uint32_t Attributes(const std::string& windows) {
+    if (EmptyName(windows)) return 0xFFFFFFFFu;
     struct stat st;
     std::string p = HostPath(windows);
-    if (stat(p.c_str(), &st) != 0) return Fail(errno), 0xFFFFFFFFu;
+    if (stat(p.c_str(), &st) != 0) return FailAt(errno, p), 0xFFFFFFFFu;
     return AttributesOf(st, p.substr(p.rfind('/') + 1));
 }
 static uint32_t GetFileAttributesA_(uint32_t name) { return Attributes(Narrow(Ansi16(At<char>(name)).c_str())); }
@@ -324,25 +399,36 @@ RH_REG(KERNEL32, GetFileAttributesW, GetFileAttributesW_)
 static uint32_t SetFileAttributesW_(uint32_t name, uint32_t attrs) {
     std::string p = HostPath16(At<char16_t>(name));
     struct stat st;
-    if (stat(p.c_str(), &st) != 0) return Fail(errno);
+    if (stat(p.c_str(), &st) != 0) return FailAt(errno, p);
     chmod(p.c_str(), (attrs & 1) ? (st.st_mode & ~0222) : (st.st_mode | 0200));
     return 1;
 }
 RH_REG(KERNEL32, SetFileAttributesW, SetFileAttributesW_)
 
-static uint32_t DeleteFileA_(uint32_t name) {
-    return unlink(HostPath(Narrow(Ansi16(At<char>(name)).c_str())).c_str()) == 0 ? 1 : Fail(errno);
-}
+// (a directory is no file to delete: ERROR_ACCESS_DENIED, as Windows)
+static uint32_t Delete(const std::string& p) { return unlink(p.c_str()) == 0 ? 1 : FailAt(errno == EISDIR ? EACCES : errno, p); }
+static uint32_t DeleteFileA_(uint32_t name) { return Delete(HostPath(Narrow(Ansi16(At<char>(name)).c_str()))); }
 RH_REG(KERNEL32, DeleteFileA, DeleteFileA_)
-static uint32_t DeleteFileW_(uint32_t name) { return unlink(HostPath16(At<char16_t>(name)).c_str()) == 0 ? 1 : Fail(errno); }
+static uint32_t DeleteFileW_(uint32_t name) { return Delete(HostPath16(At<char16_t>(name))); }
 RH_REG(KERNEL32, DeleteFileW, DeleteFileW_)
-static uint32_t RemoveDirectoryW_(uint32_t name) { return rmdir(HostPath16(At<char16_t>(name)).c_str()) == 0 ? 1 : Fail(errno); }
+static uint32_t RemoveDirectoryW_(uint32_t name) {
+    std::string p = HostPath16(At<char16_t>(name));
+    if (rmdir(p.c_str()) == 0) return 1;
+    int e = errno;
+    struct stat st;
+    if (e == ENOTDIR && stat(p.c_str(), &st) == 0 && !S_ISDIR(st.st_mode)) return SetLastError(267), 0;   // ERROR_DIRECTORY
+    return FailAt(e, p);
+}
 RH_REG(KERNEL32, RemoveDirectoryW, RemoveDirectoryW_)
 
 static uint32_t Move(const std::string& from, const std::string& to) {
     std::string a = HostPath(from), b = HostPath(to, true);
-    if (access(b.c_str(), F_OK) == 0) return SetLastError(win::ERROR_ALREADY_EXISTS), 0;   // (MoveFile does not replace)
-    return rename(a.c_str(), b.c_str()) == 0 ? 1 : Fail(errno);
+    struct stat sa, sb;
+    if (stat(a.c_str(), &sa) != 0) return FailAt(errno, a);
+    // (MoveFile does not replace; the same file in another case is a rename, which it allows)
+    if (stat(b.c_str(), &sb) == 0 && !(sa.st_dev == sb.st_dev && sa.st_ino == sb.st_ino))
+        return SetLastError(win::ERROR_ALREADY_EXISTS), 0;
+    return rename(a.c_str(), b.c_str()) == 0 ? 1 : FailAt(errno, b);
 }
 static uint32_t MoveFileA_(uint32_t a, uint32_t b) {
     return Move(Narrow(Ansi16(At<char>(a)).c_str()), Narrow(Ansi16(At<char>(b)).c_str()));
@@ -354,12 +440,12 @@ RH_REG(KERNEL32, MoveFileW, MoveFileW_)
 static uint32_t CopyFileW_(uint32_t from, uint32_t to, uint32_t failIfExists) {
     std::string a = HostPath16(At<char16_t>(from)), b = HostPath16(At<char16_t>(to), true);
     int in = open(a.c_str(), O_RDONLY | O_CLOEXEC);
-    if (in < 0) return Fail(errno);
+    if (in < 0) return FailAt(errno, a);
     int out = open(b.c_str(), O_WRONLY | O_CREAT | O_CLOEXEC | (failIfExists ? O_EXCL : O_TRUNC), 0644);
     if (out < 0) {
         int e = errno;
         close(in);
-        return SetLastError(e == EEXIST ? win::ERROR_FILE_EXISTS : ErrnoToWin(e)), 0;
+        return e == EEXIST ? (SetLastError(win::ERROR_FILE_EXISTS), 0u) : FailAt(e, b);
     }
     char buf[65536];
     ssize_t n;
@@ -426,15 +512,22 @@ uint32_t FindFirst(const std::string& pattern, uint32_t out) {
     std::string dirPart = cut == std::string::npos ? "." : pattern.substr(0, cut + 1);
     std::string mask = cut == std::string::npos ? pattern : pattern.substr(cut + 1);
     if (mask == "*.*") mask = "*";
+    // (Windows' wildcards are * and ? alone: fnmatch's brackets and escapes are a name's characters)
+    std::string glob;
+    for (char c : mask) {
+        if (c == '[' || c == ']') glob.push_back('\\');
+        glob.push_back(c);
+    }
     auto f = std::make_shared<Find>();
     f->dir = HostPath(dirPart);
     DIR* d = opendir(f->dir.c_str());
-    if (!d) return Fail(errno), kInvalidHandle;
+    // (the directory itself missing: ERROR_PATH_NOT_FOUND; no name matching in it: ERROR_FILE_NOT_FOUND)
+    if (!d) return SetLastError(errno == ENOENT || errno == ENOTDIR ? win::ERROR_PATH_NOT_FOUND : ErrnoToWin(errno)), kInvalidHandle;
     bool root = f->dir == GameRoot();
     while (dirent* e = readdir(d)) {
         std::string n = e->d_name;
         if (root && (n == "." || n == "..")) continue;
-        if (fnmatch(mask.c_str(), n.c_str(), FNM_CASEFOLD) == 0) f->names.push_back(n);
+        if (fnmatch(glob.c_str(), n.c_str(), FNM_CASEFOLD) == 0) f->names.push_back(n);
     }
     closedir(d);
     if (f->names.empty()) return SetLastError(win::ERROR_FILE_NOT_FOUND), kInvalidHandle;

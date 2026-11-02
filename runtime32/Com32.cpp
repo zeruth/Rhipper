@@ -1121,6 +1121,9 @@ uint32_t Com32Proc(uint32_t module, const char* name) {
 // ---- the imports that make the objects ---------------------------------------------------------------
 bool DxDiagBridgeClass(REFCLSID clsid);           // DxDiagBridge.cpp
 HRESULT DxDiagBridgeCreate(REFIID riid, void** out);
+namespace rh {
+bool DShowClass(uint32_t clsid, uint32_t outer, uint32_t riid, uint32_t out, uint32_t* hr);   // dshow32/dshow.cpp
+}  // namespace rh
 
 namespace {
 
@@ -1130,8 +1133,8 @@ FARPROC Real(const wchar_t* dll, const char* name) {
 }
 
 // the classes the reference may make: those with proxies (DirectInput, XAudio2 2.7 and its effects,
-// DxDiag, the text services' thread manager). The rest (DirectShow's filters) are refused, as on a
-// system without them
+// DxDiag, the text services' thread manager). The rest are refused, as on a system without them
+// (DirectShow's graph is the runtime's own, before this: DShowHost.cpp)
 bool Supported(const GUID& clsid) {
     static const GUID known[] = {
         {0x25e609e4, 0xb259, 0x11cf, {0xbf, 0xc7, 0x44, 0x45, 0x53, 0x54, 0x00, 0x00}},   // DirectInput8
@@ -1180,6 +1183,10 @@ unsigned int gen_imp_DirectInput8Create(uint32_t inst, uint32_t version, uint32_
 }
 
 unsigned int gen_imp_CoCreateInstance(uint32_t clsid, uint32_t outer, uint32_t context, uint32_t riid, uint32_t out) {
+    // (DirectShow's filter graph and DMO wrapper the runtime's own: dshow32/dshow.cpp, DShowHost.cpp.
+    // Refused, FFXIV's first-run opening never opened and the lobby's Now Loading waited on it)
+    uint32_t made = 0;
+    if (rh::DShowClass(clsid, outer, riid, out, &made)) return made;
     if (!Supported(*At<GUID>(clsid))) {
         Refused("CoCreateInstance", clsid);
         if (out) *At<uint32_t>(out) = 0;

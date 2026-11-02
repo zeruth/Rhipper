@@ -32,19 +32,29 @@ uint32_t Resolve(uint32_t cp) {
     return cp;
 }
 
-// a code page's bytes as UTF-16: 1252 (and its stand-ins) or UTF-8
-std::u16string Decode(uint32_t cp, const unsigned char* s, size_t n) {
+// a code page's bytes as UTF-16: 1252 (and its stand-ins) or UTF-8. An ill-formed UTF-8 sequence
+// (a stray or missing continuation, an overlong form, a surrogate, past U+10FFFF) is U+FFFD for its
+// first byte and decoding goes on at the next, as Windows' (Vista on); `bad` told of it
+std::u16string Decode(uint32_t cp, const unsigned char* s, size_t n, bool* bad = nullptr) {
     std::u16string out;
     if (Resolve(cp) == 65001) {
         for (size_t k = 0; k < n;) {
             uint32_t c = s[k], len = c < 0x80 ? 1 : c < 0xE0 ? 2 : c < 0xF0 ? 3 : 4;
-            if (k + len > n || (c >= 0x80 && c < 0xC0)) {
+            bool ok = c < 0x80 || (c >= 0xC2 && c <= 0xF4);
+            if (ok && k + len > n) ok = false;
+            for (uint32_t i = 1; ok && i < len; i++) ok = (s[k + i] & 0xC0) == 0x80;
+            uint32_t u = 0;
+            if (ok) {
+                u = len == 1 ? c : len == 2 ? c & 0x1F : len == 3 ? c & 0x0F : c & 0x07;
+                for (uint32_t i = 1; i < len; i++) u = (u << 6) | (s[k + i] & 0x3F);
+                ok = !(len == 3 && u < 0x800) && !(len == 4 && (u < 0x10000 || u > 0x10FFFF)) && !(u >= 0xD800 && u < 0xE000);
+            }
+            if (!ok) {
                 out.push_back(0xFFFD);
+                if (bad) *bad = true;
                 k++;
                 continue;
             }
-            uint32_t u = len == 1 ? c : len == 2 ? c & 0x1F : len == 3 ? c & 0x0F : c & 0x07;
-            for (uint32_t i = 1; i < len; i++) u = (u << 6) | (s[k + i] & 0x3F);
             k += len;
             if (u >= 0x10000) {
                 u -= 0x10000;
@@ -68,6 +78,10 @@ std::string Encode(uint32_t cp, const char16_t* s, size_t n, bool* lossy) {
             uint32_t u = s[k];
             if (u >= 0xD800 && u < 0xDC00 && k + 1 < n && s[k + 1] >= 0xDC00 && s[k + 1] < 0xE000)
                 u = 0x10000 + ((u - 0xD800) << 10) + (s[++k] - 0xDC00);
+            else if (u >= 0xD800 && u < 0xE000) {
+                u = 0xFFFD;   // (a lone surrogate, as Windows writes it)
+                if (lossy) *lossy = true;
+            }
             if (u < 0x80) {
                 out.push_back(static_cast<char>(u));
             } else if (u < 0x800) {
@@ -159,10 +173,14 @@ char16_t Lower16(char16_t c) {
 using namespace rh;
 
 // ---- code pages --------------------------------------------------------------------------------
-static uint32_t MultiByteToWideChar_(uint32_t cp, uint32_t, uint32_t src, uint32_t n, uint32_t dst, uint32_t cap) {
-    if (!src) return SetLastError(win::ERROR_INVALID_PARAMETER), 0;
+// (MB_ERR_INVALID_CHARS 8: an ill-formed sequence fails, ERROR_NO_UNICODE_TRANSLATION, where it
+// would be U+FFFD; the CRT's mbtowc asks so of a lead byte alone)
+static uint32_t MultiByteToWideChar_(uint32_t cp, uint32_t flags, uint32_t src, uint32_t n, uint32_t dst, uint32_t cap) {
+    if (!src || n == 0) return SetLastError(win::ERROR_INVALID_PARAMETER), 0;
     size_t len = static_cast<int32_t>(n) < 0 ? strlen(At<char>(src)) + 1 : n;
-    std::u16string w = Decode(cp, At<unsigned char>(src), len);
+    bool bad = false;
+    std::u16string w = Decode(cp, At<unsigned char>(src), len, &bad);
+    if (bad && (flags & 8)) return SetLastError(1113 /* ERROR_NO_UNICODE_TRANSLATION */), 0;
     if (cap == 0) return static_cast<uint32_t>(w.size());
     if (w.size() > cap) return SetLastError(win::ERROR_INSUFFICIENT_BUFFER), 0;
     memcpy(At(dst), w.data(), w.size() * 2);
@@ -219,11 +237,16 @@ static uint32_t GetStringTypeW_(uint32_t type, uint32_t src, uint32_t n, uint32_
             if (Lower16(c) == c && Upper16(c) != c) t |= 0x2;            // C1_LOWER
             if (c >= '0' && c <= '9') t |= 0x4;                          // C1_DIGIT
             if (c == ' ' || (c >= 9 && c <= 13) || c == 0xA0 || c == 0x3000) t |= 0x8;   // C1_SPACE
-            if (c < 0x80 && ispunct(c)) t |= 0x10;                       // C1_PUNCT
+            if ((c < 0x80 && ispunct(c)) || (c >= 0xA1 && c <= 0xBF) || c == 0xD7 || c == 0xF7 ||
+                (c >= 0x2010 && c <= 0x2027) || (c >= 0x2030 && c <= 0x205E) || (c >= 0x3001 && c <= 0x3003) ||
+                (c >= 0x3008 && c <= 0x3011) || c == 0x30FB || (c >= 0xFF01 && c <= 0xFF0F) ||
+                (c >= 0xFF1A && c <= 0xFF20) || (c >= 0xFF3B && c <= 0xFF40) || (c >= 0xFF5B && c <= 0xFF65))
+                t |= 0x10;                                               // C1_PUNCT (Latin-1's, general, CJK's)
             if (c < 0x20 || c == 0x7F) t |= 0x20;                        // C1_CNTRL
             if (c == ' ' || c == '\t') t |= 0x40;                        // C1_BLANK
             if ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) t |= 0x80;   // C1_XDIGIT
-            if ((c < 0x80 && isalpha(c)) || (c >= 0xC0 && c != 0xD7 && c != 0xF7)) t |= 0x100;   // C1_ALPHA
+            if ((c < 0x80 && isalpha(c)) || (c >= 0xC0 && !(t & 0x18) && !(c >= 0xFF10 && c <= 0xFF19))) t |= 0x100;   // C1_ALPHA
+            if (c >= 0xFF10 && c <= 0xFF19) t |= 0x4;                    // (fullwidth digits)
             if (c) t |= 0x200;                                           // C1_DEFINED
         } else if (type == 2) {
             t = c < 0x80 ? (isdigit(c) ? 3 : isspace(c) ? 10 : 1) : 1;   // C2_LEFTTORIGHT ...
@@ -262,21 +285,35 @@ static uint32_t LCMapStringW_(uint32_t, uint32_t flags, uint32_t src, uint32_t n
 }
 RH_REG(KERNEL32, LCMapStringW, LCMapStringW_)
 
-static int Compare16(const char16_t* a, size_t na, const char16_t* b, size_t nb, bool fold) {
+static int Ordinal16(const char16_t* a, size_t na, const char16_t* b, size_t nb, bool fold) {
     for (size_t k = 0;; k++) {
         if (k == na || k == nb) return k == na ? (k == nb ? 0 : -1) : 1;
         char16_t x = fold ? Upper16(a[k]) : a[k], y = fold ? Upper16(b[k]) : b[k];
         if (x != y) return x < y ? -1 : 1;
     }
 }
-// CompareStringW: CSTR_LESS_THAN 1, CSTR_EQUAL 2, CSTR_GREATER_THAN 3 (ordinal, NORM_IGNORECASE 1)
+// a linguistic comparison as Windows' word sort makes it, nearly: letters without regard to case
+// first ("a" < "B"), then, the texts alike so, lower case before upper ("a" < "A")
+static int Compare16(const char16_t* a, size_t na, const char16_t* b, size_t nb, bool fold) {
+    int r = Ordinal16(a, na, b, nb, true);
+    if (r || fold) return r;
+    for (size_t k = 0; k < na; k++) {
+        bool la = Lower16(a[k]) == a[k] && Upper16(a[k]) != a[k], lb = Lower16(b[k]) == b[k] && Upper16(b[k]) != b[k];
+        if (a[k] != b[k]) return la && !lb ? -1 : lb && !la ? 1 : a[k] < b[k] ? -1 : 1;
+    }
+    return 0;
+}
+// CompareStringW: CSTR_LESS_THAN 1, CSTR_EQUAL 2, CSTR_GREATER_THAN 3 (NORM_IGNORECASE 1)
 static uint32_t CompareStringW_(uint32_t, uint32_t flags, uint32_t a, uint32_t na, uint32_t b, uint32_t nb) {
+    if (!a || !b) return SetLastError(win::ERROR_INVALID_PARAMETER), 0;
     size_t la = static_cast<int32_t>(na) < 0 ? Len16(At<char16_t>(a)) : na;
     size_t lb = static_cast<int32_t>(nb) < 0 ? Len16(At<char16_t>(b)) : nb;
     return static_cast<uint32_t>(Compare16(At<char16_t>(a), la, At<char16_t>(b), lb, flags & 1) + 2);
 }
 RH_REG(KERNEL32, CompareStringW, CompareStringW_)
+// lstrcmpW: CompareString's comparison as -1, 0, 1 (a null string the lesser)
 static uint32_t lstrcmpW_(uint32_t a, uint32_t b) {
+    if (!a || !b) return a == b ? 0 : a ? 1u : 0xFFFFFFFFu;
     return static_cast<uint32_t>(Compare16(At<char16_t>(a), Len16(At<char16_t>(a)), At<char16_t>(b), Len16(At<char16_t>(b)), false));
 }
 RH_REG(KERNEL32, lstrcmpW, lstrcmpW_)
@@ -332,13 +369,19 @@ static uint32_t wsprintfA_(uint32_t buf, uint32_t fmt, uint32_t w0, uint32_t w1,
             spec.push_back(*f++);
             while (*f >= '0' && *f <= '9') spec.push_back(*f++);
         }
-        bool wide = false;
-        if (*f == 'l' || *f == 'h') f++;
+        // (l and h: a %s or %c's width, wide or narrow, as wsprintfA's %ls and %hs; I64 a number's)
+        bool wide = false, longText = false;
+        if (*f == 'l') f++, longText = true;
+        else if (*f == 'h') f++;
         else if (f[0] == 'I' && f[1] == '6' && f[2] == '4') f += 3, wide = true;
         char conv = *f;
         if (!conv) break;
-        char piece[512];
-        if (conv == 'd' || conv == 'i') {
+        if (longText && (conv == 's' || conv == 'c')) conv = conv == 's' ? 'S' : 'C';
+        char piece[1025];   // (wsprintf's whole output is 1024 at most)
+        if (conv == 'C') {
+            char16_t w[2] = {static_cast<char16_t>(take() & 0xFFFF), 0};
+            snprintf(piece, sizeof piece, (spec + "s").c_str(), AnsiOf(w).c_str());
+        } else if (conv == 'd' || conv == 'i') {
             long long v = wide ? static_cast<long long>(take() | (static_cast<uint64_t>(take()) << 32)) : static_cast<int32_t>(take());
             snprintf(piece, sizeof piece, (spec + "lld").c_str(), v);
         } else if (conv == 'u' || conv == 'x' || conv == 'X') {
@@ -365,7 +408,15 @@ RH_REG(USER32, wsprintfA, wsprintfA_)
 
 // ---- the locale: en-US ------------------------------------------------------------------------
 static std::string LocaleInfo(uint32_t type) {
-    switch (type & 0x0FFFFFFF) {
+    static const char* const days[7] = {"Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"};
+    static const char* const months[12] = {"January", "February", "March", "April", "May", "June", "July",
+                                           "August", "September", "October", "November", "December"};
+    uint32_t t = type & 0x0FFFFFFF;
+    if (t >= 0x2A && t <= 0x30) return days[t - 0x2A];                                // LOCALE_SDAYNAME1..7
+    if (t >= 0x31 && t <= 0x37) return std::string(days[t - 0x31], 3);               // LOCALE_SABBREVDAYNAME1..7
+    if (t >= 0x38 && t <= 0x43) return months[t - 0x38];                              // LOCALE_SMONTHNAME1..12
+    if (t >= 0x44 && t <= 0x4F) return std::string(months[t - 0x44], 3);              // LOCALE_SABBREVMONTHNAME1..12
+    switch (t) {
         case 0x1004: return std::to_string(AnsiCodePage());   // LOCALE_IDEFAULTANSICODEPAGE
         case 0x000B: return "437";                            // LOCALE_IDEFAULTCODEPAGE
         case 0x0001: return "0409";                           // LOCALE_ILANGUAGE
@@ -375,8 +426,39 @@ static std::string LocaleInfo(uint32_t type) {
         case 0x0004: return "English";                        // LOCALE_SNATIVELANGNAME
         case 0x0005: return "1";                              // LOCALE_ICOUNTRY
         case 0x1002: return "United States";                  // LOCALE_SENGCOUNTRY
-        case 0x0006: return "United States";
+        case 0x0006: return "United States";                  // LOCALE_SCOUNTRY
         case 0x0007: return "USA";                            // LOCALE_SABBREVCTRYNAME
+        case 0x0008: return "United States";                  // LOCALE_SNATIVECTRYNAME
+        case 0x0009: return "0409";                           // LOCALE_IDEFAULTLANGUAGE
+        case 0x000A: return "1";                              // LOCALE_IDEFAULTCOUNTRY
+        case 0x000C: return ",";                              // LOCALE_SLIST
+        case 0x000D: return "1";                              // LOCALE_IMEASURE (U.S.)
+        case 0x0011: return "2";                              // LOCALE_IDIGITS
+        case 0x0012: return "1";                              // LOCALE_ILZERO
+        case 0x0013: return "0123456789";                     // LOCALE_SNATIVEDIGITS
+        case 0x0015: return "USD";                            // LOCALE_SINTLSYMBOL
+        case 0x0016: return ".";                              // LOCALE_SMONDECIMALSEP
+        case 0x0017: return ",";                              // LOCALE_SMONTHOUSANDSEP
+        case 0x0018: return "3;0";                            // LOCALE_SMONGROUPING
+        case 0x0019: return "2";                              // LOCALE_ICURRDIGITS
+        case 0x001A: return "2";                              // LOCALE_IINTLCURRDIGITS
+        case 0x001B: return "0";                              // LOCALE_ICURRENCY
+        case 0x001C: return "0";                              // LOCALE_INEGCURR
+        case 0x0021: return "0";                              // LOCALE_IDATE (M/D/Y)
+        case 0x0022: return "0";                              // LOCALE_ILDATE
+        case 0x0023: return "0";                              // LOCALE_ITIME (12-hour)
+        case 0x0024: return "1";                              // LOCALE_ICENTURY
+        case 0x0025: return "0";                              // LOCALE_ITLZERO
+        case 0x0026: return "0";                              // LOCALE_IDAYLZERO
+        case 0x0027: return "0";                              // LOCALE_IMONLZERO
+        case 0x0050: return "";                               // LOCALE_SPOSITIVESIGN
+        case 0x0051: return "-";                              // LOCALE_SNEGATIVESIGN
+        case 0x0052: return "3";                              // LOCALE_IPOSSIGNPOSN
+        case 0x0053: return "0";                              // LOCALE_INEGSIGNPOSN
+        case 0x0054: return "1";                              // LOCALE_IPOSSYMPRECEDES
+        case 0x0055: return "0";                              // LOCALE_IPOSSEPBYSPACE
+        case 0x0056: return "1";                              // LOCALE_INEGSYMPRECEDES
+        case 0x0057: return "0";                              // LOCALE_INEGSEPBYSPACE
         case 0x0059: return "en";                             // LOCALE_SISO639LANGNAME
         case 0x005A: return "US";                             // LOCALE_SISO3166CTRYNAME
         case 0x005C: return "en-US";                          // LOCALE_SNAME
@@ -388,17 +470,36 @@ static std::string LocaleInfo(uint32_t type) {
         case 0x001E: return ":";                              // LOCALE_STIME
         case 0x001F: return "M/d/yyyy";                       // LOCALE_SSHORTDATE
         case 0x0020: return "dddd, MMMM d, yyyy";             // LOCALE_SLONGDATE
-        case 0x1003: return "hh:mm:ss tt";                    // LOCALE_STIMEFORMAT
-        case 0x0028: return "AM";
-        case 0x0029: return "PM";
-        case 0x100C: return "0";                              // LOCALE_IFIRSTDAYOFWEEK... (Monday 0)
+        case 0x1003: return "h:mm:ss tt";                     // LOCALE_STIMEFORMAT
+        case 0x1005: return "0";                              // LOCALE_ITIMEMARKPOSN
+        case 0x1006: return "MMMM yyyy";                      // LOCALE_SYEARMONTH
+        case 0x1009: return "1";                              // LOCALE_ICALENDARTYPE (Gregorian)
+        case 0x100C: return "6";                              // LOCALE_IFIRSTDAYOFWEEK (Monday 0: Sunday)
+        case 0x100D: return "0";                              // LOCALE_IFIRSTWEEKOFYEAR
+        case 0x1010: return "1";                              // LOCALE_INEGNUMBER
+        case 0x1011: return "10000";                          // LOCALE_IDEFAULTMACCODEPAGE
+        case 0x0028: return "AM";                             // LOCALE_S1159
+        case 0x0029: return "PM";                             // LOCALE_S2359
         default: return "";
     }
 }
+// (LOCALE_RETURN_NUMBER 0x20000000: the value as a DWORD, two WCHARs or four bytes long; hex where
+// the string is, LOCALE_ILANGUAGE and LOCALE_IDEFAULTLANGUAGE, decimal elsewhere)
 static uint32_t GetLocaleInfo(uint32_t type, char16_t* w, char* a, uint32_t cap) {
     std::string v = LocaleInfo(type);
-    if (v.empty() && (type & 0x0FFFFFFF) != 0) {
-        LogOnce(("locale " + std::to_string(type)).c_str(), "GetLocaleInfo(%#x): not known, empty", type);
+    uint32_t t = type & 0x0FFFFFFF;
+    bool known = !v.empty() || t == 0x0050;
+    if (!known && t != 0) LogOnce(("locale " + std::to_string(type)).c_str(), "GetLocaleInfo(%#x): not known, empty", type);
+    if (type & 0x20000000) {
+        char* end = nullptr;
+        unsigned long n = strtoul(v.c_str(), &end, t == 0x0001 || t == 0x0009 ? 16 : 10);
+        if (v.empty() || *end) return SetLastError(1004 /* ERROR_INVALID_FLAGS */), 0;
+        uint32_t need = w ? 2 : 4;
+        if (cap == 0) return need;
+        if (cap < need) return SetLastError(win::ERROR_INSUFFICIENT_BUFFER), 0;
+        uint32_t d = static_cast<uint32_t>(n);
+        memcpy(w ? static_cast<void*>(w) : static_cast<void*>(a), &d, 4);
+        return need;
     }
     uint32_t need = static_cast<uint32_t>(v.size() + 1);
     if (cap == 0) return need;

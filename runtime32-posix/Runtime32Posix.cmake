@@ -42,6 +42,9 @@ set(RUNTIME32_POSIX_SOURCES
   ${RUNTIME32_POSIX}/dinput8.cpp
   ${RUNTIME32_POSIX}/input.cpp
   ${RUNTIME32_POSIX}/xaudio2.cpp
+  ${RUNTIME32_POSIX}/dshow_host.cpp
+  # (DirectShow's filter graph, shared with runtime32: dshow32/dshow_host.h)
+  ${RUNTIME32_POSIX}/../dshow32/dshow.cpp
   ${RUNTIME32_POSIX}/d3d9vk/Shader.cpp
   ${RUNTIME32_POSIX}/d3d9vk/SpirvBuilder.cpp
   ${RUNTIME32_POSIX}/d3d9vk/Device.cpp
@@ -144,6 +147,29 @@ function(rhipper_runtime32_posix target)
     -Wl,--build-id=sha1)
   target_link_libraries(${target} PRIVATE log android dl aaudio vulkan)
   # (frame pointers kept across the whole library so the crash handler's backtrace can walk it)
+
+  # DirectShow's movies decoded by FFmpeg when RHIPPER_FFMPEG names an arm64-v8a FFmpeg (its include/
+  # and lib/ with libavformat, libavcodec, libavutil, libswscale, libswresample); without it a movie
+  # opens and ends at once (dshow32/dshow.cpp). Static libraries (vcpkg's arm64-android) are linked into
+  # the library; shared ones the project packages beside its own.
+  set(RHIPPER_FFMPEG "" CACHE PATH "an arm64-v8a FFmpeg (include/, lib/) for DirectShow's movies")
+  if(RHIPPER_FFMPEG)
+    target_sources(${target} PRIVATE ${RUNTIME32_POSIX}/../dshow32/dshow_ffmpeg.cpp)
+    target_include_directories(${target} PRIVATE ${RHIPPER_FFMPEG}/include)
+    target_compile_definitions(${target} PRIVATE RH_DSHOW_FFMPEG=1)
+    foreach(_lib avformat avcodec swscale swresample avutil)
+      if(EXISTS ${RHIPPER_FFMPEG}/lib/lib${_lib}.a)
+        target_link_libraries(${target} PRIVATE ${RHIPPER_FFMPEG}/lib/lib${_lib}.a)
+        # (FFmpeg's assembly references its own symbols: bound inside the library, as FFmpeg asks)
+        target_link_options(${target} PRIVATE -Wl,-Bsymbolic)
+      else()
+        target_link_libraries(${target} PRIVATE ${RHIPPER_FFMPEG}/lib/lib${_lib}.so)
+      endif()
+    endforeach()
+    # (Android's FFmpeg carries its MediaCodec wrapper: the NDK's media library)
+    target_link_libraries(${target} PRIVATE mediandk m)
+    message(STATUS "runtime32-posix: DirectShow movies decoded by FFmpeg (${RHIPPER_FFMPEG})")
+  endif()
 
   # ---- the boot / JNI library --------------------------------------------------------------------
   add_library(${target}_boot SHARED ${RUNTIME32_POSIX}/android_jni.c)

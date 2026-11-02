@@ -38,7 +38,7 @@ namespace {
 
 enum : uint32_t {
     TEMP = 0, INPUT = 1, CONST = 2, ADDR = 3, TEXTURE = 3, RASTOUT = 4, ATTROUT = 5, OUTPUT = 6, CONSTINT = 7,
-    COLOROUT = 8, SAMPLER = 10, CONSTBOOL = 14, LOOPREG = 15, LABELREG = 18, PREDICATE = 19,
+    COLOROUT = 8, DEPTHOUT = 9, SAMPLER = 10, CONSTBOOL = 14, LOOPREG = 15, LABELREG = 18, PREDICATE = 19,
 };
 enum : uint32_t {
     MOV = 1, ADD = 2, MUL = 5, RCP = 6, DP4 = 9, M4X4 = 20, CALL = 25, LOOP = 27, RET = 28, ENDLOOP = 29,
@@ -141,6 +141,26 @@ std::vector<Case> Cases() {
         Ins(MOV, 0) | 0x40000000u, Dst(TEMP, 0, 0x8), Src(INPUT, 0, W),
         END}});
 
+    // vs_3_0: a point size output (clamped to POINTSIZE_MAX); c read up to c7 (floatConsts 11)
+    cs.push_back({"vs30_psize", {
+        0xFFFE0300,
+        Ins(DCL, 2), Usage(0, 0), Dst(INPUT, 0),
+        Ins(DCL, 2), Usage(0, 0), Dst(OUTPUT, 0),
+        Ins(DCL, 2), Usage(4, 0), Dst(OUTPUT, 1, 0x1),
+        Ins(MOV, 2), Dst(OUTPUT, 0), Src(INPUT, 0),
+        Ins(MOV, 2), Dst(OUTPUT, 1, 0x1), Src(CONST, 7, X),
+        END}});
+
+    // ps_3_0: a texture coordinate (a point sprite's when the push flag says), oDepth (clamped)
+    cs.push_back({"ps30_sprite_depth", {
+        0xFFFF0300,
+        Ins(DCL, 2), Usage(5, 0), Dst(INPUT, 0),
+        Ins(DCL, 2), SamplerDcl(2), Dst(SAMPLER, 0),
+        Ins(TEX, 3), Dst(TEMP, 0), Src(INPUT, 0), Src(SAMPLER, 0),
+        Ins(MOV, 2), Dst(COLOROUT, 0), Src(TEMP, 0),
+        Ins(MOV, 2), Dst(DEPTHOUT, 0, 0x1), Src(INPUT, 0, Z),
+        END}});
+
     return cs;
 }
 
@@ -167,9 +187,10 @@ int main(int argc, char** argv) {
         }
         fwrite(spirv.data(), 4, spirv.size(), f);
         fclose(f);
-        printf("%-22s %s_%u_%u  %zu words  inputs %zu  samplers %zu  colors %#x%s\n", c.name,
+        printf("%-22s %s_%u_%u  %zu words  inputs %zu  samplers %zu  colors %#x%s  c %u%s%s\n", c.name,
                info.stage == rh::d3d9vk::Stage::Pixel ? "ps" : "vs", info.major, info.minor, spirv.size(),
-               info.inputs.size(), info.samplers.size(), info.outputColors, info.writesDepth ? "  depth" : "");
+               info.inputs.size(), info.samplers.size(), info.outputColors, info.writesDepth ? "  depth" : "",
+               info.floatConsts, info.intConsts ? " i" : "", info.boolConsts ? " b" : "");
     }
     return failures ? 1 : 0;
 }

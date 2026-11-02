@@ -17,8 +17,7 @@ std::unordered_map<uint32_t, FormatInfo>& Table() {
     return t;
 }
 
-constexpr VkComponentSwizzle R = VK_COMPONENT_SWIZZLE_R, G = VK_COMPONENT_SWIZZLE_G, B = VK_COMPONENT_SWIZZLE_B,
-                             A = VK_COMPONENT_SWIZZLE_A, ONE = VK_COMPONENT_SWIZZLE_ONE,
+constexpr VkComponentSwizzle R = VK_COMPONENT_SWIZZLE_R, G = VK_COMPONENT_SWIZZLE_G, ONE = VK_COMPONENT_SWIZZLE_ONE,
                              ZERO = VK_COMPONENT_SWIZZLE_ZERO, ID = VK_COMPONENT_SWIZZLE_IDENTITY;
 constexpr VkComponentMapping kIdentity = {ID, ID, ID, ID};
 

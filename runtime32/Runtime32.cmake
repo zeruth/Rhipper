@@ -16,7 +16,11 @@ set(RUNTIME32_SOURCES
   ${RUNTIME32}/Trace.cpp
   ${RUNTIME32}/Com32.cpp
   ${RUNTIME32}/Com32Gen.cpp
-  ${RUNTIME32}/DxDiagBridge.cpp)
+  ${RUNTIME32}/DxDiagBridge.cpp
+  ${RUNTIME32}/DShowHost.cpp
+  ${RUNTIME32}/DShowMediaFoundation.cpp
+  # (DirectShow's filter graph, shared with runtime32-posix: dshow32/dshow_host.h)
+  ${RUNTIME32}/../dshow32/dshow.cpp)
 
 # The checked build's (a project's GEN_CHECKED, its translation built by clang-cl; Checked.cpp):
 # for the gen library, clang's AddressSanitizer instrumentation with Checked.cpp for its runtime
@@ -41,7 +45,8 @@ function(rhipper_runtime32 target)
   endif()
   target_sources(${target} PRIVATE ${RUNTIME32_SOURCES})
   target_compile_options(${target} PRIVATE /W3 /Zi)
-  target_link_libraries(${target} PRIVATE dbghelp)
+  # (Media Foundation's source reader and WASAPI for DirectShow's movies: DShowMediaFoundation.cpp)
+  target_link_libraries(${target} PRIVATE dbghelp mfplat mfreadwrite mfuuid)
   target_compile_definitions(${target} PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE
     RHIPPER_NAME="${R_NAME}" RHIPPER_ENV="${R_ENV}" RHIPPER_REF=L"${R_REF}")
   # Everything of the process below 2 GB, the port at a fixed base above the reference's image, so

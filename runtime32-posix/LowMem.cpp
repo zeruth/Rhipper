@@ -255,13 +255,15 @@ static uint32_t VirtualAlloc_(uint32_t addr, uint32_t size, uint32_t type, uint3
     }
     std::lock_guard<std::mutex> hold(g_mem);
     if (type & MEM_RESET) return addr;   // (contents may go: kept, harmless)
-    uint32_t base;
+    // (MEM_COMMIT alone with no address reserves too, as Windows does: DirectShow's CMemAllocator)
+    if (!addr && (type & MEM_COMMIT)) type |= MEM_RESERVE;
+    uint32_t base = 0;
     if (type & MEM_RESERVE) {
         uint32_t len = RoundUp(static_cast<uint64_t>(addr & (kGrain - 1)) + size, kGrain);
         if (addr) {
             base = addr & ~(kGrain - 1);
             if (!TakeExact(base, len)) {
-                SetLastError(win::ERROR_INVALID_PARAMETER);
+                SetLastError(487);   // ERROR_INVALID_ADDRESS
                 return 0;
             }
         } else {
@@ -279,13 +281,14 @@ static uint32_t VirtualAlloc_(uint32_t addr, uint32_t size, uint32_t type, uint3
     if (type & MEM_COMMIT) {
         auto it = AllocOf(addr);
         if (it == g_allocs.end() || static_cast<uint64_t>(addr) + size > static_cast<uint64_t>(it->first) + it->second.size) {
-            SetLastError(win::ERROR_INVALID_PARAMETER);
+            SetLastError(487);   // ERROR_INVALID_ADDRESS: not reserved
             return 0;
         }
         uint32_t lo = addr & ~(kUnit - 1), hi = RoundUp(static_cast<uint64_t>(addr) + size, kUnit);
         Protect(lo, hi - lo, Prot(protect));
         if (Prot(protect) != PROT_NONE) MarkCommitted(it->second, it->first, lo, hi - lo, 1);
-        return lo;
+        // (a reservation made by this call answers with its base, as Windows')
+        return (type & MEM_RESERVE) ? base : lo;
     }
     SetLastError(win::ERROR_INVALID_PARAMETER);
     return 0;
@@ -342,8 +345,9 @@ constexpr uint32_t kHeader = 16;
 constexpr uint32_t kSmallMax = 0x10000;
 constexpr uint32_t kSlab = 0x40000;
 constexpr uint32_t kLarge = 0xFFFF;
-constexpr uint32_t HEAP_NO_SERIALIZE = 1, HEAP_GENERATE_EXCEPTIONS = 4, HEAP_ZERO_MEMORY = 8,
-                   HEAP_REALLOC_IN_PLACE_ONLY = 0x10;
+// (HEAP_NO_SERIALIZE 1 and HEAP_GENERATE_EXCEPTIONS 4 taken as without them: every heap locks, a
+// failure returns 0)
+constexpr uint32_t HEAP_ZERO_MEMORY = 8, HEAP_REALLOC_IN_PLACE_ONLY = 0x10;
 
 struct BlockHeader {
     uint32_t size;      // what was asked
@@ -639,12 +643,29 @@ static uint32_t GlobalMemoryStatusEx_(uint32_t out) {
     };
     static_assert(sizeof(Status) == 64, "MEMORYSTATUSEX");
     auto s = At<Status>(out);
+    if (s->length != sizeof(Status)) return SetLastError(win::ERROR_INVALID_PARAMETER), 0;
     long pages = sysconf(_SC_PHYS_PAGES), avail = sysconf(_SC_AVPHYS_PAGES);
     s->totalPhys = static_cast<uint64_t>(pages) * g_page;
     s->availPhys = static_cast<uint64_t>(avail) * g_page;
+    // (Windows' available memory counts its standby cache; Linux's MemFree leaves the page cache
+    // out, a small part of a phone's memory: MemAvailable is the kernel's estimate of Windows' kind.
+    // The commit limit: the memory and the swap)
+    uint64_t swapTotal = 0, swapFree = 0;
+    {
+        std::ifstream info("/proc/meminfo");
+        std::string key;
+        uint64_t kb;
+        std::string unit;
+        while (info >> key >> kb) {
+            std::getline(info, unit);
+            if (key == "MemAvailable:") s->availPhys = kb << 10;
+            else if (key == "SwapTotal:") swapTotal = kb << 10;
+            else if (key == "SwapFree:") swapFree = kb << 10;
+        }
+    }
     s->load = s->totalPhys ? static_cast<uint32_t>(100 - s->availPhys * 100 / s->totalPhys) : 0;
-    s->totalPage = s->totalPhys;
-    s->availPage = s->availPhys;
+    s->totalPage = s->totalPhys + swapTotal;
+    s->availPage = s->availPhys + swapFree;
     s->totalVirtual = 0x7FFE0000;
     uint64_t free = 0;
     {

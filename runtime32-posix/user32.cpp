@@ -151,11 +151,11 @@ uint32_t CallProc(uint32_t hwnd, uint32_t msg, uint32_t wp, uint32_t lp) {
     if (sub) {
         int saved = t_subclassDepth;
         t_subclassDepth = 0;
-        uint32_t r = CallRef(top.proc, hwnd, msg, wp, lp, top.id, top.ref);
+        uint32_t r = CallStdcall(top.proc, hwnd, msg, wp, lp, top.id, top.ref);
         t_subclassDepth = saved;
         return r;
     }
-    return proc ? CallRef(proc, hwnd, msg, wp, lp) : 0;
+    return proc ? CallStdcall(proc, hwnd, msg, wp, lp) : 0;
 }
 
 // a message sent to a window: its procedure now on its own thread, or run by its thread's queue
@@ -492,7 +492,7 @@ unsigned int gen_imp_TranslateMessage(uint32_t p) {
 unsigned int gen_imp_TranslateAcceleratorA(uint32_t, uint32_t, uint32_t) { return 0; }
 unsigned int gen_imp_DispatchMessageA(uint32_t msg) {
     const Msg32 m = *At<Msg32>(msg);
-    if (m.message == WM_TIMER && m.lParam) return CallRef(m.lParam, m.hwnd, WM_TIMER, m.wParam, m.time);
+    if (m.message == WM_TIMER && m.lParam) return CallStdcall(m.lParam, m.hwnd, WM_TIMER, m.wParam, m.time);
     if (!m.hwnd) return 0;
     return CallProc(m.hwnd, m.message, m.wParam, m.lParam);
 }
@@ -757,7 +757,7 @@ static uint32_t EnumWindows_(uint32_t fn, uint32_t lp) {
             if (!w.parent) hs.push_back(h);
     }
     for (uint32_t h : hs)
-        if (!CallRef(fn, h, lp)) break;
+        if (!CallStdcall(fn, h, lp)) break;
     return 1;
 }
 RH_REG(USER32, EnumWindows, EnumWindows_)
@@ -1080,10 +1080,10 @@ static uint32_t DefSubclassProc_(uint32_t hwnd, uint32_t msg, uint32_t wp, uint3
     if (sub) {
         int saved = t_subclassDepth;
         t_subclassDepth = saved < 0 ? 0 : saved + 1;
-        uint32_t r = CallRef(next.proc, hwnd, msg, wp, lp, next.id, next.ref);
+        uint32_t r = CallStdcall(next.proc, hwnd, msg, wp, lp, next.id, next.ref);
         t_subclassDepth = saved;
         return r;
     }
-    return proc ? CallRef(proc, hwnd, msg, wp, lp) : 0;
+    return proc ? CallStdcall(proc, hwnd, msg, wp, lp) : 0;
 }
 RH_REG(COMCTL32, DefSubclassProc, DefSubclassProc_)

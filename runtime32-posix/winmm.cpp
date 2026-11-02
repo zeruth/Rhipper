@@ -44,11 +44,13 @@ void TimerThread(void*) {
         }
         uint32_t id = next->first;
         MmTimer t = next->second;
-        if (t.flags & 1) next->second.due = now + std::max<uint32_t>(t.period, 1);   // TIME_PERIODIC
+        // TIME_PERIODIC: each due a period after the last one (no drift by the callbacks' time), not
+        // before now once a callback has run late (no burst of the missed ones after it)
+        if (t.flags & 1) next->second.due = std::max<uint64_t>(t.due + std::max<uint32_t>(t.period, 1), now);
         else g_timers.erase(next);
         g_running = id;
         lk.unlock();
-        if (t.flags & 0x30) {   // TIME_CALLBACK_EVENT_SET / _PULSE: the callback is an event
+        if (t.flags & 0x30) {   // TIME_CALLBACK_EVENT_SET / _PULSE (set, too): the callback is an event
             if (auto e = GetHandle(t.cb)) SignalEvent(e);
         } else {
             CallRef(t.cb, id, 0u, t.user, 0u, 0u);
@@ -96,9 +98,9 @@ RH_REG(WINMM, timeSetEvent, timeSetEvent_)
 
 static uint32_t timeKillEvent_(uint32_t id) {
     std::unique_lock<std::mutex> lk(g_lock);
-    bool had = g_timers.erase(id) != 0;
+    bool had = g_timers.erase(id) != 0 || g_running == id;
     if (CurrentThreadId() != g_timerTid) g_cv.wait(lk, [&] { return g_running != id; });
     g_cv.notify_all();
-    return had || g_running == id ? 0 : 97;   // TIMERR_NOERROR / MMSYSERR_INVALPARAM
+    return had ? 0 : 11;   // TIMERR_NOERROR / MMSYSERR_INVALPARAM
 }
 RH_REG(WINMM, timeKillEvent, timeKillEvent_)

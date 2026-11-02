@@ -8,10 +8,13 @@
 //
 // The reference calls slot k as `((code *)vtbl[k])(this, args...)`: a method is a plain function
 // `uint32_t (uint32_t self, uint32_t a1, ...)` (the port's .so is below 2 GB, so its address fits a
-// slot; a function above goes through a low island). A float argument arrives promoted to double,
-// in a floating-point register (an unprototyped call's promotion; AArch64 passes it there, not in
-// an integer register as x64 did): declare it `double`. Methods are counted among the integer words
-// without it.
+// slot; a function above goes through a low island). A float argument arrives as its 32-bit pattern
+// in an integer word, counted among the others: the translation passes it gen_fl2bits(x) (Clear's Z,
+// SetNPatchMode, XAudio2's SetVolume and SetFrequencyRatio), so declare it uint32_t and read it back
+// with a memcpy (d3d9vk's AsFloat, xaudio2's Bits); never `double`, which AArch64 would take from a
+// floating-point register the caller never set, and every word after it one off. A float result is
+// read as the gen's gen_fcode, a double in d0: a method returning one would be declared `double`
+// (none the reference calls does).
 //
 // The seam for a project's renderer: rhipper_com_set_factory("Direct3DCreate9", fn) before the run
 // (from the project's own code in the port's library, a static constructor for one) replaces the
@@ -79,11 +82,18 @@ inline const void* M_() {
     return reinterpret_cast<const void*>(&Method<M>::Call);
 }
 
-// a reference object's method, slot k of its 4-byte vtable, `this` first (an object the reference
-// implements and hands over: a callback interface)
+// (Runtime.h's: whether the reference's function at fn is a __thiscall one in the gen)
+using rh::GenThiscall;
+
+// a reference object's method, slot k of its 4-byte vtable, `this` first (__stdcall, as COM calls it:
+// an object the reference implements and hands over, a callback interface). One the gen has as
+// __thiscall, a method that leaves ecx alone and reads its object from the stack, takes ecx first:
+// the object there too, and on the stack as COM puts it (runtime32's Com32.cpp the same; without it
+// XAudio2's voice callbacks read their object from the next word, FFXIV's 0xcf6ee0 through 0)
 template <typename... A>
 uint32_t CallMethod(uint32_t obj, unsigned k, A... args) {
     uint32_t fn = At<uint32_t>(U32(obj))[k];
+    if (GenThiscall(fn)) return CallRef(fn, obj, obj, args...);
     return CallRef(fn, obj, args...);
 }
 

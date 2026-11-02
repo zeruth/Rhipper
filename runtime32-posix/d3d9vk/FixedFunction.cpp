@@ -11,8 +11,11 @@
 //           selected, or its complement): DISABLE, SELECTARG1/2, MODULATE(2X/4X), ADD(SIGNED(2X)),
 //           SUBTRACT, ADDSMOOTH. Then the alpha test from the push constants, as Shader.h's shaders do.
 //
+// Point sprites: the point size is D3DRS_POINTSIZE (the push constants'), the pixel shader's texture
+// coordinate PointCoord when the push flag says (POINTSCALEENABLE's distance scale is not done).
+//
 // Not covered (logged once each): lighting, fog, texture transforms, TEXCOORDINDEX, stages past 0,
-// the blend ops (BLENDDIFFUSEALPHA ...), ALPHAREPLICATE, vertex blending, point sprites.
+// the blend ops (BLENDDIFFUSEALPHA ...), ALPHAREPLICATE, vertex blending.
 #include <initializer_list>
 
 #include "Vk.h"
@@ -206,6 +209,18 @@ uint32_t OutputVar(Spv& s, uint32_t location) {
     s.Decorate(v, DecLocation, {location});
     return v;
 }
+// the push constants (Shader.h): vec4 viewport; uint alphaFunc; float alphaRef; uint flags, pad
+uint32_t PushBlock(Spv& s) {
+    uint32_t pcType = s.Id();
+    Spv::Emit(s.globals, OpTypeStruct, {pcType, s.V4(), s.U32(), s.F32(), s.U32(), s.U32()});
+    s.Decorate(pcType, DecBlock);
+    s.MemberDecorate(pcType, 0, DecOffset, 0);
+    s.MemberDecorate(pcType, 1, DecOffset, 16);
+    s.MemberDecorate(pcType, 2, DecOffset, 20);
+    s.MemberDecorate(pcType, 3, DecOffset, 24);
+    s.MemberDecorate(pcType, 4, DecOffset, 28);
+    return s.Var(SCPushConstant, pcType);
+}
 
 }  // namespace
 
@@ -222,7 +237,10 @@ std::vector<uint32_t> FixedVertexSpirv() {
     uint32_t outCol0 = OutputVar(s, LinkLocation(DU_COLOR, 0)), outCol1 = OutputVar(s, LinkLocation(DU_COLOR, 1));
     uint32_t outTex[8];
     for (uint32_t k = 0; k < 8; k++) outTex[k] = OutputVar(s, LinkLocation(DU_TEXCOORD, static_cast<uint8_t>(k)));
+    uint32_t outSize = s.Var(SCOutput, s.F32());
+    s.Decorate(outSize, DecBuiltIn, {1 /* PointSize */});
     uint32_t ub = s.UniformBlock(0);
+    uint32_t pc = PushBlock(s);
 
     uint32_t p = s.Load(v4, inPos);
     uint32_t c[6];
@@ -248,6 +266,9 @@ std::vector<uint32_t> FixedVertexSpirv() {
     s.Store(outTex[0], s.Load(v4, inTex0));
     s.Store(outTex[1], s.Load(v4, inTex1));
     for (uint32_t k = 2; k < 8; k++) s.Store(outTex[k], s.Splat(0.0f));
+    // the point size: D3DRS_POINTSIZE, clamped, from the push constants' viewport.z
+    uint32_t vp = s.Load(v4, s.Op(OpAccessChain, s.Ptr(SCPushConstant, v4), {pc, s.I(0)}));
+    s.Store(outSize, s.X(vp, 2));
     return s.End();
 }
 
@@ -266,19 +287,17 @@ std::vector<uint32_t> FixedPixelSpirv() {
     uint32_t sampler = s.Var(SCUniformConstant, sampled);
     s.Decorate(sampler, DecDescriptorSet, {0});
     s.Decorate(sampler, DecBinding, {2});
-    // the push constants (Shader.h): vec4 viewport; uint alphaFunc; float alphaRef; uint flags, pad
-    uint32_t pcType = s.Id();
-    Spv::Emit(s.globals, OpTypeStruct, {pcType, v4, u32, f32, u32, u32});
-    s.Decorate(pcType, DecBlock);
-    s.MemberDecorate(pcType, 0, DecOffset, 0);
-    s.MemberDecorate(pcType, 1, DecOffset, 16);
-    s.MemberDecorate(pcType, 2, DecOffset, 20);
-    s.MemberDecorate(pcType, 3, DecOffset, 24);
-    s.MemberDecorate(pcType, 4, DecOffset, 28);
-    uint32_t pc = s.Var(SCPushConstant, pcType);
+    uint32_t pc = PushBlock(s);
+    uint32_t v2 = s.Vec(f32, 2);
+    uint32_t inPoint = s.Var(SCInput, v2);
+    s.Decorate(inPoint, DecBuiltIn, {16 /* PointCoord */});
 
     uint32_t col0 = s.Load(v4, inCol0), col1 = s.Load(v4, inCol1), tc = s.Load(v4, inTex0);
-    uint32_t uv = s.Op(OpVectorShuffle, s.Vec(f32, 2), {tc, tc, 0, 1});
+    // point sprites (flags bit 1): the texture coordinate is PointCoord
+    uint32_t flags = s.Load(u32, s.Op(OpAccessChain, s.Ptr(SCPushConstant, u32), {pc, s.I(3)}));
+    uint32_t sprite = s.Op(OpINotEqual, b, {s.Op(OpBitwiseAnd, u32, {flags, s.U(2)}), s.U(0)});
+    uint32_t sprite2 = s.Op(OpCompositeConstruct, s.Vec(b, 2), {sprite, sprite});
+    uint32_t uv = s.Op(OpSelect, v2, {sprite2, s.Load(v2, inPoint), s.Op(OpVectorShuffle, v2, {tc, tc, 0, 1})});
     uint32_t tex = s.Op(OpImageSampleImplicitLod, v4, {s.Load(sampled, sampler), uv});
     uint32_t c[9];
     for (uint32_t k = 0; k < 9; k++) c[k] = s.UniformVec(ub, k);
@@ -376,9 +395,11 @@ void FixedVertexConstants(const State& s, uint32_t fvf, float out[16][4]) {
     out[5][1] = 2.0f / static_cast<float>(std::max(1u, s.vp.h));
     out[5][2] = static_cast<float>(s.vp.x);
     out[5][3] = static_cast<float>(s.vp.y);
-    if ((fvf & FVF_POSITION_MASK) != FVF_XYZRHW && s.rs[RS_LIGHTING] && (fvf & FVF_NORMAL))
-        LogOnce("vk-ff-lighting", "d3d9vk: fixed-function lighting is not done (FVF %#x): vertices unlit", fvf);
-    if (s.rs[RS_FOGENABLE]) LogOnce("vk-ff-fog", "d3d9vk: fixed-function fog is not done");
+    // (per draw: Once, not LogOnce's key and lock)
+    static Once<> lighting, fog;
+    if ((fvf & FVF_POSITION_MASK) != FVF_XYZRHW && s.rs[RS_LIGHTING] && (fvf & FVF_NORMAL) && lighting.First())
+        Log("d3d9vk: fixed-function lighting is not done (FVF %#x): vertices unlit", fvf);
+    if (s.rs[RS_FOGENABLE] && fog.First()) Log("d3d9vk: fixed-function fog is not done");
 }
 
 void FixedPixelConstants(const State& s, bool textured, float out[16][4]) {
@@ -390,13 +411,16 @@ void FixedPixelConstants(const State& s, bool textured, float out[16][4]) {
             case 2: w[0] = 1; break;           // TEXTURE
             case 3: w[2] = 1; break;           // TFACTOR
             case 4: w[3] = 1; break;           // SPECULAR
-            default:
-                LogOnce(("vk-ff-arg-" + std::to_string(a & 0xF)).c_str(), "d3d9vk: fixed-function argument %u read as diffuse", a & 0xF);
+            default: {
+                static Once<> once;
+                if (once.First(a & 0xF)) Log("d3d9vk: fixed-function argument %u read as diffuse", a & 0xF);
                 w[1] = 1;
                 break;
+            }
         }
         if (a & 0x10) *complement = 1;
-        if (a & 0x20) LogOnce("vk-ff-replicate", "d3d9vk: fixed-function ALPHAREPLICATE is not done");
+        static Once<> replicate;
+        if ((a & 0x20) && replicate.First()) Log("d3d9vk: fixed-function ALPHAREPLICATE is not done");
     };
     auto op = [&](uint32_t o, uint32_t a1, uint32_t a2, float (*c)[4]) {
         float* w1 = c[0];
@@ -421,10 +445,12 @@ void FixedPixelConstants(const State& s, bool textured, float out[16][4]) {
             case 9: ops[1] = ops[2] = 1, extra[0] = -0.5f, ops[3] = 2; break;   // ADDSIGNED2X
             case 10: ops[1] = 1, ops[2] = -1; break;                       // SUBTRACT
             case 11: ops[0] = -1, ops[1] = ops[2] = 1; break;              // ADDSMOOTH
-            default:
-                LogOnce(("vk-ff-op-" + std::to_string(o)).c_str(), "d3d9vk: fixed-function op %u done as MODULATE", o);
+            default: {
+                static Once<> once;
+                if (once.First(o)) Log("d3d9vk: fixed-function op %u done as MODULATE", o);
                 ops[0] = 1;
                 break;
+            }
         }
     };
     uint32_t colorOp = s.tss[0][TSS_COLOROP], alphaOp = s.tss[0][TSS_ALPHAOP];
@@ -432,9 +458,9 @@ void FixedPixelConstants(const State& s, bool textured, float out[16][4]) {
     op(colorOp, s.tss[0][TSS_COLORARG1], s.tss[0][TSS_COLORARG2], &out[0]);
     op(alphaOp, s.tss[0][TSS_ALPHAARG1], s.tss[0][TSS_ALPHAARG2], &out[4]);
     ColorOf(s.rs[RS_TEXTUREFACTOR], out[8]);
-    if (colorOp != 1 && s.tss[1][TSS_COLOROP] != 1)
-        LogOnce("vk-ff-stage1", "d3d9vk: fixed-function texture stage 1 (op %u) is not done: stage 0 only",
-                s.tss[1][TSS_COLOROP]);
+    static Once<> stage1;
+    if (colorOp != 1 && s.tss[1][TSS_COLOROP] != 1 && stage1.First())
+        Log("d3d9vk: fixed-function texture stage 1 (op %u) is not done: stage 0 only", s.tss[1][TSS_COLOROP]);
 }
 
 }  // namespace rh::d3d9vk

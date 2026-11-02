@@ -102,6 +102,32 @@ uint32_t CallRef(uint32_t fn, A... args) {
         port ? port : reinterpret_cast<void*>(static_cast<uintptr_t>(fn)));
     return f(static_cast<uint32_t>(args)...);
 }
+// whether the reference's function at fn is a __thiscall one in the gen (translate32's g_genThiscall,
+// jumps.c, sorted; Com32Posix.cpp): its first parameter is ecx's, its stack words after it. The
+// translation makes every function that reads ecx a __thiscall one, so one not in it never reads ecx
+bool GenThiscall(uint32_t fn);
+// a reference function called as x86 calls it, ecx and the stack words: a __thiscall translation
+// takes ecx first, any other the stack words alone (a C++ copy constructor or destructor the
+// runtime calls for the reference's exceptions: ecx the object)
+template <typename... A>
+uint32_t CallX86(uint32_t fn, uint32_t ecx, A... stack) {
+    if (GenThiscall(fn)) return CallRef(fn, ecx, stack...);
+    return CallRef(fn, stack...);
+}
+// a reference callback Windows calls __stdcall, every word on the stack: a window procedure, a
+// subclass's, a TIMERPROC, a thread's start, an enumeration's callback, an exception filter. One the
+// gen has as __thiscall (Ghidra's for a __stdcall function, as COM methods: it reads its words from
+// gen_a1 on) takes ecx first: Windows leaves no meaning there, the first word stands in for it
+// (rh::com::CallMethod the same for an object's methods)
+template <typename... A>
+uint32_t CallStdcall(uint32_t fn, A... args) {
+    if constexpr (sizeof...(A) == 0) {
+        return CallX86(fn, 0u);
+    } else {
+        const uint32_t w[] = {static_cast<uint32_t>(args)...};
+        return CallX86(fn, w[0], args...);
+    }
+}
 // the reference's virtual-path view of its own executable (GetModuleFileName)
 const std::u16string& RefModulePath();
 const std::string& RefHostPath();

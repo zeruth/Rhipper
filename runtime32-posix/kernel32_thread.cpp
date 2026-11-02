@@ -74,7 +74,7 @@ struct RefStart {
 };
 void RunRef(void* p) {
     std::unique_ptr<RefStart> s(static_cast<RefStart*>(p));
-    uint32_t r = CallRef(s->start, s->param);
+    uint32_t r = CallStdcall(s->start, s->param);   // (LPTHREAD_START_ROUTINE, __stdcall)
     if (t_self) t_self->exitCode = r;
 }
 }  // namespace

@@ -176,10 +176,10 @@ void BuildCatchObject(uint32_t handler, uint32_t ct, const Thrown& t, uint32_t e
         *At<uint32_t>(dest) = src;
     else if ((props & 1) || copy == 0)
         memcpy(At(dest), At(src), size);
-    else if (props & 4)
-        CallRef(copy, dest, src, 1u);
+    else if (props & 4)   // (the copy constructor's __thiscall: ecx the new object, the source on the stack)
+        CallX86(copy, dest, src, 1u);
     else
-        CallRef(copy, dest, src);
+        CallX86(copy, dest, src);
 }
 
 void UnwindToState(uint32_t node, uint32_t fi, int32_t target) {
@@ -227,7 +227,8 @@ void UnwindFrame(uint32_t node) {
     while (g_caught.size() > l->depth) {
         Thrown done = g_caught.back();
         g_caught.pop_back();
-        if (!done.rethrown && done.object && U(done.info + 4)) Call1(U(done.info + 4), done.object);
+        // (the object's destructor, ThrowInfo.pmfnUnwind: __thiscall, ecx the object)
+        if (!done.rethrown && done.object && U(done.info + 4)) CallX86(U(done.info + 4), done.object);
     }
     g_resumeAt = at;
     g_resumeEbp = ebp;
@@ -323,7 +324,7 @@ void Dispatch(Thrown t) {
     // (the reference's own last word, its unhandled-exception filter: a crash reporter's)
     if (g_unhandledFilter) {
         Log("calling the reference's unhandled-exception filter %08x", g_unhandledFilter);
-        CallRef(g_unhandledFilter, t.pointers);
+        CallStdcall(g_unhandledFilter, t.pointers);
     }
     Die(t.code == kCxxCode ? 3 : t.code);
 }

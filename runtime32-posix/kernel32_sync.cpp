@@ -156,8 +156,14 @@ namespace {
 std::mutex g_namesLock;
 std::map<std::string, std::weak_ptr<Object>> g_names;
 
+// (a name's "Local\" prefix is the session's namespace, the one unprefixed names are in)
+const char* Unprefixed(const char* name) {
+    return name && strncmp(name, "Local\\", 6) == 0 ? name + 6 : name;
+}
+
 template <typename T, typename Make>
 uint32_t Named(const char* name, Make make) {
+    name = Unprefixed(name);
     if (!name || !*name) return NewHandle(make());
     std::lock_guard<std::mutex> hold(g_namesLock);
     auto it = g_names.find(name);
@@ -205,6 +211,10 @@ unsigned int gen_imp_CreateMutexA(uint32_t, uint32_t owner, uintptr_t name) {
     });
 }
 unsigned int gen_imp_CreateSemaphoreA(uint32_t, uint32_t initial, uint32_t maximum, uintptr_t name) {
+    if (static_cast<int32_t>(maximum) <= 0 || static_cast<int32_t>(initial) < 0 || initial > maximum) {
+        SetLastError(win::ERROR_INVALID_PARAMETER);
+        return 0;
+    }
     return Named<Semaphore>(Str(name), [&] {
         return std::make_shared<Semaphore>(static_cast<int32_t>(initial), static_cast<int32_t>(maximum));
     });
@@ -232,11 +242,16 @@ unsigned int gen_imp_DuplicateHandle(uint32_t, uint32_t from, uint32_t, uint32_t
 
 }  // extern "C"
 
+// (a name another kind of object holds: ERROR_INVALID_HANDLE, as Windows)
 static uint32_t OpenMutexA_(uint32_t, uint32_t, uint32_t name) {
     std::lock_guard<std::mutex> hold(g_namesLock);
-    auto it = g_names.find(name ? At<char>(name) : "");
+    const char* n = Unprefixed(name ? At<char>(name) : "");
+    auto it = g_names.find(n ? n : "");
     if (it != g_names.end())
-        if (auto o = it->second.lock()) return NewHandle(o);
+        if (auto o = it->second.lock()) {
+            if (!std::dynamic_pointer_cast<Mutex>(o)) return SetLastError(win::ERROR_INVALID_HANDLE), 0;
+            return NewHandle(o);
+        }
     SetLastError(win::ERROR_FILE_NOT_FOUND);
     return 0;
 }

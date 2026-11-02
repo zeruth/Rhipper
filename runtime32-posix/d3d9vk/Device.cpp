@@ -180,6 +180,7 @@ bool Device::Init() {
     f2.features.fillModeNonSolid = have.fillModeNonSolid;
     f2.features.occlusionQueryPrecise = have.occlusionQueryPrecise;
     f2.features.independentBlend = have.independentBlend;
+    f2.features.largePoints = have.largePoints;   // (point sprites: sizes past 1)
     VkPhysicalDeviceVulkan12Features f12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
     VkPhysicalDeviceVulkan13Features f13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
     {
@@ -341,9 +342,7 @@ void Device::BeginSlot() {
     s.serial = serial;
     cmd = s.cmd;
     dirty = kDirtyAll;
-    boundPipeline = VK_NULL_HANDLE;
-    lastKeyValid = false;
-    vsBlockSize = psBlockSize = 0;
+    ResetBindings();
 }
 
 VkCommandBuffer Device::Upload() {
@@ -353,6 +352,12 @@ VkCommandBuffer Device::Upload() {
         bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer(s.upload, &bi);
         s.uploadOpen = true;
+        // (a copy here may write a buffer an earlier submission still reads or writes: after them)
+        VkMemoryBarrier mb{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+        mb.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
+        mb.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        vkCmdPipelineBarrier(s.upload, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &mb, 0,
+                             nullptr, 0, nullptr);
     }
     return s.upload;
 }
@@ -535,9 +540,14 @@ uint32_t Device::PresentImage(Image* img, uint32_t, uint32_t) {
         Slot& s = slots[cur];
         VkSemaphore acquire = s.acquire;
         uint32_t index = 0;
-        VkResult r = vkAcquireNextImageKHR(device, swapchain, 1000000000ull, acquire, VK_NULL_HANDLE, &index);
+        // (the host's surface change waits while this holds the window: a surface being destroyed
+        // whose layer no longer latches buffers must not keep its UI thread long. On a timeout the
+        // frame is not presented; Android's swapchain honours the timeout as a dequeue timeout)
+        VkResult r = vkAcquireNextImageKHR(device, swapchain, 500000000ull, acquire, VK_NULL_HANDLE, &index);
+        // (SUBOPTIMAL is kept presenting: a phone held in landscape reports its display rotated, and
+        // the identity transform asked for, the compositor rotating, answers it every frame; a size
+        // change remakes the swapchain through the host's surface size, EnsureSwapchain)
         if (r == VK_SUCCESS || r == VK_SUBOPTIMAL_KHR) {
-            if (r == VK_SUBOPTIMAL_KHR) scStale = true;
             Transition(cmd, img, 0, 1, 0, 1, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
             VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
             b.srcAccessMask = 0;
@@ -572,8 +582,9 @@ uint32_t Device::PresentImage(Image* img, uint32_t, uint32_t) {
             pi.pSwapchains = &swapchain;
             pi.pImageIndices = &index;
             VkResult pr = vkQueuePresentKHR(queue, &pi);
-            if (pr == VK_ERROR_OUT_OF_DATE_KHR || pr == VK_SUBOPTIMAL_KHR) scStale = true;
-            else if (pr != VK_SUCCESS) Check(pr, "vkQueuePresentKHR");
+            if (pr == VK_ERROR_OUT_OF_DATE_KHR) scStale = true;
+            else if (pr == VK_ERROR_SURFACE_LOST_KHR) DestroySwapchain(true);   // (made again from the host's next)
+            else if (pr != VK_SUCCESS && pr != VK_SUBOPTIMAL_KHR) Check(pr, "vkQueuePresentKHR");
             presented = true;
         } else if (r == VK_ERROR_OUT_OF_DATE_KHR) {
             scStale = true;
@@ -651,9 +662,12 @@ void Device::MarkRenderState(uint32_t state) {
             dirty |= kDirtyPipeline;
             break;
         case RS_SRGBWRITEENABLE: dirty |= kDirtyPipeline | kDirtyTargets; break;
-        case RS_ZENABLE: case RS_ZWRITEENABLE: case RS_ZFUNC: dirty |= kDirtyDepth; break;
-        case RS_STENCILENABLE: case RS_STENCILFAIL: case RS_STENCILZFAIL: case RS_STENCILPASS: case RS_STENCILFUNC:
-        case RS_STENCILREF: case RS_STENCILMASK: case RS_STENCILWRITEMASK: case RS_TWOSIDEDSTENCILMODE:
+        // (Z and stencil writes decide whether a sampled depth surface may stay bound: the textures too)
+        case RS_ZENABLE: case RS_ZWRITEENABLE: dirty |= kDirtyDepth | kDirtyTextures; break;
+        case RS_ZFUNC: dirty |= kDirtyDepth; break;
+        case RS_STENCILENABLE: case RS_STENCILWRITEMASK: dirty |= kDirtyStencil | kDirtyTextures; break;
+        case RS_STENCILFAIL: case RS_STENCILZFAIL: case RS_STENCILPASS: case RS_STENCILFUNC:
+        case RS_STENCILREF: case RS_STENCILMASK: case RS_TWOSIDEDSTENCILMODE:
         case RS_CCW_STENCILFAIL: case RS_CCW_STENCILZFAIL: case RS_CCW_STENCILPASS: case RS_CCW_STENCILFUNC:
             dirty |= kDirtyStencil;
             break;
@@ -666,8 +680,12 @@ void Device::MarkRenderState(uint32_t state) {
         case RS_CLIPPLANEENABLE:
             if (st.rs[state]) LogOnce("vk-clipplanes", "d3d9vk: user clip planes (%#x) are not done", st.rs[state]);
             break;
-        case RS_POINTSPRITEENABLE:
-            if (st.rs[state]) LogOnce("vk-pointsprite", "d3d9vk: point sprites are not done");
+        case RS_POINTSPRITEENABLE: case RS_POINTSIZE: case RS_POINTSIZE_MIN: case RS_POINTSIZE_MAX:
+            dirty |= kDirtyPush;   // (the point size and the sprite flag are push constants)
+            break;
+        case RS_POINTSCALEENABLE:
+            if (st.rs[state])
+                LogOnce("vk-pointscale", "d3d9vk: POINTSCALEENABLE (the fixed function's distance scale) is not done");
             break;
         default: break;
     }
@@ -715,7 +733,6 @@ void Device::CaptureBlock(StateBlock* b) {
 }
 
 namespace {
-const uint32_t kTransformStates[kTransforms] = {256, 2, 3, 16, 17, 18, 19, 20, 21, 22, 23};
 uint32_t SamplerStage(uint32_t k) { return k < 16 ? k : 257 + (k - 16); }
 }  // namespace
 
@@ -941,7 +958,7 @@ uint32_t Device::SetRenderTarget(uint32_t index, uint32_t surface) {
     if (rt[index] != s) {
         EndPass();
         Hold(rt[index], s);
-        dirty |= kDirtyPipeline | kDirtyTargets | kDirtyPush;
+        dirty |= kDirtyPipeline | kDirtyTargets | kDirtyPush | kDirtyTextures;   // (textures: sampled targets)
     }
     if (index == 0) {   // (D3D9 resets the viewport and the scissor rect to the new target)
         st.vp = {0, 0, s->W(), s->H(), 0.0f, 1.0f};
@@ -964,7 +981,7 @@ uint32_t Device::SetDepthStencilSurface(uint32_t surface) {
     if (ds != s) {
         EndPass();
         Hold(ds, s);
-        dirty |= kDirtyPipeline | kDirtyTargets | kDirtyDepth | kDirtyStencil | kDirtyBias;
+        dirty |= kDirtyPipeline | kDirtyTargets | kDirtyDepth | kDirtyStencil | kDirtyBias | kDirtyTextures;
     }
     return D3D_OK;
 }
@@ -984,7 +1001,8 @@ int TransformIndex(uint32_t state) {
     if (state == 2) return 1;
     if (state == 3) return 2;
     if (state >= 16 && state <= 23) return 3 + static_cast<int>(state - 16);
-    LogOnce(("vk-transform-" + std::to_string(state)).c_str(), "d3d9vk: transform %u is kept nowhere", state);
+    static Once<8> once;   // (a hot path: no key built per call)
+    if (once.First(state)) Log("d3d9vk: transform %u is kept nowhere", state);
     return -1;
 }
 }  // namespace
@@ -1033,6 +1051,7 @@ uint32_t Device::SetViewport(uint32_t vpIn) {
     if (!vpIn) return D3DERR_INVALIDCALL;
     auto v = At<uint32_t>(vpIn);
     Viewport n{v[0], v[1], std::max(1u, v[2]), std::max(1u, v[3]), AsFloat(v[4]), AsFloat(v[5])};
+    if (!rec && memcmp(&st.vp, &n, sizeof n) == 0) return D3D_OK;
     S().vp = n;
     if (rec) rec->m.vp = true;
     else dirty |= kDirtyViewport | kDirtyFixed;
@@ -1211,6 +1230,7 @@ uint32_t Device::GetTextureStageState(uint32_t stage, uint32_t type, uint32_t ou
 uint32_t Device::SetTextureStageState(uint32_t stage, uint32_t type, uint32_t value) {
     LOCKED;
     if (stage >= 8 || type >= kStageStates) return D3DERR_INVALIDCALL;
+    if (!rec && st.tss[stage][type] == value) return D3D_OK;
     S().tss[stage][type] = value;
     if (rec) rec->m.tss.set(stage * kStageStates + type);
     else dirty |= kDirtyFixed;
@@ -1254,7 +1274,9 @@ uint32_t Device::GetCurrentTexturePalette(uint32_t out) {
 uint32_t Device::SetScissorRect(uint32_t rect) {
     LOCKED;
     if (!rect) return D3DERR_INVALIDCALL;
-    S().scissor = RectAt(rect);
+    Rect r = RectAt(rect);
+    if (!rec && memcmp(&st.scissor, &r, sizeof r) == 0) return D3D_OK;
+    S().scissor = r;
     if (rec) rec->m.scissor = true;
     else dirty |= kDirtyScissor;
     return D3D_OK;
@@ -1418,6 +1440,7 @@ uint32_t Device::GetPixelShader(uint32_t out) {
     uint32_t Device::Set##Name(uint32_t start, uint32_t data, uint32_t count) {               \
         LOCKED;                                                                               \
         if (!data || start + count > limit) return D3DERR_INVALIDCALL;                         \
+        if (!rec && memcmp(st.arr[start], At(data), 16 * count) == 0) return D3D_OK;          \
         memcpy(S().arr[start], At(data), 16 * count);                                         \
         if (rec) {                                                                            \
             for (uint32_t k = start; k < start + count; k++) rec->m.maskF.set(k);             \
@@ -1441,6 +1464,7 @@ CONSTS_F(PixelShaderConstantF, psF, kPsConsts, psHigh, kDirtyPsConst, psF)
     uint32_t Device::Set##Name(uint32_t start, uint32_t data, uint32_t count) {               \
         LOCKED;                                                                               \
         if (!data || start + count > 16) return D3DERR_INVALIDCALL;                            \
+        if (!rec && memcmp(st.arr[start], At(data), 16 * count) == 0) return D3D_OK;          \
         memcpy(S().arr[start], At(data), 16 * count);                                         \
         if (rec) rec->m.mask |= static_cast<uint16_t>(((1u << count) - 1) << start);           \
         else dirty |= bits;                                                                   \
@@ -1486,7 +1510,7 @@ uint32_t Device::SetStreamSource(uint32_t stream, uint32_t vb, uint32_t offset, 
         rec->m.streams |= 1u << stream;
         return D3D_OK;
     }
-    if (s.vb != b) dirty |= kDirtyPipeline;   // (bound or not changes the layout)
+    if ((s.vb != nullptr) != (b != nullptr)) dirty |= kDirtyPipeline;   // (bound or not changes the layout)
     Hold(s.vb, b);
     s.offset = offset, s.stride = stride;
     dirty |= kDirtyStreams;
@@ -1505,6 +1529,7 @@ uint32_t Device::GetStreamSource(uint32_t stream, uint32_t vb, uint32_t offset, 
 uint32_t Device::SetStreamSourceFreq(uint32_t stream, uint32_t freq) {
     LOCKED;
     if (stream >= kStreams) return D3DERR_INVALIDCALL;
+    if (!rec && st.streams[stream].freq == freq) return D3D_OK;
     S().streams[stream].freq = freq;
     if (rec) rec->m.freqs |= 1u << stream;
     else dirty |= kDirtyPipeline;

@@ -131,7 +131,10 @@ static uint32_t VerQueryValueA_(uint32_t block, uint32_t sub, uint32_t out, uint
     uint16_t valueLen = *At<uint16_t>(node + 2), type = *At<uint16_t>(node + 4);
     if (type == 1) {
         // (a string: its ANSI copy in the buffer's second half, at the same offset)
-        std::string a = AnsiOf(std::u16string(At<char16_t>(value), valueLen ? valueLen - 1 : 0));
+        // (wValueLength counts the terminator by some resource compilers and not by others: the
+        // string runs to its terminator, within that count)
+        size_t chars = std::min<size_t>(valueLen, Len16(At<char16_t>(value)));
+        std::string a = AnsiOf(std::u16string(At<char16_t>(value), chars));
         uint32_t copy = block + total + (value - block) / 2;
         memcpy(At(copy), a.c_str(), a.size() + 1);
         *At<uint32_t>(out) = copy;

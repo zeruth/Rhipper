@@ -1,6 +1,8 @@
 // advapi32: the registry, the runtime's own, in memory and empty but for what <game>/registry.reg
 // seeds (a .reg file's subset: [HKEY_...\path] sections, "name"="string" and "name"=dword:hex
 // values; the reference imports no RegSetValueEx, so nothing is ever written back), and the user.
+#include <cctype>
+#include <cstdlib>
 #include <fstream>
 #include <iterator>
 #include <map>
@@ -18,6 +20,7 @@ struct Value {
 };
 struct Key {
     std::map<std::string, Value> values;   // by lower-case name
+    std::string spelled;                   // its own name's last component as first given (RegEnumKeyEx's)
 };
 
 std::mutex g_regLock;
@@ -44,29 +47,87 @@ std::string RootName(uint32_t h) {
     }
 }
 
+// a key and every key above it, each spelled as first given ("HKEY_LOCAL_MACHINE\Software\Foo")
+void MakeKey(const std::string& path) {
+    for (size_t at = 0;; at++) {
+        at = path.find('\\', at);
+        std::string part = path.substr(0, at);
+        Key& k = g_keys[Lower(part)];
+        if (k.spelled.empty()) k.spelled = part.substr(part.rfind('\\') + 1);
+        if (at == std::string::npos) return;
+    }
+}
+
+// a quoted .reg string ("...", its \\ and \" escapes) without its quotes; `end` past it
+std::string Unquote(const std::string& s, size_t from, size_t* end) {
+    std::string out;
+    size_t k = from + 1;
+    for (; k < s.size() && s[k] != '"'; k++) {
+        if (s[k] == '\\' && k + 1 < s.size()) k++;
+        out.push_back(s[k]);
+    }
+    if (end) *end = k + 1;
+    return out;
+}
+
+// hex:12,ab,... (and hex(n): its type) as bytes
+std::string HexBytes(const std::string& s) {
+    std::string out;
+    for (size_t k = 0; k < s.size();) {
+        if (!isxdigit(static_cast<unsigned char>(s[k]))) {
+            k++;
+            continue;
+        }
+        char* end = nullptr;
+        out.push_back(static_cast<char>(strtoul(s.c_str() + k, &end, 16)));
+        k = static_cast<size_t>(end - s.c_str());
+    }
+    return out;
+}
+
 void Seed() {
     static bool done = false;
     if (done) return;
     done = true;
     std::ifstream in(GameRoot() + "/registry.reg");
-    std::string line, key;
+    std::string raw, line, key;
     int n = 0;
-    while (std::getline(in, line)) {
-        while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) line.pop_back();
-        if (line.size() > 2 && line[0] == '[') {
-            key = Lower(line.substr(1, line.size() - 2));
-            g_keys[key];
+    while (std::getline(in, raw)) {
+        while (!raw.empty() && (raw.back() == '\r' || raw.back() == ' ')) raw.pop_back();
+        // (a value continued on the next line: a trailing backslash)
+        if (!raw.empty() && raw.back() == '\\' && (line + raw).find("=hex") != std::string::npos) {
+            line += raw.substr(0, raw.size() - 1);
             continue;
         }
-        size_t eq = line.find("\"=");
-        if (key.empty() || line.empty() || line[0] != '"' || eq == std::string::npos) continue;
-        std::string name = Lower(line.substr(1, eq - 1)), v = line.substr(eq + 2);
+        line += raw;
+        std::string l = line;
+        line.clear();
+        while (!l.empty() && (l[0] == ' ' || l[0] == '\t')) l.erase(0, 1);
+        if (l.size() > 2 && l[0] == '[') {
+            key = Lower(l.substr(1, l.size() - 2));
+            MakeKey(l.substr(1, l.size() - 2));
+            continue;
+        }
+        if (key.empty() || l.empty() || (l[0] != '"' && l[0] != '@')) continue;
+        // (@ the key's default value, its name "")
+        size_t after = 1;
+        std::string name = l[0] == '@' ? "" : Lower(Unquote(l, 0, &after));
+        if (after >= l.size() || l[after] != '=') continue;
+        std::string v = l.substr(after + 1);
         Value val;
         if (v.compare(0, 6, "dword:") == 0) {
             uint32_t d = static_cast<uint32_t>(strtoul(v.c_str() + 6, nullptr, 16));
             val = {4, std::string(reinterpret_cast<const char*>(&d), 4)};
-        } else if (v.size() >= 2 && v[0] == '"') {
-            val = {1, v.substr(1, v.size() - 2) + std::string(1, '\0')};
+        } else if (!v.empty() && v[0] == '"') {
+            val = {1, Unquote(v, 0, nullptr) + std::string(1, '\0')};
+        } else if (v.compare(0, 4, "hex:") == 0) {
+            val = {3, HexBytes(v.substr(4))};   // REG_BINARY
+        } else if (v.compare(0, 4, "hex(") == 0 && v.find("):") != std::string::npos) {
+            uint32_t type = static_cast<uint32_t>(strtoul(v.c_str() + 4, nullptr, 16));
+            std::string bytes = HexBytes(v.substr(v.find("):") + 2));
+            // (a .reg file's strings are UTF-16: REG_EXPAND_SZ 2 and REG_MULTI_SZ 7 as the A functions' ANSI)
+            if (type == 2 || type == 7) bytes = AnsiOf(std::u16string(reinterpret_cast<const char16_t*>(bytes.data()), bytes.size() / 2));
+            val = {type, bytes};
         } else {
             continue;
         }
@@ -85,11 +146,12 @@ static uint32_t RegCreateKeyExA_(uint32_t hkey, uint32_t sub, uint32_t, uint32_t
     Seed();
     std::string root = RootName(hkey);
     if (root.empty()) return win::ERROR_INVALID_HANDLE;
-    std::string path = root;
-    if (sub && *At<char>(sub)) path += "\\" + Lower(At<char>(sub));
-    while (!path.empty() && path.back() == '\\') path.pop_back();
+    std::string spelled = root;
+    if (sub && *At<char>(sub)) spelled += "\\" + std::string(At<char>(sub));
+    while (!spelled.empty() && spelled.back() == '\\') spelled.pop_back();
+    std::string path = Lower(spelled);
     bool existed = g_keys.count(path) != 0;
-    g_keys[path];
+    MakeKey(spelled);
     uint32_t h = g_nextKey += 4;
     g_open[h] = path;
     *At<uint32_t>(out) = h;
@@ -115,6 +177,8 @@ static uint32_t RegQueryValueExA_(uint32_t hkey, uint32_t name, uint32_t, uint32
     std::lock_guard<std::mutex> hold(g_regLock);
     Seed();
     std::string path = RootName(hkey);
+    if (path.empty()) return win::ERROR_INVALID_HANDLE;
+    if (data && !size) return win::ERROR_INVALID_PARAMETER;
     auto k = g_keys.find(path);
     std::string n = name ? Lower(At<char>(name)) : "";
     if (k == g_keys.end() || !k->second.values.count(n)) {
@@ -141,16 +205,20 @@ static uint32_t RegEnumKeyExA_(uint32_t hkey, uint32_t index, uint32_t name, uin
                                uint32_t clsCap, uint32_t time) {
     std::lock_guard<std::mutex> hold(g_regLock);
     Seed();
-    std::string prefix = RootName(hkey) + "\\";
-    std::set<std::string> subs;
+    std::string root = RootName(hkey);
+    if (root.empty()) return win::ERROR_INVALID_HANDLE;
+    std::string prefix = root + "\\";
+    std::set<std::string> subs;   // (lower-case paths of the direct subkeys, sorted as names)
     for (auto& [p, k] : g_keys)
-        if (p.compare(0, prefix.size(), prefix) == 0) subs.insert(p.substr(prefix.size(), p.find('\\', prefix.size()) - prefix.size()));
+        if (p.compare(0, prefix.size(), prefix) == 0) subs.insert(p.substr(0, p.find('\\', prefix.size())));
     if (index >= subs.size()) return win::ERROR_NO_MORE_ITEMS;
     auto it = subs.begin();
     std::advance(it, index);
-    if (it->size() + 1 > U32(cap)) return win::ERROR_MORE_DATA;
-    strcpy(At<char>(name), it->c_str());
-    *At<uint32_t>(cap) = static_cast<uint32_t>(it->size());
+    const std::string& spelled = g_keys[*it].spelled;
+    std::string sub = spelled.empty() ? it->substr(prefix.size()) : spelled;
+    if (sub.size() + 1 > U32(cap)) return win::ERROR_MORE_DATA;
+    strcpy(At<char>(name), sub.c_str());
+    *At<uint32_t>(cap) = static_cast<uint32_t>(sub.size());
     if (cls && clsCap && U32(clsCap)) *At<char>(cls) = 0, *At<uint32_t>(clsCap) = 0;
     if (time) memset(At(time), 0, 8);
     return win::ERROR_SUCCESS;

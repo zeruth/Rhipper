@@ -9,6 +9,16 @@
 
 #include "Com32Posix.h"
 
+#include <algorithm>
+
+// the gen's __thiscall functions, by their reference addresses, sorted (translate32: jumps.c)
+extern "C" const unsigned int g_genThiscall[];
+extern "C" const unsigned int g_genThiscallCount;
+
+namespace rh {
+bool GenThiscall(uint32_t fn) { return std::binary_search(g_genThiscall, g_genThiscall + g_genThiscallCount, fn); }
+}  // namespace rh
+
 namespace rh::com {
 
 namespace {
@@ -79,6 +89,7 @@ uint32_t VkDirect3DCreate9(uint32_t sdk);   // d3d9vk/Device.cpp: 0 without a us
 uint32_t DinputCreate(uint32_t version, uint32_t riid, uint32_t out);
 bool IsDirectInput8Class(uint32_t clsid);
 bool XAudio2Class(uint32_t clsid, uint32_t riid, uint32_t out, bool factory, uint32_t* hr);   // xaudio2.cpp
+bool DShowClass(uint32_t clsid, uint32_t outer, uint32_t riid, uint32_t out, uint32_t* hr);   // dshow32/dshow.cpp
 }  // namespace rh
 
 extern "C" {
@@ -96,8 +107,9 @@ unsigned int gen_imp_DirectInput8Create(uint32_t inst, uint32_t version, uint32_
     return DinputCreate(version, riid, out);
 }
 
-// CoCreateInstance: DirectInput 8's class (the same object DirectInput8Create makes), or a project's
-// factory "CoCreateInstance"; any other class refused, as on a system without it
+// CoCreateInstance: DirectInput 8's class (the same object DirectInput8Create makes), XAudio2's,
+// DirectShow's filter graph and DMO wrapper (dshow32/dshow.cpp), or a project's factory "CoCreateInstance";
+// any other class refused, as on a system without it
 unsigned int gen_imp_CoCreateInstance(uint32_t clsid, uint32_t outer, uint32_t context, uint32_t riid, uint32_t out) {
     if (auto f = reinterpret_cast<uint32_t (*)(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t)>(
             const_cast<void*>(rhipper_com_factory("CoCreateInstance")))) {
@@ -107,6 +119,7 @@ unsigned int gen_imp_CoCreateInstance(uint32_t clsid, uint32_t outer, uint32_t c
     if (IsDirectInput8Class(clsid)) return DinputCreate(0x800, riid, out);
     uint32_t hr;
     if (XAudio2Class(clsid, riid, out, false, &hr)) return hr;
+    if (DShowClass(clsid, outer, riid, out, &hr)) return hr;
     Log("COM: CoCreateInstance of %s refused (no such class here)", HexGuid(clsid).c_str());
     if (out) *At<uint32_t>(out) = 0;
     return win::REGDB_E_CLASSNOTREG;

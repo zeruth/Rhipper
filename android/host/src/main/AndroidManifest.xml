@@ -6,6 +6,11 @@
     <!-- rumble through the controller's own vibrators -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!-- a server on the local network (a LAN lobby, 10.x / 192.168.x): Android 17's local network
+         protection drops an app's traffic there without it, ICMP and TCP alike, while the internet
+         stays open. A runtime permission: the app asks for it before it starts the game -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+
     <uses-feature
         android:name="android.hardware.gamepad"
         android:required="false" />

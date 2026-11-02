@@ -45,7 +45,7 @@ enum Decoration : uint32_t {
     Binding = 33, DescriptorSet = 34, Offset = 35,
 };
 
-enum BuiltInKind : uint32_t { Position = 0, PointSize = 1, FragCoord = 15, FrontFacing = 17, FragDepth = 22 };
+enum BuiltInKind : uint32_t { Position = 0, PointSize = 1, FragCoord = 15, PointCoord = 16, FrontFacing = 17, FragDepth = 22 };
 
 enum Model : uint32_t { Vertex = 0, Fragment = 4 };
 enum Mode : uint32_t { OriginUpperLeft = 7, DepthReplacing = 12 };

@@ -22,7 +22,11 @@
 // first (no render pass broken); to one it has used, inline in the main one.
 //
 // Everything is guarded by the device's lock (the reference's device is MULTITHREADED: its loader
-// threads lock and fill textures while its render thread draws).
+// threads lock and fill textures while its render thread draws). A texture lock's CPU side (its
+// level's low memory) is the locking thread's own; what it shares (the upload, the flags) is locked.
+//
+// The draw path records only what changed since the last draw in the command buffer (`dirty`, and
+// what is bound: pipeline, descriptors, push constants, vertex and index buffers, topology).
 #pragma once
 
 #ifndef VK_USE_PLATFORM_ANDROID_KHR
@@ -170,6 +174,18 @@ inline uint32_t FloatBits(float f) {
     memcpy(&v, &f, 4);
     return v;
 }
+
+// LogOnce for a hot path: a flag per call site (and per small number k), no key string built, no
+// lock taken (`static Once<> once; if (once.First()) Log(...)`); k past 64 * N shares a flag
+template <size_t N = 1>
+struct Once {
+    std::atomic<uint64_t> bits[N] = {};
+    bool First(uint32_t k = 0) {
+        k %= 64 * N;
+        uint64_t m = 1ull << (k % 64);
+        return !(bits[k / 64].fetch_or(m, std::memory_order_relaxed) & m);
+    }
+};
 
 // ---- formats (Formats.cpp) ------------------------------------------------------------------------
 // D3D side texels in, Vulkan side texels out: a region w x h in pixels, rows at the given pitches
@@ -436,18 +452,27 @@ struct Volume : Base {
 struct Buffer : Base {
     bool index = false;
     uint32_t length = 0, usage = 0, format = 0 /* the FVF, or the index format */, pool = 0;
-    bool dynamic = false;   // versions in the upload ring (DYNAMIC, SYSTEMMEM)
+    bool dynamic = false;   // versioned (DYNAMIC, SYSTEMMEM, or a static one locked under the GPU's use)
     // static: a device buffer
     VkBuffer buffer = VK_NULL_HANDLE;
     Alloc mem;
     uint64_t lastUse = 0, pendingCopy = 0;
-    // dynamic: the whole contents in low memory, and the version the GPU reads
+    // dynamic: the whole contents in low memory (what a version is filled from), and the version the
+    // GPU reads: one of the buffer's own (host visible, kept across submissions, reused once the GPU
+    // is done with it), or a slice of the current submission's ring when it has as many as it may
+    struct Version {
+        VkBuffer buffer = VK_NULL_HANDLE;
+        Alloc mem;
+        uint64_t lastUse = 0;   // the last submission that drew from it
+    };
     uint32_t shadow = 0;
+    std::vector<Version> versions;
+    int cur = -1;   // versions[cur] is the current version; -1: the ring slice (or none)
     VkBuffer verBuffer = VK_NULL_HANDLE;
     VkDeviceSize verOffset = 0;
     uint8_t* verPtr = nullptr;
-    uint64_t verSerial = 0;
-    bool verUsed = false;
+    uint64_t verSerial = 0;   // a ring slice's submission (the slice is gone after it)
+    uint64_t verUse = 0;      // the last submission that drew from the current version
     // the open lock
     int locks = 0;
     uint32_t lockMem = 0, lockOff = 0, lockEnd = 0, lockFlags = 0;
@@ -457,9 +482,12 @@ struct Buffer : Base {
     uint32_t Lock(uint32_t offset, uint32_t size, uint32_t out, uint32_t flags);
     uint32_t Unlock();
     uint32_t GetDesc(uint32_t out);
-    // what a draw binds (a dynamic buffer's current version made here)
+    // what a draw binds (a dynamic buffer's current version made here when it has none)
     void Use(VkBuffer* b, VkDeviceSize* off);
-    void NewVersion(bool copyAll);
+    bool Current() const;   // the current version may be drawn from in this submission
+    bool Busy();            // the GPU may still read the current version (or will: this submission drew)
+    void Rename(bool copyAll);   // a fresh current version, filled from the shadow if `copyAll`
+    void ToDynamic();            // a static buffer becomes a versioned one
 };
 
 struct Query : Base {
@@ -468,6 +496,7 @@ struct Query : Base {
     bool building = false;         // an occlusion query between its begin and end
     std::vector<uint32_t> slots;   // an occlusion query's Vulkan queries (one per render pass it spans)
     uint64_t cpuTime = 0;
+    uint32_t polls = 0;            // GetData calls without FLUSH while its submission is recording
     ~Query() override;
     uint32_t GetType();
     uint32_t GetDataSize();
@@ -723,10 +752,33 @@ struct Device {
     // the render pass (dynamic rendering)
     bool passActive = false;
     VkExtent2D passExtent{};
-    bool clearColor = false, clearDepth = false, clearStencil = false;   // pending, for the pass's begin
+    // a Clear of the whole render area as the next pass's load ops (set by Clear just before BeginPass)
+    bool clearColor = false, clearDepth = false, clearStencil = false;
     VkClearColorValue clearColorValue{};
     float clearDepthValue = 1;
     uint32_t clearStencilValue = 0;
+    // the depth surface read-only in the pass (DEPTH_STENCIL_READ_ONLY_OPTIMAL): a draw samples it
+    // with depth and stencil writes off, as D3D9's drivers allowed
+    bool dsReadOnly = false, wantDsReadOnly = false;
+
+    // what the current command buffer has bound, so a draw records only what changed
+    struct BoundTexture {
+        uint32_t binding;
+        VkImageView view;
+        VkSampler sampler;
+        VkImageLayout layout;
+    };
+    BoundTexture boundTex[kSamplers];
+    uint32_t nBoundTex = 0;
+    bool descValid = false, pushValid = false;
+    uint32_t lastPush[8] = {};
+    uint32_t lastTopology = ~0u;
+    VkBuffer vbBound[16] = {};
+    VkDeviceSize vbOffset[16] = {}, vbStride[16] = {};
+    VkBuffer ibBound = VK_NULL_HANDLE;
+    VkDeviceSize ibOffset = 0;
+    VkIndexType ibType = VK_INDEX_TYPE_UINT16;
+    VkDeviceSize dynamicBytes = 0;   // dynamic buffers' own versions, all told
 
     // pipelines, descriptors
     VkDescriptorSetLayout setLayout = VK_NULL_HANDLE;
@@ -819,6 +871,8 @@ struct Device {
     bool IsTarget(const Image* img) const;
     VkExtent2D TargetExtent() const;
     bool PrepareDraw(uint32_t primitive, bool indexed, uint32_t* instances);
+    void BindTextures(const ShaderInfo& vsInfo, const ShaderInfo& psInfo, bool fixedPs);
+    void ResetBindings();   // a new command buffer: nothing bound, every dynamic state to set
     bool BuildLayout(const ShaderInfo& vsInfo, bool fixedVs, VertexLayout* out);
     const std::vector<Element32>& FvfElements(uint32_t fvf);
     void BeginOcclusion();

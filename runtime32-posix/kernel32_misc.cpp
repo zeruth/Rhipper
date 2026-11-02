@@ -176,19 +176,28 @@ static uint32_t GetLocalTime_(uint32_t out) {
     return 0;
 }
 RH_REG(KERNEL32, GetLocalTime, GetLocalTime_)
+// (with the bias the zone has now, not the one it had at that time: Windows' documented behaviour)
 static uint32_t FileTimeToLocalFileTime_(uint32_t in, uint32_t out) {
     uint64_t ft = *At<uint64_t>(in);
-    *At<uint64_t>(out) = ft + LocalBias100ns(static_cast<time_t>(ft / 10000000ull - 11644473600ull));
+    *At<uint64_t>(out) = ft + LocalBias100ns(time(nullptr));
     return 1;
 }
 RH_REG(KERNEL32, FileTimeToLocalFileTime, FileTimeToLocalFileTime_)
 static uint32_t FileTimeToSystemTime_(uint32_t in, uint32_t out) {
-    *At<SystemTime>(out) = ToSystemTime(*At<uint64_t>(in));
+    uint64_t ft = *At<uint64_t>(in);
+    if (ft > 0x7FFFFFFFFFFFFFFFull) return SetLastError(win::ERROR_INVALID_PARAMETER), 0;
+    *At<SystemTime>(out) = ToSystemTime(ft);
     return 1;
 }
 RH_REG(KERNEL32, FileTimeToSystemTime, FileTimeToSystemTime_)
+// (fields out of range fail, as Windows' do, where timegm would carry them over)
 static uint32_t SystemTimeToFileTime_(uint32_t in, uint32_t out) {
     const SystemTime& s = *At<SystemTime>(in);
+    static const uint8_t days[12] = {31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    bool leap = (s.year % 4 == 0 && s.year % 100 != 0) || s.year % 400 == 0;
+    if (s.year < 1601 || s.year > 30827 || s.month < 1 || s.month > 12 || s.day < 1 || s.day > days[s.month - 1] ||
+        (s.month == 2 && s.day == 29 && !leap) || s.hour > 23 || s.minute > 59 || s.second > 59 || s.ms > 999)
+        return SetLastError(win::ERROR_INVALID_PARAMETER), 0;
     tm t = {};
     t.tm_year = s.year - 1900;
     t.tm_mon = s.month - 1;
@@ -197,22 +206,112 @@ static uint32_t SystemTimeToFileTime_(uint32_t in, uint32_t out) {
     t.tm_min = s.minute;
     t.tm_sec = s.second;
     time_t secs = timegm(&t);
-    if (secs == static_cast<time_t>(-1) && s.year != 1969) return SetLastError(win::ERROR_INVALID_PARAMETER), 0;
-    *At<uint64_t>(out) = (static_cast<uint64_t>(secs) + 11644473600ull) * 10000000ull + s.ms * 10000ull;
+    *At<uint64_t>(out) = static_cast<uint64_t>(static_cast<int64_t>(secs) + 11644473600ll) * 10000000ull + s.ms * 10000ull;
     return 1;
 }
 RH_REG(KERNEL32, SystemTimeToFileTime, SystemTimeToFileTime_)
 
-// TIME_ZONE_INFORMATION (172 bytes): the bias the host's zone has now, no daylight rules
-static uint32_t GetTimeZoneInformation_(uint32_t out) {
-    auto o = At<uint8_t>(out);
-    memset(o, 0, 172);
+// TIME_ZONE_INFORMATION (172 bytes): the host zone's standard bias and, where it keeps daylight time,
+// this year's two changes as Windows' rules ("the n-th weekday of a month at a local time", n 5 the
+// last), found from the host's own rules. A zone without daylight time: TIME_ZONE_ID_UNKNOWN
+namespace {
+#pragma pack(push, 4)
+struct TimeZone32 {
+    int32_t bias;
+    char16_t standardName[32];
+    SystemTime standardDate;
+    int32_t standardBias;
+    char16_t daylightName[32];
+    SystemTime daylightDate;
+    int32_t daylightBias;
+};
+#pragma pack(pop)
+static_assert(sizeof(TimeZone32) == 172, "TIME_ZONE_INFORMATION");
+
+bool IsDst(time_t t, long* off = nullptr, std::string* name = nullptr) {
+    tm l;
+    localtime_r(&t, &l);
+    if (off) *off = l.tm_gmtoff;
+    if (name) *name = l.tm_zone ? l.tm_zone : "";
+    return l.tm_isdst > 0;
+}
+
+// the first second at which IsDst differs from IsDst(lo), lo < hi and the two differing
+time_t Change(time_t lo, time_t hi) {
+    bool from = IsDst(lo);
+    while (hi - lo > 1) {
+        time_t mid = lo + (hi - lo) / 2;
+        (IsDst(mid) == from ? lo : hi) = mid;
+    }
+    return hi;
+}
+
+// the change at `t` as a rule, in the local time it happens at (the offset before it)
+SystemTime Rule(time_t t, long offBefore) {
+    time_t local = t + offBefore;
+    tm u;
+    gmtime_r(&local, &u);
+    static const int mdays[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    int y = u.tm_year + 1900, inMonth = mdays[u.tm_mon] + (u.tm_mon == 1 && ((y % 4 == 0 && y % 100) || y % 400 == 0));
+    uint16_t week = u.tm_mday + 7 > inMonth ? 5 : static_cast<uint16_t>((u.tm_mday - 1) / 7 + 1);
+    return {0, static_cast<uint16_t>(u.tm_mon + 1), static_cast<uint16_t>(u.tm_wday), week, static_cast<uint16_t>(u.tm_hour),
+            static_cast<uint16_t>(u.tm_min), static_cast<uint16_t>(u.tm_sec), 0};
+}
+
+void PutName(char16_t* out, const std::string& s) {
+    std::u16string w = Widen(s.empty() ? "UTC" : s.c_str());
+    memcpy(out, w.data(), std::min<size_t>(w.size(), 31) * 2);
+}
+}  // namespace
+
+static uint32_t ZoneOf(TimeZone32* o) {
+    memset(o, 0, sizeof *o);
     time_t now = time(nullptr);
+    long nowOff = 0;
+    std::string nowName;
+    bool nowDst = IsDst(now, &nowOff, &nowName);
+    // (this year's changes: a day's steps from its first day, each change found to the second)
     tm l;
     localtime_r(&now, &l);
-    *reinterpret_cast<int32_t*>(o) = -static_cast<int32_t>(l.tm_gmtoff / 60);
-    std::u16string name = Widen(l.tm_zone ? l.tm_zone : "UTC");
-    memcpy(o + 4, name.data(), std::min<size_t>(name.size(), 31) * 2);
-    return 0;   // TIME_ZONE_ID_UNKNOWN
+    tm jan = {};
+    jan.tm_year = l.tm_year;
+    jan.tm_mday = 1;
+    time_t start = timegm(&jan) - 14 * 3600, toDst = 0, toStd = 0;
+    for (time_t day = start; day < start + 367 * 86400 && !(toDst && toStd); day += 86400)
+        if (IsDst(day) != IsDst(day + 86400)) {
+            time_t c = Change(day, day + 86400);
+            (IsDst(c) ? toDst : toStd) = c;
+        }
+    if (!toDst || !toStd) {
+        o->bias = -static_cast<int32_t>(nowOff / 60);
+        PutName(o->standardName, nowName);
+        return 0;   // TIME_ZONE_ID_UNKNOWN
+    }
+    long stdOff = 0, dstOff = 0;
+    std::string stdName, dstName;
+    IsDst(toStd, &stdOff, &stdName);
+    IsDst(toDst, &dstOff, &dstName);
+    o->bias = -static_cast<int32_t>(stdOff / 60);
+    o->daylightBias = -static_cast<int32_t>((dstOff - stdOff) / 60);
+    o->standardDate = Rule(toStd, dstOff);   // (in daylight time, the time it ends at)
+    o->daylightDate = Rule(toDst, stdOff);   // (in standard time, the time it starts at)
+    PutName(o->standardName, stdName);
+    PutName(o->daylightName, dstName);
+    return nowDst ? 2 : 1;   // TIME_ZONE_ID_DAYLIGHT / TIME_ZONE_ID_STANDARD
+}
+// (worked out again each minute at most: a few hundred localtime_r calls)
+static uint32_t GetTimeZoneInformation_(uint32_t out) {
+    static std::mutex lock;
+    static TimeZone32 zone;
+    static uint32_t id = 0;
+    static uint64_t at = 0;
+    std::lock_guard<std::mutex> hold(lock);
+    uint64_t now = NowMs();
+    if (!at || now - at > 60000) {
+        id = ZoneOf(&zone);
+        at = now;
+    }
+    *At<TimeZone32>(out) = zone;
+    return id;
 }
 RH_REG(KERNEL32, GetTimeZoneInformation, GetTimeZoneInformation_)

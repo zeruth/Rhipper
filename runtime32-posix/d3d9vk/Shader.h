@@ -12,13 +12,18 @@
 //               (the image's dimension is the shader's dcl: 2D, cube or 3D, see Sampler below)
 //
 //   push constants (both stages, 32 bytes, offset 0):
-//     vec4  viewport;     // x: 2/width, y: 2/height (the D3D9 half-pixel offset: the translated
-//                         // vertex shader moves its position by (-viewport.x, +viewport.y) * w / 2),
-//                         // z, w: unused
+//     vec4  viewport;     // x, y: a position offset the translated vertex shader applies,
+//                         // (-viewport.x, +viewport.y) * w / 2; the device passes 0 and moves the
+//                         // Vulkan viewport +0.5 pixel instead (D3D9's pixel centers are at integers:
+//                         // its geometry goes right and down, not left and up),
+//                         // z: the point size (D3DRS_POINTSIZE clamped to MIN..MAX) a vertex shader
+//                         // that writes none gets, w: POINTSIZE_MAX (a written one is clamped to it)
 //     uint  alphaFunc;    // D3DCMPFUNC (1 NEVER .. 8 ALWAYS); 8 when alpha test is off
 //     float alphaRef;     // D3DRS_ALPHAREF / 255
 //     uint  flags;        // bit 0: flip Y in the vertex shader (render to the swapchain or a target:
-//                         // the device sets it so D3D's top-left origin lands right in Vulkan)
+//                         // the device sets it so D3D's top-left origin lands right in Vulkan);
+//                         // bit 1: point sprites (a point list with POINTSPRITEENABLE): the pixel
+//                         // shader's texture coordinates are (PointCoord, 0, 1)
 //     uint  pad;
 //
 // Vertex shader output position: D3D clip space, z in [0, 1] as Vulkan's; the translator adds the
@@ -60,6 +65,10 @@ struct ShaderInfo {
     std::vector<Sampler> samplers;        // what the shader samples
     uint32_t outputColors = 0;            // pixel shaders: a bit per oCk written
     bool writesDepth = false;             // pixel shaders: oDepth
+    // what the shader reads of its uniform block: c[0 .. floatConsts - 1] (all of them under relative
+    // addressing), i[], b[]; the device fills only that (the rest of the block is never read)
+    uint32_t floatConsts = 0;
+    bool intConsts = false, boolConsts = false;
     // a vertex shader's outputs and a pixel shader's inputs are matched by (usage, index): both sides
     // use the same location for the same pair, location = LinkLocation(usage, index), so any vertex
     // shader links with any pixel shader without a per-pair recompile

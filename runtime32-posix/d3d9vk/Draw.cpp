@@ -56,6 +56,15 @@ bool Clip(Rect& r, uint32_t w, uint32_t h) {
 Rect Intersect(const Rect& a, const Rect& b) {
     return Rect{std::max(a.left, b.left), std::max(a.top, b.top), std::min(a.right, b.right), std::min(a.bottom, b.bottom)};
 }
+
+// a draw may write the depth surface: Z writes with the test on, or stencil writes
+bool DsWrites(const Device& d) {
+    const uint32_t* rs = d.st.rs;
+    Image* img = d.ds ? d.ds->Img() : nullptr;
+    if (!img) return false;
+    if (rs[RS_ZENABLE] && rs[RS_ZWRITEENABLE]) return true;
+    return img->fmt->stencil && rs[RS_STENCILENABLE] && (rs[RS_STENCILWRITEMASK] & 0xff);
+}
 }  // namespace
 
 // ---- the render pass --------------------------------------------------------------------------------------
@@ -81,12 +90,18 @@ VkExtent2D Device::TargetExtent() const {
     return e;
 }
 
+// A Clear just before (clearColor ...) is the pass's load ops: the tiles start cleared instead of
+// loaded and then drawn over. The depth surface is read-only in the pass when a draw samples it
+// (wantDsReadOnly) and no clear writes it.
 bool Device::BeginPass() {
     if (passActive && !(dirty & kDirtyTargets)) return true;
     EndPass();
     VkExtent2D ext = TargetExtent();
+    bool loadClearColor = clearColor, loadClearDepth = clearDepth, loadClearStencil = clearStencil;
+    clearColor = clearDepth = clearStencil = false;
     if (!ext.width || !ext.height) {
-        LogOnce("vk-no-targets", "d3d9vk: a draw with no render target or depth surface bound: skipped");
+        static Once<> once;
+        if (once.First()) Log("d3d9vk: a draw or clear with no render target or depth surface bound: skipped");
         return false;
     }
     bool srgb = st.rs[RS_SRGBWRITEENABLE] != 0;
@@ -104,20 +119,29 @@ bool Device::BeginPass() {
         Transition(cmd, img, s->level, 1, s->layer, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         a.imageView = TargetView(img, s->level, s->layer, srgb);
         a.imageLayout = img->layouts[img->Sub(s->level, s->layer)];
-        a.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        a.loadOp = loadClearColor ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
         a.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        a.clearValue.color = clearColorValue;
         img->lastUse = serial;
     }
     VkRenderingAttachmentInfo depth{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
     VkRenderingAttachmentInfo stencil{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
     Image* dimg = ds ? ds->Img() : nullptr;
+    bool readOnly = dimg && wantDsReadOnly && !loadClearDepth && !loadClearStencil;
+    if (readOnly != dsReadOnly) dirty |= kDirtyDepth | kDirtyStencil;   // (writes off while read-only)
+    dsReadOnly = readOnly;
     if (dimg) {
-        Transition(cmd, dimg, ds->level, 1, ds->layer, 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+        Transition(cmd, dimg, ds->level, 1, ds->layer, 1,
+                   readOnly ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
         depth.imageView = TargetView(dimg, ds->level, ds->layer, false);
         depth.imageLayout = dimg->layouts[dimg->Sub(ds->level, ds->layer)];
-        depth.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-        depth.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        if (dimg->fmt->stencil) stencil = depth;
+        depth.loadOp = loadClearDepth ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+        depth.storeOp = readOnly ? VK_ATTACHMENT_STORE_OP_NONE : VK_ATTACHMENT_STORE_OP_STORE;
+        depth.clearValue.depthStencil = {clearDepthValue, clearStencilValue};
+        if (dimg->fmt->stencil) {
+            stencil = depth;
+            stencil.loadOp = loadClearStencil ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+        }
         dimg->lastUse = serial;
     }
     VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
@@ -129,10 +153,10 @@ bool Device::BeginPass() {
     ri.pStencilAttachment = dimg && dimg->fmt->stencil ? &stencil : nullptr;
     fn.CmdBeginRendering(cmd, &ri);
     passActive = true;
+    // (the scissor is clipped to the render area; dynamic state outlives the pass otherwise)
+    if (ext.width != passExtent.width || ext.height != passExtent.height) dirty |= kDirtyScissor;
     passExtent = ext;
-    clearColor = clearDepth = clearStencil = false;
     dirty &= ~kDirtyTargets;
-    dirty |= kDirtyViewport | kDirtyScissor;
     if (activeOcc && activeOcc->building) BeginOcclusion();
     return true;
 }
@@ -252,55 +276,66 @@ bool Device::BuildLayout(const ShaderInfo& vsInfo, bool fixedVs, VertexLayout* o
 }
 
 // ---- a draw's state ------------------------------------------------------------------------------------------
-bool Device::PrepareDraw(uint32_t primitive, bool indexed, uint32_t* instances) {
-    if (lost) return false;
-    if (!fn.CmdPushDescriptorSet || !fn.CmdBeginRendering) {
-        LogOnce("vk-no-push", "d3d9vk: no push descriptors or dynamic rendering: nothing is drawn");
-        return false;
-    }
-    Shader* vs = st.vs;
-    Shader* ps = st.ps;
-    if ((vs && !vs->module) || (ps && !ps->module)) return false;   // (a shader that did not translate, logged then)
-    bool fixedVs = !vs, fixedPs = !ps;
-    const ShaderInfo& vsInfo = fixedVs ? ffVsInfo : vs->info;
-    const ShaderInfo& psInfo = fixedPs ? ffPsInfo : ps->info;
-
-    // 1. what may end the pass: the textures' mipmaps and layouts
-    struct Bound {
-        uint32_t binding;
-        VkImageView view;
-        VkSampler sampler;
-    } bound[kSamplers];
-    uint32_t nBound = 0;
+// The textures the shaders sample, and what may end the pass for them (their mipmaps, their layouts):
+// looked at again only when something they depend on changed (kDirtyTextures: a binding, a sampler
+// state, the shaders, the targets, a layout an upload or copy moved, Z writes for the depth surface)
+void Device::BindTextures(const ShaderInfo& vsInfo, const ShaderInfo& psInfo, bool fixedPs) {
+    nBoundTex = 0;
+    descValid = false;
+    wantDsReadOnly = false;
+    Image* dimg = ds ? ds->Img() : nullptr;
+    bool dsWrites = DsWrites(*this);
     auto sample = [&](const ShaderInfo& info, bool vertex) {
         for (const Sampler& sm : info.samplers) {
             uint32_t idx = vertex ? 16 + sm.reg : sm.reg;
-            if (idx >= kSamplers || nBound == kSamplers) continue;
+            if (idx >= kSamplers || nBoundTex == kSamplers) continue;
             Texture* t = st.tex[idx];
             Image* img = t ? t->st.img : nullptr;
+            VkImageLayout layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             uint32_t want = sm.type == 3 ? RT_CUBETEXTURE : sm.type == 4 ? RT_VOLUMETEXTURE : RT_TEXTURE;
             if (img && t->Kind() != want) {
-                LogOnce(("vk-samp-kind-" + std::to_string(t->Kind()) + "-" + std::to_string(want)).c_str(),
-                        "d3d9vk: a texture of kind %u sampled as kind %u: the stand-in instead", t->Kind(), want);
+                static Once<> once;
+                if (once.First(t->Kind() * 8 + want))
+                    Log("d3d9vk: a texture of kind %u sampled as kind %u: the stand-in instead", t->Kind(), want);
                 img = nullptr;
             }
-            if (img && IsTarget(img)) {
-                LogOnce("vk-feedback", "d3d9vk: a texture sampled while bound as a target: the stand-in instead");
+            if (img && !(img->usage & VK_IMAGE_USAGE_SAMPLED_BIT)) {
+                static Once<> once;
+                if (once.First()) Log("d3d9vk: a texture of %s the GPU cannot sample: the stand-in", FormatName(img->fmt->d3d));
                 img = nullptr;
             }
-            if (img && t->st.mipsDirty && (t->st.usage & U_AUTOGENMIPMAP)) {
+            if (img && img == dimg) {
+                // (the depth surface, read as a texture while bound: valid read-only, as soft particles
+                // and the like do on D3D9; while the draw writes depth or stencil, the stand-in)
+                if (!dsWrites) {
+                    layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+                    wantDsReadOnly = true;
+                } else {
+                    static Once<> once;
+                    if (once.First()) Log("d3d9vk: the depth surface sampled while depth writes are on: the stand-in instead");
+                    img = nullptr;
+                }
+            } else if (img && IsTarget(img)) {
+                static Once<> once;
+                if (once.First()) Log("d3d9vk: a texture sampled while bound as a render target: the stand-in instead");
+                img = nullptr;
+            }
+            if (img && layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL && t->st.mipsDirty &&
+                (t->st.usage & U_AUTOGENMIPMAP)) {
                 GenerateMips(img);
                 t->st.mipsDirty = false;
             }
             VkImageView view = VK_NULL_HANDLE;
             if (img) {
-                VkImageLayout layout = img->general ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                for (VkImageLayout l : img->layouts)
-                    if (l != layout) {
-                        EndPass();
-                        TransitionAll(cmd, img, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-                        break;
-                    }
+                if (layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+                    if (img->general) layout = VK_IMAGE_LAYOUT_GENERAL;
+                    for (VkImageLayout l : img->layouts)
+                        if (l != layout) {
+                            EndPass();
+                            TransitionAll(cmd, img, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                            break;
+                        }
+                }
                 view = SampleView(img, st.ss[idx][SS_SRGBTEXTURE] != 0);
                 img->lastUse = serial;
             }
@@ -311,61 +346,107 @@ bool Device::PrepareDraw(uint32_t primitive, bool indexed, uint32_t* instances) 
                 Image* stand = sm.type == 3 ? blackCube : sm.type == 4 ? black3D : (fixedPs && !vertex ? white2D : black2D);
                 view = SampleView(stand, false);
                 sampler = GetSampler(st.ss[idx], true, 0);
+                layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             }
-            bound[nBound++] = {(vertex ? 18u : 2u) + sm.reg, view, sampler};
+            boundTex[nBoundTex++] = {(vertex ? 18u : 2u) + sm.reg, view, sampler, layout};
         }
     };
     sample(psInfo, false);
     sample(vsInfo, true);
+}
 
-    // 2. the pass
+void Device::ResetBindings() {
+    boundPipeline = VK_NULL_HANDLE;
+    lastKeyValid = false;
+    vsBlockSize = psBlockSize = 0;
+    descValid = pushValid = false;
+    lastTopology = ~0u;
+    for (uint32_t b = 0; b < 16; b++) vbBound[b] = VK_NULL_HANDLE;
+    ibBound = VK_NULL_HANDLE;
+    dsReadOnly = false;
+}
+
+bool Device::PrepareDraw(uint32_t primitive, bool indexed, uint32_t* instances) {
+    if (lost) return false;
+    if (!fn.CmdPushDescriptorSet || !fn.CmdBeginRendering) {
+        static Once<> once;
+        if (once.First()) Log("d3d9vk: no push descriptors or dynamic rendering: nothing is drawn");
+        return false;
+    }
+    Shader* vs = st.vs;
+    Shader* ps = st.ps;
+    if ((vs && !vs->module) || (ps && !ps->module)) return false;   // (a shader that did not translate, logged then)
+    bool fixedVs = !vs, fixedPs = !ps;
+    const ShaderInfo& vsInfo = fixedVs ? ffVsInfo : vs->info;
+    const ShaderInfo& psInfo = fixedPs ? ffPsInfo : ps->info;
+
+    // 1. what may end the pass: the textures' mipmaps and layouts
+    if (dirty & kDirtyTextures) {
+        BindTextures(vsInfo, psInfo, fixedPs);
+        dirty &= ~kDirtyTextures;   // (what the pass's begin moves below marks the next draw's)
+    }
+
+    // 2. the pass: again when the targets changed, or the depth surface's read-only use does
+    if (passActive && ((wantDsReadOnly && !dsReadOnly) || (!wantDsReadOnly && dsReadOnly && DsWrites(*this))))
+        dirty |= kDirtyTargets;
     if (!BeginPass()) return false;
 
-    // 3. the pipeline
-    PipelineKey key;
-    memset(&key, 0, sizeof key);
-    key.vs = fixedVs ? kFixedVsId : vs->id;
-    key.ps = fixedPs ? kFixedPsId : ps->id;
-    BuildLayout(vsInfo, fixedVs, &key.layout);
-    bool srgb = st.rs[RS_SRGBWRITEENABLE] != 0;
-    uint32_t colorCount = 0;
-    for (uint32_t k = 0; k < 4; k++) {
-        if (!rt[k]) continue;
-        colorCount = k + 1;
-        if (Image* img = rt[k]->Img()) {
-            key.colorFormats[k] = srgb && img->fmt->srgb != VK_FORMAT_UNDEFINED ? img->fmt->srgb : img->format;
-            if (img->fmt->alphaOne) key.alphaOne |= static_cast<uint8_t>(1u << k);
+    // 3. the pipeline, when its state changed
+    uint8_t topologyClass = TopologyClass(primitive);
+    if ((dirty & kDirtyPipeline) || !lastKeyValid || lastKey.topologyClass != topologyClass) {
+        PipelineKey key;
+        memset(&key, 0, sizeof key);
+        key.vs = fixedVs ? kFixedVsId : vs->id;
+        key.ps = fixedPs ? kFixedPsId : ps->id;
+        BuildLayout(vsInfo, fixedVs, &key.layout);
+        bool srgb = st.rs[RS_SRGBWRITEENABLE] != 0;
+        uint32_t colorCount = 0;
+        for (uint32_t k = 0; k < 4; k++) {
+            if (!rt[k]) continue;
+            colorCount = k + 1;
+            if (Image* img = rt[k]->Img()) {
+                key.colorFormats[k] = srgb && img->fmt->srgb != VK_FORMAT_UNDEFINED ? img->fmt->srgb : img->format;
+                if (img->fmt->alphaOne) key.alphaOne |= static_cast<uint8_t>(1u << k);
+            }
         }
+        key.colorCount = static_cast<uint8_t>(colorCount);
+        if (Image* d = ds ? ds->Img() : nullptr) {
+            key.depthFormat = d->format;
+            if (d->fmt->stencil) key.stencilFormat = d->format;
+        }
+        key.blend = PackBlend();
+        WriteMasks(key.writeMask);
+        key.topologyClass = topologyClass;
+        uint32_t fill = st.rs[RS_FILLMODE];
+        key.polygonMode = static_cast<uint8_t>(!fillNonSolid || fill == 3 ? VK_POLYGON_MODE_FILL
+                                               : fill == 2              ? VK_POLYGON_MODE_LINE
+                                                                        : VK_POLYGON_MODE_POINT);
+        VkPipeline pipeline = GetPipeline(key, fixedVs ? ffVs : vs->module, fixedPs ? ffPs : ps->module);
+        if (!pipeline) return false;
+        if (pipeline != boundPipeline) {
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+            boundPipeline = pipeline;
+        }
+        lastKey = key, lastKeyValid = true;
     }
-    key.colorCount = static_cast<uint8_t>(colorCount);
-    if (Image* d = ds ? ds->Img() : nullptr) {
-        key.depthFormat = d->format;
-        if (d->fmt->stencil) key.stencilFormat = d->format;
-    }
-    key.blend = PackBlend();
-    WriteMasks(key.writeMask);
-    key.topologyClass = TopologyClass(primitive);
-    uint32_t fill = st.rs[RS_FILLMODE];
-    key.polygonMode = static_cast<uint8_t>(!fillNonSolid || fill == 3 ? VK_POLYGON_MODE_FILL
-                                           : fill == 2              ? VK_POLYGON_MODE_LINE
-                                                                    : VK_POLYGON_MODE_POINT);
-    VkPipeline pipeline = GetPipeline(key, fixedVs ? ffVs : vs->module, fixedPs ? ffPs : ps->module);
-    if (!pipeline) return false;
-    if (pipeline != boundPipeline) {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-        boundPipeline = pipeline;
-    }
-    lastKey = key, lastKeyValid = true;
+    const PipelineKey& key = lastKey;
 
     // 4. dynamic state
     if (dirty & kDirtyViewport) {
+        // (D3D9's pixel centers are at integer coordinates, Vulkan's at +0.5: the viewport moved half a
+        // pixel right and down, as DXVK does, so D3D9's geometry covers the same pixels. A full-screen
+        // pass otherwise left the last column and row unwritten, their old contents showing: a bright
+        // right and bottom edge on FFXIV's title screen)
         const Viewport& v = st.vp;
-        VkViewport vv{float(v.x), float(v.y), float(std::max(1u, v.w)), float(std::max(1u, v.h)), v.minZ, v.maxZ};
+        VkViewport vv{float(v.x) + 0.5f, float(v.y) + 0.5f, float(std::max(1u, v.w)), float(std::max(1u, v.h)),
+                      v.minZ, v.maxZ};
         vkCmdSetViewport(cmd, 0, 1, &vv);
         dirty |= kDirtyPush;
     }
     if (dirty & (kDirtyScissor | kDirtyViewport)) {
-        Rect r{0, 0, int32_t(passExtent.width), int32_t(passExtent.height)};
+        // (D3D9 writes no pixel outside the viewport: a wide point or line near its edge either)
+        const Viewport& v = st.vp;
+        Rect r{int32_t(v.x), int32_t(v.y), int32_t(v.x + v.w), int32_t(v.y + v.h)};
         if (st.rs[RS_SCISSORTESTENABLE]) r = Intersect(r, st.scissor);
         if (!Clip(r, passExtent.width, passExtent.height)) r = Rect{0, 0, 0, 0};
         VkRect2D sc{{r.left, r.top}, {uint32_t(std::max(0, r.right - r.left)), uint32_t(std::max(0, r.bottom - r.top))}};
@@ -377,11 +458,14 @@ bool Device::PrepareDraw(uint32_t primitive, bool indexed, uint32_t* instances) 
         fn.CmdSetFrontFace(cmd, VK_FRONT_FACE_CLOCKWISE);
         fn.CmdSetCullMode(cmd, cull == 2 ? VK_CULL_MODE_FRONT_BIT : cull == 3 ? VK_CULL_MODE_BACK_BIT : VK_CULL_MODE_NONE);
     }
-    fn.CmdSetPrimitiveTopology(cmd, Topology(primitive));
+    if (uint32_t topology = Topology(primitive); topology != lastTopology) {
+        fn.CmdSetPrimitiveTopology(cmd, static_cast<VkPrimitiveTopology>(topology));
+        lastTopology = topology;
+    }
     bool hasDepth = key.depthFormat != VK_FORMAT_UNDEFINED, hasStencil = key.stencilFormat != VK_FORMAT_UNDEFINED;
     if (dirty & (kDirtyDepth | kDirtyTargets)) {
         fn.CmdSetDepthTestEnable(cmd, hasDepth && st.rs[RS_ZENABLE] != 0);
-        fn.CmdSetDepthWriteEnable(cmd, hasDepth && st.rs[RS_ZWRITEENABLE] != 0);
+        fn.CmdSetDepthWriteEnable(cmd, hasDepth && st.rs[RS_ZWRITEENABLE] != 0 && !dsReadOnly);
         fn.CmdSetDepthCompareOp(cmd, CompareOp(st.rs[RS_ZFUNC]));
     }
     if (dirty & (kDirtyStencil | kDirtyTargets)) {
@@ -398,7 +482,7 @@ bool Device::PrepareDraw(uint32_t primitive, bool indexed, uint32_t* instances) 
             fn.CmdSetStencilOp(cmd, VK_STENCIL_FACE_BACK_BIT, StencilOp(rs[RS_STENCILFAIL]), StencilOp(rs[RS_STENCILPASS]),
                                StencilOp(rs[RS_STENCILZFAIL]), CompareOp(rs[RS_STENCILFUNC]));
         vkCmdSetStencilCompareMask(cmd, VK_STENCIL_FACE_FRONT_AND_BACK, rs[RS_STENCILMASK] & 0xff);
-        vkCmdSetStencilWriteMask(cmd, VK_STENCIL_FACE_FRONT_AND_BACK, rs[RS_STENCILWRITEMASK] & 0xff);
+        vkCmdSetStencilWriteMask(cmd, VK_STENCIL_FACE_FRONT_AND_BACK, dsReadOnly ? 0 : rs[RS_STENCILWRITEMASK] & 0xff);
         vkCmdSetStencilReference(cmd, VK_STENCIL_FACE_FRONT_AND_BACK, rs[RS_STENCILREF] & 0xff);
     }
     if (dirty & (kDirtyBias | kDirtyTargets)) {
@@ -414,9 +498,23 @@ bool Device::PrepareDraw(uint32_t primitive, bool indexed, uint32_t* instances) 
         vkCmdSetBlendConstants(cmd, c.float32);
     }
 
-    // 5. the uniform blocks and the samplers, pushed
+    // 5. the uniform blocks: a new one when the constants (or the shader) changed, filled as far as
+    // the shader reads it (ShaderInfo::floatConsts, its i and b only when it reads them)
     VkDeviceSize align = std::max<VkDeviceSize>(16, vk->props.limits.minUniformBufferOffsetAlignment);
-    if ((dirty & (kDirtyVsConst | kDirtyFixed)) || !vsBlockSize || lastFixedVs != fixedVs) {
+    bool blocksChanged = false;
+    auto fill = [](uint8_t* p, const ShaderInfo& info, const float (*f)[4], uint32_t count, uint32_t high,
+                   const int32_t (*iv)[4], const uint32_t* bv) {
+        uint32_t n = std::min(info.floatConsts, count), copied = std::min(n, high);
+        memcpy(p, f, copied * 16);
+        if (n > copied) memset(p + copied * 16, 0, (n - copied) * 16);   // (never set: zero)
+        if (info.intConsts) memcpy(p + count * 16, iv, 16 * 16);
+        if (info.boolConsts)
+            for (uint32_t k = 0; k < 16; k++) {
+                uint32_t b[4] = {bv[k] ? 1u : 0u, 0, 0, 0};
+                memcpy(p + count * 16 + 256 + 16 * k, b, 16);
+            }
+    };
+    if ((fixedVs ? (dirty & kDirtyFixed) : (dirty & kDirtyVsConst)) || !vsBlockSize || lastFixedVs != fixedVs) {
         uint32_t size = fixedVs ? kFixedVsBytes : kVsBlockBytes;
         vsBlock = Ring(size, align);
         if (!vsBlock.ptr) return false;
@@ -425,17 +523,13 @@ bool Device::PrepareDraw(uint32_t primitive, bool indexed, uint32_t* instances) 
             FixedVertexConstants(st, st.fvf, c);
             memcpy(vsBlock.ptr, c, sizeof c);
         } else {
-            memcpy(vsBlock.ptr, st.vsF, sizeof st.vsF);
-            memcpy(vsBlock.ptr + kVsConsts * 16, st.vsI, sizeof st.vsI);
-            for (uint32_t k = 0; k < 16; k++) {
-                uint32_t b[4] = {st.vsB[k] ? 1u : 0u, 0, 0, 0};
-                memcpy(vsBlock.ptr + kVsConsts * 16 + 256 + 16 * k, b, 16);
-            }
+            fill(vsBlock.ptr, vsInfo, st.vsF, kVsConsts, vsHigh, st.vsI, st.vsB);
         }
         vsBlockSize = size;
         lastFixedVs = fixedVs;
+        blocksChanged = true;
     }
-    if ((dirty & (kDirtyPsConst | kDirtyFixed)) || !psBlockSize || lastFixedPs != fixedPs) {
+    if ((fixedPs ? (dirty & kDirtyFixed) : (dirty & kDirtyPsConst)) || !psBlockSize || lastFixedPs != fixedPs) {
         uint32_t size = fixedPs ? kFixedPsBytes : kPsBlockBytes;
         psBlock = Ring(size, align);
         if (!psBlock.ptr) return false;
@@ -444,63 +538,68 @@ bool Device::PrepareDraw(uint32_t primitive, bool indexed, uint32_t* instances) 
             FixedPixelConstants(st, st.tex[0] != nullptr, c);
             memcpy(psBlock.ptr, c, sizeof c);
         } else {
-            memcpy(psBlock.ptr, st.psF, sizeof st.psF);
-            memcpy(psBlock.ptr + kPsConsts * 16, st.psI, sizeof st.psI);
-            for (uint32_t k = 0; k < 16; k++) {
-                uint32_t b[4] = {st.psB[k] ? 1u : 0u, 0, 0, 0};
-                memcpy(psBlock.ptr + kPsConsts * 16 + 256 + 16 * k, b, 16);
-            }
+            fill(psBlock.ptr, psInfo, st.psF, kPsConsts, psHigh, st.psI, st.psB);
         }
         psBlockSize = size;
         lastFixedPs = fixedPs;
+        blocksChanged = true;
     }
-    VkDescriptorBufferInfo blocks[2] = {{vsBlock.buffer, vsBlock.offset, vsBlockSize},
-                                        {psBlock.buffer, psBlock.offset, psBlockSize}};
-    VkDescriptorImageInfo images[kSamplers];
-    VkWriteDescriptorSet writes[2 + kSamplers];
-    uint32_t nw = 0;
-    for (uint32_t k = 0; k < 2; k++) {
-        VkWriteDescriptorSet& w = writes[nw++];
-        w = VkWriteDescriptorSet{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-        w.dstBinding = k;
-        w.descriptorCount = 1;
-        w.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        w.pBufferInfo = &blocks[k];
-    }
-    for (uint32_t k = 0; k < nBound; k++) {
-        images[k] = {bound[k].sampler, bound[k].view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-        VkWriteDescriptorSet& w = writes[nw++];
-        w = VkWriteDescriptorSet{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-        w.dstBinding = bound[k].binding;
-        w.descriptorCount = 1;
-        w.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        w.pImageInfo = &images[k];
-    }
-    // (an image in GENERAL is read in GENERAL)
-    for (uint32_t k = 0; k < nBound; k++) {
-        for (Texture* t : st.tex)
-            if (t && t->st.img && t->st.img->general &&
-                (bound[k].view == t->st.img->sampled || bound[k].view == t->st.img->sampledSrgb))
-                images[k].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-    }
-    fn.CmdPushDescriptorSet(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, nw, writes);
 
-    // 6. the push constants (Shader.h)
+    // 6. the descriptors, pushed when a block or a texture changed (push descriptors outlive pipeline
+    // binds of the one layout and the passes)
+    if (!descValid || blocksChanged) {
+        VkDescriptorBufferInfo blocks[2] = {{vsBlock.buffer, vsBlock.offset, vsBlockSize},
+                                            {psBlock.buffer, psBlock.offset, psBlockSize}};
+        VkDescriptorImageInfo images[kSamplers];
+        VkWriteDescriptorSet writes[2 + kSamplers];
+        uint32_t nw = 0;
+        for (uint32_t k = 0; k < 2; k++) {
+            VkWriteDescriptorSet& w = writes[nw++];
+            w = VkWriteDescriptorSet{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+            w.dstBinding = k;
+            w.descriptorCount = 1;
+            w.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            w.pBufferInfo = &blocks[k];
+        }
+        for (uint32_t k = 0; k < nBoundTex; k++) {
+            images[k] = {boundTex[k].sampler, boundTex[k].view, boundTex[k].layout};
+            VkWriteDescriptorSet& w = writes[nw++];
+            w = VkWriteDescriptorSet{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+            w.dstBinding = boundTex[k].binding;
+            w.descriptorCount = 1;
+            w.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            w.pImageInfo = &images[k];
+        }
+        fn.CmdPushDescriptorSet(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, nw, writes);
+        descValid = true;
+    }
+
+    // 7. the push constants (Shader.h), when they changed
     struct {
         float viewport[4];
         uint32_t alphaFunc;
         float alphaRef;
         uint32_t flags, pad;
     } push{};
-    push.viewport[0] = 2.0f / float(std::max(1u, st.vp.w));
-    push.viewport[1] = 2.0f / float(std::max(1u, st.vp.h));
+    // (no offset in the shaders: the half pixel is the viewport's, above; Shader.h's moved the other way)
+    push.viewport[0] = 0.0f;
+    push.viewport[1] = 0.0f;
+    float pointMin = AsFloat(st.rs[RS_POINTSIZE_MIN]), pointMax = AsFloat(st.rs[RS_POINTSIZE_MAX]);
+    push.viewport[2] = std::min(std::max(AsFloat(st.rs[RS_POINTSIZE]), pointMin), pointMax);
+    push.viewport[3] = pointMax;
     push.alphaFunc = st.rs[RS_ALPHATESTENABLE] ? st.rs[RS_ALPHAFUNC] : 8;
     push.alphaRef = float(st.rs[RS_ALPHAREF] & 0xff) / 255.0f;
     push.flags = 1;   // (always: D3D's top-left origin is Vulkan's framebuffer's too, its clip Y is not)
+    if (primitive == 1 && st.rs[RS_POINTSPRITEENABLE]) push.flags |= 2;
     static_assert(sizeof push == 32, "Shader.h's push constants");
-    vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof push, &push);
+    if (!pushValid || memcmp(&push, lastPush, sizeof push) != 0) {
+        vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof push,
+                           &push);
+        memcpy(lastPush, &push, sizeof push);
+        pushValid = true;
+    }
 
-    // 7. the vertex and index buffers
+    // 8. the vertex and index buffers, bound when they changed
     *instances = 1;
     if (indexed && !upActive && (st.streams[0].freq & kStreamIndexed)) *instances = std::max(1u, st.streams[0].freq & 0x3fffffffu);
     for (uint32_t b = 0; b < 16; b++) {
@@ -517,25 +616,33 @@ bool Device::PrepareDraw(uint32_t primitive, bool indexed, uint32_t* instances) 
             off += s.offset;
             stride = s.stride;
         }
-        fn.CmdBindVertexBuffers2(cmd, b, 1, &buf, &off, nullptr, &stride);
+        if (buf != vbBound[b] || off != vbOffset[b] || stride != vbStride[b]) {
+            fn.CmdBindVertexBuffers2(cmd, b, 1, &buf, &off, nullptr, &stride);
+            vbBound[b] = buf, vbOffset[b] = off, vbStride[b] = stride;
+        }
     }
     if (indexed) {
+        VkBuffer buf;
+        VkDeviceSize off;
+        VkIndexType type;
         if (upActive) {
-            vkCmdBindIndexBuffer(cmd, upIb.buffer, upIb.offset, upIndex32 ? VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16);
+            buf = upIb.buffer, off = upIb.offset, type = upIndex32 ? VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16;
         } else {
             if (!st.ib) return false;
-            VkBuffer buf;
-            VkDeviceSize off;
             st.ib->Use(&buf, &off);
-            vkCmdBindIndexBuffer(cmd, buf, off, st.ib->format == F_INDEX32 ? VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16);
+            type = st.ib->format == F_INDEX32 ? VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16;
+        }
+        if (buf != ibBound || off != ibOffset || type != ibType) {
+            vkCmdBindIndexBuffer(cmd, buf, off, type);
+            ibBound = buf, ibOffset = off, ibType = type;
         }
     }
 
     dirty &= ~(kDirtyPipeline | kDirtyViewport | kDirtyScissor | kDirtyDepth | kDirtyStencil | kDirtyCull | kDirtyBias |
-               kDirtyBlendConst | kDirtyVsConst | kDirtyPsConst | kDirtyTextures | kDirtyStreams | kDirtyIndices |
-               kDirtyPush | kDirtyFixed);
+               kDirtyBlendConst | kDirtyVsConst | kDirtyPsConst | kDirtyStreams | kDirtyIndices | kDirtyPush |
+               kDirtyFixed);
     if (draws++ == 0) Log("d3d9vk: the first draw (%s vertex shader, %s pixel shader, %u targets)",
-                          fixedVs ? "fixed" : "a", fixedPs ? "fixed" : "a", colorCount);
+                          fixedVs ? "fixed" : "a", fixedPs ? "fixed" : "a", key.colorCount);
     frameDraws++;
     return true;
 }
@@ -602,14 +709,40 @@ uint32_t Device::DrawIndexedPrimitiveUP(uint32_t type, uint32_t minIndex, uint32
 
 // ---- Clear: inside the pass, the viewport's rectangle (and the rects, and the scissor) --------------------------
 // D3DCLEAR_TARGET 1, ZBUFFER 2, STENCIL 4
+// A clear of the whole render area with no pass begun (or one to begin again) is the pass's load ops
 uint32_t Device::Clear(uint32_t count, uint32_t rects, uint32_t flags, uint32_t color, uint32_t zBits, uint32_t stencil) {
     std::lock_guard<std::recursive_mutex> hold(mu);
     if (lost) return D3D_OK;
-    if (!BeginPass()) return D3D_OK;
     Image* dimg = ds ? ds->Img() : nullptr;
+    bool doColor = false;
+    if (flags & 1)
+        for (Surface* s : rt)
+            if (s && s->Img()) doColor = true;
+    bool doDepth = (flags & 2) && dimg, doStencil = (flags & 4) && dimg && dimg->fmt->stencil;
+    if (!doColor && !doDepth && !doStencil) return D3D_OK;
+    if ((doDepth || doStencil) && (dsReadOnly || wantDsReadOnly)) {   // (a clear writes it: not read-only)
+        wantDsReadOnly = false;
+        if (dsReadOnly) dirty |= kDirtyTargets;
+        dirty |= kDirtyTextures;
+    }
+    float z = std::min(1.0f, std::max(0.0f, AsFloat(zBits)));
+    Rect area{int32_t(st.vp.x), int32_t(st.vp.y), int32_t(st.vp.x + st.vp.w), int32_t(st.vp.y + st.vp.h)};
+    if (st.rs[RS_SCISSORTESTENABLE]) area = Intersect(area, st.scissor);
+    if ((!passActive || (dirty & kDirtyTargets)) && !(count && rects)) {
+        VkExtent2D ext = TargetExtent();
+        Rect r = area;
+        if (Clip(r, ext.width, ext.height) && r.left == 0 && r.top == 0 && r.right == int32_t(ext.width) &&
+            r.bottom == int32_t(ext.height)) {
+            clearColor = doColor, clearDepth = doDepth, clearStencil = doStencil;
+            clearColorValue = ColorOf(color), clearDepthValue = z, clearStencilValue = stencil & 0xff;
+            BeginPass();
+            return D3D_OK;
+        }
+    }
+    if (!BeginPass()) return D3D_OK;
     VkClearAttachment atts[5];
     uint32_t na = 0;
-    if (flags & 1) {
+    if (doColor) {
         for (uint32_t k = 0; k < 4; k++) {
             if (!rt[k] || !rt[k]->Img()) continue;
             VkClearAttachment& a = atts[na++];
@@ -617,28 +750,29 @@ uint32_t Device::Clear(uint32_t count, uint32_t rects, uint32_t flags, uint32_t 
             a.clearValue.color = ColorOf(color);
         }
     }
-    VkImageAspectFlags aspects = 0;
-    if ((flags & 2) && dimg) aspects |= VK_IMAGE_ASPECT_DEPTH_BIT;
-    if ((flags & 4) && dimg && dimg->fmt->stencil) aspects |= VK_IMAGE_ASPECT_STENCIL_BIT;
+    VkImageAspectFlags aspects = (doDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : 0) | (doStencil ? VK_IMAGE_ASPECT_STENCIL_BIT : 0);
     if (aspects) {
         VkClearAttachment& a = atts[na++];
         a = VkClearAttachment{aspects, 0, {}};
-        a.clearValue.depthStencil = {std::min(1.0f, std::max(0.0f, AsFloat(zBits))), stencil & 0xff};
+        a.clearValue.depthStencil = {z, stencil & 0xff};
     }
-    if (!na) return D3D_OK;
-    Rect area{int32_t(st.vp.x), int32_t(st.vp.y), int32_t(st.vp.x + st.vp.w), int32_t(st.vp.y + st.vp.h)};
-    if (st.rs[RS_SCISSORTESTENABLE]) area = Intersect(area, st.scissor);
-    std::vector<VkClearRect> out;
+    VkClearRect out[16];
+    uint32_t n = 0;
+    auto flush = [&]() {
+        if (n) vkCmdClearAttachments(cmd, na, atts, n, out);
+        n = 0;
+    };
     auto add = [&](Rect r) {
         r = Intersect(r, area);
         if (!Clip(r, passExtent.width, passExtent.height)) return;
-        out.push_back({{{r.left, r.top}, {uint32_t(r.right - r.left), uint32_t(r.bottom - r.top)}}, 0, 1});
+        out[n++] = {{{r.left, r.top}, {uint32_t(r.right - r.left), uint32_t(r.bottom - r.top)}}, 0, 1};
+        if (n == 16) flush();
     };
     if (count && rects)
         for (uint32_t k = 0; k < count; k++) add(RectAt(rects + 16 * k));
     else
         add(area);
-    if (!out.empty()) vkCmdClearAttachments(cmd, na, atts, static_cast<uint32_t>(out.size()), out.data());
+    flush();
     return D3D_OK;
 }
 
@@ -690,6 +824,7 @@ uint32_t Device::StretchRect(uint32_t src, uint32_t srcRect, uint32_t dst, uint3
         LogOnce("vk-stretch-cpu", "d3d9vk: StretchRect with a surface that has no image (system memory, or NULL)");
         return D3DERR_INVALIDCALL;
     }
+    if (si == di && s->level == d->level && s->layer == d->layer) return D3DERR_INVALIDCALL;   // (D3D9's rule too)
     if (lost) return D3D_OK;
     Rect sr{0, 0, int32_t(s->W()), int32_t(s->H())}, dr{0, 0, int32_t(d->W()), int32_t(d->H())};
     if (srcRect) sr = RectAt(srcRect);
@@ -724,12 +859,13 @@ uint32_t Device::StretchRect(uint32_t src, uint32_t srcRect, uint32_t dst, uint3
         bool linear = filter >= 2 && si->fmt->filter;   // D3DTEXF_LINEAR 2 (and above)
         vkCmdBlitImage(cmd, si->image, sl, di->image, dl, 1, &b, linear ? VK_FILTER_LINEAR : VK_FILTER_NEAREST);
     } else {
-        LogOnce(("vk-stretch-" + std::to_string(si->fmt->d3d) + "-" + std::to_string(di->fmt->d3d)).c_str(),
-                "d3d9vk: StretchRect %s to %s cannot blit: skipped", FormatName(si->fmt->d3d), FormatName(di->fmt->d3d));
+        static Once<4> once;
+        if (once.First(si->fmt->d3d * 31 + di->fmt->d3d))
+            Log("d3d9vk: StretchRect %s to %s cannot blit: skipped", FormatName(si->fmt->d3d), FormatName(di->fmt->d3d));
         return D3D_OK;
     }
     si->lastUse = di->lastUse = serial;
-    if (d->container && (d->container->st.usage & U_AUTOGENMIPMAP)) d->container->st.mipsDirty = true;
+    if (d->container && (d->container->st.usage & U_AUTOGENMIPMAP)) d->container->st.mipsDirty = true, dirty |= kDirtyTextures;
     return D3D_OK;
 }
 
@@ -781,6 +917,7 @@ uint32_t Device::UpdateTexture(uint32_t src, uint32_t dst) {
     if (autogen) {
         std::lock_guard<std::recursive_mutex> hold(mu);
         d->st.mipsDirty = true;
+        dirty |= kDirtyTextures;
     }
     return D3D_OK;
 }

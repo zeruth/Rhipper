@@ -4,9 +4,8 @@
 //
 // A lock hands the reference low memory (its pointers are 32 bits): a CPU-only resource (SYSTEMMEM,
 // SCRATCH) keeps it, a GPU one gets it for the lock's length and its unlock uploads what it covered.
-// A dynamic buffer keeps its whole contents in low memory and each version the GPU reads in the
-// upload ring: DISCARD starts a version, NOOVERWRITE writes into the current one, a plain lock of a
-// version a draw already read starts one with everything copied.
+// A dynamic buffer keeps its whole contents in low memory and versions the GPU reads (its own, kept
+// across submissions; see "buffers" below for the lock flags).
 #include <time.h>
 
 #include "Vk.h"
@@ -185,7 +184,11 @@ uint32_t Storage::Unlock(uint32_t level, uint32_t layer) {
         uint32_t pitch = Pitch(level), slice = pitch * Rows(level);
         const uint8_t* src = rh::At<uint8_t>(s.mem) + s.z * slice + (s.y / fmt->blockH) * pitch + (s.x / fmt->blockW) * fmt->bytes;
         dev->UploadRegion(this, level, layer, s.x, s.y, s.z, s.w, s.h, s.d, src, pitch, slice);
-        if ((usage & U_AUTOGENMIPMAP) && level == 0) mipsDirty = true;
+        if ((usage & U_AUTOGENMIPMAP) && level == 0) {
+            std::lock_guard<std::recursive_mutex> hold(dev->mu);   // (the render thread reads them)
+            mipsDirty = true;
+            dev->dirty |= kDirtyTextures;
+        }
     }
     if (!(usage & U_DYNAMIC)) LowFreeMem(s.mem);
     return D3D_OK;
@@ -268,9 +271,10 @@ Surface* Texture::SurfaceOf(uint32_t level, uint32_t layer) {
 }
 uint32_t Texture::GetType() { return st.rtype; }
 uint32_t Texture::SetLOD(uint32_t l) {
+    std::lock_guard<std::recursive_mutex> hold(dev->mu);   // (a loader thread's call, the render thread's dirty)
     uint32_t old = lod;
     if (st.pool == POOL_MANAGED) lod = std::min(l, apiLevels - 1);
-    dev->dirty |= kDirtyTextures;
+    if (lod != old) dev->dirty |= kDirtyTextures;
     return old;
 }
 uint32_t Texture::GetLOD() { return lod; }
@@ -278,7 +282,8 @@ uint32_t Texture::GetLevelCount() { return apiLevels; }
 uint32_t Texture::SetAutoGenFilterType(uint32_t f) { return autoGenFilter = f, D3D_OK; }
 uint32_t Texture::GetAutoGenFilterType() { return autoGenFilter; }
 uint32_t Texture::GenerateMipSubLevels() {
-    if (st.usage & U_AUTOGENMIPMAP) st.mipsDirty = true;
+    std::lock_guard<std::recursive_mutex> hold(dev->mu);
+    if (st.usage & U_AUTOGENMIPMAP) st.mipsDirty = true, dev->dirty |= kDirtyTextures;
     return D3D_OK;
 }
 uint32_t Texture::GetLevelDesc(uint32_t level, uint32_t out) {
@@ -358,24 +363,109 @@ uint32_t Volume::LockBox(uint32_t locked, uint32_t box, uint32_t flags) { return
 uint32_t Volume::UnlockBox() { return container->UnlockBox(level); }
 
 // ---- buffers ------------------------------------------------------------------------------------------------
+// A dynamic buffer's lock writes its shadow; the unlock copies the locked range into a version, as
+// D3D9 says: DISCARD a fresh version (only the range copied: the rest is undefined after a discard),
+// NOOVERWRITE the current one in place (the reference promises the GPU reads none of the range), no
+// flag the current one in place when the GPU is done with it, else a fresh one with everything. A
+// version is the buffer's own and outlives submissions, so a buffer drawn from frame after frame is
+// copied once, not per submission; past kMaxVersions (or the budget) versions are ring slices.
+namespace {
+constexpr size_t kMaxVersions = 8;
+constexpr VkDeviceSize kVersionBudget = 256ull << 20;
+constexpr uint32_t kToDynamicMax = 1u << 20;   // a static buffer this small may become a dynamic one
+uint32_t LowAlloc(uint32_t n) { return HeapAllocIn(ProcessHeap(), 0, n ? n : 16); }   // (not zeroed)
+}  // namespace
+
 Buffer::~Buffer() {
     LowFreeMem(shadow);
     LowFreeMem(lockMem);
     if (buffer) dev->DestroyBuffer(buffer, mem);
+    for (Version& v : versions) {
+        dev->DestroyBuffer(v.buffer, v.mem);
+        dev->dynamicBytes -= length;
+    }
 }
 uint32_t Buffer::GetType() { return index ? RT_INDEXBUFFER : RT_VERTEXBUFFER; }
 
-void Buffer::NewVersion(bool copyAll) {
-    RingSlice r = dev->Ring(length, 256);
-    if (!r.ptr) return;
-    verBuffer = r.buffer, verOffset = r.offset, verPtr = r.ptr, verSerial = dev->serial, verUsed = false;
+bool Buffer::Current() const { return verBuffer && (cur >= 0 || verSerial == dev->serial); }
+
+bool Buffer::Busy() {
+    uint64_t use = cur >= 0 ? versions[cur].lastUse : verUse;
+    if (use > dev->completed && use < dev->serial) dev->Poll();
+    return use > dev->completed;
+}
+
+void Buffer::Rename(bool copyAll) {
+    auto free = [&]() {
+        for (size_t k = 0; k < versions.size(); k++)
+            if (static_cast<int>(k) != cur && versions[k].lastUse <= dev->completed) return static_cast<int>(k);
+        return -1;
+    };
+    int pick = free();
+    if (pick < 0 && !versions.empty()) {
+        dev->Poll();
+        pick = free();
+    }
+    if (pick < 0 && versions.size() < kMaxVersions && dev->dynamicBytes + length <= kVersionBudget) {
+        Version v;
+        if (dev->MakeBuffer(length,
+                            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
+                                VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &v.buffer, &v.mem)) {
+            if (v.mem.mapped) {
+                versions.push_back(v);
+                dev->dynamicBytes += length;
+                pick = static_cast<int>(versions.size() - 1);
+            } else {
+                dev->DestroyBuffer(v.buffer, v.mem);
+            }
+        }
+    }
+    if (pick >= 0) {
+        cur = pick;
+        Version& v = versions[pick];
+        verBuffer = v.buffer, verOffset = 0, verPtr = v.mem.mapped, verSerial = 0;
+        verUse = v.lastUse;
+    } else {
+        cur = -1;
+        RingSlice r = dev->Ring(length, 256);
+        verBuffer = r.buffer, verOffset = r.offset, verPtr = r.ptr, verSerial = dev->serial, verUse = 0;
+        if (!r.ptr) return;
+    }
     if (copyAll && shadow) memcpy(verPtr, rh::At(shadow), length);
+}
+
+// (a static buffer locked again in the submission that drew from it: the copy would end the pass;
+// as a versioned buffer it renames instead. Its device buffer, host visible, is the first version)
+void Buffer::ToDynamic() {
+    uint32_t s = LowAlloc(length);
+    if (!s) return;
+    memcpy(rh::At(s), mem.mapped, length);
+    shadow = s;
+    Version v;
+    v.buffer = buffer, v.mem = mem, v.lastUse = lastUse;
+    versions.push_back(v);
+    dev->dynamicBytes += length;
+    buffer = VK_NULL_HANDLE, mem = Alloc{};
+    cur = 0;
+    verBuffer = v.buffer, verOffset = 0, verPtr = v.mem.mapped, verSerial = 0, verUse = v.lastUse;
+    dynamic = true;
+    static Once<> once;
+    if (once.First())
+        Log("d3d9vk: a static %s buffer (%u bytes) locked after a draw in the same frame: versioned from now on",
+            index ? "index" : "vertex", length);
 }
 
 void Buffer::Use(VkBuffer* b, VkDeviceSize* off) {
     if (dynamic) {
-        if (!verBuffer || verSerial != dev->serial) NewVersion(true);
-        verUsed = true;
+        if (!Current()) Rename(true);
+        if (!verBuffer) {   // (the ring could not grow: logged there)
+            *b = dev->dummyVb, *off = 0;
+            return;
+        }
+        verUse = dev->serial;
+        if (cur >= 0) versions[cur].lastUse = dev->serial;
         *b = verBuffer, *off = verOffset;
     } else {
         lastUse = dev->serial;
@@ -388,6 +478,11 @@ uint32_t Buffer::Lock(uint32_t offset, uint32_t size, uint32_t out, uint32_t fla
     if (!out) return D3DERR_INVALIDCALL;
     offset = std::min(offset, length);
     if (size == 0 || offset + size > length) size = length - offset;
+    if (!dynamic && locks == 0 && !(flags & LOCK_READONLY) && mem.mapped && length <= kToDynamicMax &&
+        lastUse == dev->serial) {
+        dev->Poll();
+        if (pendingCopy <= dev->completed) ToDynamic();
+    }
     if (dynamic) {
         if (!shadow) shadow = LowAllocZero(length);
         if (!shadow) return D3DERR_OUTOFVIDEOMEMORY;
@@ -401,9 +496,10 @@ uint32_t Buffer::Lock(uint32_t offset, uint32_t size, uint32_t out, uint32_t fla
         return D3D_OK;
     }
     // static: low memory over the whole buffer for the lock, the range filled from the device's copy
-    // (the GPU only reads it; one it is still to be written by a copy is waited for)
+    // (the GPU only reads it; one it is still to be written by a copy is waited for). Not zeroed: only
+    // the range is touched, so a small lock of a large buffer costs its range
     if (locks == 0) {
-        lockMem = LowAllocZero(length);
+        lockMem = LowAlloc(length);
         if (!lockMem) return D3DERR_OUTOFVIDEOMEMORY;
         lockOff = offset, lockEnd = offset + size, lockFlags = flags;
     } else {
@@ -430,20 +526,19 @@ uint32_t Buffer::Unlock() {
     if (--locks > 0) return D3D_OK;
     uint32_t off = lockOff, n = lockEnd - lockOff;
     if (dynamic) {
-        bool current = verBuffer && verSerial == dev->serial;
         auto copyRange = [&]() {
             if (verPtr && n) memcpy(verPtr + off, rh::At<uint8_t>(shadow) + off, n);
         };
         if (lockFlags & LOCK_READONLY) {
         } else if (lockFlags & LOCK_DISCARD) {
-            NewVersion(false);
+            Rename(false);
             copyRange();
         } else if (lockFlags & LOCK_NOOVERWRITE) {
-            if (!current) NewVersion(true);
-            else copyRange();
+            if (Current()) copyRange();
+            else Rename(true);
         } else {
-            if (!current || verUsed) NewVersion(true);
-            else copyRange();
+            if (Current() && !Busy()) copyRange();
+            else Rename(true);
         }
         return D3D_OK;
     }
@@ -455,6 +550,9 @@ uint32_t Buffer::Unlock() {
         } else if (RingSlice r = dev->Ring(n, 16); r.ptr) {
             memcpy(r.ptr, src, n);
             VkCommandBuffer cb = dev->CmdFor(lastUse);
+            if (cb == dev->cmd)   // (after the draws before that read it)
+                vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr,
+                                     0, nullptr, 0, nullptr);
             VkBufferCopy c{r.offset, off, n};
             vkCmdCopyBuffer(cb, r.buffer, buffer, 1, &c);
             if (cb == dev->cmd) {
@@ -510,6 +608,7 @@ uint32_t Query::GetDataSize() { return type == 10 || type == 12 ? 8 : 4; }
 // D3DISSUE_END 1, BEGIN 2
 uint32_t Query::Issue(uint32_t flags) {
     std::lock_guard<std::recursive_mutex> hold(dev->mu);
+    polls = 0;
     if (type == 9 /* OCCLUSION */) {
         if (flags & 2) {
             if (dev->activeOcc && dev->activeOcc != this) {
@@ -544,9 +643,10 @@ uint32_t Query::Issue(uint32_t flags) {
 }
 
 // D3DGETDATA_FLUSH 1. Event and occlusion answers wait for the submission the query ended in; one
-// still being recorded is submitted (a caller may spin on GetData without the flag)
+// still being recorded is submitted when the caller says FLUSH, or once it has asked 64 times
+// without (a caller spinning on GetData with no flag, as D3D9's drivers flushed on their own): a
+// poll per draw call of a query issued this frame does not split the frame into submissions
 uint32_t Query::GetData(uint32_t data, uint32_t size, uint32_t flags) {
-    (void)flags;
     std::lock_guard<std::recursive_mutex> hold(dev->mu);
     uint64_t v = 0;
     switch (type) {
@@ -556,7 +656,10 @@ uint32_t Query::GetData(uint32_t data, uint32_t size, uint32_t flags) {
             if (serial && serial > dev->completed && !dev->lost) {
                 dev->Poll();
                 if (serial > dev->completed) {
-                    if (serial == dev->serial) dev->Submit();
+                    if (serial == dev->serial && ((flags & 1) || ++polls >= 64)) {
+                        polls = 0;
+                        dev->Submit();
+                    }
                     return S_FALSE;
                 }
             }
@@ -678,7 +781,8 @@ uint32_t Device::NewTexture(uint32_t rtype, uint32_t w, uint32_t h, uint32_t d, 
     // targets beside a depth surface, as D3D9's drivers allow; FFXIV's Kernel::Texture of its 0x5100)
     bool nullTarget = fmt && fmt->null && rtype == RT_TEXTURE && (usage & U_RENDERTARGET);
     if (!fmt || (fmt->null && !nullTarget)) {
-        LogOnce(("vk-texfmt-" + std::to_string(format)).c_str(), "d3d9vk: a texture of format %s: not supported", FormatName(format));
+        static Once<4> once;
+        if (once.First(format)) Log("d3d9vk: a texture of format %s: not supported", FormatName(format));
         return D3DERR_INVALIDCALL;
     }
     auto t = new Texture();
@@ -727,7 +831,8 @@ Surface* Device::NewSurface(uint32_t w, uint32_t h, uint32_t format, uint32_t us
     *hr = D3D_OK;
     const FormatInfo* fmt = LookupFormat(format);
     if (!fmt || !w || !h) {
-        LogOnce(("vk-surffmt-" + std::to_string(format)).c_str(), "d3d9vk: a surface of format %s: not supported", FormatName(format));
+        static Once<4> once;
+        if (once.First(format)) Log("d3d9vk: a surface of format %s: not supported", FormatName(format));
         *hr = D3DERR_INVALIDCALL;
         return nullptr;
     }

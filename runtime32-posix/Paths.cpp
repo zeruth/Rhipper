@@ -148,10 +148,18 @@ uint32_t ErrnoToWin(int e) {
         case EEXIST: return win::ERROR_ALREADY_EXISTS;
         case EBADF: return win::ERROR_INVALID_HANDLE;
         case ENOMEM: return win::ERROR_NOT_ENOUGH_MEMORY;
-        case ENOSPC: return 112;   // ERROR_DISK_FULL
+        case ENOSPC: case EDQUOT: return 112;   // ERROR_DISK_FULL
         case ENOTEMPTY: return win::ERROR_DIR_NOT_EMPTY;
         case EINVAL: return win::ERROR_INVALID_PARAMETER;
         case EISDIR: return win::ERROR_ACCESS_DENIED;
+        case ENAMETOOLONG: return 206;          // ERROR_FILENAME_EXCED_RANGE
+        case EMFILE: case ENFILE: return 4;     // ERROR_TOO_MANY_OPEN_FILES
+        case EXDEV: return 17;                  // ERROR_NOT_SAME_DEVICE
+        case EBUSY: return 170;                 // ERROR_BUSY
+        case ESPIPE: return 25;                 // ERROR_SEEK
+        case EFBIG: return 223;                 // ERROR_FILE_TOO_LARGE
+        case EIO: return 1117;                  // ERROR_IO_DEVICE
+        case ELOOP: return 1921;                // ERROR_CANT_RESOLVE_FILENAME
         default: return 31;   // ERROR_GEN_FAILURE
     }
 }

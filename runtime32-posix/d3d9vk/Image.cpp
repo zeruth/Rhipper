@@ -284,10 +284,13 @@ void Device::Transition(VkCommandBuffer cb, Image* img, uint32_t level0, uint32_
         n = 0;
     };
     VkImageLayout want = img->general ? VK_IMAGE_LAYOUT_GENERAL : to;
+    // (a sampled image leaving the layout draws read it in: the next draw looks at its textures again)
+    bool leaves = (img->usage & VK_IMAGE_USAGE_SAMPLED_BIT) && want != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     for (uint32_t layer = layer0; layer < layer0 + nLayers && layer < img->layers; layer++)
         for (uint32_t level = level0; level < level0 + nLevels && level < img->levels; level++) {
             VkImageLayout& cur = img->layouts[img->Sub(level, layer)];
             if (cur == want && want != VK_IMAGE_LAYOUT_GENERAL && want != VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) continue;
+            if (leaves && cur != want) dirty |= kDirtyTextures;
             VkImageMemoryBarrier& b = bars[n++];
             b = VkImageMemoryBarrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
             b.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
@@ -325,7 +328,9 @@ void Device::ClearImage(Image* img, const VkClearColorValue& color) {
 void Device::GenerateMips(Image* img) {
     if (img->levels < 2) return;
     if (!img->fmt->blit || !img->fmt->filter || img->fmt->vkBlock) {
-        LogOnce(("vk-mips-" + std::to_string(img->fmt->d3d)).c_str(), "d3d9vk: mipmaps of %s not generated (the format does not blit linearly)", FormatName(img->fmt->d3d));
+        static Once<4> once;
+        if (once.First(img->fmt->d3d))
+            Log("d3d9vk: mipmaps of %s not generated (the format does not blit linearly)", FormatName(img->fmt->d3d));
         return;
     }
     VkCommandBuffer cb = CmdFor(img->lastUse);
