@@ -1,1 +1,1 @@
-{"sha": "c9e931b22beed3e6d567e04be0a7150f7c55dedb", "date": "2026-11-02T03:59:27-05:00", "subject": "translate32: a global array's 32-bit address keeps its REFG (the hang after the logo)"}
+{"sha": "a93062ad58666a688cae536f7dbcd2291d6811e9", "date": "2026-11-02T04:37:31-05:00", "subject": "runtime32: D3DX save adapters unwrap the surface or texture proxy (the game's screenshot crash)"}

@@ -1942,5 +1942,17 @@
   "stubs": 25,
   "perfect": 9453,
   "translated": 9720
+ },
+ {
+  "sha": "a93062ad58666a688cae536f7dbcd2291d6811e9",
+  "date": "2026-11-02T04:37:31-05:00",
+  "subject": "runtime32: D3DX save adapters unwrap the surface or texture proxy (the game's screenshot crash)",
+  "run": "2026-11-02 10:42 UTC",
+  "file": "a93062ad58666a688cae536f7dbcd2291d6811e9.json",
+  "passing": 25,
+  "projects": 36,
+  "stubs": 25,
+  "perfect": 9453,
+  "translated": 9720
  }
 ]
